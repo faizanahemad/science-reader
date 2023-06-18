@@ -1,0 +1,190 @@
+#ask-questions-view input {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+    margin-top: 10px;
+}
+
+.card {
+    margin: 5px
+}
+
+#answers {
+    margin-top: 20px;
+}
+
+#answers p {
+    margin-bottom: 10px;
+}
+
+.sidebar {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+
+.list-group-item-action {
+    color: #000000; /* text color */
+    background-color: #FFFFFF; /* background color */
+}
+
+.list-group-item-action.active {
+    color: #FFFFFF; /* text color */
+    background-color: blue; /* background color */
+}
+
+.sidebar-source-link {
+    color: #000000;
+}
+
+.sidebar-source-link:hover {
+    color: red;
+}
+
+.sidebar-source-link:visited {
+    color: #551A8B;
+}
+
+.list-group-item-action.active .sidebar-source-link,
+.list-group-item-action.active .sidebar-source-link:visited {
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .sidebar-source-link:hover {
+    color: red;
+}
+
+
+/* Sidebar element coloring */
+
+.show-more {
+    color: #000000;
+}
+
+.show-more:hover {
+    color: red;
+}
+
+.show-more:visited {
+    color: #551A8B;
+}
+
+.list-group-item-action.active .show-more,
+.list-group-item-action.active .show-more:visited {
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .show-more:hover {
+    color: red;
+}
+
+
+
+/* Sidebar element coloring */
+
+
+.list-group-item-action .delete-button {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;            /* Adjust padding as needed */
+    color: #000000;
+}
+
+.delete-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+.delete-button:visited {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: #551A8B;
+}
+
+.list-group-item-action.active .delete-button,
+.list-group-item-action.active .delete-button:visited {
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px; 
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .delete-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+
+/* Sidebar element coloring */
+
+
+
+#add-document-button {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.ui-resizable-handle.ui-resizable-se {
+    width: 20px;
+    height: 20px;
+    background-color: #FFF; /* Make it black */
+}
+
+.scrollable-sidebar {
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.scrolling-row {
+    max-height: 100vh;
+    overflow: auto;
+}
+
+.card {
+    position: relative;
+}
+
+.card-body {
+    margin-top: 20px;
+    margin-right: 20px;
+        
+}
+
+.vote-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 80px;
+}
+
+.vote-btn {
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+}
+
+.upvote-btn.voted {
+    color: green;
+    border: 2px solid green;
+    border-radius: 50%;
+    padding: 2px;
+}
+
+.downvote-btn.voted {
+    color: red;
+    border: 2px solid red;
+    border-radius: 50%;
+    padding: 2px;
+}
+
+
+.vote-count {
+    margin: 0 10px;
+}
+
+
