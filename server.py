@@ -779,7 +779,7 @@ def open_browser(url):
 if __name__ == '__main__':
     create_tables()
     load_documents(folder)
-    port = 5000
+    port = 80
 #     url = f'http://127.0.0.1:{port}'
 #     p = multiprocessing.Process(target=delayed_execution, args=(open_browser, 2, url))
 #     p.start()
