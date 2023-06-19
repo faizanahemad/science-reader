@@ -783,5 +783,5 @@ if __name__ == '__main__':
 #     url = f'http://127.0.0.1:{port}'
 #     p = multiprocessing.Process(target=delayed_execution, args=(open_browser, 2, url))
 #     p.start()
-    app.run(port=port, threaded=True)
+    app.run(host="0.0.0.0", port=port, threaded=True)
 
