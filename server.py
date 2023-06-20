@@ -233,12 +233,14 @@ logging.basicConfig(
     ]
 )
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--folder', help='The folder where the DocIndex files are stored', required=False, default=None)
-args = parser.parse_args()
-folder = args.folder
-if not args.folder:
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--folder', help='The folder where the DocIndex files are stored', required=False, default=None)
+    args = parser.parse_args()
+    folder = args.folder
+    if not args.folder:
+        folder = "storage"
+else:
     folder = "storage"
 app = Flask(__name__)
 app.config['SESSION_PERMANENT'] = True
@@ -782,10 +784,11 @@ def open_browser(url):
     else:
         webbrowser.open(url)
     
+create_tables()
+load_documents(folder)
 
 if __name__ == '__main__':
-    create_tables()
-    load_documents(folder)
+    
     port = 443
     app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
 
