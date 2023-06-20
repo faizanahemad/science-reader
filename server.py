@@ -561,6 +561,7 @@ def set_keys():
     return jsonify({'result': 'success'})
 
 @app.route('/clear_session', methods=['GET'])
+@login_required
 def clear_session():
     # clear the session
     session.clear()
@@ -736,6 +737,7 @@ def interface():
 from flask import Response, stream_with_context
 
 @app.route('/proxy', methods=['GET'])
+@login_required
 def proxy():
     file_url = request.args.get('file')
     file_data = cached_get_file(file_url)
@@ -783,5 +785,5 @@ if __name__ == '__main__':
 #     url = f'http://127.0.0.1:{port}'
 #     p = multiprocessing.Process(target=delayed_execution, args=(open_browser, 2, url))
 #     p.start()
-    app.run(host="0.0.0.0", port=port, threaded=True)
+    app.run(host="0.0.0.0", port=port, threaded=True, ssl_context=('cert.pem', 'key.pem'))
 
