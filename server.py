@@ -725,6 +725,11 @@ def get_fixed_details():
     
 from flask import send_from_directory
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 @app.route('/interface/<path:path>')
 def send_static(path):
     return send_from_directory('interface', path, max_age=0)
@@ -781,9 +786,6 @@ def open_browser(url):
 if __name__ == '__main__':
     create_tables()
     load_documents(folder)
-    port = 80
-#     url = f'http://127.0.0.1:{port}'
-#     p = multiprocessing.Process(target=delayed_execution, args=(open_browser, 2, url))
-#     p.start()
-    app.run(host="0.0.0.0", port=port, threaded=True, ssl_context=('cert.pem', 'key.pem'))
+    port = 443
+    app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
 
