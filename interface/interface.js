@@ -1049,8 +1049,8 @@ $(document).ready(function() {
             api = '/list_all'
             search_mode = false
         }
-        
-        apiCall(api, 'GET', {}).done(function(data) {
+        var request = apiCall(api, 'GET', {})
+        request.done(function(data) {
             // Auto-select the first document
             var firstDoc = true;
             $('#documents').empty();
@@ -1087,6 +1087,7 @@ $(document).ready(function() {
 
             
         });
+        return request
     }
     
 
@@ -1376,9 +1377,11 @@ $(document).ready(function() {
                                 var newDocId = response.doc_id;
                                 $('#add-document-modal').modal('hide');
                                 // refresh the document list
-                                loadDocuments(false);
+                                loadDocuments(false)
+                                    .done(function(){setActiveDoc(newDocId);})
+                                    .fail(function(){alert(response.error);})
                                 // set the new document as the current document
-                                setActiveDoc(newDocId);
+                                
                             } else {
                                 alert(response.error);
                             }

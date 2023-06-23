@@ -481,7 +481,7 @@ Detailed and comprehensive summary:
             try:
                 short_summary = self.paper_details["abstract"]
             except Exception as e:
-                short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Provide a summary for the below scientific text: \n'{self.doc_data['chunks'][0] + ' ' + self.doc_data['chunks'][1]}' \nSummary: \n",)
+                short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Provide a very short summary for the below scientific text: \n'{self.doc_data['chunks'][0] + ' ' + self.doc_data['chunks'][1]}' \nSummary: \n",)
             setattr(self, "_short_summary", short_summary)
             return short_summary
         
