@@ -546,7 +546,9 @@ def list_all():
 def get_document_detail():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
+    logger.info(f"/get_document_detail for doc_id = {doc_id}, doc present = {doc_id in indexed_docs}")
     if doc_id in indexed_docs:
+        
         return jsonify(set_keys_on_docs(indexed_docs[doc_id], keys).get_all_details())
     else:
         return jsonify({'error': 'Document not found'}), 404
@@ -566,7 +568,7 @@ def index_document():
         try:
             doc_index = immediate_create_and_save_index(pdf_url, keys)
             addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
-            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id})
+            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
         except Exception as e:
             return jsonify({'error': str(e)}), 400
     else:
