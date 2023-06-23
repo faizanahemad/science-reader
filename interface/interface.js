@@ -1373,7 +1373,7 @@ $(document).ready(function() {
                             $('#submit-button').prop('disabled', false);  // Re-enable the submit button
                             $('#submit-spinner').hide();  // Hide the spinner
                             if (response.status) {
-                                alert(response);
+                                alert(JSON.stringify(response));
                                 var newDocId = response.doc_id;
                                 $('#add-document-modal').modal('hide');
                                 // refresh the document list
