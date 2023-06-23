@@ -159,31 +159,61 @@ function setKeysOnServer() {
 
 }
 
+function createAndInitPseudoUserId() {
+    pseudoUserId = localStorage.getItem('pseudoUserId') || '';
+    if (pseudoUserId.length === 0) {
+        pseudoUserId = crypto.randomUUID();
+        localStorage.setItem('pseudoUserId', pseudoUserId);
+    }
+    keyStore['pseudoUserId'] = pseudoUserId
+    apiCall('/login', 'GET', {email: pseudoUserId})
+        .done(function(data) {
+                console.log(`Pseudo Id set ${pseudoUserId}`);
+                if (window.location.pathname.startsWith('/login')) {
+                    window.location.assign('/interface');
+                }
+                
+            })
+        .fail(function(jqXHR, textStatus, errorThrown) {
+            // You can log all the parameters to see which one gives you the error message you're interested in.
+            // 'jqXHR' is the full response object, 'textStatus' is a description of the type of error,
+            // and 'errorThrown' is the textual portion of the HTTP status, such as "Not Found" or "Internal Server Error."
+            alert(`An error occurred: ${textStatus}, ${errorThrown}`);
+        })
+}
+
 function initialiseKeyStore() {
     for (const key of Object.keys(keyStore)) {
+        if (key === 'pseudoUserId') {
+            continue;
+        }
         keyString = localStorage.getItem(key) || '';
-        document.getElementById(key).value = keyString;
+        elem = document.getElementById(key)
         keyStore[key] = keyString
         
-        document.getElementById(key).addEventListener('input', function (evt) {
-            keyString = evt.target.value;
-            keyStore[key] = keyString
-            localStorage.setItem(key, keyString);
+        if (elem) {
+            elem.value = keyString
+            elem.addEventListener('input', function (evt) {
+                keyString = evt.target.value;
+                keyStore[key] = keyString
+                localStorage.setItem(key, keyString);
 
-            // if OpenAI key is provided, verify it and fetch the list of models
-            if (key === 'openAIKey' && keyString) {
-                disableMainFunctionality();
-                verifyOpenAIKeyAndFetchModels(keyString);
-            } else {
-                setKeysOnServer();
-            }
-        });
+                // if OpenAI key is provided, verify it and fetch the list of models
+                if (key === 'openAIKey' && keyString) {
+                    disableMainFunctionality();
+                    verifyOpenAIKeyAndFetchModels(keyString);
+                } else {
+                    setKeysOnServer();
+                }
+            });
+        }
     }
 
     // if OpenAI key is already in local storage, verify it and fetch the list of models in the background
     if (keyStore['openAIKey']) {
         verifyOpenAIKeyAndFetchModels(keyStore['openAIKey']);
     }
+    createAndInitPseudoUserId();
     setKeysOnServer();
 };
 
@@ -245,25 +275,6 @@ function apiCall(url, method, data, useFetch = false) {
     }
 }
 
-
-document.getElementById('toggle-tab-content').addEventListener('click', function() {
-    var tabContent = document.querySelector('.tab-content');
-    if (tabContent.style.display === 'none') {
-        tabContent.style.display = 'block';
-    } else {
-        tabContent.style.display = 'none';
-    }
-});
-
-document.getElementById('pdf-tab').addEventListener('click', function() {
-    var tabContent = document.querySelector('.tab-content');
-    tabContent.style.display = 'block';
-});
-
-document.getElementById('details-tab').addEventListener('click', function() {
-    var tabContent = document.querySelector('.tab-content');
-    tabContent.style.display = 'block';
-});
 
 
 function removeEmTags(htmlChunk) {
@@ -528,18 +539,7 @@ $(document).ready(function() {
         
     }
     
-    $('#refresh-references, #refresh-citations').on('click', function() {
-        apiCall('/refetch_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
-        .done(function(data) {
-                createAndPopulateTables(data);
-            })
-        .fail(function(jqXHR, textStatus, errorThrown) {
-            // You can log all the parameters to see which one gives you the error message you're interested in.
-            // 'jqXHR' is the full response object, 'textStatus' is a description of the type of error,
-            // and 'errorThrown' is the textual portion of the HTTP status, such as "Not Found" or "Internal Server Error."
-            alert(`An error occurred: ${textStatus}, ${errorThrown}`);
-        })
-    });
+    
     
     function loadCitationsAndReferences(){
         apiCall('/get_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
@@ -554,21 +554,7 @@ $(document).ready(function() {
         })
     }
     
-    $('#details-tab').on('shown.bs.tab', function (e) {
-        // Call the '/get_paper_details' API to fetch the data
-        $('#details-content').show();
-        $('#pdf-content').hide();
-        loadCitationsAndReferences();
-    });
     
-    $('#pdf-tab').on('shown.bs.tab', function (e) {
-        // Clear the details viewer
-        $('#details-content').hide();
-        $('#pdf-content').show();
-
-        // Display the PDF when the PDF tab is activated
-//         showPDF(pdfUrl);  // replace pdfUrl with the URL of your PDF
-    });
     
     function showPDF(pdfUrl) {
         var xhr = new XMLHttpRequest();
@@ -674,8 +660,7 @@ $(document).ready(function() {
         $(window).trigger('resize');
     }
 
-    $('#hide-sidebar').on('click', toggleSidebar);
-    $('#show-sidebar').on('click', toggleSidebar);
+    
     
     function showUserName(){
         $.get('/get_user_info', function(data) {
@@ -1418,6 +1403,58 @@ $(document).ready(function() {
     initSearch();
     setupAskQuestionsView();
     setupPDFModalSubmit();
+    
+    $('#refresh-references, #refresh-citations').on('click', function() {
+        apiCall('/refetch_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
+        .done(function(data) {
+                createAndPopulateTables(data);
+            })
+        .fail(function(jqXHR, textStatus, errorThrown) {
+            // You can log all the parameters to see which one gives you the error message you're interested in.
+            // 'jqXHR' is the full response object, 'textStatus' is a description of the type of error,
+            // and 'errorThrown' is the textual portion of the HTTP status, such as "Not Found" or "Internal Server Error."
+            alert(`An error occurred: ${textStatus}, ${errorThrown}`);
+        })
+    });
+    
+    $('#details-tab').on('shown.bs.tab', function (e) {
+        // Call the '/get_paper_details' API to fetch the data
+        $('#details-content').show();
+        $('#pdf-content').hide();
+        loadCitationsAndReferences();
+    });
+    
+    $('#pdf-tab').on('shown.bs.tab', function (e) {
+        // Clear the details viewer
+        $('#details-content').hide();
+        $('#pdf-content').show();
+
+        // Display the PDF when the PDF tab is activated
+//         showPDF(pdfUrl);  // replace pdfUrl with the URL of your PDF
+    });
+    
+    $('#hide-sidebar').on('click', toggleSidebar);
+    $('#show-sidebar').on('click', toggleSidebar);
+    
+    document.getElementById('toggle-tab-content').addEventListener('click', function() {
+        var tabContent = document.querySelector('.tab-content');
+        if (tabContent.style.display === 'none') {
+            tabContent.style.display = 'block';
+        } else {
+            tabContent.style.display = 'none';
+        }
+    });
+
+    document.getElementById('pdf-tab').addEventListener('click', function() {
+        var tabContent = document.querySelector('.tab-content');
+        tabContent.style.display = 'block';
+    });
+
+    document.getElementById('details-tab').addEventListener('click', function() {
+        var tabContent = document.querySelector('.tab-content');
+        tabContent.style.display = 'block';
+    });
+
     
     $('#documents').on('click', '.list-group-item', function(e) {
         e.preventDefault();

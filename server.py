@@ -236,14 +236,18 @@ logging.basicConfig(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--folder', help='The folder where the DocIndex files are stored', required=False, default=None)
+    parser.add_argument('--login_not_needed', help='Whether we use google login or not.', action="store_true")
     args = parser.parse_args()
+    login_not_needed = args.login_not_needed
     folder = args.folder
+    
     if not args.folder:
         folder = "storage"
 else:
     folder = "storage"
+    login_not_needed = True
 app = Flask(__name__)
-app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_PERMANENT'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config["GOOGLE_CLIENT_ID"] = "829412467201-koo2d873vemgtg7g92m2ffkkl9r97ubp.apps.googleusercontent.com"
@@ -274,11 +278,13 @@ cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, '
 def check_login(session):
     email = dict(session).get('email', None)
     name = dict(session).get('name', None)
+    logger.info(f"Check Login for email {session.get('email')} and name {session.get('name')}")
     return email, name, email is not None and name is not None
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        logger.info(f"Login Required call for email {session.get('email')} and name {session.get('name')}")
         if session.get('email') is None or session.get('name') is None:
             return redirect('/login', code=302)
         return f(*args, **kwargs)
@@ -369,7 +375,15 @@ def add_user_question_feedback():
 @app.route('/login')
 def login():
     redirect_uri = url_for('authorize', _external=True)
-    return google.authorize_redirect(redirect_uri)
+    if login_not_needed:
+        email = request.args.get('email')
+        if email is None:
+            return send_from_directory('interface', 'login.html', max_age=0)
+        session['email'] = email
+        session['name'] = email
+        return redirect('/interface', code=302)
+    else:
+        return google.authorize_redirect(redirect_uri)
 
 @app.route('/logout')
 @login_required
@@ -390,6 +404,7 @@ def logout():
 
 @app.route('/authorize')
 def authorize():
+    logger.info(f"Authorize for email {session.get('email')} and name {session.get('name')}")
     token = google.authorize_access_token()
     resp = google.get('userinfo')
     if resp.ok:
@@ -397,7 +412,7 @@ def authorize():
         session['email'] = user_info['email']
         session['name'] = user_info['name']
         session['token'] = token
-        return redirect('/')
+        return redirect('/interface')
     else:
         return "Failed to log in", 401
 
@@ -548,9 +563,12 @@ def index_document():
     if "arxiv.org" not in pdf_url:
         return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
     if pdf_url:
-        doc_index = immediate_create_and_save_index(pdf_url, keys)
-        addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
-        return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id})
+        try:
+            doc_index = immediate_create_and_save_index(pdf_url, keys)
+            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
+            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
     else:
         return jsonify({'error': 'No pdf_url provided'}), 400
 
@@ -754,7 +772,6 @@ def proxy():
     return Response(stream_with_context(generate()), mimetype='application/pdf')
 
 @app.route('/')
-@login_required
 def index():
     return redirect('/interface')
 
@@ -790,5 +807,6 @@ load_documents(folder)
 if __name__ == '__main__':
     
     port = 443
-    app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
+   # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
+    app.run(host="0.0.0.0", port=5000,threaded=True)
 
