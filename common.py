@@ -16,6 +16,13 @@ import dill
 from multiprocessing import Process, Queue
 from functools import partial
 
+def is_int(s):
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
 def is_picklable(obj):
     try:
         pickle.dumps(obj)
@@ -286,6 +293,7 @@ def get_first_n_words(my_string, n=700):
     if len(words) < n:
         return my_string
     return ' '.join(words[:n])
+
 
 
 

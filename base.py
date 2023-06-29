@@ -191,6 +191,8 @@ def call_non_chat_model(model, text, temperature, system, api_key):
 
 class CallLLm:
     def __init__(self, keys, use_gpt4=False, self_hosted_model_url=None):
+        
+        
         self.keys = keys
         self.system = "You are a helpful assistant. Please follow the instructions and respond to the user request."
         available_openai_models = self.keys["openai_models_list"]
@@ -211,8 +213,9 @@ class CallLLm:
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
     def __call__(self, text, temperature=0.7, stream=False,):
+#         logger.info(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
-            logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
+#             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert len(self.gpt4_enc.encode(text)) < 8000
             models = round_robin(self.openai_gpt4_models)
             try:
@@ -231,7 +234,7 @@ class CallLLm:
             assert len(self.turbo_enc.encode(text)) < 4000
             try:
                 model = next(models)
-                logger.info(f"Try turbo model with stream = {stream}")
+#                 logger.info(f"Try turbo model with stream = {stream}")
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
@@ -254,7 +257,7 @@ class CallLLm:
                         raise e
                         
         elif self.keys["ai21Key"] is not None:
-            logger.info(f"Try Ai21 model with stream = {stream}, Ai21 key = {self.keys['ai21Key']}")
+#             logger.info(f"Try Ai21 model with stream = {stream}, Ai21 key = {self.keys['ai21Key']}")
             return call_with_stream(call_ai21, stream, text, temperature, self.keys["ai21Key"])
         else:
             raise ValueError(str(self.keys))
@@ -460,12 +463,16 @@ Document is given below:
 def process_text(text, chunk_size, my_function, keys):
     # Split the text into chunks
     chunks = list(chunk_text_langchain(text, chunk_size))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        # Use the executor to apply my_function to each chunk
-        futures = [executor.submit(my_function, chunk) for chunk in chunks]
+    if len(chunks) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            # Use the executor to apply my_function to each chunk
+            futures = [executor.submit(my_function, chunk) for chunk in chunks]
+            # Get the results from the futures
+            results = [future.result() for future in futures]
+    else:
+        results = [my_function(chunk) for chunk in chunks]
 
-    # Get the results from the futures
-    results = [future.result() for future in futures]
+    
     tlc = partial(TextLengthCheck, threshold=1800)
     summariser = Summarizer(keys)
     while len(results) > 1:
@@ -474,7 +481,9 @@ def process_text(text, chunk_size, my_function, keys):
         results = [r if tlc(r) else summariser(r) for r in results]
         results = combine_array_two_at_a_time(results)
     results = [r if tlc(r) else summariser(r) for r in results]
-    results = ReduceRepeatTool(keys)(' '.join(results))
+    results = ' '.join(results)
+    if not tlc(results):
+        results = ReduceRepeatTool(keys)(results)
     assert isinstance(results, str)
     return results
 
@@ -567,9 +576,10 @@ GetWebPage:
 
 
 class ContextualReader:
-    def __init__(self, keys):
+    def __init__(self, keys, provide_short_responses=False):
         self.keys = keys
         self.name = "ContextualReader"
+        self.provide_short_responses = provide_short_responses
         self.description = """
 ContextualReader:
     This tool takes a context/query/instruction, and a text document. It reads the document based on the context or query instruction and outputs only parts of document relevant to the query. Useful when the document is too long and you need to store a short contextual version of it for answering the user request. Sometimes rephrasing the query/question/user request before asking the ContextualReader helps ContextualReader provide better results. You can also specify directives to ContextualReader like "return numbers only", along with the query for better results.
@@ -588,16 +598,17 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template="""
-You are given a request/context/question which specifies what information needs to be gathered as below:
-
+            template=("Provide short and concise response ('Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
+Gather information and context from the given document for the below question:
 "{context}"
-
-Read the below document and extract useful information in a concise manner for the request/context/question. If nothing relevant is found then don't output any text.
 
 Document:
 
 "{document}"
+
+Read the above document and extract useful information in a concise manner for the query/question. If nothing relevant is found then don't output anything.
+You can use markdown formatting to typeset/format your answer better.
+You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
 
 Extracted Information:
 
@@ -636,9 +647,93 @@ Extracted Information:
         assert isinstance(result, str)
         return result
     
-def call_contextual_reader(query, document, keys)->str:
+def call_contextual_reader(query, document, keys, provide_short_responses=False)->str:
     from base import ContextualReader
     assert isinstance(document, str)
-    cr = ContextualReader(keys)
+    cr = ContextualReader(keys, provide_short_responses=provide_short_responses)
     return cr(query, document)
+
+
+
+
+
+import json
+import re
+
+def get_citation_count(dres):
+    # Convert the dictionary to a JSON string and lowercase it
+    json_string = json.dumps(dres).lower()
+    
+    # Use regex to search for the citation count
+    match = re.search(r'cited by (\d+)', json_string)
+    
+    # If a match is found, return the citation count as an integer
+    if match:
+        return int(match.group(1))
+    
+    # If no match is found, return zero
+    return 0
+
+def get_year(dres):
+    # Check if 'rich_snippet' and 'top' exist in the dictionary
+    if 'rich_snippet' in dres and 'top' in dres['rich_snippet']:
+        # Iterate through the extensions
+        for extension in dres['rich_snippet']['top'].get('extensions', []):
+            # Use regex to search for the year
+            match = re.search(r'(\d{4})', extension)
+
+            # If a match is found, return the year as an integer
+            if match:
+                return int(match.group(1))
+
+    # If no match is found, return None
+    return None
+
+
+def serpapi(query, key, num=20, our_datetime=None):
+    from datetime import datetime, timedelta
+    import requests
+    # get the current date and time
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+    else:
+        now = datetime.now()
+
+    # subtract two years from the current date and time
+    two_years_ago = now - timedelta(days=365*3)
+
+    # format the date as YYYY-MM-DD
+    date_string = two_years_ago.strftime("%Y-%m-%d")
+    
+    url = "https://serpapi.com/search"
+    query = f"{query} (site:arxiv.org OR site:openreview.net) after:{date_string} filetype:pdf"
+    params = {
+       "q": query,
+       "api_key": "cbf408275ae4040bf055042b0798efe4da4c8f1dd2034d69907239848991842b",
+       "num": num,
+       }
+    response = requests.get(url, params=params)
+    results = response.json()["organic_results"]
+    keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
+    results = [{k: r[k] for k in keys if k in r} for r in results]
+    seen_titles = set()
+    seen_links = set()
+    dedup_results = []
+    for r in results:
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        r["citations"] = get_citation_count(r)
+        r["year"] = get_year(r)
+        _ = r.pop("rich_snippet", None)
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+    
+    return dedup_results
+    
+    
+    
+    
 

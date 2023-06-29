@@ -4,8 +4,7 @@ prompts = {
     "DocIndex": dict(
         streaming_followup = PromptTemplate(
             input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary", "questions_answers"],
-            template="""
-Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
+            template="""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
 
 Followup question or information request is given below:
 
@@ -36,7 +35,8 @@ Earlier Answer:
 "{answer}"
 
 Answer elaborately providing as much detail as possible. Keep the earlier question in consideration while answering.
-You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
+Use markdown formatting to typeset/format your answer better.
+Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 
 Question: {followup}
 Answer: 
@@ -45,8 +45,7 @@ Answer:
         ),
         streaming_more_details = PromptTemplate(
             input_variables=["query", "answer", "fragment", "summary", "full_summary", "questions_answers"],
-            template="""
-Continue writing answer to a question which is partially answered. Provide new details from the context provided, don't repeat information from the partial answer already given.
+            template="""Continue writing answer to a question which is partially answered. Provide new details from the context provided, don't repeat information from the partial answer already given.
 
 Question is given below:
 
@@ -72,7 +71,8 @@ Summarized chunks of certain parts of document below:
 Continue the answer ('Answer till now') by elaborating and expanding to provide more details after the partial answer. 
 Answer by thinking of Multiple different angles that 'the original question or request' can be thought from. 
 Provide details on jargons and difficult to understand terms in your continued answer as well. Provide further information over what is already provided in the partial answer. 
-You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
+Use markdown formatting to typeset/format your answer better.
+Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 
 Question: {query}
 Answer till now (partial answer): {answer}
@@ -82,11 +82,9 @@ Continued Answer:
         ),
         short_streaming_answer_prompt = PromptTemplate(
             input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
-            template="""
-You will help answer a question or information request from context (text chunks of larger document) you are provided. 
-The provided context is part/fragment of a larger main document.
+            template="""Answer a question or information request from given context (text chunks of larger document). 
 
-Answer the question or information request below:
+Question/Query/Information Request:
 
 {query}
 
@@ -106,10 +104,9 @@ You are also given summaries of certain parts of document below:
 
 {summary}
 
-Answer elaborately providing as much detail as possible. 
-You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
-
-Provide elaborate and detailed answer in your response.
+If the given context can't be used to provide a proper answer then write only a very small answer using the context.
+Use markdown formatting to typeset/format your answer better.
+Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 
 Question: {query}
 Answer:
@@ -119,8 +116,7 @@ Answer:
         
         running_summary_prompt = PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
-                template="""
-We are reading a large document in fragments sequentially to write a continous summary.
+                template="""We are reading a large document in fragments sequentially to write a continous summary.
 
 Current chunk/fragment we are looking at:
 
@@ -136,7 +132,8 @@ The summary written till now will be empty if this is the first chunk/fragment o
 
 Instructions for this task as below:
 - No use of quotes.
-- Output any relevant equations in latex/markdown format as well. Put each equation or math in their own latex environment of '$$'. Only include equations/math if you can explain them as well.
+- Use markdown formatting to typeset/format your answer better.
+- Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 - Ignore irrelevant details not relevant to the overall document.
 - Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing from the "summary we have written till now", don't repeat information we already have. 
 - Add html header '<h4>topic/header text of current chunk</h4>' and header text (inside <h4> tags) at appropriate places when the current chunk/fragment moves to a new topic. In case the topic discussed is still the same as last topic of 'summary written till now' then don't add header <h4> tags and header text.
@@ -160,8 +157,7 @@ Very Short Summary:
         
         running_methodology_prompt = PromptTemplate(
                 input_variables=["summary", "document"],
-                template="""
-We are reading a large document in small chunks/fragments sequentially and creating an extended and detailed summary. This large document is a scientific document and hence it is important to preserve all details and nuances in our summary along with scientific content.
+                template="""We are reading a large document in small chunks/fragments sequentially and creating an extended and detailed summary. This large document is a scientific document and hence it is important to preserve all details and nuances in our summary along with scientific content.
 
 Given below is the current chunk/fragment we are looking at:
 

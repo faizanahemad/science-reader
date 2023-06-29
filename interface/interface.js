@@ -1091,10 +1091,10 @@ $(document).ready(function() {
     }
     
 
-    function initSearch(){
+    function initSearch(searchBoxId){
         var lastTimeoutId = null;  // Store the timeout id
         var previousSearchLength = 0;  // Stores the previous search length to check for delete action
-        var searchBox = $('#searchBox');
+        var searchBox = $('#' + searchBoxId);
 
         searchBox.on('input', function() {
             var currentSearchLength = searchBox.val().length;
@@ -1113,10 +1113,100 @@ $(document).ready(function() {
                     loadDocuments(true, '');
                 }
                 previousSearchLength = currentSearchLength;  // Update the previous search length for next check
+                
+                
                 lastTimeoutId = null;  // Reset the timeout id since the search has been completed
             }, 400);
         });
     }
+    
+    function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='') {
+        var api;
+        var search_mode;
+
+        if (search_term.length > 0) {
+            api = '/search_document?text='+ search_term;
+            search_mode = true;
+        } else {
+            api = '/list_all';
+            search_mode = false;
+        }
+
+        var request = apiCall(api, 'GET', {});
+        request.done(function(data) {
+            var searchResultsArea = $('#' + searchResultsAreaId);
+            searchResultsArea.empty();
+
+            var resultList = $('<ol></ol>'); // Create an ordered list
+
+            data.filter(doc=>doc.doc_id !== activeDocId).forEach(function(doc, index) {
+                var docItem = $(`
+                    <li class="my-2">
+                        <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
+                    </li>
+                `);
+                docItem.click(function(event) {
+                    event.preventDefault();
+                    addDocumentTags(tagsAreaId, [doc]);
+                });
+                resultList.append(docItem); // Append list items to the ordered list
+            });
+            searchResultsArea.append(resultList); // Append the ordered list to the search results area
+        });
+
+        return request;
+    }
+
+    
+    function addDocumentTags(tagsAreaId, data){
+        $('#' + tagsAreaId).empty();
+        data.forEach(function(doc) {
+            var docTag = $(`
+                <div class="document-tag bg-light border rounded mb-2 mr-2 p-2 d-inline-flex align-items-center" data-doc-id="${doc.doc_id}">
+                    <span class="me-2">${doc.title}</span>
+                    <button class="delete-tag-button btn btn-sm btn-danger">Delete</button>
+                </div>`);
+            $('#' + tagsAreaId).append(docTag);
+
+            // Handle click events for the delete button
+            $('.delete-tag-button').click(function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                $(this).parent().remove();
+            });
+        });
+    }
+
+
+
+    
+    function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId){
+        var lastTimeoutId = null;  
+        var previousSearchLength = 0;
+        var searchBox = $('#' + searchBoxId);
+
+        searchBox.on('input', function() {
+            var currentSearchLength = searchBox.val().length;
+
+            if (lastTimeoutId !== null) {
+                clearTimeout(lastTimeoutId);
+            }
+
+            lastTimeoutId = setTimeout(function() {
+                currentSearchLength = searchBox.val().length;
+                if (currentSearchLength >= 5 || (previousSearchLength >= 5 && currentSearchLength < 5)) {  
+                    loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val());
+                } else if (currentSearchLength === 0 && previousSearchLength >= 1) {
+                    loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '');
+                }
+                previousSearchLength = currentSearchLength;
+
+                lastTimeoutId = null; 
+            }, 400);
+        });
+    }
+
+    
     function highLightActiveDoc(){
         $('#documents .list-group-item').removeClass('active');
         $('#documents .list-group-item[data-doc-id="' + activeDocId + '"]').addClass('active');
@@ -1130,20 +1220,138 @@ $(document).ready(function() {
         setupViewDetailsView();
     }
     
+    function addOptions(parentElementId, type) {
+        var checkBoxIds = [
+            `${parentElementId}-${type}-use-references-and-citations-checkbox`,
+            `${parentElementId}-${type}-perform-web-search-checkbox`,
+            `${parentElementId}-${type}-use-multiple-docs-checkbox`,
+            `${parentElementId}-${type}-provide-detailed-answers-checkbox`
+        ];
+
+        $(`#${parentElementId}`).append(
+            `<div style="display: flex; margin-bottom: 10px;">` +
+
+            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[0]}">References & Citations</label></div>` +
+
+            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
+
+            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
+
+            `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
+            `</div>`
+        );
+
+        // Elements for Multiple Documents option
+        var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);
+        var searchResultsArea = $(`<div id="${parentElementId}-${type}-search-results" style="display: none;"></div>`);
+        var docTagsArea = $(`<div id="${parentElementId}-${type}-document-tags" style="display: none;"></div>`);
+
+        // Add them to the parent element
+        $(`#${parentElementId}`).append(searchBox, searchResultsArea, docTagsArea);
+
+        // Add event handlers to make checkboxes mutually exclusive
+        checkBoxIds.forEach(function(id, index) {
+            $('#' + id).change(function() {
+                if(this.checked) {
+                    checkBoxIds.forEach(function(otherId, otherIndex) {
+                        if(index !== otherIndex) {
+                            var otherCheckBox = $('#' + otherId);
+                            if(otherCheckBox.is(':checked')) {
+                                otherCheckBox.prop('checked', false).trigger('change');
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        // Add an event handler on the Multiple Docs checkbox
+        $('#' + checkBoxIds[2]).change(function() {
+            if(this.checked) {
+                // If checked, display the search box, search results area and document tags area
+                searchBox.css('display', 'block');
+                searchResultsArea.css('display', 'block');
+                docTagsArea.css('display', 'block');
+
+                // Initialize search functionality
+                initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`);
+            } else {
+                // If unchecked, hide the search box, search results area and document tags area
+                searchBox.css('display', 'none');
+                searchResultsArea.css('display', 'none');
+                docTagsArea.css('display', 'none');
+                searchBox.val('');
+                searchResultsArea.empty();
+                docTagsArea.empty();
+            }
+        });
+    }
+
+
+
+    function getOptions(parentElementId, type) {
+        return {
+            use_references_and_citations: $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked'),
+            perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
+            use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
+            provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
+        };
+    }
+
+    function resetOptions(parentElementId, type) {
+        $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
+        $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
+        $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
+        $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
+        
+        var searchBox = $(`#${parentElementId}-${type}-search-box`);
+        var searchResultsArea = $(`#${parentElementId}-${type}-search-results`);
+        var docTagsArea = $(`#${parentElementId}-${type}-document-tags`);
+        searchBox.css('display', 'none');
+        searchResultsArea.css('display', 'none');
+        docTagsArea.css('display', 'none');
+        searchBox.val('');
+        searchResultsArea.empty();
+        docTagsArea.empty();
+        
+        
+    }
+    
+    function removeOptions(parentElementId, type) {
+        $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).parent().remove();
+        $(`#${parentElementId}-${type}-perform-web-search-checkbox`).parent().remove();
+        $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
+        $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
+        
+        $(`[id$="${type}-search-box"]`).remove();
+        $(`[id$="${type}-document-tags"]`).remove();
+        $(`[id$="${type}-search-results"]`).remove();
+
+    }
+
+
+    
     function removeAskQuestionView(){
         $('#question-input').remove();
         $('#submit-question-button').remove();
         $('#loading').remove();
         $('#answers').remove();
+        removeOptions('questions-view', 'query');
     }
 
     function setupAskQuestionsView() {
-        var view = $('#ask-questions-view');
+        if ($('#questions-view').length === 0) {
+            var view = $('<div id="questions-view"></div>');
+            $('#ask-questions-view').append(view)
+        } else {
+            var view = $('#questions-view')
+        }
         removeAskQuestionView();
         view.append('<div id="answers" class="card mt-2" style="display:none;"></div>');  // Applying bootstrap card class
         view.append('<input id="question-input" type="text" placeholder="Ask a question...">');
         view.append('<button id="submit-question-button" type="button">Submit Question</button>');
         view.append('<div id="loading" style="display:none;"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
+        addOptions('questions-view', 'query');
 
         async function askQuestion() {
             $("#answers").removeAttr('style')
@@ -1154,7 +1362,12 @@ $(document).ready(function() {
                 $('#question-input').prop('disabled', true);
                 $('#submit-question-button').prop('disabled', true);
                 $('#loading').show();
-                let response = await apiCall('/streaming_get_answer', 'POST', { doc_id: activeDocId, query: query }, useFetch = true);
+                let options = getOptions('questions-view', 'query');
+                var documentIds = [];
+                $('.document-tag').each(function() {
+                    documentIds.push($(this).attr('data-doc-id'));
+                });
+                let response = await apiCall('/streaming_get_answer', 'POST', { doc_id: activeDocId, query: query,"additional_docs_to_read": documentIds, ...options}, useFetch = true);
 
                 if (!response.ok) {
                     alert('An error occurred: ' + response.status);
@@ -1224,7 +1437,7 @@ $(document).ready(function() {
                 cardBody.append(moreDetailsButton);
 
                 answerParagraph.append('</br>');
-
+                resetOptions('questions-view', 'query');
                 setupFollowUpQuestionView({"query": query, "answer": answer});
 
                 $('#question-input').prop('disabled', false);
@@ -1249,15 +1462,21 @@ $(document).ready(function() {
         $('#follow-up-question-input').remove();
         $('#submit-follow-up-question-button').remove();
         $('#loading-follow-up').remove();
+        removeOptions('followup-view', 'followup');
     }
 
     function setupFollowUpQuestionView(previousAnswer) {
-        var view = $('#ask-questions-view');
-
+        if ($('#followup-view').length === 0) {
+            var view = $('<div id="followup-view"></div>');
+            $('#ask-questions-view').append(view)
+        } else {
+            var view = $('#followup-view')
+        }
         removeFollowUpView();
 
         view.append('<input id="follow-up-question-input" type="text" placeholder="Ask a follow-up question...">');
         view.append('<button id="submit-follow-up-question-button" type="button">Submit Follow-Up Question</button>');
+        addOptions('followup-view', 'followup');
         view.append('<div id="loading-follow-up" style="display:none;"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
 
         async function askFollowUpQuestion() {
@@ -1266,8 +1485,12 @@ $(document).ready(function() {
                 $('#follow-up-question-input').prop('disabled', true); // Disable the input box
                 $('#submit-follow-up-question-button').prop('disabled', true); // Disable the submit button
                 $('#loading-follow-up').show(); // Show the loading spinner
-
-                let response = await apiCall('/streaming_get_followup_answer', 'POST', { doc_id: activeDocId, query: query, previous_answer: previousAnswer }, useFetch = true);
+                let options = getOptions('followup-view', 'followup');
+                var documentIds = [];
+                $('.document-tag').each(function() {
+                    documentIds.push($(this).attr('data-doc-id'));
+                });
+                let response = await apiCall('/streaming_get_followup_answer', 'POST', { doc_id: activeDocId, query: query, previous_answer: previousAnswer, "additional_docs_to_read": documentIds, ...options }, useFetch = true);
                 if (!response.ok) {
                     alert('An error occurred: ' + response.status);
                     return;
@@ -1341,7 +1564,7 @@ $(document).ready(function() {
                 $('#follow-up-question-input').prop('disabled', false); // Re-enable the input box
                 $('#submit-follow-up-question-button').prop('disabled', false); // Re-enable the submit button
                 $('#loading-follow-up').hide(); // Hide the loading spinner
-
+                resetOptions('followup-view', 'followup');
                 setupFollowUpQuestionView(JSON.stringify({ doc_id: activeDocId, query: query, previous_answer: previousAnswer, answer:answer}));
             }
         }
@@ -1403,7 +1626,7 @@ $(document).ready(function() {
     initialiseKeyStore();
     showUserName();
     loadDocuments();
-    initSearch();
+    initSearch("searchBox");
     setupAskQuestionsView();
     setupPDFModalSubmit();
     

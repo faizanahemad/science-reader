@@ -33,6 +33,8 @@ import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty
 
+os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
+
 def create_connection(db_file):
     """ create a database connection to a SQLite database """
     conn = None;
