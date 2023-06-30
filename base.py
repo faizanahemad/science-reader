@@ -709,7 +709,7 @@ def serpapi(query, key, num=20, our_datetime=None):
     query = f"{query} (site:arxiv.org OR site:openreview.net) after:{date_string} filetype:pdf"
     params = {
        "q": query,
-       "api_key": "cbf408275ae4040bf055042b0798efe4da4c8f1dd2034d69907239848991842b",
+       "api_key": "unk",
        "num": num,
        }
     response = requests.get(url, params=params)
