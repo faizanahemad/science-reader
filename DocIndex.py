@@ -585,7 +585,7 @@ Detailed and comprehensive summary:
         return dict(doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.doc_data["running_summary"], details=self.doc_data)
     
     
-    def streaming_ask_follow_up(self, query, previous_answer, more_background_details=''):
+    def streaming_ask_follow_up(self, query, previous_answer, mode="web_search"):
         raw_nodes = self.raw_index.similarity_search(query, k=self.result_cutoff)
         small_chunk_nodes = self.small_chunk_index.similarity_search(query, k=self.result_cutoff*2)
         dqna_nodes = self.dqna_index.similarity_search(query, k=self.result_cutoff)[:1]
@@ -606,7 +606,9 @@ Detailed and comprehensive summary:
         raw_text = "\n".join([n.page_content for n in raw_nodes] + [n.page_content for n in small_chunk_nodes])
         answer=previous_answer["answer"] + "\n" + (previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        if llm.use_gpt4:
+        
+            
+        if llm.use_gpt4 and mode != "web_search":
             prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
                                           answer=answer, summary=summary_text, 
                                           fragment=raw_text,
@@ -616,9 +618,36 @@ Detailed and comprehensive summary:
                                           answer=answer, summary="", 
                                           fragment=get_first_n_words(raw_text, 750),
                                           full_summary=self.doc_data["running_summary"], questions_answers="")
-        answer = ''
+        if mode == "web_search":
+            answer = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Given the question: {previous_answer['query']}, Summarise this answer: '''{answer}''' \n ")
+            web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
+            prev_answer = answer
+            additional_info = web_results.result()
+            answer = ''
+            answer += "\nWeb searched with Queries: \n"
+            yield "\nWeb searched with Queries: \n"
+            yield '</br>'
+            for ix, q in enumerate(additional_info['queries']):
+                answer += (str(ix+1) + ". " + q + " \n")
+                yield str(ix+1) + ". " + q + " \n"
+                yield '</br>'
+                
+            answer += "\n\nSearch Results: \n"
+            yield '</br>'
+            for ix, r in enumerate(additional_info['search_results']):
+                answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
+                yield str(ix+1) + f". [{r['title']}]({r['link']})"
+                yield '</br>'
+            answer += '\n'
+            yield '</br>'
+            
+            generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()['text'] + "\n\n" + f"Additional Instructions: '''{prompt}'''")
+            
+        else:
+            generator = llm(prompt, temperature=0.7, stream=True)
+            answer = ''
         
-        for txt in llm(prompt, temperature=0.7, stream=True):
+        for txt in generator:
             yield txt
             answer += txt
         self.save_answer(previous_answer["query"], answer, query)
