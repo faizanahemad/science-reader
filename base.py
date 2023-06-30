@@ -598,7 +598,7 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Provide short and concise response ('Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
+            template=("Provide short and concise response in 3-4 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
 Gather information and context from the given document for the below question:
 "{context}"
 

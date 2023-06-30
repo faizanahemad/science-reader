@@ -299,8 +299,28 @@ $(document).ready(function() {
     var activeDocId = null;
     var pdfUrl = null;
     const markdownParser = new marked.Renderer();
-    function renderInnerContentAsMarkdown(jqelem, callback=null){
-        
+    function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
+        parent = jqelem.parent()
+        elem_id = jqelem.attr('id');
+        elem_to_render_in = jqelem
+        brother_elem_id = elem_id + "-md-render"
+        if (continuous) {
+            brother_elem = parent.find('#' + brother_elem_id);
+            if (!brother_elem.length) {
+                var brother_elem = $('<p/>', {id: brother_elem_id})
+                parent.append(brother_elem);
+            }
+            jqelem.hide();
+            brother_elem.show();
+            elem_to_render_in = brother_elem
+            
+        } else {
+            jqelem.show();
+            brother_elem = parent.find('#' + brother_elem_id);
+            if (brother_elem.length) {
+                brother_elem.hide();
+            }
+        }
         
         try {
             html = jqelem.html()
@@ -309,13 +329,13 @@ $(document).ready(function() {
         }
         var htmlChunk = marked.marked(html, { renderer: markdownParser });
         htmlChunk = removeEmTags(htmlChunk);
-        try{jqelem.empty();} catch(error){
-            try{jqelem[0].innerHTML=''} catch (error) {jqelem.innerHTML=''}
+        try{elem_to_render_in.empty();} catch(error){
+            try{elem_to_render_in[0].innerHTML=''} catch (error) {elem_to_render_in.innerHTML=''}
         }
-        try{jqelem.append(htmlChunk)} catch(error){
-            try{jqelem[0].innerHTML=htmlChunk} catch (error) {jqelem.innerHTML=htmlChunk}
+        try{elem_to_render_in.append(htmlChunk)} catch(error){
+            try{elem_to_render_in[0].innerHTML=htmlChunk} catch (error) {elem_to_render_in.innerHTML=htmlChunk}
         }
-        mathjax_elem = jqelem[0]
+        mathjax_elem = elem_to_render_in[0]
         if (mathjax_elem === undefined) {
             mathjax_elem = jqelem
         }
@@ -873,6 +893,7 @@ $(document).ready(function() {
                         const reader = response.body.getReader();
                         const decoder = new TextDecoder();
                         accumulator = ''
+                        var content_length = 0
                         while (true) {
                             // Read a chunk of data from the stream
                             const { done, value } = await reader.read();
@@ -891,6 +912,11 @@ $(document).ready(function() {
                             if (!accumulator.includes('<h') || (opening_regex.test(accumulator) && close_regex.test(accumulator))){
                                 paragraph.append(accumulator);
                                 accumulator = ''
+                                if (paragraph.html().length > content_length + 100){
+                                    renderInnerContentAsMarkdown(paragraph, 
+                                                                 callback=null, continuous=true)
+                                    content_length = paragraph.html().length
+                                }
                             }
                             accumulator = accumulator + chunk;
                         }
@@ -990,7 +1016,7 @@ $(document).ready(function() {
                                     }
 
                                     $('#get-details-' + key + '-button').prop('disabled', true); // Disable the button
-
+                                    var content_length = 0
                                     let reader = response.body.getReader();
                                     let decoder = new TextDecoder();
                                     while (true) {
@@ -1000,6 +1026,11 @@ $(document).ready(function() {
                                         }
                                         let part = decoder.decode(value);
                                         $('#' + key + '-text').append(part);
+                                        if ($('#' + key + '-text').html().length > content_length + 100){
+                                            renderInnerContentAsMarkdown($('#' + key + '-text'), 
+                                                                         callback=null, continuous=true)
+                                            content_length = $('#' + key + '-text').html().length
+                                        }
                                     }
                                     renderInnerContentAsMarkdown($('#' + key + '-text'), function(){
                                         showMore(null, text=null, textElem=$('#' + key + '-text'), 
@@ -1390,6 +1421,7 @@ $(document).ready(function() {
                 
 
                 answer = "";
+                var content_length = 0
                 while (true) {
                     let { value, done } = await reader.read();
                     if (done) {
@@ -1398,6 +1430,11 @@ $(document).ready(function() {
                     let part = decoder.decode(value);
                     answerParagraph.append(part);
                     answer = answer + part;
+                    if (answerParagraph.html().length > content_length + 100){
+                        renderInnerContentAsMarkdown(answerParagraph, 
+                                                     callback=null, continuous=true)
+                        content_length = answerParagraph.html().length
+                    }
                 }
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
@@ -1416,7 +1453,7 @@ $(document).ready(function() {
                         alert('An error occurred: ' + moreDetailsResponse.status);
                         return;
                     }
-
+                    var content_length = 0
                     let moreDetailsReader = moreDetailsResponse.body.getReader();
                     while (true) {
                         let { value, done } = await moreDetailsReader.read();
@@ -1426,6 +1463,11 @@ $(document).ready(function() {
                         let part = decoder.decode(value);
                         answerParagraph.append(part);
                         answer = answer + part;
+                        if (answerParagraph.html().length > content_length + 100){
+                            renderInnerContentAsMarkdown(answerParagraph, 
+                                                         callback=null, continuous=true)
+                            content_length = answerParagraph.html().length
+                        }
                     }
                     renderInnerContentAsMarkdown(answerParagraph, function(){
                         showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
@@ -1510,7 +1552,7 @@ $(document).ready(function() {
 
                 $('#answers').append(card);
                 
-
+                var content_length = 0
                 answer = ""
                 while (true) {
                     let { value, done } = await reader.read();
@@ -1520,6 +1562,11 @@ $(document).ready(function() {
                     let part = decoder.decode(value);
                     answerParagraph.append(part);
                     answer = answer + part
+                    if (answerParagraph.html().length > content_length + 100){
+                        renderInnerContentAsMarkdown(answerParagraph, 
+                                                     callback=null, continuous=true)
+                        content_length = answerParagraph.html().length
+                    }
                 }
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
@@ -1539,7 +1586,8 @@ $(document).ready(function() {
                         alert('An error occurred: ' + moreDetailsResponse.status);
                         return;
                     }
-
+                    
+                    var content_length = 0
                     let moreDetailsReader = moreDetailsResponse.body.getReader();
                     while (true) {
                         let { value, done } = await moreDetailsReader.read();
@@ -1549,6 +1597,11 @@ $(document).ready(function() {
                         let part = decoder.decode(value);
                         answerParagraph.append(part);
                         answer = answer + part;
+                        if (answerParagraph.html().length > content_length + 100){
+                            renderInnerContentAsMarkdown(answerParagraph, 
+                                                         callback=null, continuous=true)
+                            content_length = answerParagraph.html().length
+                        }
                     }
                     renderInnerContentAsMarkdown(answerParagraph, function(){
                         showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);

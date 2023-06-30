@@ -106,6 +106,7 @@ You are also given summaries of certain parts of document below:
 
 If the given context can't be used to provide a proper answer then write only a very small answer using the context.
 Use markdown formatting to typeset/format your answer better.
+Use markdown syntax for clear formatting in your answer.
 Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 
 Question: {query}

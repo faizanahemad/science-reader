@@ -248,6 +248,8 @@ class DocIndex:
     @streaming_timer
     def streaming_get_short_answer(self, query, mode="web_search", save_answer=True):
         ent_time = time.time()
+        if mode=="web_search":
+            web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), self.get_date())
         dqna_nodes = self.dqna_index.similarity_search(query, k=self.result_cutoff)
         summary_nodes = self.summary_index.similarity_search(query, k=self.result_cutoff*2)
         summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
@@ -277,7 +279,6 @@ class DocIndex:
             logger.info(f"Blocking on ContextualReader for {(et-st):4f}s")
             post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention one follow-up question in the next line similar to the initial question which can help in further understanding."
         elif mode=="web_search":
-            web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:2]), self.get_api_keys(), self.get_date())
             prompt = "Provide a short and concise answer. " + prompt
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
             logger.info(f"Web search Results for query = {query}, Results = {web_results}")
@@ -301,6 +302,7 @@ class DocIndex:
                 if web_results.done():
                     web_res_1 = web_results.result()
                     web_generator_1 = self.streaming_web_search_answering(query, answer, web_res_1["text"])
+                    web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
                     
             if breaker.strip() != '####':
                 yield txt
@@ -330,9 +332,10 @@ class DocIndex:
             if mode == "web_search":
                 if web_generator_1 is None:
                     web_generator_1 = self.streaming_web_search_answering(query, answer, txc)
+                    web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
                 generator = web_generator_1
                 
-                web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
+                
                 answer += "\nWeb searched with Queries: \n"
                 yield "\nWeb searched with Queries: \n"
                 yield '</br>'
@@ -471,7 +474,7 @@ class DocIndex:
         }
         logger.info(f"Create fixed details for key = {key} ")
         full_text = ''
-        for txt in self.streaming_get_short_answer(key_to_query_map[key], save_answer=False):
+        for txt in self.streaming_get_short_answer(key_to_query_map[key], mode="detailed", save_answer=False):
             full_text += txt
             yield txt
         self.set_deep_reader_detail(key, full_text)
@@ -604,6 +607,7 @@ Detailed and comprehensive summary:
         summary_text = "\n".join([n.page_content for n in summary_nodes])
         qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
         raw_text = "\n".join([n.page_content for n in raw_nodes] + [n.page_content for n in small_chunk_nodes])
+        small_text = "\n".join([n.page_content for n in small_chunk_nodes])
         answer=previous_answer["answer"] + "\n" + (previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         
@@ -616,7 +620,7 @@ Detailed and comprehensive summary:
         else:
             prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
                                           answer=answer, summary="", 
-                                          fragment=get_first_n_words(raw_text, 750),
+                                          fragment=get_first_n_words(raw_text, 250) + " \n " + small_text,
                                           full_summary=self.doc_data["running_summary"], questions_answers="")
         if mode == "web_search":
             answer = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Given the question: {previous_answer['query']}, Summarise this answer: '''{answer}''' \n ")
@@ -641,7 +645,7 @@ Detailed and comprehensive summary:
             answer += '\n'
             yield '</br>'
             
-            generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()['text'] + "\n\n" + f"Additional Instructions: '''{prompt}'''")
+            generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()['text'] + "\n\n " + f" Answer the followup question: {query} \n\n Additional Instructions: '''{prompt}'''")
             
         else:
             generator = llm(prompt, temperature=0.7, stream=True)
@@ -1011,16 +1015,16 @@ def web_search(context, doc_context, api_keys, year_month=None, previous_answer=
 #     search = BingSearchAPIWrapper()
 #     search.results("apples", 50)
 
-    n_query = "three" if previous_search_results else "two"
+    n_query = "three" if previous_search_results else "three"
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    prompt = f"""Given the scientific query/context \n'{context}' for the research document \n'{doc_context}'. 
+    prompt = f"""Given the scientific query/question \n'{context}' for the research document \n'{doc_context}'. 
     The provided query may not have all details that it needs to ask or may not be web search friendly. 
-    {f"We also have the answer we have given till now for this question as '{previous_answer}' this answer may not be addressing all the information needed to answer the question, use this to determine how to write new web search queries." if previous_answer else ''}
-    {f"We had generated the following web search queries in our previous search: '{pqs}', generate different queries compared to these." if len(pqs)>0 else ''}
-    Then Generate {n_query} proper and well specified web search queries as a valid python list. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us understand it better. 
+    {f"We also have the answer we have given till now for this question as '{previous_answer}', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
+    {f"We had previously generated the following web search queries in our previous search: '{pqs}', don't generate these queries or similar queries - '''{pqs}'''. " if len(pqs)>0 else ''}
+    Generate {n_query} proper, well specified and diverse web search queries as a valid python list. Each generated query must be different from others (and different from previous web search queries) and diverse from each other. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us understand it better. 
 
 Your output will look like:
 
@@ -1030,10 +1034,8 @@ Output only a valid python list of query strings:
 """
     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
     
-    logger.info(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
+    logger.info(f"Query string for {context} = {query_strings} , prompt = \n```\n{prompt}\n```\n") # prompt = \n```\n{prompt}\n```\n
     query_strings = eval(query_strings.strip())
-    if not previous_search_results:
-        query_strings = [context] + query_strings
     qres = []
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1066,6 +1068,7 @@ Output only a valid python list of query strings:
     read_text, per_pdf_texts = read_over_multiple_pdf(links, titles, contexts, api_keys)
     for r, t in zip(dedup_results, per_pdf_texts):
         r['text'] = t['text']
+    logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP Text results = ```\n{read_text}\n```")
     return {"text":read_text, "search_results": dedup_results, "queries": query_strings}
 
 def multi_doc_reader(context, docs):
