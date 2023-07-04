@@ -295,6 +295,15 @@ def get_first_n_words(my_string, n=700):
     return ' '.join(words[:n])
 
 
+def parse_array_string(s):
+    import re
+    s = re.sub(r"(?<=[a-zA-Z0-9])'(?!(, ?|]))", "@@", s)
+    parsed_list = eval(s)
+    parsed_list = [i.replace("@@", "'") for i in parsed_list]
+    return parsed_list
+
+
+
 
 
 

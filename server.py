@@ -6,6 +6,7 @@ import ast
 from flask import Flask, request, jsonify, send_file, session, redirect, url_for, render_template_string
 from authlib.integrations.flask_client import OAuth
 from flask_session import Session
+from collections import defaultdict
 import requests
 from io import BytesIO
 from langchain.vectorstores import FAISS
@@ -207,6 +208,7 @@ def keyParser(session):
         "cohereKey": '',
         "ai21Key": '',
         "bingKey": '',
+        "serpApiKey": '',
         "openai_models_list": '',
     }
     for k, _ in keyStore.items():
@@ -620,14 +622,24 @@ def save_index(doc_index, folder):
 @login_required
 def streaming_get_answer():
     keys = keyParser(session)
-    print(request, request.get_json())
+    additional_docs_to_read = request.json.get("additional_docs_to_read", [])
+    a = use_multiple_docs = request.json.get("use_multiple_docs", False) and isinstance(additional_docs_to_read, (tuple, list)) and len(additional_docs_to_read) > 0
+    b = use_references_and_citations = request.json.get("use_references_and_citations", False)
+    c = provide_detailed_answers = request.json.get("provide_detailed_answers", False)
+    d = perform_web_search = request.json.get("perform_web_search", False)
+    if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
+        return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
+    if use_multiple_docs:
+        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
+    meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
+    
     doc_id = request.json.get('doc_id')
     query = request.json.get('query')
     if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_short_answer(query)
+        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_short_answer(query, meta_fn)
         return Response(stream_with_context(answer), content_type='text/plain')
     else:
-        return Response("Error Document not found", content_type='text/plain')
+        return Response("Error Document not found", status=404,  content_type='text/plain')
     
 @app.route('/streaming_summary', methods=['GET'])
 @login_required
@@ -648,11 +660,22 @@ def streaming_summary():
 @login_required
 def streaming_get_followup_answer():
     keys = keyParser(session)
+    additional_docs_to_read = request.json.get("additional_docs_to_read", [])
+    a = use_multiple_docs = request.json.get("use_multiple_docs", False) and isinstance(additional_docs_to_read, (tuple, list)) and len(additional_docs_to_read) > 0
+    b = use_references_and_citations = request.json.get("use_references_and_citations", False)
+    c = provide_detailed_answers = request.json.get("provide_detailed_answers", False)
+    d = perform_web_search = request.json.get("perform_web_search", False)
+    if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
+        return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
+    if use_multiple_docs:
+        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
+    meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
+    
     doc_id = request.json.get('doc_id')
     query = request.json.get('query')
     previous_answer = request.json.get('previous_answer')
     if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_ask_follow_up(query, previous_answer)
+        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_ask_follow_up(query, previous_answer, meta_fn)
         return Response(stream_with_context(answer), content_type='text/plain')
     else:
         return Response("Error Document not found", content_type='text/plain')

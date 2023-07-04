@@ -5,9 +5,12 @@ import glob
 from filelock import FileLock, Timeout
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+from collections import defaultdict
 import re
 from semanticscholar import SemanticScholar
 from semanticscholar.SemanticScholar import Paper
+from langchain.utilities import BingSearchAPIWrapper
+from collections import Counter
 import mmh3
 from pprint import pprint
 import time
@@ -246,10 +249,26 @@ class DocIndex:
             
         
     @streaming_timer
-    def streaming_get_short_answer(self, query, mode="web_search", save_answer=True):
+    def streaming_get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
         ent_time = time.time()
+        
+        if mode["perform_web_search"]:
+            mode = "web_search"
+        elif mode["provide_detailed_answers"]:
+            mode = "detailed"
+        elif mode["detailed_with_followup"]:
+            mode = "detailed_with_followup" # Broken # TODO: Fix
+        elif mode["use_references_and_citations"]:
+            mode = "use_references_and_citations"
+        elif mode["use_multiple_docs"]:
+            additional_docs = mode["additional_docs_to_read"]
+            mode = "use_multiple_docs"
+        else:
+            mode = None
+        
+        
         if mode=="web_search":
-            web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), self.get_date())
+            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), self.get_date())
         dqna_nodes = self.dqna_index.similarity_search(query, k=self.result_cutoff)
         summary_nodes = self.summary_index.similarity_search(query, k=self.result_cutoff*2)
         summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
@@ -302,7 +321,7 @@ class DocIndex:
                 if web_results.done():
                     web_res_1 = web_results.result()
                     web_generator_1 = self.streaming_web_search_answering(query, answer, web_res_1["text"])
-                    web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
+                    web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
                     
             if breaker.strip() != '####':
                 yield txt
@@ -332,7 +351,7 @@ class DocIndex:
             if mode == "web_search":
                 if web_generator_1 is None:
                     web_generator_1 = self.streaming_web_search_answering(query, answer, txc)
-                    web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
+                    web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
                 generator = web_generator_1
                 
                 
@@ -352,7 +371,8 @@ class DocIndex:
                     yield str(ix+1) + f". [{r['title']}]({r['link']})"
                     yield '</br>'
                 answer += '\n'
-                yield '</br>'
+                yield '</br> '
+                
             else:
                 generator = self.streaming_get_more_details(query, answer, 1, txc, post_prompt_instruction, save_answer)
             web_generator_2 = None
@@ -396,7 +416,7 @@ class DocIndex:
                     yield str(ix+1) + f". [{r['title']}]({r['link']})"
                     yield '</br>'
                 answer += '\n'
-                yield '</br>'
+                yield '</br> '
                 
                 
                 for txt in web_generator_2:
@@ -474,7 +494,7 @@ class DocIndex:
         }
         logger.info(f"Create fixed details for key = {key} ")
         full_text = ''
-        for txt in self.streaming_get_short_answer(key_to_query_map[key], mode="detailed", save_answer=False):
+        for txt in self.streaming_get_short_answer(key_to_query_map[key], defaultdict(lambda: False, {"provide_detailed_answers": True}), save_answer=False):
             full_text += txt
             yield txt
         self.set_deep_reader_detail(key, full_text)
@@ -588,7 +608,21 @@ Detailed and comprehensive summary:
         return dict(doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.doc_data["running_summary"], details=self.doc_data)
     
     
-    def streaming_ask_follow_up(self, query, previous_answer, mode="web_search"):
+    def streaming_ask_follow_up(self, query, previous_answer, mode=defaultdict(lambda: False)):
+    
+        if mode["perform_web_search"]:
+            mode = "web_search"
+        elif mode["provide_detailed_answers"]:
+            mode = "detailed"
+        elif mode["detailed_with_followup"]:
+            mode = "detailed_with_followup" # Broken # TODO: Fix
+        elif mode["use_references_and_citations"]:
+            mode = "use_references_and_citations"
+        elif mode["use_multiple_docs"]:
+            additional_docs = mode["additional_docs_to_read"]
+            mode = "use_multiple_docs"
+        else:
+            mode = None
         raw_nodes = self.raw_index.similarity_search(query, k=self.result_cutoff)
         small_chunk_nodes = self.small_chunk_index.similarity_search(query, k=self.result_cutoff*2)
         dqna_nodes = self.dqna_index.similarity_search(query, k=self.result_cutoff)[:1]
@@ -624,7 +658,7 @@ Detailed and comprehensive summary:
                                           full_summary=self.doc_data["running_summary"], questions_answers="")
         if mode == "web_search":
             answer = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Given the question: {previous_answer['query']}, Summarise this answer: '''{answer}''' \n ")
-            web_results = get_async_future(web_search, query, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
+            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
             prev_answer = answer
             additional_info = web_results.result()
             answer = ''
@@ -664,23 +698,22 @@ Question is given below:
 
 "{query}"
 
-Relevant additional information from other documents with url links and titles are mentioned below:
+Relevant additional information from other documents with url links, titles and document context are mentioned below:
 
 "{additional_info}"
 
 
 Continue the answer ('Answer till now') by incorporating additional information from other documents. 
-Answer by thinking of Multiple different angles that 'the original question or request' can be thought from. Focus mainly on additional information from other documents. Provide their link and title before using their information in markdown format (like `[title](link) information from document`).
+Answer by thinking of Multiple different angles that 'the original question or request' can be answered with. Focus mainly on additional information from other documents. Provide the link and title before using their information in markdown format (like `[title](link) information from document`) for the documents you use in your answer.
 
-Use all of the documents given under 'additional information' and provide relevant information from them for our question "{query}".
+Use all of the documents given under 'additional information' and provide relevant information from them for our question. Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).
 
-Provide detailed and elaborate answer using all the 'additional information' provided.
 Use markdown formatting to typeset/format your answer better.
 Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 
 Question: {query}
 Answer till now (partial answer): {answer}
-Continued Answer: 
+Continued Answer using additional information from other documents with url links, titles and document context: 
 
         """
         answer=answer + "\n"
@@ -1006,7 +1039,7 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 
 
-def web_search(context, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
     # generate query
     # get links
     # rerank using gpt3.5 with snippet, year, link, current doc and query
@@ -1015,57 +1048,122 @@ def web_search(context, doc_context, api_keys, year_month=None, previous_answer=
 #     search = BingSearchAPIWrapper()
 #     search.results("apples", 50)
 
-    n_query = "three" if previous_search_results else "three"
+    num_res = 4
+    n_query = "four" if previous_search_results else "four"
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
     prompt = f"""Given the scientific query/question \n'{context}' for the research document \n'{doc_context}'. 
-    The provided query may not have all details that it needs to ask or may not be web search friendly. 
-    {f"We also have the answer we have given till now for this question as '{previous_answer}', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
-    {f"We had previously generated the following web search queries in our previous search: '{pqs}', don't generate these queries or similar queries - '''{pqs}'''. " if len(pqs)>0 else ''}
-    Generate {n_query} proper, well specified and diverse web search queries as a valid python list. Each generated query must be different from others (and different from previous web search queries) and diverse from each other. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us understand it better. 
+    The provided query may not have all details or may not be web search friendly (contains abbreviations and typos which should be removed or corrected, i.e. convert abbreviations to full forms). 
+    {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
+    {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''. The previous search was not successful and hence we need to generate queries which break down the actual question into fragments and search the web using simpler terms." if len(pqs)>0 else ''}
+    Generate {n_query} proper, well specified and diverse web search queries as a valid python list. Each generated query must be different from others (and different from previous web search queries) and diverse from each other. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us answer the query better. When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.).
+Make sure each of your web search query is diverse and very different from the remaining queries.
 
 Your output will look like:
 
 ["web_query_1", "web_query_2"]
+
+Be sure to output on valid python code which represents a list of web search friendly query strings.
     
 Output only a valid python list of query strings: 
 """
     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
     
     logger.info(f"Query string for {context} = {query_strings} , prompt = \n```\n{prompt}\n```\n") # prompt = \n```\n{prompt}\n```\n
-    query_strings = eval(query_strings.strip())
-    qres = []
+    query_strings = parse_array_string(query_strings.strip())
+    
+    rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
+    serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
+    bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
+    if rerank_available:
+        import cohere
+        co = cohere.Client(api_keys["cohereKey"])
+        num_res = 100
+        rerank_query = "? ".join(query_strings + [context])
+    
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
-    for query in query_strings:
-        serp = serpapi(query, api_keys["bingKey"], num=5, our_datetime=year_month)
-        for r in serp:
-            r["query"] = query
-        qres.extend(serp)
+    
+    if serp_available:
+        logger.info("Using SERP for web search")
+        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
+        
+    if bing_available:
+        logger.info("Using BING for web search")
+        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
+        
+    if not bing_available and not serp_available:
+        logger.warning(f"Neither Bing nor SERP keys are given but Search option choosen.")
+        return {"text":'', "search_results": [], "queries": query_strings}
+    serps = [s.result() for s in serps]
+    qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" in r["link"]]
     dedup_results = []
     seen_titles = set()
     seen_links = set()
+    link_counter = Counter()
+    title_counter = Counter()
     if previous_search_results:
         for r in previous_search_results:
             seen_links.add(r['link'])
+    len_before_dedup = len(qres)
     for r in qres:
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        link_counter.update([link])
+        title_counter.update([link])
         if title in seen_titles or len(title) == 0 or link in seen_links:
             continue
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
+        
+    len_after_dedup = len(dedup_results)
+    logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
+        
+    # Rerank here first
+    
+    if rerank_available:
+        st_rerank = time.time()
+        docs = [r["title"] + " " + r["snippet"] for r in dedup_results]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=64, model='rerank-english-v2.0') 
+        pre_rerank = dedup_results
+        dedup_results = [dedup_results[r.index] for r in rerank_results]
+        tt_rerank = time.time() - st_rerank
+        logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
+        
+    if rerank_available:
+        pdfs = [pdf_process_executor.submit(get_pdf_text, doc["link"]) for doc in dedup_results]
+        pdfs = [p.result() for p in pdfs]
+        docs = [r["snippet"] + " " + p["small_text"] for p, r in zip(pdfs, dedup_results)]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=16, model='rerank-english-v2.0') 
+        dedup_results = [dedup_results[r.index] for r in rerank_results]
+        pdfs = [pdfs[r.index] for r in rerank_results]
+        logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
+    
     for r in dedup_results:
-        r["title"] = r["title"] + f" ({r['year']})" + f" (Cited by {r['citations']})"
+        r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f" (Cited by {r['citations'] if r['citations'] else ''})"
         logger.info(f"Link: {r['link']} title: {r['title']}")
     logger.info(f"SERP results for {context}, count = {len(dedup_results)}")
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
-    contexts = [r["query"] for r in dedup_results]
-    read_text, per_pdf_texts = read_over_multiple_pdf(links, titles, contexts, api_keys)
+    contexts = [context +"? " + r["query"] for r in dedup_results]
+    print(pdfs)
+    texts = None
+    if rerank_available:
+        
+        texts = [p["text"] for p in pdfs]
+    read_text, per_pdf_texts = read_over_multiple_pdf(links, titles, contexts, api_keys, texts)
+    if rerank_available:
+        docs = [r["text"] for r in per_pdf_texts]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=len(docs)//2, model='rerank-english-v2.0') 
+        per_pdf_texts = [per_pdf_texts[r.index] for r in rerank_results]
+        pre_rerank = dedup_results
+        dedup_results = [dedup_results[r.index] for r in rerank_results]
+        read_text = "\n\n".join([json.dumps(p, indent=2) for p in per_pdf_texts])
+        logger.info(f"--- Cohere Second Reranked ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(dedup_results)}, ```\n{dedup_results}\n```")
+        
     for r, t in zip(dedup_results, per_pdf_texts):
         r['text'] = t['text']
     logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP Text results = ```\n{read_text}\n```")
@@ -1083,17 +1181,30 @@ from multiprocessing import Pool
 
 from concurrent.futures import ThreadPoolExecutor
 
+def get_pdf_text(link):
+    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    try:
+        txt = pdfReader(link)
+        chunked_text = ChunkText(txt, 1536, 0)[0]
+        small_text = ChunkText(txt, 512, 0)[0]
+    except Exception as e:
+        return {"text": "No relevant text found in this document.", "small_text": "No relevant text found in this document."}
+    return {"text": chunked_text, "small_text": small_text}
+
 def process_pdf(link_title_context_apikeys):
-    link, title, context, api_keys = link_title_context_apikeys
+    link, title, context, api_keys, text = link_title_context_apikeys
     st = time.time()
     # Reading PDF
     extracted_info = ''
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
     try:
-        txt = pdfReader(link)
-    
-        # Chunking text
-        chunked_text = ChunkText(txt, 2048, 0)[0]
+        if len(text.strip()) == 0:
+            txt = pdfReader(link)
+
+            # Chunking text
+            chunked_text = ChunkText(txt, 1536, 0)[0]
+        else:
+            chunked_text = text
 
         # Extracting info
         extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
@@ -1101,18 +1212,36 @@ def process_pdf(link_title_context_apikeys):
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
         logger.info(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
-    return {"link": link, "title": title, "text": extracted_info}
+        return {"link": link, "title": title, "text": extracted_info, "exception": True}
+    return {"link": link, "title": title, "text": extracted_info, "exception": False}
 
-def read_over_multiple_pdf(links, titles, contexts, api_keys):
+
+def process_page_link(link_title_context_apikeys):
+    pass
+    # main link -> cache link
+    # selenium
+    # playwright
+    # beautiful soup
+    # 
+
+pdf_process_executor = ThreadPoolExecutor(max_workers=32)
+def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
+    if texts is None:
+        texts = [''] * len(links)
     # Combine links, titles, contexts and api_keys into tuples for processing
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links)))
-    with ThreadPoolExecutor(max_workers=len(links)) as executor:
-        logger.info(f"Start reading over multiple pdf docs...")
-        # Use the executor to apply process_pdf to each tuple
-        futures = [executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
-        # Collect the results as they become available
-        processed_texts = [future.result() for future in futures]
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
+    logger.info(f"Start reading over multiple pdf docs...")
+    # Use the executor to apply process_pdf to each tuple
+    futures = [pdf_process_executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
+    # Collect the results as they become available
+    processed_texts = [future.result() for future in futures]
+    processed_texts = [p for p in processed_texts if not p["exception"]]
+    assert len(processed_texts) > 0
+    for p in processed_texts:
+        del p["exception"]
     # Concatenate all the texts
+    
+    # Cohere rerank here
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     import tiktoken
     enc = tiktoken.encoding_for_model("gpt-4")

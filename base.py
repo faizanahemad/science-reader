@@ -5,6 +5,7 @@ import glob
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import re
+import random
 import inspect
 from semanticscholar import SemanticScholar
 from semanticscholar.SemanticScholar import Paper
@@ -459,30 +460,33 @@ Document is given below:
         logger.info(f"ReduceRepeatTool with input as \n {text_document} and output as \n {result}")
         return result
 
-
+process_text_executor = ThreadPoolExecutor(max_workers=16)
 def process_text(text, chunk_size, my_function, keys):
     # Split the text into chunks
     chunks = list(chunk_text_langchain(text, chunk_size))
     if len(chunks) > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-            # Use the executor to apply my_function to each chunk
-            futures = [executor.submit(my_function, chunk) for chunk in chunks]
-            # Get the results from the futures
-            results = [future.result() for future in futures]
+        futures = [process_text_executor.submit(my_function, chunk) for chunk in chunks]
+        # Get the results from the futures
+        results = [future.result() for future in futures]
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    
-    tlc = partial(TextLengthCheck, threshold=1800)
     summariser = Summarizer(keys)
+    tlc = partial(TextLengthCheck, threshold=1800)
     while len(results) > 1:
+        logger.warning("--- process_text --- Multiple chunks as result.")
         logger.info(f"Results len = {len(results)} and type of results =  {type(results[0])}")
         assert isinstance(results[0], str)
         results = [r if tlc(r) else summariser(r) for r in results]
         results = combine_array_two_at_a_time(results)
-    results = [r if tlc(r) else summariser(r) for r in results]
-    results = ' '.join(results)
+    assert len(results) == 1
+    results = results[0]
     if not tlc(results):
+        logger.warning("--- process_text --- Calling Summarizer on single result")
+        results = summariser(results)
+    
+    if not tlc(results):
+        logger.warning("--- process_text --- Calling ReduceRepeatTool")
         results = ReduceRepeatTool(keys)(results)
     assert isinstance(results, str)
     return results
@@ -599,14 +603,13 @@ ContextualReader:
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=("Provide short and concise response in 3-4 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
-Gather information and context from the given document for the below question:
+Gather information and context from the given document for the given question:
 "{context}"
 
 Document:
-
 "{document}"
 
-Read the above document and extract useful information in a concise manner for the query/question. If nothing relevant is found then don't output anything.
+Read the above document and extract useful information in a concise manner for the query/question. If nothing highly relevant is found then output details from the document which might be similar/tangential to the given question.
 You can use markdown formatting to typeset/format your answer better.
 You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
 
@@ -627,19 +630,18 @@ Extracted Information:
     
     def get_one_with_exception(self, context, document):
         try:
-            cleaned_text = self.get_one(context, document)
-            
-            return cleaned_text
+            text = self.get_one(context, document)
+            return text
         except Exception as e:
             exp_str = str(e)
             too_long = "maximum context length" in exp_str and "your messages resulted in" in exp_str
             if too_long:
+                logger.warning(f"ContextualReader:: Too long context, raised exception {str(e)}")
                 return " ".join([self.get_one_with_exception(context, st) for st in split_text(document)])
             raise e
             
 
     def __call__(self, context_user_query, text_document, chunk_size=3000):
-        
         assert isinstance(text_document, str)
         import functools
         part_fn = functools.partial(self.get_one_with_exception, context_user_query)
@@ -689,31 +691,80 @@ def get_year(dres):
     # If no match is found, return None
     return None
 
-
-def serpapi(query, key, num=20, our_datetime=None):
+def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
-    import requests
-    # get the current date and time
     if our_datetime:
         now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365*3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
     else:
-        now = datetime.now()
+        now = None
+    search = BingSearchAPIWrapper(bing_subscription_key=key, bing_search_url="https://api.bing.microsoft.com/v7.0/search")
+    
+    pre_query = query
+    after_string = f"after:{date_string}" if now and not only_pdf and not only_science_sites else ""
+    search_pdf = " filetype:pdf" if only_pdf else ""
+    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites and not only_pdf else " "
+    query = f"{query}{site_string}{after_string}{search_pdf}"
+    results = search.results(query, num)
+    seen_titles = set()
+    seen_links = set()
+    dedup_results = []
+    for r in results:
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        r["citations"] = None
+        r["year"] = None
+        r['query'] = pre_query
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+    
+    return dedup_results
+    
+        
 
-    # subtract two years from the current date and time
-    two_years_ago = now - timedelta(days=365*3)
 
+def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+    from datetime import datetime, timedelta
+    import requests
+    
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365*3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
+    else:
+        now = None
+
+    
+    
+    location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Washington D.C.", "Seattle", "Amsterdam", "Paris"], 1)[0]
+    gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
     # format the date as YYYY-MM-DD
-    date_string = two_years_ago.strftime("%Y-%m-%d")
+    
     
     url = "https://serpapi.com/search"
-    query = f"{query} (site:arxiv.org OR site:openreview.net) after:{date_string} filetype:pdf"
+    pre_query = query
+    after_string = f"after:{date_string}" if now else ""
+    search_pdf = " filetype:pdf" if only_pdf else ""
+    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " (-site:arxiv.org AND -site:openreview.net) "
+    query = f"{query}{site_string}{after_string}{search_pdf}"
     params = {
        "q": query,
-       "api_key": "unk",
+       "api_key": key,
        "num": num,
+       "no_cache": False,
+        "location": location,
+        "gl": gl,
        }
     response = requests.get(url, params=params)
-    results = response.json()["organic_results"]
+    rjs = response.json()
+    if "organic_results" in rjs:
+        results = rjs["organic_results"]
+    else:
+        return []
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
     seen_titles = set()
@@ -727,6 +778,7 @@ def serpapi(query, key, num=20, our_datetime=None):
         r["citations"] = get_citation_count(r)
         r["year"] = get_year(r)
         _ = r.pop("rich_snippet", None)
+        r['query'] = pre_query
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)

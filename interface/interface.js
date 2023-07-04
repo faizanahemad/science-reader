@@ -147,6 +147,7 @@ var keyStore = {
     cohereKey: '',
     ai21Key: '',
     bingKey: '',
+    serpApiKey: '',
 }
 
 function setKeysOnServer() {
@@ -1414,7 +1415,7 @@ $(document).ready(function() {
                 cardBody.append('<h5 class="card-title">Question:</h5>');
                 cardBody.append('<p class="card-text">'+query+'</p>');
                 cardBody.append('<h5 class="card-title">Answer:</h5>');
-                let answerParagraph = $('<p>').addClass('card-text').addClass('summary-text');
+                let answerParagraph = $('<p>').addClass('card-text').addClass('summary-text').attr('id', 'main-answer-paragraph');
                 cardBody.append(answerParagraph);
 
                 $('#answers').append(card);
@@ -1547,7 +1548,7 @@ $(document).ready(function() {
                 cardBody.append('<h5 class="card-title">Follow-Up Question:</h5>');
                 cardBody.append('<p class="card-text">'+query+'</p>');
                 cardBody.append('<h5 class="card-title">Follow-Up Answer:</h5>');
-                let answerParagraph = $('<p>').addClass('card-text');
+                let answerParagraph = $('<p>').addClass('card-text').attr('id', 'followup-answer-paragraph');
                 cardBody.append(answerParagraph);
 
                 $('#answers').append(card);
