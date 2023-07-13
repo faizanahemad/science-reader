@@ -2,9 +2,11 @@ import sys
 import random
 from functools import partial
 import glob
+import traceback
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import re
+import inspect
 import random
 import inspect
 from semanticscholar import SemanticScholar
@@ -602,14 +604,14 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Provide short and concise response in 3-4 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
+            template=("Provide short, concise and informative response in 5-6 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
 Gather information and context from the given document for the given question:
 "{context}"
 
 Document:
 "{document}"
 
-Read the above document and extract useful information in a concise manner for the query/question. If nothing highly relevant is found then output details from the document which might be similar/tangential to the given question.
+Read the above document and extract useful information in a concise manner for the query/question. If nothing highly relevant is found then output details from the document which might be similar or tangential or helpful relative to the given question.
 You can use markdown formatting to typeset/format your answer better.
 You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
 
@@ -674,7 +676,7 @@ def get_citation_count(dres):
         return int(match.group(1))
     
     # If no match is found, return zero
-    return 0
+    return ""
 
 def get_year(dres):
     # Check if 'rich_snippet' and 'top' exist in the dictionary
@@ -690,6 +692,7 @@ def get_year(dres):
 
     # If no match is found, return None
     return None
+
 
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
@@ -711,9 +714,17 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     seen_links = set()
     dedup_results = []
     for r in results:
+        if "snippet" not in r:
+            logger.warning(r)
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
+            continue
+        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
+            continue
+        if not only_pdf and "pdf" in link:
             continue
         r["citations"] = None
         r["year"] = None
@@ -721,10 +732,59 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
+    logger.info(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
+
+
+def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+    from langchain.utilities import GoogleSearchAPIWrapper
+    from datetime import datetime, timedelta
+    num=min(num, 20)
     
-        
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365*3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
+    else:
+        now = None
+    cse_id = key["cx"]
+    google_api_key = key["api_key"]
+    search = GoogleSearchAPIWrapper(google_api_key=google_api_key, google_cse_id=cse_id)
+    pre_query = query
+    after_string = f"after:{date_string}" if now else ""
+    search_pdf = " filetype:pdf" if only_pdf else ""
+    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " -site:arxiv.org AND -site:openreview.net "
+    query = f"{query}{site_string}{after_string}{search_pdf}"
+    
+    results = search.results(query, min(num, 10), search_params={"filter":1, "start": 1})
+    if num > 10:
+        results.extend(search.results(query, min(num, 10), search_params={"filter":1, "start": 11}))
+    seen_titles = set()
+    seen_links = set()
+    dedup_results = []
+    for r in results:
+        if "snippet" not in r:
+            logger.warning(r)
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
+            continue
+        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
+            continue
+        if not only_pdf and "pdf" in link:
+            continue
+        r["citations"] = None
+        r["year"] = None
+        r['query'] = pre_query
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+    logger.info(f"Called GOOGLE API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    
+    return dedup_results
 
 
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
@@ -739,17 +799,15 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         now = None
 
     
-    
     location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Washington D.C.", "Seattle", "Amsterdam", "Paris"], 1)[0]
     gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
     # format the date as YYYY-MM-DD
-    
     
     url = "https://serpapi.com/search"
     pre_query = query
     after_string = f"after:{date_string}" if now else ""
     search_pdf = " filetype:pdf" if only_pdf else ""
-    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " (-site:arxiv.org AND -site:openreview.net) "
+    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " -site:arxiv.org AND -site:openreview.net "
     query = f"{query}{site_string}{after_string}{search_pdf}"
     params = {
        "q": query,
@@ -771,9 +829,17 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     seen_links = set()
     dedup_results = []
     for r in results:
+        if "snippet" not in r:
+            logger.warning(r)
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
+            continue
+        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
+            continue
+        if not only_pdf and "pdf" in link:
             continue
         r["citations"] = get_citation_count(r)
         r["year"] = get_year(r)
@@ -782,10 +848,160 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
+    logger.info(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
     
     
+def get_page_content(link, playwright_cdp_link=None):
     
-    
+    text = ''
+    title = ''
+    try:
+        logger.info(f"Trying playwright for link {link}")
+        from playwright.sync_api import sync_playwright
+        playwright_enabled = True
+        with sync_playwright() as p:
+            if playwright_cdp_link is not None and isinstance(playwright_cdp_link,str):
+                browser = p.chromium.connect_over_cdp(playwright_cdp_link)
+            else:
+                browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
+            page = browser.new_page()
+            url = link
+            page.goto(url)
+            page.wait_for_selector('body')
+            while page.evaluate('document.readyState') != 'complete':
+                pass
+            
+            try:
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
+            except:
+                traceback.print_exc()
+                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
+                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
+                init_title = page.evaluate("""(function e(){return document.title})()""")
+                page.close();
+                page = browser.new_page();
+                page.goto("https://www.example.com/")
+                page.bring_to_front();
+                while page.evaluate('document.readyState') != 'complete':
+                    pass
+                page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
+                page.evaluate(f"""text=>document.title=text""", init_title)
+                logger.info(f"Loaded html and title into page with example.com as url")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                page.wait_for_selector('body')
+                while page.evaluate('document.readyState') != 'complete':
+                    pass
+                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
+                
+            try:
+                browser.close()
+            except:
+                pass
+            
+            
+        
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            logger.info(f"Trying selenium for link {link}")
+            from selenium import webdriver
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.wait import WebDriverWait
+            from selenium.webdriver.common.action_chains import ActionChains
+            from selenium.webdriver.support import expected_conditions as EC
+            options = webdriver.ChromeOptions()
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--headless')
+            driver = webdriver.Chrome(options=options)
+            driver.get(link)
+            try:
+                driver.execute_script('''
+                    function myFunction() {
+                        if (document.readyState === 'complete') {
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+                            document.head.appendChild(script);
+
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
+                            document.head.appendChild(script);
+                        } else {
+                            setTimeout(myFunction, 1000);
+                        }
+                    }
+
+                    myFunction();
+                ''')
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
+                def document_initialised(driver):
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                WebDriverWait(driver, timeout=10).until(document_initialised)
+                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+            except Exception as e:
+                traceback.print_exc()
+                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
+                init_title = driver.execute_script("""return document.title;""")
+                init_html = driver.execute_script("""return document.body.innerHTML;""")
+                driver.get("https://www.example.com/")
+                logger.info(f"Loaded html and title into page with example.com as url")
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
+                driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
+                driver.execute_script("""document.title=arguments[0]""", init_title)
+                driver.execute_script('''
+                    function myFunction() {
+                        if (document.readyState === 'complete') {
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+                            document.head.appendChild(script);
+
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
+                            document.head.appendChild(script);
+                        } else {
+                            setTimeout(myFunction, 1000);
+                        }
+                    }
+
+                    myFunction();
+                ''')
+                def document_initialised(driver):
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                WebDriverWait(driver, timeout=10).until(document_initialised)
+                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+                
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
+            try:
+                driver.close()
+            except:
+                pass
+        except Exception as e:
+            if 'driver' in locals():
+                try:
+                    driver.close()
+                except:
+                    pass
+        finally:
+            if 'driver' in locals():
+                try:
+                    driver.close()
+                except:
+                    pass
+    finally:
+        if "browser" in locals():
+            try:
+                browser.close()
+            except:
+                pass
+    return {"text": text, "title": title}
+
 

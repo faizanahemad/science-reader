@@ -3,6 +3,7 @@ from urllib.parse import unquote
 from functools import wraps
 import mmh3
 import ast
+import traceback
 from flask import Flask, request, jsonify, send_file, session, redirect, url_for, render_template_string
 from authlib.integrations.flask_client import OAuth
 from flask_session import Session
@@ -197,9 +198,6 @@ def removeUserFromDoc(user_email, doc_id):
     conn.close()
 
 
-
-
-
 def keyParser(session):
     keyStore = {
         "openAIKey": '',
@@ -209,6 +207,8 @@ def keyParser(session):
         "ai21Key": '',
         "bingKey": '',
         "serpApiKey": '',
+        "googleSearchApiKey":'',
+        "googleSearchCxId":'',
         "openai_models_list": '',
     }
     for k, _ in keyStore.items():
@@ -274,8 +274,10 @@ google = oauth.register(
 os.makedirs(os.path.join(os.getcwd(), folder), exist_ok=True)
 cache_dir = os.path.join(os.getcwd(), folder, "cache")
 users_dir = os.path.join(os.getcwd(), folder, "users")
+pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
 os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(users_dir, exist_ok=True)
+os.makedirs(pdfs_dir, exist_ok=True)
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 
@@ -490,7 +492,7 @@ bm25 = [None]
 def add_to_bm25_corpus(doc_index: DocIndex):
     global bm25_corpus, doc_id_to_bm25_index
     doc_info = doc_index.get_short_info()
-    unigrams = doc_info['title'].lower().split() + doc_info['short_summary'].lower().split() + doc_info['summary'].lower().split() + doc_index.paper_details["abstract"].lower().split()
+    unigrams = doc_info['title'].lower().split() + doc_info['short_summary'].lower().split() + doc_info['summary'].lower().split()
     bigrams = generate_ngrams(unigrams, 2)
     trigrams = generate_ngrams(unigrams, 3)
     bm25_corpus.append(unigrams + bigrams + trigrams)
@@ -574,6 +576,7 @@ def index_document():
             addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
             return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
         except Exception as e:
+            traceback.print_exc()
             return jsonify({'error': str(e)}), 400
     else:
         return jsonify({'error': 'No pdf_url provided'}), 400
@@ -792,31 +795,76 @@ from flask import Response, stream_with_context
 @login_required
 def proxy():
     file_url = request.args.get('file')
-    file_data = cached_get_file(file_url)
-    def generate():
-        for chunk in file_data:
-            yield chunk
-    return Response(stream_with_context(generate()), mimetype='application/pdf')
+    logger.info(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url)}")
+    return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
 
 @app.route('/')
 def index():
     return redirect('/interface')
 
-@cache.memoize()
-def cached_get_file(file_url):
-    # We only get here if the file wasn't in the cache already.
-    try:
-        req = requests.get(file_url, stream=True)
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"Failed to download file: {e}")
-        req = requests.get(file_url, stream=True, verify=False)
+@app.route('/upload_pdf', methods=['POST'])
+@login_required
+def upload_pdf():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    pdf_file = request.files.get('pdf_file')
+    if pdf_file:
+        try:
+            # save file to disk at pdfs_dir.
+            pdf_file.save(os.path.join(pdfs_dir, pdf_file.filename))
+            
+            # lets get the full path of the file
+            full_pdf_path = os.path.join(pdfs_dir, pdf_file.filename)
+            
+            doc_index = immediate_create_and_save_index(full_pdf_path, keys)
+            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
+            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 400
+    else:
+        return jsonify({'error': 'No pdf_file provided'}), 400
 
-    # Save the downloaded file data to the cache
-    file_data = []
-    for chunk in req.iter_content(chunk_size=8192):
-        file_data.append(chunk)
+
+def cached_get_file(file_url):
     
-    return file_data
+    chunk_size = 1024  # Define your chunk size
+    logger.info(f"cached_get_file for {file_url}")
+    file_data = cache.get(file_url)
+
+    # If the file is not in the cache, read it from disk and save it to the cache
+    if file_data is not None:
+        logger.info(f"cached_get_file for {file_url} found in cache")
+        for chunk in file_data:
+            yield chunk
+        # how do I chunk with chunk size?
+        
+        
+    elif os.path.exists(file_url):
+        file_data = []
+        with open(file_url, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if chunk:
+                    file_data.append(chunk)
+                    yield chunk
+                if not chunk:
+                    break
+        cache.set(file_url, file_data)
+    else:   
+        file_data = []
+        try:
+            req = requests.get(file_url, stream=True)
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"Failed to download file: {e}")
+            req = requests.get(file_url, stream=True, verify=False)
+        # TODO: save the downloaded file to disk.
+        
+        for chunk in req.iter_content(chunk_size=chunk_size):
+            file_data.append(chunk)
+            yield chunk
+        cache.set(file_url, file_data)
+
 
 def open_browser(url):
     import webbrowser

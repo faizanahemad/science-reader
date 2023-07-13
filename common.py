@@ -6,6 +6,7 @@ import time
 import logging
 import sys
 import os
+import re
 import inspect
 from more_itertools import peekable
 import types
@@ -301,6 +302,11 @@ def parse_array_string(s):
     parsed_list = eval(s)
     parsed_list = [i.replace("@@", "'") for i in parsed_list]
     return parsed_list
+
+
+
+def normalize_whitespace(s):
+    return re.sub(r'\s+', ' ', s).strip()
 
 
 

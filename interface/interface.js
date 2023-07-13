@@ -148,6 +148,8 @@ var keyStore = {
     ai21Key: '',
     bingKey: '',
     serpApiKey: '',
+    googleSearchCxId: '',
+    googleSearchApiKey: '',
 }
 
 function setKeysOnServer() {
@@ -685,7 +687,7 @@ $(document).ready(function() {
     
     function showUserName(){
         $.get('/get_user_info', function(data) {
-            $('#username').text(data.name);
+            $('#username').text(data.name.slice(0, 10));
             $('#logout-link').attr('href', '/logout');
         });
     }
@@ -1170,8 +1172,12 @@ $(document).ready(function() {
             searchResultsArea.empty();
 
             var resultList = $('<ol></ol>'); // Create an ordered list
+            var documentIds = [];
+            $('.document-tag').each(function() {
+                documentIds.push($(this).attr('data-doc-id'));
+            });
 
-            data.filter(doc=>doc.doc_id !== activeDocId).forEach(function(doc, index) {
+            data.filter(doc=>doc.doc_id !== activeDocId).filter(doc=>!documentIds.includes(doc.doc_id)).forEach(function(doc, index) {
                 var docItem = $(`
                     <li class="my-2">
                         <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
@@ -1191,15 +1197,19 @@ $(document).ready(function() {
 
     
     function addDocumentTags(tagsAreaId, data){
-        $('#' + tagsAreaId).empty();
+        
         data.forEach(function(doc) {
             var docTag = $(`
                 <div class="document-tag bg-light border rounded mb-2 mr-2 p-2 d-inline-flex align-items-center" data-doc-id="${doc.doc_id}">
                     <span class="me-2">${doc.title}</span>
                     <button class="delete-tag-button btn btn-sm btn-danger">Delete</button>
                 </div>`);
-            $('#' + tagsAreaId).append(docTag);
-
+            var count = $('#' + tagsAreaId).children().length;
+            var limit = 4
+            if (count > limit - 1){
+                alert(`you cannot add more than ${limit} documents for Multiple Doc Search`);
+            }
+            else {$('#' + tagsAreaId).append(docTag);}
             // Handle click events for the delete button
             $('.delete-tag-button').click(function(event) {
                 event.preventDefault();
@@ -1216,6 +1226,7 @@ $(document).ready(function() {
         var lastTimeoutId = null;  
         var previousSearchLength = 0;
         var searchBox = $('#' + searchBoxId);
+        $('#' + tagsAreaId).empty();
 
         searchBox.on('input', function() {
             var currentSearchLength = searchBox.val().length;
@@ -1639,6 +1650,81 @@ $(document).ready(function() {
         $('#add-document-button').click(function() {
             $('#add-document-modal').modal('show');
         });
+        function success(response) {
+            $('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            $('#submit-spinner').hide();  // Hide the spinner
+            if (response.status) {
+                alert(JSON.stringify(response));
+                var newDocId = response.doc_id;
+                $('#add-document-modal').modal('hide');
+                // refresh the document list
+                loadDocuments(false)
+                    .done(function(){setActiveDoc(newDocId);})
+                    .fail(function(){alert(response.error);})
+                // set the new document as the current document
+                
+            } else {
+                alert(response.error);
+            }
+        }
+        function failure(response) {
+            $('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            $('#submit-spinner').hide();  // Hide the spinner
+            alert('Error: ' + response.responseText);
+            $('#add-document-modal').modal('hide');
+        }
+    
+        function uploadFile(file) {
+            var formData = new FormData();
+            formData.append('pdf_file', file);
+            $('#submit-button').prop('disabled', true);  // Disable the submit button
+            $('#submit-spinner').show();  // Display the spinner
+            fetch('/upload_pdf', { 
+                method: 'POST', 
+                body: formData
+            })
+            .then(response => response.json())
+            .then(success)
+            .catch(failure);
+        }
+    
+        document.getElementById('file-upload-button').addEventListener('click', function() {
+            document.getElementById('pdf-file').click();
+        });
+        
+        // Handle file selection
+        document.getElementById('pdf-file').addEventListener('change', function(e) {
+            var file = e.target.files[0];  // Get the selected file
+            if (file && file.type === 'application/pdf') {
+                uploadFile(file);  // Call the file upload function
+            }
+        });
+    
+        var dropArea = document.getElementById('drop-area');
+        dropArea.addEventListener('dragover', function(e) {
+            e.preventDefault();  // Prevent the default dragover behavior
+            this.style.backgroundColor = '#eee';  // Change the color of the drop area
+        }, false);
+    
+        dropArea.addEventListener('dragleave', function(e) {
+            this.style.backgroundColor = 'transparent';  // Change the color of the drop area back to its original color
+        }, false);
+    
+        dropArea.addEventListener('drop', function(e) {
+            e.preventDefault();  // Prevent the default drop behavior
+            this.style.backgroundColor = 'transparent';  // Change the color of the drop area back to its original color
+            
+            // Check if the dropped item is a file
+            if (e.dataTransfer.items) {
+                for (var i = 0; i < e.dataTransfer.items.length; i++) {
+                    // If the dropped item is a file and it's a PDF
+                    if (e.dataTransfer.items[i].kind === 'file' && e.dataTransfer.items[i].type === 'application/pdf') {
+                        var file = e.dataTransfer.items[i].getAsFile();
+                        uploadFile(file);  // Call the file upload function
+                    }
+                }
+            }
+        }, false);
         $('#add-document-form').on('submit', function(event) {
             event.preventDefault();  // Prevents the default form submission action
             var pdfUrl = $('#pdf-url').val();
@@ -1646,29 +1732,8 @@ $(document).ready(function() {
                 $('#submit-button').prop('disabled', true);  // Disable the submit button
                 $('#submit-spinner').show();  // Display the spinner
                 apiCall('/index_document', 'POST', { pdf_url: pdfUrl }, useFetch = false)
-                    .done(function(response) {
-                            $('#submit-button').prop('disabled', false);  // Re-enable the submit button
-                            $('#submit-spinner').hide();  // Hide the spinner
-                            if (response.status) {
-                                alert(JSON.stringify(response));
-                                var newDocId = response.doc_id;
-                                $('#add-document-modal').modal('hide');
-                                // refresh the document list
-                                loadDocuments(false)
-                                    .done(function(){setActiveDoc(newDocId);})
-                                    .fail(function(){alert(response.error);})
-                                // set the new document as the current document
-                                
-                            } else {
-                                alert(response.error);
-                            }
-                        })
-                    .fail(function(response) {
-                        $('#submit-button').prop('disabled', false);  // Re-enable the submit button
-                        $('#submit-spinner').hide();  // Hide the spinner
-                        alert('Error: ' + response.responseText);
-                        $('#add-document-modal').modal('hide');
-                    });
+                    .done(success)
+                    .fail(failure);
             } else {
                 alert('Please enter a PDF URL');
             }
@@ -1735,6 +1800,18 @@ $(document).ready(function() {
         tabContent.style.display = 'block';
     });
 
+    $('#toggle-tab-content').on('click', function() {
+        var caretUp = $(this).find('.bi-caret-up-fill');
+        var caretDown = $(this).find('.bi-caret-down-fill');
+
+        if (caretUp.is(':visible')) {
+            caretUp.hide();
+            caretDown.show();
+        } else {
+            caretDown.hide();
+            caretUp.show();
+        }
+    });
     
     $('#documents').on('click', '.list-group-item', function(e) {
         e.preventDefault();

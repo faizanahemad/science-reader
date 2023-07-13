@@ -74,6 +74,13 @@
     
                 <label for="serpApiKey">SERP API Key</label>
                 <input type="text" id="serpApiKey" class="form-control">
+    
+                <label for="googleSearchApiKey">Google Custom Search API Key</label>
+                <input type="text" id="googleSearchApiKey" class="form-control">
+                <label for="googleSearchCxId">Google Custom Search Engine id (cx)</label>
+                <input type="text" id="googleSearchCxId" class="form-control">
+    
+            
                 </br>
             </div>
 
@@ -97,7 +104,10 @@
                             <a class="nav-link" id="literature-assistant" href="#">Literature Survey Assistant</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="toggle-tab-content" href="#">Toggle Content</a>
+                          <a class="nav-link" id="review-assistant" href="#">Write a Review</a>
+                      </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="toggle-tab-content" href="#">Toggle Content <i class="bi bi-caret-up-fill"></i> <i class="bi bi-caret-down-fill"></i></a>
                         </li>
                         
                         <li class="nav-item ml-auto">
@@ -225,10 +235,16 @@
                 </div>
                 <div class="modal-body">
                     <form id="add-document-form">
-                        <div class="form-group">
-                            <label for="pdf-url">PDF URL (Note: Indexing takes long time (~1 hour).)</label>
-                            <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
+                      <div class="form-group">
+                        <label for="pdf-url">Arxiv PDF URL (Note: Indexing takes long time (~2 minute).)</label>
+                        <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
+                        <label>Or drop a PDF file here or <button type="button" id="file-upload-button" class="btn btn-link">browse</button></label>
+                        <div id="drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center;">
+                          Drop a PDF file here
                         </div>
+                        <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf" style="display: none;">
+                      </div>
+                      
                         <button id="submit-button" type="submit" class="btn btn-primary">Submit</button>
                         <div id="submit-spinner" style="display: none">
                             <div class="spinner-border text-primary" role="status">

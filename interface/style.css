@@ -187,4 +187,14 @@
     margin: 0 10px;
 }
 
+/* Hide caret-down by default */
+#toggle-tab-content .bi-caret-down-fill {
+    display: none;
+}
+
+/* Show caret-up by default */
+#toggle-tab-content .bi-caret-up-fill {
+    display: inline-block;
+}
+
 
