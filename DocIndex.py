@@ -1285,7 +1285,7 @@ def process_pdf(link_title_context_apikeys):
 def process_page_link(link_title_context_apikeys):
     link, title, context, api_keys, text = link_title_context_apikeys
     st = time.time()
-    pgc = get_page_content(link)
+    pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
     title = pgc["title"]
     text = pgc["text"]
     extracted_info = ''

@@ -210,6 +210,7 @@ def keyParser(session):
         "googleSearchApiKey":'',
         "googleSearchCxId":'',
         "openai_models_list": '',
+        "scrapingBrowserUrl": '',
     }
     for k, _ in keyStore.items():
         key = session.get(k)

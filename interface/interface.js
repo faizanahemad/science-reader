@@ -150,6 +150,7 @@ var keyStore = {
     serpApiKey: '',
     googleSearchCxId: '',
     googleSearchApiKey: '',
+    scrapingBrowserUrl: '',
 }
 
 function setKeysOnServer() {
