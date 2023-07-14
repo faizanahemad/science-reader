@@ -88,49 +88,38 @@
             </div>
 
             <div class="col-10" id="content-col">
-                <div id="pdf-view">
-                    <!-- PDF and details tabs will be displayed here -->
-                    <ul class="nav nav-tabs" id="pdf-details-tab" role="tablist">
-                        <li class="nav-item">
-                            <a class="nav-link" id="show-sidebar" href="#" style="display:none;">Show Sidebar</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link active" id="pdf-tab" data-toggle="tab" href="#pdf-content" role="tab">PDF</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Citations & References </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="social-media-threads" href="#">Social Media Threads</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="literature-assistant" href="#">Literature Survey Assistant</a>
-                        </li>
-                        <li class="nav-item">
-                          <a class="nav-link" id="review-assistant" href="#">Write a Review</a>
-                      </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="toggle-tab-content" href="#">Toggle Content <i class="bi bi-caret-up-fill"></i> <i class="bi bi-caret-down-fill"></i></a>
-                        </li>
-                        
-                        <li class="nav-item ml-auto">
-                            <a class="nav-link" id="logout-link" href="#">
-                                Logged in as <span id="username">Loading...</span>, Click here to Logout
-                            </a>
-                        </li>
-                        
-                    </ul>
-                    <div class="tab-content">
-                        <div class="tab-pane fade show active" id="pdf-content" role="tabpanel">
-                            <iframe id="pdfjs-viewer" src="interface/pdf.js/web/viewer.html" data-original-src="interface/pdf.js/web/viewer.html" width="100%" height="100%" allowfullscreen webkitallowfullscreen></iframe>
-                            <!-- PDF will be displayed here -->
-                            <div id="progress" style="display: none;">
-                                <div id="progressbar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
-                            </div>
-                            <span id="progress-status"></span>
-                        </div>
-
-                        <div class="tab-pane fade" id="details-content" role="tabpanel">
+                <ul class="nav nav-tabs" id="pdf-details-tab" role="tablist">
+                  <li class="nav-item">
+                      <a class="nav-link" id="show-sidebar" href="#" style="display:none;">Show Sidebar</a>
+                  </li>
+                  <li class="nav-item">
+                      <a class="nav-link active" id="pdf-tab" data-toggle="tab" href="#pdf-content" role="tab">PDF</a>
+                  </li>
+                  <li class="nav-item">
+                      <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Citations & References </a>
+                  </li>
+                  <li class="nav-item">
+                      <a class="nav-link" id="social-media-threads" href="#">Social Media Threads</a>
+                  </li>
+                  <li class="nav-item">
+                      <a class="nav-link" id="literature-assistant" href="#">Literature Survey Assistant</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Write a Review</a>
+                </li>
+                  <li class="nav-item">
+                      <a class="nav-link" id="toggle-tab-content" href="#">Toggle Content <i class="bi bi-caret-up-fill"></i> <i class="bi bi-caret-down-fill"></i></a>
+                  </li>
+                  
+                  <li class="nav-item ml-auto">
+                      <a class="nav-link" id="logout-link" href="#">
+                          Logged in as <span id="username">Loading...</span>, Click here to Logout
+                      </a>
+                  </li>
+                </ul>
+                <div id="references-view">
+                  <div class="tab-content">
+                    <div class="tab-pane fade" id="details-content" role="tabpanel">
                             <h3>References <button class="btn btn-primary" id="refresh-references">Refresh</button></h3>
                             <table id="references-table" class="display" style="width:100%">
                                 <thead>
@@ -206,19 +195,46 @@
                                     </tr>
                                 </tfoot>
                             </table>
+                    </div>
+                  </div>
+                </div>
+                <div id="review-assistant-view">
+                  <div class="tab-content">
+                    <div class="tab-pane fade" id="review-content" role="tabpanel">
+                      <div class="row"><div class="col-md-12" id="write_review"></div></div>
+                      <div class="row">
+                        <div class="col-md-12" id="show_reviews"></div>
+                      </div>
+                    </div>
+                    
+                  </div>
+                </div>
+                <div id="pdf-view">
+                    <!-- PDF and details tabs will be displayed here -->
+                    
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="pdf-content" role="tabpanel">
+                            <iframe id="pdfjs-viewer" src="interface/pdf.js/web/viewer.html" data-original-src="interface/pdf.js/web/viewer.html" width="100%" height="100%" allowfullscreen webkitallowfullscreen></iframe>
+                            <!-- PDF will be displayed here -->
+                            <div id="progress" style="display: none;">
+                                <div id="progressbar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+                            </div>
+                            <span id="progress-status"></span>
                         </div>
+                        <div id="ask-questions-view" class="view">
+                          <!-- Ask questions view will be built here -->
+                        </div>
+                        <div id="view-details-view" class="view">
+                            <!-- Document details view will be built here -->
+                        </div>
+                        <div id="search-view" class="view">
+                            <!-- Document search view will be built here -->
+                        </div>
+                        
                     </div>
                 </div>
 
-                <div id="ask-questions-view" class="view">
-                    <!-- Ask questions view will be built here -->
-                </div>
-                <div id="view-details-view" class="view">
-                    <!-- Document details view will be built here -->
-                </div>
-                <div id="search-view" class="view">
-                    <!-- Document search view will be built here -->
-                </div>
+                
                 
             </div>
         </div>

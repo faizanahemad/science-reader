@@ -651,11 +651,11 @@ Extracted Information:
         assert isinstance(result, str)
         return result
     
-def call_contextual_reader(query, document, keys, provide_short_responses=False)->str:
+def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=3000)->str:
     from base import ContextualReader
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses)
-    return cr(query, document)
+    return cr(query, document, chunk_size=chunk_size)
 
 
 

@@ -383,6 +383,12 @@ def write_review(doc_id, tone):
     email, name, _ = check_login(session)
     assert tone in ["positive", "negative", "neutral", "none"]
     review_topic = request.args.get('review_topic') # Has top level key and then an index variable
+    review_topic = review_topic.split(",")
+    review_topic = [r for r in review_topic if len(r.strip()) > 0 and r.strip()!='null']
+    if len(review_topic) > 1:
+        review_topic = [str(review_topic[0]), int(review_topic[1])]
+    else:
+        review_topic = review_topic[0]
     additional_instructions = request.args.get('instruction')
     use_previous_reviews = int(request.args.get('use_previous_reviews'))
     score_this_review = int(request.args.get('score_this_review'))

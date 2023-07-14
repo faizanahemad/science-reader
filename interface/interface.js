@@ -709,7 +709,6 @@ $(document).ready(function() {
         function updateVoteCount() {
             if (contentId) {
                 var request = $.getJSON('/getUpvotesDownvotesByQuestionId/' + contentId);
-                
             } else {
                 var request = $.ajax({
                     url: '/getUpvotesDownvotesByQuestionId/' + contentId,
@@ -743,7 +742,6 @@ $(document).ready(function() {
 
         function checkUserVote() {
             if (contentId) {
-                
                 var request = $.getJSON('/getUpvotesDownvotesByQuestionIdAndUser', {question_id: contentId});
             } else {
                 var request = $.ajax({
@@ -1642,6 +1640,7 @@ $(document).ready(function() {
     function setActiveDoc(docId) {
         activeDocId = docId;
         loadCitationsAndReferences();
+        setupReviewTab();
         highLightActiveDoc();
         setupAskQuestionsView();
         setupViewDetailsView();
@@ -1742,6 +1741,221 @@ $(document).ready(function() {
     }
 
     function setupReviewTab() {
+        $('#show_reviews').empty();
+        $('#write_review').empty();
+
+        $('#write_review').append(`
+            <form id="review_form">
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="review_params">Review Parameters</label>
+                        <select class="form-control" id="review_params">
+                            <!-- Options to be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label for="sub_review_params">Sub Review Parameters</label>
+                        <select class="form-control" id="sub_review_params" disabled>
+                            <!-- Options to be populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="additional_instructions">Additional Instructions</label>
+                    <textarea class="form-control" id="additional_instructions" rows="3"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label for="tone">Tone</label>
+                        <div id="tone" class="d-flex">
+                            <!-- Radio buttons to be populated dynamically -->
+                        </div>
+                    </div>
+                    <div class="form-group col-md-6 d-flex align-items-end">
+                        <div class="form-check mr-3">
+                            <input type="checkbox" class="form-check-input" id="score_this_review">
+                            <label class="form-check-label" for="score_this_review">Score this Review</label>
+                        </div>
+                        <div class="form-check mr-3">
+                            <input type="checkbox" class="form-check-input" id="use_previous_reviews">
+                            <label class="form-check-label" for="use_previous_reviews">Use Previous Reviews</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="is_meta_review">
+                            <label class="form-check-label" for="is_meta_review">Is Meta Review</label>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </form>
+        `)
+
+        if (activeDocId === null || activeDocId === undefined) {
+            return;
+        }
+
+        var tones = ["positive", "negative", "neutral", "none"];
+        var doc_id = activeDocId; // replace with your doc id
+
+        $.get('/get_reviews/' + doc_id, function(data) {
+            // populate reviews in cards
+            $.each(data.reviews, function(idx, review) {
+                var card = $('<div>').addClass('card');
+                var cardBody = $('<div>').addClass('card-body');
+                card.append(cardBody);
+                cardBody.append(`<h5 class="card-title">${review.header}</h5>`);
+                cardBody.append('<p class="card-text">'+review.description+'</p>');
+                cardBody.append('<h5 class="card-title">Additional Instructions:</h5>');
+                cardBody.append('<p class="card-text">'+review.instructions+'</p>');
+                cardBody.append('<h5 class="card-title">Tone:</h5>');
+                cardBody.append('<p class="card-text">'+review.tone+'</p>');
+                cardBody.append('<h5 class="card-title">Meta Review:</h5>');
+                cardBody.append('<p class="card-text">'+review.is_meta_review+'</p>');
+                cardBody.append('<h5 class="card-title">Review:</h5>');
+                let reviewParagraph = $('<p>').addClass('card-text').attr('id', 'main-review-paragraph');
+                cardBody.append(reviewParagraph);
+                reviewParagraph.append(review.review);
+                $('#show_reviews').append(card);
+                renderInnerContentAsMarkdown(reviewParagraph, function(){
+                    showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
+                });
+                initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id);
+
+            });
+            // populate review parameters dropdown
+            $.each(data.review_params, function(key, value) {
+                var new_opt = $("<option></option>").attr("value", key).text(key)
+                $('#review_params').append(new_opt);
+                if (!$.isArray(value)) {
+                    new_opt.attr("description", value)
+                }
+            });
+
+            // populate tone radio buttons
+            $.each(tones, function(index, tone) {
+                var radioItem = `
+                <div class="form-check form-check-inline">
+                    <div class="input-container">
+                        <input class="form-check-input" type="radio" name="tone" id="${tone}" value="${tone}">
+                    </div>
+                    <label class="form-check-label" for="${tone}">
+                      ${tone}
+                    </label>
+                </div>
+                `;
+                $('#tone').append(radioItem);
+            });
+        });
+
+        // update sub review parameters dropdown when review parameters selection changes
+        $('#review_params').change(function() {
+            var selected_param = $(this).val();
+
+            $.get('/get_reviews/' + doc_id, function(data) {
+                var sub_params = data.review_params[selected_param];
+
+                if ($.isArray(sub_params)) {
+                    $('#sub_review_params').empty().prop('disabled', false);
+                    
+                    $.each(sub_params, function(index, value) {
+                        $('#sub_review_params').append($("<option></option>").attr("value", index).attr("description", value[1]).text(value[0]));
+                    });
+                } else {
+                    $('#sub_review_params').empty().prop('disabled', true);
+                }
+            });
+        });
+
+        $('#review_form').submit(async function(e) {
+            e.preventDefault();
+            var selectedOption = $('#review_params').find('option:selected')
+            var header = selectedOption.text()
+            var header_description = selectedOption.attr("description")
+
+            var subSelectedOption = $('#sub_review_params').find('option:selected')
+            var sub_header = subSelectedOption.text()
+            var sub_description = subSelectedOption.attr("description")
+
+            var review_topic = $('#review_params').val() + "," + $('#sub_review_params').val();
+            var tone = $("input[name='tone']:checked").val();
+            var additional_instructions = $('#additional_instructions').val();
+            var score_this_review = $('#score_this_review').is(":checked") ? 1 : 0;
+            var use_previous_reviews = $('#use_previous_reviews').is(":checked") ? 1 : 0;
+            var is_meta_review = $('#is_meta_review').is(":checked") ? 1 : 0;
+        
+            var write_review_url = '/write_review/' + doc_id + '/' + tone +
+                '?review_topic=' + review_topic +
+                '&instruction=' + additional_instructions +
+                '&score_this_review=' + score_this_review +
+                '&use_previous_reviews=' + use_previous_reviews +
+                '&is_meta_review=' + is_meta_review;
+        
+            let response = await fetch(write_review_url);
+        
+            if (!response.ok) {
+                alert('An error occurred: ' + response.status);
+                return;
+            }
+        
+            let reader = response.body.getReader();
+            let decoder = new TextDecoder();
+        
+            let card = $('<div>').addClass('card');
+            let cardBody = $('<div>').addClass('card-body');
+            card.append(cardBody);
+            var cardHeader = $(`
+                <div><h5 class="card-title">Review Parameters:</h5></div>
+            `)
+            cardHeader.append('<p class="card-text">'+`<b>${header}</b>`+'</p>');
+            if (header_description != null){
+                cardHeader.append('<p class="card-text">'+`${header_description}`+'</p>');
+            }
+
+            cardHeader.append('<p class="card-text">'+`<b>${sub_header}</b>`+'</p>');
+            if (sub_description != null){
+                cardHeader.append('<p class="card-text">'+`${sub_description}`+'</p>');
+            }
+            
+            if (additional_instructions.length > 0){
+                cardHeader.append('<h5 class="card-title">Additional Instructions:</h5>');
+                cardHeader.append('<p class="card-text">'+additional_instructions+'</p>');
+            }
+            cardHeader.append('<p class="card-text">Tone = '+tone+'</p>');
+            cardHeader.append('<h5 class="card-title">Review:</h5>');
+            cardBody.append(cardHeader);
+            
+            let reviewParagraph = $('<p>').addClass('card-text').attr('id', 'main-review-paragraph');
+            cardBody.append(reviewParagraph);
+        
+            $('#write_review').append(card);
+            renderInnerContentAsMarkdown(cardHeader, function(){
+                showMore(null, text=null, textElem=cardHeader, as_html=true, show_at_start=true);
+            });
+        
+            let review = "";
+            var content_length = 0;
+            while (true) {
+                let { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                let part = decoder.decode(value);
+                reviewParagraph.append(part);
+                review = review + part;
+                if (reviewParagraph.html().length > content_length + 100){
+                    renderInnerContentAsMarkdown(reviewParagraph, 
+                                                    callback=null, continuous=true)
+                    content_length = reviewParagraph.html().length
+                }
+            }
+            renderInnerContentAsMarkdown(reviewParagraph, function(){
+                showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
+            });
+            initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","),);
+        });
+
+
+
     }
 
     
@@ -1768,25 +1982,26 @@ $(document).ready(function() {
     
     $('#details-tab').on('shown.bs.tab', function (e) {
         // Call the '/get_paper_details' API to fetch the data
-        $('#pdf-content').hide();
-        $('#review-assistant').hide();
-        $('#details-content').show();
+        $('#pdf-view').hide();
+        $('#review-assistant-view').hide();
+        $('#references-view').show();
+
         loadCitationsAndReferences();
     });
 
-    $('#review-assistant').on('shown.bs.tab', function (e) {
+    $('#review-assistant-tab').on('shown.bs.tab', function (e) {
         // Call the '/get_paper_details' API to fetch the data
-        $('#pdf-content').hide();
-        $('#review-assistant').show();
-        $('#details-content').hide();
+        $('#pdf-view').hide();
+        $('#references-view').hide();
+        $('#review-assistant-view').show();
         
     });
     
     $('#pdf-tab').on('shown.bs.tab', function (e) {
         // Clear the details viewer
-        $('#details-content').hide();
-        $('#review-assistant').hide();
-        $('#pdf-content').show();
+        $('#review-assistant-view').hide();
+        $('#references-view').hide();
+        $('#pdf-view').show();
         
     });
     
@@ -1812,6 +2027,11 @@ $(document).ready(function() {
         tabContent.style.display = 'block';
     });
 
+    document.getElementById('review-assistant-tab').addEventListener('click', function() {
+        var tabContent = document.querySelector('.tab-content');
+        tabContent.style.display = 'block';
+    });
+
     $('#toggle-tab-content').on('click', function() {
         var caretUp = $(this).find('.bi-caret-up-fill');
         var caretDown = $(this).find('.bi-caret-down-fill');
@@ -1831,5 +2051,8 @@ $(document).ready(function() {
         $('.view').empty();
         setActiveDoc(docId);
     });
+    $('#review-assistant-view').hide();
+    $('#references-view').hide();
+    $('#pdf-view').show();
 
 });

@@ -277,6 +277,8 @@ class DocIndex:
         elif mode["use_multiple_docs"]:
             additional_docs = mode["additional_docs_to_read"]
             mode = "use_multiple_docs"
+        elif mode["review"]:
+            mode = "review"
         else:
             mode = None
             
@@ -320,11 +322,14 @@ class DocIndex:
                 main_post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention whether elaborating the answer by reading the full document will help our user (write True for this) or whether our current answer is good enough and elaborating is just time wasted (write False for this). Write only True/False after the #### (four hashes)."
                 prompt = prompt + main_post_prompt_instruction
                 post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention one follow-up question in the next line similar to the initial question which can help in further understanding."
+            elif mode == "review":
+                post_prompt_instruction = ""
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
             st = time.time()
-            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.doc_data['chunks']), self.get_api_keys())
+            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.doc_data['chunks']), self.get_api_keys(), chunk_size=2000 if mode=="review" else 3200)
             et = time.time()
             logger.info(f"Blocking on ContextualReader for {(et-st):4f}s")
+            
             
         elif mode=="web_search":
             prompt = "Provide a short and concise answer. " + prompt
@@ -372,7 +377,7 @@ class DocIndex:
             txc = ''
             additional_info = additional_info.result()
             if mode == "review":
-                txc1 = additional_info['text']
+                txc1 = additional_info
                 txc2 = web_results.result()['text']
                 txc = f"Contextual text based on query from rest of document: {txc1} \n\n Web search response based on query: {txc2} \n\n"
             elif mode == "web_search":
@@ -382,7 +387,7 @@ class DocIndex:
                     txc += t
                 
             stage1_answer = answer + " \n "
-            if mode == "web_search":
+            if mode == "web_search" or mode == "review":
                 if web_generator_1 is None:
                     web_generator_1 = self.streaming_web_search_answering(query, answer, txc)
                     web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
@@ -735,7 +740,7 @@ Detailed and comprehensive summary:
 
     def streaming_web_search_answering(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        prompt = f"""Continue writing answer to a question which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
+        prompt = f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
 
 Question is given below:
 
@@ -862,7 +867,7 @@ Continued Answer using additional information from other documents with url link
     def get_instruction_text_from_review_topic(self, review_topic):
         instruction_text = ''
         if isinstance(review_topic, str) and review_topic.strip() in review_params:
-            instruction_text = review_params[review_topic.strip()]
+            instruction_text = review_topic + ": "+review_params[review_topic.strip()]
         elif isinstance(review_topic, str):
             instruction_text = review_topic.strip()
         elif isinstance(review_topic, (list, tuple)):
@@ -870,6 +875,7 @@ Continued Answer using additional information from other documents with url link
                 assert len(review_topic) == 2
                 assert isinstance(review_topic[0], str)
                 assert isinstance(review_topic[1], int)
+                
                 instruction_text = ": ".join(review_params[review_topic[0].strip()][review_topic[1]])
             except Exception as e:
                 raise Exception(f"Invalid review topic {review_topic}")
@@ -878,10 +884,25 @@ Continued Answer using additional information from other documents with url link
         return instruction_text
     
     def get_all_reviews(self):
+        new_review_params = dict(**review_params)
+        del new_review_params["meta_review"]
+        del new_review_params["scores"]
+        new_reviews = []
         if "reviews" in self.doc_data:
-            return {"reviews": self.doc_data["reviews"], "review_params": review_params}
+            for r in self.doc_data["reviews"]:
+                # dict(review_text=review_text, is_meta_review=is_meta_review, tone=tone, header=header, detailed_instructions=detailed_instructions, ) we use this structure.
+                new_reviews.append(dict(review=r["review"] + ('\n\n' if len(r['score']) > 0 else '') + r['score'], 
+                                        is_meta_review=r["is_meta_review"], 
+                                        tone=r["tone"], 
+                                        id=r["id"],
+                                        review_topic=r["review_topic"],
+                                        header=self.get_instruction_text_from_review_topic(r["review_topic"]).split(":")[0].strip(), 
+                                        description=self.get_instruction_text_from_review_topic(r["review_topic"]).split(":")[-1].strip(),
+                                        instructions=r["additional_instructions"],))    
+            
+            return {"reviews": new_reviews, "review_params": new_review_params}
         else:
-            return {"reviews": [], "review_params": review_params}
+            return {"reviews": [], "review_params":new_review_params}
        
         
     def get_review(self, tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review):
@@ -902,11 +923,11 @@ Continued Answer using additional information from other documents with url link
         if use_previous_reviews and "reviews" in self.doc_data:
             previous_reviews = [review for review in self.doc_data["reviews"] if review["tone"] == tone]
             previous_reviews_text = "\n\n".join([review["review"]+review["score"] for review in previous_reviews])
-        query_prompt = f"You are a {'meta-' if is_meta_review else ''}reviewer assigned to review and evalaute a scientific research paper on the basis of a certain topic. Provide a {tone + ' ' if tone!='none' else ''}review for the given scientific text. The topic and style of your review is described in the reviewer instructions given here: '''{instruction_text}'''  \n{'Further we have certain additional instructions to follow while writing this review: ' if len(additional_instructions.strip())>0 else ''}'''{additional_instructions}''' \n\n{'We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ' if len(previous_reviews_text) > 0 else ''}'''{previous_reviews_text}''' \n\n{'meta-' if is_meta_review else ''}Review: \n"
+        query_prompt = f"You are a {'meta-' if is_meta_review else ''}reviewer assigned to review and evalaute a scientific research paper on the basis of a certain topic. Write an opinionated review as a human reviewer who is thorough with this domain of research. {(' '+review_params['meta_review'] + ' ') if is_meta_review else ''} Provide a {(tone + ' ') if tone!='none' else ''}review for the given scientific text. The topic and style of your review is described in the reviewer instructions given here: '''{instruction_text}'''  \n{'Further we have certain additional instructions to follow while writing this review: ' if len(additional_instructions.strip())>0 else ''}'''{additional_instructions}''' \n\n{'We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ' if len(previous_reviews_text) > 0 else ''}'''{previous_reviews_text}''' \n Don't give your final remarks and conclusions yet. We will ask you to do that later. \n\n{'Meta-' if is_meta_review else ''}Review: \n"
         mode = defaultdict(lambda: False)
         mode["review"] = True
         review = ''
-        for txt in self.streaming_get_short_answer(self, query_prompt, mode=mode, save_answer=False):
+        for txt in self.streaming_get_short_answer(query_prompt, defaultdict(lambda: False, {"review": True}), save_answer=False):
             yield txt
             review += txt
         score = ''
@@ -921,7 +942,12 @@ Continued Answer using additional information from other documents with url link
     def save_review(self, review, score, tone, review_topic, additional_instructions, is_meta_review):
         if "reviews" not in self.doc_data:
             self.doc_data["reviews"] = []
-        self.doc_data["reviews"].append(dict(review=review, score=score, tone=tone, review_topic=review_topic, additional_instructions=additional_instructions, is_meta_review=is_meta_review))
+        cur_len = len(self.doc_data["reviews"])
+        save_dict = dict(review=review, score=score, tone=tone, review_topic=",".join(map(str, review_topic)) if isinstance(review_topic, list) else review_topic, additional_instructions=additional_instructions, is_meta_review=is_meta_review)
+        id = str(mmh3.hash(self.doc_source + ",".join([tone, ",".join(map(str, review_topic)) if isinstance(review_topic, list) else review_topic, additional_instructions, str(is_meta_review)]), signed=False))
+        save_dict["id"] = id
+        self.doc_data["reviews"].append(save_dict)
+        self.save_local(None)
         
     def load_fresh_self(self):
         if self.last_access_time < time.time() - 3600:
@@ -1280,7 +1306,7 @@ Output only a valid python list of query strings:
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
     web_contexts = [context +"? " + r["query"] for r in dedup_results_web]
-    read_text_web, per_pdf_texts_web = read_over_multiple_webpages(web_links, web_titles, web_contexts, api_keys)
+    
     
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
@@ -1295,7 +1321,10 @@ Output only a valid python list of query strings:
     texts = None
     if rerank_available:
         texts = [p["text"] for p in pdfs]
-    read_text, per_pdf_texts = read_over_multiple_pdf(links, titles, contexts, api_keys, texts)
+    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
+    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
+    read_text_web, per_pdf_texts_web = web_future.result()
+    read_text, per_pdf_texts = pdf_future.result()
     
     all_results_doc = dedup_results + dedup_results_web
     all_text = read_text + "\n\n" + read_text_web
@@ -1363,7 +1392,7 @@ def process_pdf(link_title_context_apikeys):
 def process_page_link(link_title_context_apikeys):
     link, title, context, api_keys, text = link_title_context_apikeys
     st = time.time()
-    pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
+    pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
     title = pgc["title"]
     text = pgc["text"]
     extracted_info = ''
