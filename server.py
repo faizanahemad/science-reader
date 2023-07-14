@@ -376,9 +376,31 @@ def add_user_question_feedback():
         return str(e), 400
 
 
+@app.route('/write_review/<doc_id>/<tone>', methods=['GET'])
+@login_required
+def write_review(doc_id, tone):
+    keys = keyParser(session)
+    email, name, _ = check_login(session)
+    assert tone in ["positive", "negative", "neutral", "none"]
+    review_topic = request.args.get('review_topic') # Has top level key and then an index variable
+    additional_instructions = request.args.get('instruction')
+    use_previous_reviews = int(request.args.get('use_previous_reviews'))
+    score_this_review = int(request.args.get('score_this_review'))
+    is_meta_review = int(request.args.get('is_meta_review'))
+    
+    review = set_keys_on_docs(indexed_docs[doc_id], keys).get_review(tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review)
+    return Response(stream_with_context(review), content_type='text/plain')
 
-
-
+@app.route('/get_reviews/<doc_id>', methods=['GET'])
+@login_required
+def get_all_reviews(doc_id):
+    keys = keyParser(session)
+    email, name, _ = check_login(session)
+    reviews = set_keys_on_docs(indexed_docs[doc_id], keys).get_all_reviews()
+    # lets send json response
+    return jsonify(reviews)
+    
+    
 @app.route('/login')
 def login():
     redirect_uri = url_for('authorize', _external=True)

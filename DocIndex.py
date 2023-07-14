@@ -37,7 +37,7 @@ from langchain.agents import initialize_agent
 from langchain.agents import AgentType
 from langchain import OpenAI, ConversationChain
 from langchain.embeddings import OpenAIEmbeddings
-
+from review_criterias import review_params
 
 import openai
 import tiktoken
@@ -291,6 +291,10 @@ class DocIndex:
             web_results = get_async_future(get_multiple_answers, query, additional_docs)
             mode = "web_search"
             depth = 1
+            
+        if mode == "review":
+            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), self.get_date())
+            
         dqna_nodes = self.dqna_index.similarity_search(query, k=self.result_cutoff)
         summary_nodes = self.summary_index.similarity_search(query, k=self.result_cutoff*2)
         summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
@@ -310,15 +314,18 @@ class DocIndex:
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=raw_text, summary="", 
                                             questions_answers="", full_summary=self.doc_data["running_summary"])
         logger.info(f"Started streaming answering")
-        if mode=="detailed":
-            main_post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention whether elaborating the answer by reading the full document will help our user (write True for this) or whether our current answer is good enough and elaborating is just time wasted (write False for this). Write only True/False after the #### (four hashes)."
-            prompt = prompt + main_post_prompt_instruction
+        if mode=="detailed" or mode=="detailed_with_followup" or mode=="review":
+            post_prompt_instruction = ''
+            if mode=="detailed_with_followup":
+                main_post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention whether elaborating the answer by reading the full document will help our user (write True for this) or whether our current answer is good enough and elaborating is just time wasted (write False for this). Write only True/False after the #### (four hashes)."
+                prompt = prompt + main_post_prompt_instruction
+                post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention one follow-up question in the next line similar to the initial question which can help in further understanding."
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
             st = time.time()
             additional_info = get_async_future(call_contextual_reader, query, " ".join(self.doc_data['chunks']), self.get_api_keys())
             et = time.time()
             logger.info(f"Blocking on ContextualReader for {(et-st):4f}s")
-            post_prompt_instruction = " \n\n After answering the question, append #### (four hashes) in a new line to your output and then mention one follow-up question in the next line similar to the initial question which can help in further understanding."
+            
         elif mode=="web_search":
             prompt = "Provide a short and concise answer. " + prompt
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
@@ -339,11 +346,12 @@ class DocIndex:
         decision_var = ''
         web_generator_1 = None
         for txt in main_ans_gen:
-            if mode == "web_search":
+            if mode == "web_search" or mode == "review":
                 if web_results.done():
                     web_res_1 = web_results.result()
                     web_generator_1 = self.streaming_web_search_answering(query, answer, web_res_1["text"])
-                    web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
+                    if depth == 2:
+                        web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
                     
             if breaker.strip() != '####':
                 yield txt
@@ -358,12 +366,16 @@ class DocIndex:
         logger.info(f"Decision to continue the answer for short answer = {decision_var}")
         decision_var = True if re.sub(r"[^a-z]+", "", decision_var.lower().strip()) in ["true", "yes", "ok", "sure"] else False
         
-        if (decision_var and (mode == "detailed" or mode == "detailed_with_followup")) or mode == "web_search":
+        if (decision_var and (mode == "detailed" or mode == "detailed_with_followup")) or mode == "web_search" or mode == "review":
             follow_breaker = ''
             follow_q = ''
             txc = ''
             additional_info = additional_info.result()
-            if mode == "web_search":
+            if mode == "review":
+                txc1 = additional_info['text']
+                txc2 = web_results.result()['text']
+                txc = f"Contextual text based on query from rest of document: {txc1} \n\n Web search response based on query: {txc2} \n\n"
+            elif mode == "web_search":
                 txc = additional_info['text']
             else:
                 for t in additional_info:
@@ -628,7 +640,7 @@ Detailed and comprehensive summary:
             try:
                 short_summary = self.paper_details["abstract"]
             except Exception as e:
-                short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Provide a short summary for the below scientific text: \n'''{self.doc_data['chunks'][0] + ' ' + self.doc_data['chunks'][1]}''' \nInclude relevant keywords, the provided abstract and any search/seo friendly terms in your summary. \nSummary: \n",)
+                short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Provide a summary for the below scientific text: \n'''{self.doc_data['chunks'][0] + ' ' + self.doc_data['chunks'][1]}''' \nInclude relevant keywords, the provided abstract and any search/seo friendly terms in your summary. \nSummary: \n",)
             setattr(self, "_short_summary", short_summary)
             return short_summary
         
@@ -650,6 +662,8 @@ Detailed and comprehensive summary:
         elif mode["use_multiple_docs"]:
             additional_docs = mode["additional_docs_to_read"]
             mode = "use_multiple_docs"
+        elif mode["review"]:
+            mode = "review"
         else:
             mode = None
         raw_nodes = self.raw_index.similarity_search(query, k=self.result_cutoff)
@@ -845,6 +859,70 @@ Continued Answer using additional information from other documents with url link
         self.doc_data['running_summary'] = rsum
         self.summary_index = create_index_faiss(self.doc_data['chunked_summary'], get_embedding_model(self.get_api_keys()), )
     
+    def get_instruction_text_from_review_topic(self, review_topic):
+        instruction_text = ''
+        if isinstance(review_topic, str) and review_topic.strip() in review_params:
+            instruction_text = review_params[review_topic.strip()]
+        elif isinstance(review_topic, str):
+            instruction_text = review_topic.strip()
+        elif isinstance(review_topic, (list, tuple)):
+            try:
+                assert len(review_topic) == 2
+                assert isinstance(review_topic[0], str)
+                assert isinstance(review_topic[1], int)
+                instruction_text = ": ".join(review_params[review_topic[0].strip()][review_topic[1]])
+            except Exception as e:
+                raise Exception(f"Invalid review topic {review_topic}")
+        else:
+            raise Exception(f"Invalid review topic {review_topic}")
+        return instruction_text
+    
+    def get_all_reviews(self):
+        if "reviews" in self.doc_data:
+            return {"reviews": self.doc_data["reviews"], "review_params": review_params}
+        else:
+            return {"reviews": [], "review_params": review_params}
+       
+        
+    def get_review(self, tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review):
+        # Map -> collect details.
+        # TODO: Support followup on a generated review.
+        # TODO: use previous reviews.
+        assert tone in ["positive", "negative", "neutral", "none"]
+        instruction_text = self.get_instruction_text_from_review_topic(review_topic)
+        if is_meta_review:
+            assert use_previous_reviews and "reviews" in self.doc_data, "Meta reviews require previous reviews to be present"
+        if "reviews" in self.doc_data:
+            for review in self.doc_data["reviews"]:
+                if str(review["review_topic"]) == str(review_topic) and review["tone"] == tone:
+                    yield review["review"]
+                    yield review["score"]
+                    return
+        previous_reviews_text = ''
+        if use_previous_reviews and "reviews" in self.doc_data:
+            previous_reviews = [review for review in self.doc_data["reviews"] if review["tone"] == tone]
+            previous_reviews_text = "\n\n".join([review["review"]+review["score"] for review in previous_reviews])
+        query_prompt = f"You are a {'meta-' if is_meta_review else ''}reviewer assigned to review and evalaute a scientific research paper on the basis of a certain topic. Provide a {tone + ' ' if tone!='none' else ''}review for the given scientific text. The topic and style of your review is described in the reviewer instructions given here: '''{instruction_text}'''  \n{'Further we have certain additional instructions to follow while writing this review: ' if len(additional_instructions.strip())>0 else ''}'''{additional_instructions}''' \n\n{'We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ' if len(previous_reviews_text) > 0 else ''}'''{previous_reviews_text}''' \n\n{'meta-' if is_meta_review else ''}Review: \n"
+        mode = defaultdict(lambda: False)
+        mode["review"] = True
+        review = ''
+        for txt in self.streaming_get_short_answer(self, query_prompt, mode=mode, save_answer=False):
+            yield txt
+            review += txt
+        score = ''
+        
+        if score_this_review:
+            score_prompt = f"Provide a score for the given research work using the given review on a scale of 1-5 ({review_params['scores']}). Provide your step by step elaborate reasoning for your decision and score before writing your score. \nFirst page of the research work:  \n'''{ ' '.join(self.doc_data['chunks'][:2])}''' \nReview: \n'''{review}''' \nReasoning for score and Score: \n"
+            for txt in CallLLm(self.get_api_keys(), use_gpt4=False)(score_prompt, temperature=0.1, stream=True):
+                yield txt
+                score += txt
+        self.save_review(review, score, tone, review_topic, additional_instructions, is_meta_review)
+    
+    def save_review(self, review, score, tone, review_topic, additional_instructions, is_meta_review):
+        if "reviews" not in self.doc_data:
+            self.doc_data["reviews"] = []
+        self.doc_data["reviews"].append(dict(review=review, score=score, tone=tone, review_topic=review_topic, additional_instructions=additional_instructions, is_meta_review=is_meta_review))
+        
     def load_fresh_self(self):
         if self.last_access_time < time.time() - 3600:
             slf = self.load_self()

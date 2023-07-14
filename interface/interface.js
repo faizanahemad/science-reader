@@ -854,24 +854,23 @@ $(document).ready(function() {
                 var qnaExists = data.details.detailed_qna && data.details.detailed_qna.length > 0;
                 var deepDetailsExists = data.details.deep_reader_details && Object.keys(data.details.deep_reader_details).length > 0;
 
-                var summaryColClass = qnaExists && deepDetailsExists ? "col-4" : "col-6";
+                var summaryColClass = "col-12";
 
                 row.append('<div id="summary-column" class="' + summaryColClass + '"></div>');
 
                 if (qnaExists) {
-                    row.append('<div id="qna-column" class="col-4"></div>');
+                    view.append('<div id="qna-row" class="row"><div id="qna-column" class="col-12"></div></div>');
                 }
 
                 if (deepDetailsExists) {
-                    row.append('<div id="deep-details-column" class="col-4"></div>');
+                    view.append('<div id="deep-details-row" class="row"><div id="deep-details-column" class="col-12"></div></div>');
                 }
 
                 // Populate the summary column
-                $('#summary-column').append('<h4>Short Summary</h4>');
+                $('#summary-column').append('<h4>Summary</h4>');
                 if (data.summary === '') {
                     
-                    $('#summary-column').append('<p id="summary-text">Details not loaded yet</p>');
-                    $('#summary-column').append('<button id="get-summary-details-button" type="button" class="btn btn-primary">Get Details</button>');
+                    $('#summary-column').append('<button id="get-summary-details-button" type="button" class="btn btn-primary">Generate Summary</button>');
                     $('#get-summary-details-button').click(async function() {
                         // The button element
                         const button = $(this);
@@ -942,7 +941,7 @@ $(document).ready(function() {
                     
                 }
 
-                $('#summary-column').append('<h4>Elaborate Summary</h4>');
+                
                 var chunkContainer = $('<div class="summary-text"></div>')
                 chunked_summary = data.details.chunked_summary;
 
@@ -1251,18 +1250,7 @@ $(document).ready(function() {
     }
 
     
-    function highLightActiveDoc(){
-        $('#documents .list-group-item').removeClass('active');
-        $('#documents .list-group-item[data-doc-id="' + activeDocId + '"]').addClass('active');
-    }
 
-    function setActiveDoc(docId) {
-        activeDocId = docId;
-        loadCitationsAndReferences();
-        highLightActiveDoc();
-        setupAskQuestionsView();
-        setupViewDetailsView();
-    }
     
     function addOptions(parentElementId, type) {
         var checkBoxIds = [
@@ -1646,7 +1634,19 @@ $(document).ready(function() {
     }
 
 
-    
+    function highLightActiveDoc(){
+        $('#documents .list-group-item').removeClass('active');
+        $('#documents .list-group-item[data-doc-id="' + activeDocId + '"]').addClass('active');
+    }
+
+    function setActiveDoc(docId) {
+        activeDocId = docId;
+        loadCitationsAndReferences();
+        highLightActiveDoc();
+        setupAskQuestionsView();
+        setupViewDetailsView();
+    }
+
     function setupPDFModalSubmit() {
         $('#add-document-button').click(function() {
             $('#add-document-modal').modal('show');
@@ -1741,6 +1741,8 @@ $(document).ready(function() {
         });
     }
 
+    function setupReviewTab() {
+    }
 
     
     initialiseKeyStore();
@@ -1749,6 +1751,7 @@ $(document).ready(function() {
     initSearch("searchBox");
     setupAskQuestionsView();
     setupPDFModalSubmit();
+    setupReviewTab();
     
     $('#refresh-references, #refresh-citations').on('click', function() {
         apiCall('/refetch_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
@@ -1765,18 +1768,26 @@ $(document).ready(function() {
     
     $('#details-tab').on('shown.bs.tab', function (e) {
         // Call the '/get_paper_details' API to fetch the data
-        $('#details-content').show();
         $('#pdf-content').hide();
+        $('#review-assistant').hide();
+        $('#details-content').show();
         loadCitationsAndReferences();
+    });
+
+    $('#review-assistant').on('shown.bs.tab', function (e) {
+        // Call the '/get_paper_details' API to fetch the data
+        $('#pdf-content').hide();
+        $('#review-assistant').show();
+        $('#details-content').hide();
+        
     });
     
     $('#pdf-tab').on('shown.bs.tab', function (e) {
         // Clear the details viewer
         $('#details-content').hide();
+        $('#review-assistant').hide();
         $('#pdf-content').show();
-
-        // Display the PDF when the PDF tab is activated
-//         showPDF(pdfUrl);  // replace pdfUrl with the URL of your PDF
+        
     });
     
     $('#hide-sidebar').on('click', toggleSidebar);
