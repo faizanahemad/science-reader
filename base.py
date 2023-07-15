@@ -400,8 +400,9 @@ def ChunkText(text_document: str, chunk_size: int=3400, chunk_overlap:int=100):
 
 
 class Summarizer:
-    def __init__(self, keys):
+    def __init__(self, keys, is_detailed=False):
         self.keys = keys
+        self.is_detail = is_detailed
         self.name = "Summariser"
         self.description = """
 Summarizer:
@@ -416,13 +417,17 @@ Summarizer:
     Usage:
         `summary = Summarizer()(text_document="document to summarize") # Note: this tool needs to be initialized first.`
     """
+        template = f""" 
+Summarize the document below into a {"detailed and informational " if is_detailed else ""}shorter version (by eliminating repeatation, by paraphrasing etc.) while preserving the main points and context, do not miss any important details, do not remove mathematical details.
+Document:
+{{document}}
+
+{"Detailed and informational " if is_detailed else ""}Summary:
+
+"""
         self.prompt = PromptTemplate(
             input_variables=["document"],
-            template=""" 
-Summarize the document below into a shorter version (by eliminating repeatation, by paraphrasing etc.) while preserving the main points and context, do not miss any important details, do not remove mathematical details.
-Document is given below:
-{document}
-""",
+            template=template,
         )
     @timer
     def __call__(self, text_document):
@@ -462,7 +467,12 @@ Document is given below:
         logger.info(f"ReduceRepeatTool with input as \n {text_document} and output as \n {result}")
         return result
 
-process_text_executor = ThreadPoolExecutor(max_workers=16)
+process_text_executor = ThreadPoolExecutor(max_workers=32)
+def contrain_text_length_by_summary(text, keys, threshold=2000):
+    summariser = Summarizer(keys)
+    tlc = partial(TextLengthCheck, threshold=threshold)
+    return text if tlc(text) else summariser(text)
+
 def process_text(text, chunk_size, my_function, keys):
     # Split the text into chunks
     chunks = list(chunk_text_langchain(text, chunk_size))
@@ -473,17 +483,20 @@ def process_text(text, chunk_size, my_function, keys):
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    summariser = Summarizer(keys)
-    tlc = partial(TextLengthCheck, threshold=1800)
+    threshold = 2000
+    tlc = partial(TextLengthCheck, threshold=threshold)
+    
     while len(results) > 1:
         logger.warning("--- process_text --- Multiple chunks as result.")
         logger.info(f"Results len = {len(results)} and type of results =  {type(results[0])}")
         assert isinstance(results[0], str)
-        results = [r if tlc(r) else summariser(r) for r in results]
+        results = [process_text_executor.submit(contrain_text_length_by_summary, r, keys, threshold) for r in results]
+        results = [future.result() for future in results]
         results = combine_array_two_at_a_time(results)
     assert len(results) == 1
     results = results[0]
     if not tlc(results):
+        summariser = Summarizer(keys, is_detailed=True)
         logger.warning("--- process_text --- Calling Summarizer on single result")
         results = summariser(results)
     
@@ -604,7 +617,7 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Provide short, concise and informative response in 5-6 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "") + """
+            template=("Provide short, concise and informative response in 5-6 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "Provide elaborate and in-depth information relevant to the provided context after 'Extracted Information'. ") + """
 Gather information and context from the given document for the given question:
 "{context}"
 
