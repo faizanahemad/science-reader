@@ -96,20 +96,24 @@
                       <a class="nav-link active" id="pdf-tab" data-toggle="tab" href="#pdf-content" role="tab">PDF</a>
                   </li>
                   <li class="nav-item">
-                      <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Citations & References </a>
+                    <a class="nav-link" id="hide-navbar" href="#">Show only PDF</a>
                   </li>
                   <li class="nav-item">
-                      <a class="nav-link" id="social-media-threads" href="#">Social Media Threads</a>
+                      <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Cites & Refs </a>
                   </li>
                   <li class="nav-item">
-                      <a class="nav-link" id="literature-assistant" href="#">Literature Survey Assistant</a>
+                      <a class="nav-link" id="social-media-threads" href="#">Social Media</a>
                   </li>
                   <li class="nav-item">
-                    <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Write a Review</a>
-                </li>
-                  <li class="nav-item">
-                      <a class="nav-link" id="toggle-tab-content" href="#">Toggle Content <i class="bi bi-caret-up-fill"></i> <i class="bi bi-caret-down-fill"></i></a>
+                      <a class="nav-link" id="literature-assistant" href="#">Survey Assistant</a>
                   </li>
+                  <li class="nav-item">
+                    <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Review</a>
+                  </li>
+                  <li class="nav-item">
+                      <a class="nav-link" id="toggle-tab-content" href="#"><i class="bi bi-caret-up-fill"> Hide PDF</i> <i class="bi bi-caret-down-fill"> Show PDF</i></a>
+                  </li>
+                  
                   
                   <li class="nav-item ml-auto">
                       <a class="nav-link" id="logout-link" href="#">
@@ -117,6 +121,7 @@
                       </a>
                   </li>
                 </ul>
+                <div id="navbar-trigger" style="height: 10px;"></div>
                 <div id="references-view">
                   <div class="tab-content">
                     <div class="tab-pane fade" id="details-content" role="tabpanel">
@@ -213,24 +218,26 @@
                     <!-- PDF and details tabs will be displayed here -->
                     
                     <div class="tab-content">
-                        <div class="tab-pane fade show active" id="pdf-content" role="tabpanel">
+
+                      <div class="tab-pane fade show active" id="pdf-content" role="tabpanel">
                             <iframe id="pdfjs-viewer" src="interface/pdf.js/web/viewer.html" data-original-src="interface/pdf.js/web/viewer.html" width="100%" height="100%" allowfullscreen webkitallowfullscreen></iframe>
                             <!-- PDF will be displayed here -->
                             <div id="progress" style="display: none;">
                                 <div id="progressbar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
                             </div>
                             <span id="progress-status"></span>
+                        <div id="pdf-questions">
+                          <div id="ask-questions-view" class="view">
+                            <!-- Ask questions view will be built here -->
+                          </div>
+                          <div id="view-details-view" class="view">
+                              <!-- Document details view will be built here -->
+                          </div>
+                          <div id="search-view" class="view">
+                              <!-- Document search view will be built here -->
+                          </div>
                         </div>
-                        <div id="ask-questions-view" class="view">
-                          <!-- Ask questions view will be built here -->
-                        </div>
-                        <div id="view-details-view" class="view">
-                            <!-- Document details view will be built here -->
-                        </div>
-                        <div id="search-view" class="view">
-                            <!-- Document search view will be built here -->
-                        </div>
-                        
+                      </div>
                     </div>
                 </div>
 

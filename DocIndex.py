@@ -229,7 +229,6 @@ class DocIndex:
         ddr = [k + "\n" + v["text"] for k, v in lsum["deep_reader_details"].items()]
         dqna = dqna + ddr
         self.dqna_index = create_index_faiss(dqna, openai_embed, doc_id=self.doc_id, )
-        
         self.raw_index = create_index_faiss(self.doc_data['chunks'], openai_embed,  )
         self.summary_index = create_index_faiss(self.doc_data['chunked_summary'], openai_embed, )
         self.small_chunk_index = create_index_faiss(self.doc_data["small_chunks"], openai_embed,  )
@@ -356,7 +355,7 @@ class DocIndex:
                     web_res_1 = web_results.result()
                     web_generator_1 = self.streaming_web_search_answering(query, answer, web_res_1["text"])
                     if depth == 2:
-                        web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
+                        web_results_l2 = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, web_res_1['search_results'])
                     
             if breaker.strip() != '####':
                 yield txt
@@ -376,9 +375,10 @@ class DocIndex:
             follow_q = ''
             txc = ''
             additional_info = additional_info.result()
+            web_results = web_results.result()
             if mode == "review":
                 txc1 = additional_info
-                txc2 = web_results.result()['text']
+                txc2 = web_results['text']
                 txc = f"Contextual text based on query from rest of document: {txc1} \n\n Web search response based on query: {txc2} \n\n"
             elif mode == "web_search":
                 txc = additional_info['text']
@@ -390,15 +390,16 @@ class DocIndex:
             if mode == "web_search" or mode == "review":
                 if web_generator_1 is None:
                     web_generator_1 = self.streaming_web_search_answering(query, answer, txc)
-                    web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
+                    if mode == "web_search" and depth == 2:
+                        web_results_l2 = get_async_future(web_search, query, self.doc_source, "\n ".join(self.doc_data['chunks'][:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer, additional_info['search_results'])
                 generator = web_generator_1
                 
                 
-                if len(additional_info['queries'])>0:
+                if len(web_results['queries'])>0:
                     answer += "\nWeb searched with Queries: \n"
                     yield "\nWeb searched with Queries: \n"
                     yield '</br>'
-                for ix, q in enumerate(additional_info['queries']):
+                for ix, q in enumerate(web_results['queries']):
                     answer += (str(ix+1) + ". " + q + " \n")
                     yield str(ix+1) + ". " + q + " \n"
                     yield '</br>'
@@ -406,7 +407,7 @@ class DocIndex:
                 
                 answer += "\n\nSearch Results: \n"
                 yield '</br>'
-                for ix, r in enumerate(additional_info['search_results']):
+                for ix, r in enumerate(web_results['search_results']):
                     answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
                     yield str(ix+1) + f". [{r['title']}]({r['link']})"
                     yield '</br>'
@@ -418,8 +419,8 @@ class DocIndex:
             web_generator_2 = None
             for txt in generator:
                 if mode == "web_search" and depth==2:
-                    if web_results.done():
-                        additional_info = web_results.result()
+                    if web_results_l2.done():
+                        additional_info = web_results_l2.result()
                         web_generator_2 = self.streaming_get_more_details(query, stage1_answer, 2, additional_info['text'], post_prompt_instruction, save_answer)
                 if follow_breaker.strip() != '####':
                     yield txt
@@ -435,7 +436,7 @@ class DocIndex:
             if mode == "web_search" and depth==2:
                 
                 if web_generator_2 is None:
-                    additional_info = web_results.result()
+                    additional_info = web_results_l2.result()
                     logger.info(f"1st Stage Answer \n```\n{stage1_answer}\n```\n")
                     web_generator_2 = self.streaming_get_more_details(query, stage1_answer, 1, additional_info['text'], post_prompt_instruction, save_answer)
                 yield "</br> \n"
@@ -910,6 +911,8 @@ Continued Answer using additional information from other documents with url link
         # TODO: Support followup on a generated review.
         # TODO: use previous reviews.
         assert tone in ["positive", "negative", "neutral", "none"]
+        tones = ["positive", "negative", "neutral", "none"]
+        tone_synonyms = ["favorable and supportive.", "critical and unfavorable.", "not opinionated and middle grounded.", "unbiased to accept or reject."]
         instruction_text = self.get_instruction_text_from_review_topic(review_topic)
         if is_meta_review:
             assert use_previous_reviews and "reviews" in self.doc_data, "Meta reviews require previous reviews to be present"
@@ -923,7 +926,13 @@ Continued Answer using additional information from other documents with url link
         if use_previous_reviews and "reviews" in self.doc_data:
             previous_reviews = [review for review in self.doc_data["reviews"] if review["tone"] == tone]
             previous_reviews_text = "\n\n".join([review["review"]+review["score"] for review in previous_reviews])
-        query_prompt = f"You are a {'meta-' if is_meta_review else ''}reviewer assigned to review and evalaute a scientific research paper on the basis of a certain topic. Write an opinionated review as a human reviewer who is thorough with this domain of research. {(' '+review_params['meta_review'] + ' ') if is_meta_review else ''} Provide a {(tone + ' ') if tone!='none' else ''}review for the given scientific text. The topic and style of your review is described in the reviewer instructions given here: '''{instruction_text}'''  \n{'Further we have certain additional instructions to follow while writing this review: ' if len(additional_instructions.strip())>0 else ''}'''{additional_instructions}''' \n\n{'We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ' if len(previous_reviews_text) > 0 else ''}'''{previous_reviews_text}''' \n Don't give your final remarks and conclusions yet. We will ask you to do that later. \n\n{'Meta-' if is_meta_review else ''}Review: \n"
+        query_prompt = f"""You are an expert {'meta-' if is_meta_review else ''}reviewer assigned to review and evalaute a scientific research paper using certain reviewer instructions on a conference submission website like openreview.net or microsoft cmt. 
+Write an opinionated review as a human reviewer who is thorough with this domain of research. 
+Justify your review points and thoughts on the paper with examples from the paper. {(' '+review_params['meta_review'] + ' ') if is_meta_review else ''} Provide a {(tone + ' ') if tone!='none' and len(tone)>0 else ''}review for the given scientific text.{(' Make your review sound ' + tone_synonyms[tones.index(tone)]) if tone!='none' and len(tone)>0 else ''}
+The topic and style of your review is described in the reviewer instructions given here: \n'''{instruction_text}'''  \n{'Further we have certain additional instructions to follow while writing this review: ' if len(additional_instructions.strip())>0 else ''}'''{additional_instructions}''' 
+\n\n{'We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ' if len(previous_reviews_text) > 0 else ''}'''{previous_reviews_text}''' \n 
+Don't give your final remarks or conclusion in this response. We will ask you to give your final remarks and conclusion later. 
+\n{'Meta-' if is_meta_review else ''}Review: \n"""
         mode = defaultdict(lambda: False)
         mode["review"] = True
         review = ''
@@ -933,7 +942,7 @@ Continued Answer using additional information from other documents with url link
         score = ''
         
         if score_this_review:
-            score_prompt = f"Provide a score for the given research work using the given review on a scale of 1-5 ({review_params['scores']}). Provide your step by step elaborate reasoning for your decision and score before writing your score. \nFirst page of the research work:  \n'''{ ' '.join(self.doc_data['chunks'][:2])}''' \nReview: \n'''{review}''' \nReasoning for score and Score: \n"
+            score_prompt = f"Provide a score for the given research work using the given review on a scale of 1-5 ({review_params['scores']}). Provide your step by step elaborate reasoning for your score decision before writing your score. \nFirst page of the research work:  \n'''{ ' '.join(self.doc_data['chunks'][:2])}''' \nReview: \n'''{review}''' \nWrite Reasoning for score and then write score: \n"
             for txt in CallLLm(self.get_api_keys(), use_gpt4=False)(score_prompt, temperature=0.1, stream=True):
                 yield txt
                 score += txt
@@ -1226,10 +1235,26 @@ Output only a valid python list of query strings:
         serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
         logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     else:
-        logger.warning(f"Neither Bing nor SERP keys are given but Search option choosen.")
+        logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         return {"text":'', "search_results": [], "queries": query_strings}
-    serps = [s.result() for s in serps]
-    serps_web = [s.result() for s in serps_web]
+    try:
+        serps = [s.result() for s in serps]
+        serps_web = [s.result() for s in serps_web]
+    except Exception as e:
+        logger.error(f"Error in getting results from web search engines, error = {e}")
+        
+        if serp_available:
+            serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
+            serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+            logger.info(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        elif bing_available:
+            serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
+            serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+            logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        else:
+            return {"text":'', "search_results": [], "queries": query_strings}
+        serps = [s.result() for s in serps]
+        serps_web = [s.result() for s in serps_web]
     
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" in r["link"]]
     qres_web = [r for serp in serps_web for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" not in r["link"]]

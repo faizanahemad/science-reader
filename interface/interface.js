@@ -631,14 +631,13 @@ $(document).ready(function() {
 
                 function resizePdfView(event) {
                     var width = $('#content-col').width();
-                    var height = $(window).height() * 0.8;
+                    var height = $("#pdf-questions").is(':hidden')? $(window).height() :$(window).height() * 0.8;
                     $('#pdf-content').css({
                         'width': width,
-                        'height': height,
                     });
                     $(viewer).css({
                         'width': '100%',
-                        'height': '100%',
+                        'height': height,
                     });
                 }
 
@@ -1923,11 +1922,17 @@ $(document).ready(function() {
             cardHeader.append('<p class="card-text">Tone = '+tone+'</p>');
             cardHeader.append('<h5 class="card-title">Review:</h5>');
             cardBody.append(cardHeader);
-            
+
+            let spinner = $('<div class="spinner-border text-primary" role="status" id="review-loading-spinner">').css('display', 'none');
+            let spinnerText = $('<span class="sr-only">Loading...</span>');
+            spinner.append(spinnerText);
+            cardBody.append(spinner);
+
             let reviewParagraph = $('<p>').addClass('card-text').attr('id', 'main-review-paragraph');
             cardBody.append(reviewParagraph);
-        
+
             $('#write_review').append(card);
+            $('#review-loading-spinner').css('display', 'block');
             renderInnerContentAsMarkdown(cardHeader, function(){
                 showMore(null, text=null, textElem=cardHeader, as_html=true, show_at_start=true);
             });
@@ -1937,6 +1942,7 @@ $(document).ready(function() {
             while (true) {
                 let { value, done } = await reader.read();
                 if (done) {
+                    $('#review-loading-spinner').css('display', 'none');
                     break;
                 }
                 let part = decoder.decode(value);
@@ -1966,6 +1972,7 @@ $(document).ready(function() {
     setupAskQuestionsView();
     setupPDFModalSubmit();
     setupReviewTab();
+    initiliseNavbarHiding();
     
     $('#refresh-references, #refresh-citations').on('click', function() {
         apiCall('/refetch_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
@@ -2009,7 +2016,7 @@ $(document).ready(function() {
     $('#show-sidebar').on('click', toggleSidebar);
     
     document.getElementById('toggle-tab-content').addEventListener('click', function() {
-        var tabContent = document.querySelector('.tab-content');
+        var tabContent = $("#pdf-view").find("#pdfjs-viewer")[0];
         if (tabContent.style.display === 'none') {
             tabContent.style.display = 'block';
         } else {
@@ -2044,6 +2051,98 @@ $(document).ready(function() {
             caretUp.show();
         }
     });
+
+    function hideNavbar() {
+        $('#pdf-details-tab').slideUp();
+        $('#hide-navbar').text('Show all');
+    }
+
+    function showNavbar() {
+        $('#pdf-details-tab').slideDown();
+        $('#hide-navbar').text('Show only PDF');
+    }
+
+
+
+    function initiliseNavbarHiding() {
+        var viewer = document.getElementById('pdfjs-viewer');
+        function resizePdfView(event) {
+            var width = $('#content-col').width();
+            var height = $("#pdf-questions").is(':hidden')? $(window).height()-10 :$(window).height() * 0.8;
+            $('#pdf-content').css({
+                'width': width,
+                'height': height,
+            });
+            $(viewer).css({
+                'width': '100%',
+                'height': height-10,
+            });
+        }
+
+        var escKeyUp = function(e) {
+            // keyCode for Escape key is 27
+            if (e.keyCode == 27) {
+                clearTimeout(hideTimeout);
+                // Show navbar if it is currently hidden
+                if($('#hide-navbar').text() === 'Show all') {
+                    toggleView();
+                }
+            }
+        }
+        $(window).keyup(escKeyUp);
+        function toggleView() {
+            if ($(this).text() === 'Show only PDF') {
+                hideNavbar();
+                toggleSidebar();
+                $("#pdf-questions").hide();
+                $(window).resize(resizePdfView).trigger('resize');
+                $(window).keyup(escKeyUp);
+            } else {
+                showNavbar();
+                toggleSidebar();
+                $("#pdf-questions").show();
+                $(window).resize(resizePdfView).trigger('resize');
+            }
+        }
+        
+
+        $('#hide-navbar').on('click', toggleView);
+    
+        var hideTimeout;
+    
+        $('#navbar-trigger').mouseenter(function() {
+            // Cancel hiding if it was scheduled
+            clearTimeout(hideTimeout);
+            
+            // Show all if it is currently hidden
+            if($('#hide-navbar').text() === 'Show all') {
+                $('#pdf-details-tab').slideDown();
+            }
+        });
+    
+        $('#navbar-trigger').mouseleave(function() {
+            // Schedule hiding after a delay if navbar is currently shown
+            if($('#hide-navbar').text() === 'Show all') {
+                hideTimeout = setTimeout(function() {
+                    $('#pdf-details-tab').slideUp();
+                }, 700);  // delay in ms
+            }
+        });
+    
+        $('#pdf-details-tab').mouseenter(function() {
+            // Cancel hiding if it was scheduled
+            clearTimeout(hideTimeout);
+        });
+    
+        $('#pdf-details-tab').mouseleave(function() {
+            // Schedule hiding after a delay if navbar is currently shown
+            if($('#hide-navbar').text() === 'Show all') {
+                hideTimeout = setTimeout(function() {
+                    $('#pdf-details-tab').slideUp();
+                }, 700);  // delay in ms
+            }
+        });
+    }
     
     $('#documents').on('click', '.list-group-item', function(e) {
         e.preventDefault();
