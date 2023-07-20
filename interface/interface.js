@@ -692,7 +692,7 @@ $(document).ready(function() {
         });
     }
     
-    function initialiseVoteBank(cardElem, text, contentId=null) {
+    function initialiseVoteBank(cardElem, text, contentId=null, type=null) {
         let voteCountElem = $('<p>').addClass('vote-count');
         let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
         let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
@@ -801,7 +801,7 @@ $(document).ready(function() {
         }
 
         upvoteBtn.click(function() {
-            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 1, downvote: 0, question_text: text}).done(function() {
+            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 1, downvote: 0, question_text: text, type: type}).done(function() {
                 upvoteBtn.addClass('voted');
                 downvoteBtn.removeClass('voted');
                 updateVoteCount();
@@ -816,7 +816,7 @@ $(document).ready(function() {
         });
 
         downvoteBtn.click(function() {
-            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 0, downvote: 1, question_text: text}).done(function() {
+            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 0, downvote: 1, question_text: text, type: type}).done(function() {
                 upvoteBtn.addClass('voted');
                 downvoteBtn.removeClass('voted');
                 updateVoteCount();
@@ -859,9 +859,7 @@ $(document).ready(function() {
                     view.append('<div id="qna-row" class="row"><div id="qna-column" class="col-12"></div></div>');
                 }
 
-                if (deepDetailsExists) {
-                    view.append('<div id="deep-details-row" class="row"><div id="deep-details-column" class="col-12"></div></div>');
-                }
+                view.append('<div id="deep-details-row" class="row"><div id="deep-details-column" class="col-12"></div></div>');
 
                 // Populate the summary column
                 $('#summary-column').append('<h4>Summary</h4>');
@@ -967,7 +965,7 @@ $(document).ready(function() {
                         ansArea.append(ansContainer)
                         cardBody.append(ansArea);
                         $('#qna-column').append(card);
-                        initialiseVoteBank(card, one_qa[1], one_qa[0]);
+                        initialiseVoteBank(card, one_qa[1], one_qa[0], type='question');
                         renderInnerContentAsMarkdown(ansContainer, function(){
                             showMore(null, text=null, textElem=ansContainer, as_html=true);
                         });
@@ -977,72 +975,72 @@ $(document).ready(function() {
                 }
 
                 // Populate the deep details column if exists
-                if (deepDetailsExists) {
-                    $('#deep-details-column').append('<h4>More Details</h4>');
+                $('#deep-details-column').append('<h4>More Details</h4>');
 
-                    // Define the order of keys
-                    var keyOrder = [
-                        "methodology",
-                        "previous_literature_and_differentiation",
-                        "experiments_and_evaluation",
-                        "results_and_comparison",
-                        "limitations_and_future_work"
-                    ];
+                // Define the order of keys
+                var keyOrder = [
+                    "methodology",
+                    "previous_literature_and_differentiation",
+                    "experiments_and_evaluation",
+                    "results_and_comparison",
+                    "limitations_and_future_work"
+                ];
 
-                    keyOrder.forEach(function(key) {
-                        if (data.details.deep_reader_details.hasOwnProperty(key)) {
-                            let card = $('<div>').addClass('card').attr("content-id", data.details.deep_reader_details[key]["id"]);
-                            let cardBody = $('<div>').addClass('card-body');
-                            card.append(cardBody);
-                            cardBody.append('<h5>' + key.replace(/_/g, ' ') + '</h5>');
-                            cardBody.append(`<p class="summary-text" id="${key}-text">` + data.details.deep_reader_details[key]["text"] + '</p>');
-                            $('#deep-details-column').append(card);
-                            initialiseVoteBank(card, key, data.details.deep_reader_details[key]["id"]);
-                            renderInnerContentAsMarkdown($(`#${key}-text`), function(){
-                                if (data.details.deep_reader_details[key]["text"].trim().length > 0){
-                                    showMore(null, text=null, textElem=$(`#${key}-text`), as_html=true);
-                                }
-                            });
-                            
-                            if (data.details.deep_reader_details[key]["text"] === '') {
-                                cardBody.append('<button id="get-details-' + key + '-button" type="button" class="btn btn-primary">Get Details</button>');
-                                $('#get-details-' + key + '-button').click(async function() {
-                                    // Put your API call here
-                                    var url = "/get_fixed_details?doc_id=" + activeDocId + "&detail_key=" + key;
-                                    const response = await apiCall(url, 'GET', {}, useFetch = true);
-                                    if(!response.ok) {
-                                        alert('An error occurred: ' + response.status);
-                                        return;
-                                    }
-
-                                    $('#get-details-' + key + '-button').prop('disabled', true); // Disable the button
-                                    var content_length = 0
-                                    let reader = response.body.getReader();
-                                    let decoder = new TextDecoder();
-                                    while (true) {
-                                        let { value, done } = await reader.read();
-                                        if (done) {
-                                            break;
-                                        }
-                                        let part = decoder.decode(value);
-                                        $('#' + key + '-text').append(part);
-                                        if ($('#' + key + '-text').html().length > content_length + 100){
-                                            renderInnerContentAsMarkdown($('#' + key + '-text'), 
-                                                                         callback=null, continuous=true)
-                                            content_length = $('#' + key + '-text').html().length
-                                        }
-                                    }
-                                    renderInnerContentAsMarkdown($('#' + key + '-text'), function(){
-                                        showMore(null, text=null, textElem=$('#' + key + '-text'), 
-                                                 as_html=true, show_at_start=true);
-                                    });
-                                    $('#get-details-' + key + '-button').remove(); // Remove the button
-                                });
+                keyOrder.forEach(function(key) {
+                    let card = $('<div>').addClass('card');
+                    if (deepDetailsExists) {
+                        card.attr("content-id", data.details.deep_reader_details[key]["id"])
+                    }
+                    let cardBody = $('<div>').addClass('card-body');
+                    card.append(cardBody);
+                    cardBody.append('<h5>' + key.replace(/_/g, ' ') + '</h5>');
+                    $('#deep-details-column').append(card);
+                    if (deepDetailsExists) {
+                        cardBody.append(`<p class="summary-text" id="${key}-text">` + data.details.deep_reader_details[key]["text"] + '</p>');
+                        initialiseVoteBank(card, key, data.details.deep_reader_details[key]["id"], type="in_depth_reader");
+                        renderInnerContentAsMarkdown($(`#${key}-text`), function(){
+                            if (data.details.deep_reader_details[key]["text"].trim().length > 0){
+                                showMore(null, text=null, textElem=$(`#${key}-text`), as_html=true);
                             }
-                        }
-                    });
+                        });
+                    }
                     
-                }
+                    if (!deepDetailsExists || data.details.deep_reader_details[key]["text"] === '') {
+                        cardBody.append('<button id="get-details-' + key + '-button" type="button" class="btn btn-primary">Get Details</button>');
+                        $('#get-details-' + key + '-button').click(async function() {
+                            // Put your API call here
+                            var url = "/get_fixed_details?doc_id=" + activeDocId + "&detail_key=" + key;
+                            const response = await apiCall(url, 'GET', {}, useFetch = true);
+                            if(!response.ok) {
+                                alert('An error occurred: ' + response.status);
+                                return;
+                            }
+
+                            $('#get-details-' + key + '-button').prop('disabled', true); // Disable the button
+                            var content_length = 0
+                            let reader = response.body.getReader();
+                            let decoder = new TextDecoder();
+                            while (true) {
+                                let { value, done } = await reader.read();
+                                if (done) {
+                                    break;
+                                }
+                                let part = decoder.decode(value);
+                                $('#' + key + '-text').append(part);
+                                if ($('#' + key + '-text').html().length > content_length + 100){
+                                    renderInnerContentAsMarkdown($('#' + key + '-text'), 
+                                                                    callback=null, continuous=true)
+                                    content_length = $('#' + key + '-text').html().length
+                                }
+                            }
+                            renderInnerContentAsMarkdown($('#' + key + '-text'), function(){
+                                showMore(null, text=null, textElem=$('#' + key + '-text'), 
+                                            as_html=true, show_at_start=true);
+                            });
+                            $('#get-details-' + key + '-button').remove(); // Remove the button
+                        });
+                    }
+                });
             });
         }
     }
@@ -1437,7 +1435,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, query,);
+                initialiseVoteBank(card, query, type='question');
                 // Append a 'More Details' button to the card that streams more details
                 let moreDetailsButton = $('<button>').addClass('btn btn-primary').text('More Details');
                 let moreDetailsCount = 0;
@@ -1569,7 +1567,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query,);
+                initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query, type="question");
                 
                 // Append a 'More Details' button to the card that streams more details
                 let moreDetailsButton = $('<button>').addClass('btn btn-primary').text('More Details');
@@ -1818,7 +1816,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(reviewParagraph, function(){
                     showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id);
+                initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id, type='review');
 
             });
             // populate review parameters dropdown
@@ -1931,7 +1929,7 @@ $(document).ready(function() {
             let reviewParagraph = $('<p>').addClass('card-text').attr('id', 'main-review-paragraph');
             cardBody.append(reviewParagraph);
 
-            $('#write_review').append(card);
+            $('#write_review').prepend(card);
             $('#review-loading-spinner').css('display', 'block');
             renderInnerContentAsMarkdown(cardHeader, function(){
                 showMore(null, text=null, textElem=cardHeader, as_html=true, show_at_start=true);
@@ -1957,7 +1955,7 @@ $(document).ready(function() {
             renderInnerContentAsMarkdown(reviewParagraph, function(){
                 showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
             });
-            initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","),);
+            initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","), type="review");
         });
 
 

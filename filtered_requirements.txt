@@ -34,3 +34,5 @@ pytest-playwright==0.3.2
 rank_bm25==0.2.2
 google-api-python-client==2.93.0
 selenium==4.10.0
+spacy==3.6.0
+spacy-lookups-data==1.0.3

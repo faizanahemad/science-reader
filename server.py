@@ -25,6 +25,16 @@ from rank_bm25 import BM25Okapi
 from typing import List, Dict
 from flask import Flask, Response, stream_with_context
 import sys
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from DataModel import *
+from sqlalchemy import func
+import spacy
+from spacy.lang.en import English
+from spacy.pipeline import Lemmatizer
+
+
+from base import get_embedding_model
 sys.setrecursionlimit(sys.getrecursionlimit()*16)
 import logging
 import requests
@@ -34,169 +44,150 @@ from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty
+from sqlalchemy.orm.attributes import flag_modified
 
 os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
-
-def create_connection(db_file):
-    """ create a database connection to a SQLite database """
-    conn = None;
-    try:
-        conn = sqlite3.connect(db_file)
-    except Error as e:
-        print(e)
-    return conn
-
-def create_table(conn, create_table_sql):
-    """ create a table from the create_table_sql statement """
-    try:
-        c = conn.cursor()
-        c.execute(create_table_sql)
-    except Error as e:
-        print(e)
-
-def create_tables():
-    database = "{}/users.db".format(users_dir)
-
-    sql_create_user_to_doc_id_table = """CREATE TABLE IF NOT EXISTS UserToDocId (
-                                    user_email text,
-                                    doc_id text,
-                                    created_at text,
-                                    updated_at text,
-                                    doc_source_url text
-                                ); """
-
-    sql_create_user_to_votes_table = """CREATE TABLE IF NOT EXISTS UserToVotes (
-                                    user_email text,
-                                    question_id text,
-                                    doc_id text,
-                                    upvoted integer,
-                                    downvoted integer,
-                                    feedback_type text,
-                                    feedback_items text,
-                                    comments text,
-                                    question_text text,
-                                    created_at text,
-                                    updated_at text
-                                );"""
-
-
-    # create a database connection
-    conn = create_connection(database)
-    
-
-    # create tables
-    if conn is not None:
-        # create UserToDocId table
-        create_table(conn, sql_create_user_to_doc_id_table)
-        # create UserToVotes table
-        create_table(conn, sql_create_user_to_votes_table)
-    else:
-        print("Error! cannot create the database connection.")
-        
-    cur = conn.cursor()
-    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToVotes_email_question ON UserToVotes (user_email, question_id)")
-    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToDocId_email_doc ON UserToDocId (user_email, doc_id)")
-    conn.commit()
         
         
 from datetime import datetime
 
-def addUserToDoc(user_email, doc_id, doc_source_url):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT OR IGNORE INTO UserToDocId
-        (user_email, doc_id, created_at, updated_at, doc_source_url)
-        VALUES(?,?,?,?,?)
-        """, 
-        (user_email, doc_id, datetime.now(), datetime.now(), doc_source_url)
-    )
-    conn.commit()
-    conn.close()
+def addUserToDoc(user_id, doc_id, sql_session=None):
+    if sql_session is None:
+        sql_session = SQLSession()
+    # Create a new SQLAlchemy Session
+    sql_session = SQLSession()
+
+    # Query the User and Document objects
+    user = sql_session.query(User).filter_by(id=user_id).one_or_none()
+    document = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+
+    # If the User or Document doesn't exist, handle the error
+    if user is None or document is None:
+        sql_session.close()
+        raise ValueError("User or Document not found")
+
+    # Add the Document to the User's documents
+    user.documents.append(document)
+
+    # Commit the changes to the database
+    sql_session.commit()
+
+    # Close the session
+    sql_session.close()
 
 
-def getDocsForUser(user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM UserToDocId WHERE user_email=?", (user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+def getDocsForUser(sql_session, user_id):
+    # Query the User object with the given user_id, and join with the 'documents' table
+    user: User = sql_session.query(User).options(joinedload(User.documents)).filter(User.id == user_id).one_or_none()
+    # If the User object exists, return its associated documents
+    docs = user.documents
+    docs = DocIndex.convert_document_to_docindex(docs)
+    if user:
+        return docs
 
-def addUpvoteOrDownvote(user_email, question_id, doc_id, upvote, downvote):
-    assert not checkNoneOrEmpty(question_id)
-    assert not checkNoneOrEmpty(user_email)
-    assert not checkNoneOrEmpty(doc_id)
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT OR REPLACE INTO UserToVotes
-        (user_email, question_id, doc_id, upvoted, downvoted, feedback_type, feedback_items, comments, question_text, created_at, updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)
-        """, 
-        (user_email, question_id, doc_id, upvote, downvote, None, None, None, None, datetime.now(), datetime.now())
-    )
-    conn.commit()
-    conn.close()
+    else:
+        return None
+    
+    
 
-def addGranularFeedback(user_email, question_id, feedback_type, feedback_items, comments, question_text):
-    assert not checkNoneOrEmpty(question_id)
-    assert not checkNoneOrEmpty(user_email)
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
+def addUpvoteOrDownvote(user_id, question_id, doc_id, upvote, downvote, type):
+    sql_session = SQLSession()
+    # Check if a Feedback entry already exists for this user and question
+    
+    assert type in ["question","review", "in_depth_reader", "message"]
+    if type == "question":
+        kws = dict(question_id=question_id)
+    elif type == "review":
+        kws = dict(review_id=question_id)
+    elif type == "in_depth_reader":
+        kws = dict(in_depth_reader_id=question_id)
+    elif type == "message":
+        kws = dict(message_id=question_id)
+    feedback = sql_session.query(Feedback).filter_by(user_id=user_id, **kws).first()
+    if feedback:
+        # If it exists, update the upvote and downvote values
+        feedback.addUpvoteOrDownvote(upvote, downvote)
+    else:
+        # If it doesn't exist, create a new Feedback entry
+        feedback = Feedback(
+            user_id=user_id,
+            doc_id=doc_id,
+            upvoted=upvote,
+            downvoted=downvote,
+            **kws
+        )
+        sql_session.add(feedback)
 
+    sql_session.commit()
+    sql_session.close()
+
+
+def addGranularFeedback(user_id, question_id, feedback_type, feedback_items, comments, question_text):
     # Ensure that the user has already voted before updating the feedback
-    cur.execute("SELECT 1 FROM UserToVotes WHERE user_email = ? AND question_id = ?", (user_email, question_id))
-    if not cur.fetchone():
+    sql_session = SQLSession()
+    assert not checkNoneOrEmpty(user_id)
+    assert not checkNoneOrEmpty(question_id)
+    feedback: Feedback = sql_session.query(Feedback).filter(
+        Feedback.user_id == user_id,
+        Feedback.question_id == question_id
+    ).first()
+    
+    if not feedback:
         raise ValueError("A vote must exist for the user and question before feedback can be provided")
+    feedback.addGranularFeedback(feedback_type, feedback_items, comments, question_text)
+    sql_session.commit()
+    sql_session.close()
 
-    cur.execute(
-        """
-        UPDATE UserToVotes 
-        SET feedback_type = ?, feedback_items = ?, comments = ?, question_text = ?, updated_at = ?
-        WHERE user_email = ? AND question_id = ?
-        """,
-        (feedback_type, ','.join(feedback_items), comments, question_text, datetime.now(), user_email, question_id)
-    )
-    conn.commit()
-    conn.close()
-
-
-
-def getUpvotesDownvotesByUser(user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE user_email=? GROUP BY user_email ", (user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+def getUpvotesDownvotesByUser(user_id):
+    sql_session = SQLSession()
+    result = sql_session.query(
+        func.sum(Feedback.upvoted), 
+        func.sum(Feedback.downvoted)
+    ).filter(
+        Feedback.user_id == user_id
+    ).group_by(
+        Feedback.user_id
+    ).all()
+    sql_session.close()
+    return result
 
 def getUpvotesDownvotesByQuestionId(question_id):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE question_id=? GROUP BY question_id", (question_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    sql_session = SQLSession()
+    result = sql_session.query(
+        func.sum(Feedback.upvoted), 
+        func.sum(Feedback.downvoted)
+    ).filter(
+        Feedback.question_id == question_id
+    ).group_by(
+        Feedback.question_id
+    ).all()
+    sql_session.close()
 
-def getUpvotesDownvotesByQuestionIdAndUser(question_id, user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE question_id=? AND user_email=? GROUP BY question_id,user_email", (question_id, user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
+    return result
+
+def getUpvotesDownvotesByQuestionIdAndUser(question_id, user_id):
+    sql_session = SQLSession()
+    result = sql_session.query(
+        func.sum(Feedback.upvoted), 
+        func.sum(Feedback.downvoted)
+    ).filter(
+        Feedback.question_id == question_id,
+        Feedback.user_id == user_id
+    ).group_by(
+        Feedback.question_id,
+        Feedback.user_id
+    ).all()
+    sql_session.close()
+    return result
 
 
 def removeUserFromDoc(user_email, doc_id):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("DELETE FROM UserToDocId WHERE user_email=? AND doc_id=?", (user_email, doc_id,))
-    conn.commit()
-    conn.close()
-
+    sql_session = SQLSession()
+    user = sql_session.query(User).get(user_email)
+    document = sql_session.query(Document).get(doc_id)
+    user.documents.remove(document)
+    document.users.remove(user)
+    sql_session.commit()
 
 def keyParser(session):
     keyStore = {
@@ -211,6 +202,7 @@ def keyParser(session):
         "googleSearchCxId":'',
         "openai_models_list": '',
         "scrapingBrowserUrl": '',
+        "email": '',
     }
     for k, _ in keyStore.items():
         key = session.get(k)
@@ -219,6 +211,8 @@ def keyParser(session):
             keyStore[k] = key
         else:
             keyStore[k] = None
+    openai_embed = get_embedding_model(keyStore)
+    keyStore["openai_embed"] = openai_embed
     return keyStore
     
 
@@ -237,6 +231,7 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -252,6 +247,9 @@ else:
     folder = "storage"
     login_not_needed = True
 app = Flask(__name__)
+app.secret_key = os.getenv('SECRET_KEY')
+# app.secret_key = os.urandom(24)
+# app.secret_key = 'your_secret_key_here'
 app.config['SESSION_PERMANENT'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -274,11 +272,17 @@ google = oauth.register(
 )
 os.makedirs(os.path.join(os.getcwd(), folder), exist_ok=True)
 cache_dir = os.path.join(os.getcwd(), folder, "cache")
-users_dir = os.path.join(os.getcwd(), folder, "users")
+users_dir = os.path.join(os.getcwd(), folder, "sqlite")
 pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
 os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(users_dir, exist_ok=True)
 os.makedirs(pdfs_dir, exist_ok=True)
+engine = create_engine(f'sqlite:///{users_dir}/main.db')
+Base.metadata.create_all(engine)
+SQLSession = sessionmaker(bind=engine)
+nlp = English()  # just the language with no model
+_ = nlp.add_pipe("lemmatizer")
+nlp.initialize()
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 
@@ -286,6 +290,13 @@ def check_login(session):
     email = dict(session).get('email', None)
     name = dict(session).get('name', None)
     logger.info(f"Check Login for email {session.get('email')} and name {session.get('name')}")
+    sql_session = SQLSession()
+    user: User = sql_session.query(User).filter(User.id == email).one_or_none()
+    if user is None:
+        user = User(id=email, name=name)
+        sql_session.add(user)
+        sql_session.commit()
+    sql_session.close()
     return email, name, email is not None and name is not None
 
 def login_required(f):
@@ -302,7 +313,8 @@ def login_required(f):
 def add_upvote_downvote():
     email, name, _ = check_login(session)
     data = request.get_json()
-    logger.info(f"GEt upvote-downvote request with {data}")
+    logger.info(f"Get upvote-downvote request with {data}")
+    assert "type" in data
     if "question_text" in data:
         question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
         logger.info(f"'/addUpvoteOrDownvote' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
@@ -310,7 +322,7 @@ def add_upvote_downvote():
             data['question_id'] = question_id
     if checkNoneOrEmpty(data['question_id']) or checkNoneOrEmpty(data['doc_id']):
         return "Question Id and Doc Id are needed for `/addUpvoteOrDownvote`", 400
-    addUpvoteOrDownvote(email, data['question_id'], data['doc_id'], data['upvote'], data['downvote'])
+    addUpvoteOrDownvote(email, data['question_id'], data['doc_id'], data['upvote'], data['downvote'], data["type"])
     return jsonify({'status': 'success'}), 200
 
 @app.route('/getUpvotesDownvotesByUser', methods=['GET'])
@@ -394,17 +406,41 @@ def write_review(doc_id, tone):
     score_this_review = int(request.args.get('score_this_review'))
     is_meta_review = int(request.args.get('is_meta_review'))
     
-    review = set_keys_on_docs(indexed_docs[doc_id], keys).get_review(tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review)
-    return Response(stream_with_context(review), content_type='text/plain')
+    # Create a new SQLAlchemy Session
+    sql_session = SQLSession()
+
+    # Query the User and Document objects
+    user = sql_session.query(User).filter_by(id=email).one_or_none()
+    document = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    document = DocIndex.convert_document_to_docindex(document)
+    try:
+        review = set_keys_on_docs(document, keys).get_review(tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review)
+        return Response(stream_with_context(review), content_type='text/plain')
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in getting review {e}")
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
+        return "Error in getting review", 500
+    finally:
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
 
 @app.route('/get_reviews/<doc_id>', methods=['GET'])
 @login_required
 def get_all_reviews(doc_id):
     keys = keyParser(session)
     email, name, _ = check_login(session)
-    reviews = set_keys_on_docs(indexed_docs[doc_id], keys).get_all_reviews()
+    sql_session = SQLSession()
+    document = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    document = DocIndex.convert_document_to_docindex(document)
+    reviews = set_keys_on_docs(document, keys).get_all_reviews()
     # lets send json response
-    return jsonify(reviews)
+    reviews = jsonify(reviews)
+    sql_session.close()
+    return reviews
     
     
 @app.route('/login')
@@ -485,7 +521,6 @@ indexed_docs: IndexDict[str, DocIndex] = {}
 def set_keys_on_docs(docs, keys):
     logger.info(f"Attaching keys to doc")
     if isinstance(docs, dict):
-        docs = {k: v.copy() for k, v in docs.items()}
         for k, v in docs.items():
             v.set_api_keys(keys)
             for i, j in vars(v).items():
@@ -493,7 +528,6 @@ def set_keys_on_docs(docs, keys):
                     j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     elif isinstance(docs, (list, tuple, set)):
-        docs = [d.load_fresh_self().copy() for d in docs]
         for d in docs:
             d.set_api_keys(keys)
             for i, j in vars(d).items():
@@ -502,7 +536,6 @@ def set_keys_on_docs(docs, keys):
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     else:
         assert isinstance(docs, (DocIndex, ImmediateDocIndex))
-        docs = docs.load_fresh_self().copy()
         for i, j in vars(docs).items():
             if isinstance(j,  (FAISS, VectorStore)):
                 
@@ -514,28 +547,36 @@ def set_keys_on_docs(docs, keys):
     
 
 # Initialize an empty list of documents for BM25
-bm25_corpus: List[List[str]] = []
-doc_id_to_bm25_index: Dict[str, int] = {}
-bm25 = [None]
+bm25_corpus: Dict[str, List[str]] = {}
     
 def add_to_bm25_corpus(doc_index: DocIndex):
-    global bm25_corpus, doc_id_to_bm25_index
-    doc_info = doc_index.get_short_info()
-    unigrams = doc_info['title'].lower().split() + doc_info['short_summary'].lower().split() + doc_info['summary'].lower().split()
+    global bm25_corpus
+    assert isinstance(doc_index, DocIndex)
+    
+    try:
+        doc_info = doc_index.get_short_info()
+        text = doc_info['title'].lower() + " " + doc_info['short_summary'].lower() + " " + doc_info['summary'].lower()
+    except Exception as e:
+        logger.info(f"Error in getting text for doc_id = {doc_index.doc_id}, error = {e}")
+        text = doc_index.indices["chunks"][0]
+    unigrams = text.split()
     bigrams = generate_ngrams(unigrams, 2)
     trigrams = generate_ngrams(unigrams, 3)
-    bm25_corpus.append(unigrams + bigrams + trigrams)
-    doc_id_to_bm25_index[doc_index.doc_id] = len(bm25_corpus) - 1
-    bm25[0] = BM25Okapi(bm25_corpus)
+    doc = nlp(text)
+    lemmas = [token.lemma_ for token in doc]
+    bigrams_lemma = generate_ngrams(lemmas, 2)
+    trigrams_lemma = generate_ngrams(lemmas, 3)
+    
+    bm25_corpus[doc_index.doc_id] =  unigrams + bigrams + trigrams + lemmas + bigrams_lemma + trigrams_lemma
 
 def load_documents(folder):
-    global indexed_docs, bm25_corpus, doc_id_to_bm25_index
-    for filepath in glob.glob(os.path.join(folder, '*.index')):
-        filename = os.path.basename(filepath)
-        doc_index = DocIndex.load_local(folder, filename).copy()
-        
-        indexed_docs[doc_index.doc_id] = doc_index
+    global bm25_corpus
+    sql_session = SQLSession()
+    documents = sql_session.query(Document).all()
+    documents = DocIndex.convert_document_to_docindex(documents)
+    for doc_index in documents:
         add_to_bm25_corpus(doc_index)
+    sql_session.close()
 
 
 
@@ -544,23 +585,32 @@ def load_documents(folder):
 def search_document():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
-    docs = getDocsForUser(email)
-    docs = getDocsForUser(email)
-    doc_ids = [d[1] for d in docs]
+    sql_session = SQLSession()
+    docs = getDocsForUser(sql_session, email)
     
     search_text = request.args.get('text')
     if search_text:
         search_text = search_text.strip().lower()
-        bm = bm25[0]
+        user_bm25_corpus = [bm25_corpus[doc.doc_id] for doc in docs]
+        doc_ids = [doc.doc_id for doc in docs]
+        bm = BM25Okapi(user_bm25_corpus)
         
         search_tokens = search_text.split()
         search_unigrams = search_tokens
         search_bigrams = generate_ngrams(search_tokens, 2)
         search_trigrams = generate_ngrams(search_tokens, 3)
-        scores = bm.get_scores(search_unigrams + search_bigrams + search_trigrams)
-        results = sorted([(score, doc_id) for doc_id, score in zip(indexed_docs.keys(), scores)], reverse=True)
-        top_results = [set_keys_on_docs(indexed_docs[doc_id], keys).get_short_info() for score, doc_id in results[:4] if doc_id in doc_ids]
-        logger.info(f"Search results = {[(score, indexed_docs[doc_id].doc_source) for score, doc_id in results[:4]]}")
+        
+        doc = nlp(search_text)
+        lemmas = [token.lemma_ for token in doc]
+        bigrams_lemma = generate_ngrams(lemmas, 2)
+        trigrams_lemma = generate_ngrams(lemmas, 3)
+        
+        scores = bm.get_scores(search_unigrams + search_bigrams + search_trigrams +  lemmas + bigrams_lemma + trigrams_lemma)
+        results = sorted([(score, doc_id) for doc_id, score in zip(doc_ids, scores)], reverse=True)
+        top_results = [set_keys_on_docs(docs, keys).get_short_info() for score, doc_id in results[:5] if doc_id in doc_ids]
+        logger.info(f"Search results = {[(score, doc_id) for score, doc_id in results[:5]]}")
+        sql_session.commit()
+        sql_session.close()
         return jsonify(top_results)
     else:
         return jsonify({'error': 'No search text provided'}), 400
@@ -571,9 +621,10 @@ def search_document():
 def list_all():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
-    docs = getDocsForUser(email)
-    doc_ids = [d[1] for d in docs]
-    return jsonify([doc.get_short_info() for doc in indexed_docs.values() if doc.doc_id in doc_ids])
+    sql_session = SQLSession()
+    docs = getDocsForUser(sql_session, email)
+    docs = set_keys_on_docs(docs, keys)
+    return jsonify([doc.get_short_info() for doc in docs])
 
 
 @app.route('/get_document_detail', methods=['GET'])
@@ -581,12 +632,17 @@ def list_all():
 def get_document_detail():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
-    logger.info(f"/get_document_detail for doc_id = {doc_id}, doc present = {doc_id in indexed_docs}")
-    if doc_id in indexed_docs:
-        
-        return jsonify(set_keys_on_docs(indexed_docs[doc_id], keys).get_all_details())
+    sql_session = SQLSession()
+    document = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    document = DocIndex.convert_document_to_docindex(document)
+    logger.info(f"/get_document_detail for doc_id = {doc_id}, doc present = {document is not None}")
+    details = set_keys_on_docs(document, keys).get_all_details()
+    sql_session.close()
+    if document is not None:
+        return jsonify(details)
     else:
         return jsonify({'error': 'Document not found'}), 404
+    
     
 
 
@@ -601,8 +657,9 @@ def index_document():
         return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
     if pdf_url:
         try:
-            doc_index = immediate_create_and_save_index(pdf_url, keys)
-            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
+            sql_session=SQLSession()
+            doc_index = immediate_create_and_save_index(pdf_url, keys, sql_session)
+            addUserToDoc(email, doc_index.doc_id, sql_session)
             return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
         except Exception as e:
             traceback.print_exc()
@@ -613,6 +670,7 @@ def index_document():
 @app.route('/set_keys', methods=['POST'])
 @login_required
 def set_keys():
+    email, name, _ = check_login(session)
     keys = request.json  # Assuming keys are sent as JSON in the request body
     for key, value in keys.items():
         session[key] = value
@@ -631,28 +689,40 @@ def delayed_execution(func, delay, *args):
     return func(*args)
 
     
-def immediate_create_and_save_index(pdf_url, keys):
+def immediate_create_and_save_index(pdf_url, keys, sql_session=None):
+    close = False
+    if sql_session is None:
+        sql_session = SQLSession()
+        close = True
     pdf_url = pdf_url.strip()
-    matching_docs = [v for k, v in indexed_docs.items() if v.doc_source==pdf_url]
+    matching_docs = sql_session.query(Document).filter_by(doc_source=pdf_url).all()
+    matching_docs = DocIndex.convert_document_to_docindex(matching_docs)
+    
     if len(matching_docs) == 0:
-        doc_index = create_immediate_document_index(pdf_url, keys)
+        doc_index = create_immediate_document_index(pdf_url, keys, folder)
         doc_index = set_keys_on_docs(doc_index, keys)
         save_index(doc_index, folder)
+        sql_session.add(doc_index.document)
+        sql_session.commit()
+        if close:
+            sql_session.close()
     else:
         logger.info(f"{pdf_url} is already indexed")
         doc_index = matching_docs[0]
+        matching_docs = DocIndex.convert_document_to_docindex(matching_docs)
+        doc_index = set_keys_on_docs(doc_index, keys)
     return doc_index
     
-def save_index(doc_index, folder):
-    indexed_docs[doc_index.doc_id] = doc_index
+def save_index(doc_index: DocIndex, folder):
+    assert isinstance(doc_index, DocIndex)
     add_to_bm25_corpus(doc_index)
     doc_index.save_local(folder)
-    indexed_docs[doc_index.doc_id] = doc_index.load_self()
 
     
 @app.route('/streaming_get_answer', methods=['POST'])
 @login_required
 def streaming_get_answer():
+    sql_session = SQLSession()
     keys = keyParser(session)
     additional_docs_to_read = request.json.get("additional_docs_to_read", [])
     a = use_multiple_docs = request.json.get("use_multiple_docs", False) and isinstance(additional_docs_to_read, (tuple, list)) and len(additional_docs_to_read) > 0
@@ -662,29 +732,61 @@ def streaming_get_answer():
     if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
         return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
     if use_multiple_docs:
-        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
+        matching_docs = sql_session.query(Document).filter(Document.id.in_(additional_docs_to_read)).all()
+        matching_docs = DocIndex.convert_document_to_docindex(matching_docs)
+        additional_docs_to_read = set_keys_on_docs(matching_docs, keys)
+        
     meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
     
     doc_id = request.json.get('doc_id')
     query = request.json.get('query')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_short_answer(query, meta_fn)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", status=404,  content_type='text/plain')
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    try:
+        if matching_doc is not None:
+            answer = set_keys_on_docs(matching_doc, keys).streaming_get_short_answer(query, meta_fn)
+            return Response(stream_with_context(answer), content_type='text/plain')
+        else:
+            return Response("Error Document not found", status=404,  content_type='text/plain')
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in getting review {e}")
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
+        return "Error in getting review", 500
+    finally:
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
     
 @app.route('/streaming_summary', methods=['GET'])
 @login_required
 def streaming_summary():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_build_summary()
-        p = multiprocessing.Process(target=delayed_execution, args=(save_index, 180, indexed_docs[doc_id], folder))
-        p.start()
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
+    sql_session = SQLSession()
+    document = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    document = DocIndex.convert_document_to_docindex(document)
+    try:
+        if doc_id in indexed_docs:
+            answer = set_keys_on_docs(document, keys).streaming_build_summary()
+            p = multiprocessing.Process(target=delayed_execution, args=(save_index, 180, document, folder))
+            p.start()
+            return Response(stream_with_context(answer), content_type='text/plain')
+        else:
+            return Response("Error Document not found", content_type='text/plain')
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in getting review {e}")
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
+        return "Error in getting review", 500
+    finally:
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
     
     
 
@@ -697,35 +799,68 @@ def streaming_get_followup_answer():
     b = use_references_and_citations = request.json.get("use_references_and_citations", False)
     c = provide_detailed_answers = request.json.get("provide_detailed_answers", False)
     d = perform_web_search = request.json.get("perform_web_search", False)
+    sql_session = SQLSession()
     if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
         return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
+    
     if use_multiple_docs:
-        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
+        matching_docs = sql_session.query(Document).filter(Document.id.in_(additional_docs_to_read)).all()
+        matching_docs = DocIndex.convert_document_to_docindex(matching_docs)
+        additional_docs_to_read = set_keys_on_docs(matching_docs, keys)
     meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
     
     doc_id = request.json.get('doc_id')
     query = request.json.get('query')
     previous_answer = request.json.get('previous_answer')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_ask_follow_up(query, previous_answer, meta_fn)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    try:
+        if doc_id in indexed_docs:
+            answer = set_keys_on_docs(matching_doc, keys).streaming_ask_follow_up(query, previous_answer, meta_fn)
+            return Response(stream_with_context(answer), content_type='text/plain')
+        else:
+            return Response("Error Document not found", content_type='text/plain')
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in getting review {e}")
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
+        return "Error in getting review", 500
+    finally:
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
     
 @app.route('/streaming_get_more_details', methods=['POST'])
 @login_required
 def streaming_get_more_details():
     keys = keyParser(session)
+    sql_session = SQLSession()
     print(request, request.get_json())
     doc_id = request.json.get('doc_id')
     query = request.json.get('query')
     previous_answer = request.json.get('previous_answer')
     counter = request.json.get('more_details_count')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_more_details(query, previous_answer, counter)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    try:
+        if matching_doc is not None:
+            answer = set_keys_on_docs(matching_doc, keys).streaming_get_more_details(query, previous_answer, counter)
+            return Response(stream_with_context(answer), content_type='text/plain')
+        else:
+            return Response("Error Document not found", content_type='text/plain')
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error in getting review {e}")
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
+        return "Error in getting review", 500
+    finally:
+        if sql_session.is_active:
+            sql_session.rollback()
+            sql_session.close()
     
 from multiprocessing import Lock
 
@@ -736,21 +871,13 @@ lock = Lock()
 def delete_document():
     email, name, loggedin = check_login(session)
     doc_id = request.args.get('doc_id')
-    if not doc_id or doc_id not in indexed_docs:
+    sql_session = SQLSession()
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    if not doc_id or matching_doc is None:
         return jsonify({'error': 'Document not found'}), 404
     removeUserFromDoc(email, doc_id)
-#     with lock:
-#         # Remove document from memory objects
-#         del indexed_docs[doc_id]
-#         bm25_index = doc_id_to_bm25_index[doc_id]
-#         del bm25_corpus[bm25_index]
-#         del doc_id_to_bm25_index[doc_id]
-
-#         # Remove document file from the file system
-#         try:
-#             os.remove(os.path.join(folder, f'{doc_id}.index'))
-#         except OSError:
-#             return jsonify({'error': 'Failed to delete document file'}), 500
+    sql_session.close()
 
     return jsonify({'status': 'Document deleted successfully'}), 200
 
@@ -758,9 +885,13 @@ def delete_document():
 @login_required
 def get_paper_details():
     keys = keyParser(session)
+    sql_session = SQLSession()
     doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        paper_details = set_keys_on_docs(indexed_docs[doc_id], keys).paper_details
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    if matching_doc is not None:
+        paper_details = set_keys_on_docs(matching_doc, keys).paper_details
+        sql_session.close()
         return jsonify(paper_details)
     else:
         return jsonify({'error': 'Document not found'}), 404
@@ -770,8 +901,12 @@ def get_paper_details():
 def refetch_paper_details():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        paper_details = set_keys_on_docs(indexed_docs[doc_id], keys).refetch_paper_details()
+    sql_session = SQLSession()
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    if matching_doc is not None:
+        paper_details = set_keys_on_docs(matching_doc, keys).refetch_paper_details()
+        sql_session.close()
         return jsonify(paper_details)
     else:
         return jsonify({'error': 'Document not found'}), 404
@@ -781,9 +916,12 @@ def refetch_paper_details():
 def get_extended_abstract():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
+    sql_session = SQLSession()
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
     paper_id = request.args.get('paper_id')
-    if doc_id in indexed_docs:
-        extended_abstract = set_keys_on_docs(indexed_docs[doc_id], keys).get_extended_abstract_for_ref_or_cite(paper_id)
+    if matching_doc is not None:
+        extended_abstract = set_keys_on_docs(matching_doc, keys).get_extended_abstract_for_ref_or_cite(paper_id)
         return Response(stream_with_context(extended_abstract), content_type='text/plain')
     else:
         return Response("Error Document not found", content_type='text/plain')
@@ -792,10 +930,13 @@ def get_extended_abstract():
 @login_required
 def get_fixed_details():
     keys = keyParser(session)
+    sql_session = SQLSession()
     doc_id = request.args.get('doc_id')
     detail_key = request.args.get('detail_key')
-    if doc_id in indexed_docs:
-        fixed_details = set_keys_on_docs(indexed_docs[doc_id], keys).get_fixed_details(detail_key)
+    matching_doc = sql_session.query(Document).filter_by(id=doc_id).one_or_none()
+    matching_doc = DocIndex.convert_document_to_docindex(matching_doc)
+    if matching_doc is not None:
+        fixed_details = set_keys_on_docs(matching_doc, keys).get_fixed_details(detail_key)
         return Response(stream_with_context(fixed_details), content_type='text/plain')
     else:
         return Response("Error: Document not found", content_type='text/plain')
@@ -846,7 +987,7 @@ def upload_pdf():
             full_pdf_path = os.path.join(pdfs_dir, pdf_file.filename)
             
             doc_index = immediate_create_and_save_index(full_pdf_path, keys)
-            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
+            addUserToDoc(email, doc_index.doc_id)
             return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
         except Exception as e:
             traceback.print_exc()
@@ -905,7 +1046,6 @@ def open_browser(url):
     else:
         webbrowser.open(url)
     
-create_tables()
 load_documents(folder)
 
 if __name__ == '__main__':

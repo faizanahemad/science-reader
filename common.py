@@ -308,6 +308,20 @@ def parse_array_string(s):
 def normalize_whitespace(s):
     return re.sub(r'\s+', ' ', s).strip()
 
+def print_code(func):
+    import inspect
+    from pygments import highlight
+    from pygments.lexers import PythonLexer
+    from pygments.formatters import TerminalFormatter
+    try:
+        code = "".join(inspect.getsourcelines(func)[0])
+        print(highlight(code, PythonLexer(), TerminalFormatter()))
+    except:
+        code = inspect.getsource(func)
+        # Using pygments to add color
+        colored_code = highlight(code, PythonLexer(), TerminalFormatter())
+        print(colored_code)
+
 
 
 
