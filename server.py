@@ -34,6 +34,9 @@ from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty
+import spacy
+from spacy.lang.en import English
+from spacy.pipeline import Lemmatizer
 
 os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
 
@@ -280,6 +283,10 @@ os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(users_dir, exist_ok=True)
 os.makedirs(pdfs_dir, exist_ok=True)
 os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
+nlp = English()  # just the language with no model
+_ = nlp.add_pipe("lemmatizer")
+nlp.initialize()
+
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 
@@ -515,13 +522,25 @@ bm25_corpus: List[List[str]] = []
 doc_id_to_bm25_index: Dict[str, int] = {}
 bm25 = [None]
     
-def add_to_bm25_corpus(doc_index: DocIndex):
-    global bm25_corpus, doc_id_to_bm25_index
-    doc_info = doc_index.get_short_info()
-    unigrams = doc_info['title'].lower().split() + doc_info['short_summary'].lower().split() + doc_info['summary'].lower().split()
+def get_bm25_grams(text):
+    unigrams = text.split()
     bigrams = generate_ngrams(unigrams, 2)
     trigrams = generate_ngrams(unigrams, 3)
-    bm25_corpus.append(unigrams + bigrams + trigrams)
+    doc = nlp(text)
+    lemmas = [token.lemma_ for token in doc]
+    bigrams_lemma = generate_ngrams(lemmas, 2)
+    trigrams_lemma = generate_ngrams(lemmas, 3)
+    return unigrams + bigrams + trigrams + lemmas + bigrams_lemma + trigrams_lemma
+
+def add_to_bm25_corpus(doc_index: DocIndex):
+    global bm25_corpus, doc_id_to_bm25_index
+    try:
+        doc_info = doc_index.get_short_info()
+        text = doc_info['title'].lower() + " " + doc_info['short_summary'].lower() + " " + doc_info['summary'].lower()
+    except Exception as e:
+        logger.info(f"Error in getting text for doc_id = {doc_index.doc_id}, error = {e}")
+        text = doc_index.indices["chunks"][0].lower()
+    bm25_corpus.append(get_bm25_grams(text))
     doc_id_to_bm25_index[doc_index.doc_id] = len(bm25_corpus) - 1
     bm25[0] = BM25Okapi(bm25_corpus)
 
@@ -549,12 +568,8 @@ def search_document():
     if search_text:
         search_text = search_text.strip().lower()
         bm = bm25[0]
-        
-        search_tokens = search_text.split()
-        search_unigrams = search_tokens
-        search_bigrams = generate_ngrams(search_tokens, 2)
-        search_trigrams = generate_ngrams(search_tokens, 3)
-        scores = bm.get_scores(search_unigrams + search_bigrams + search_trigrams)
+        search_tokens = get_bm25_grams(search_text)
+        scores = bm.get_scores(search_tokens)
         results = sorted([(score, doc_id) for doc_id, score in zip(indexed_docs.keys(), scores)], reverse=True)
         docs = [set_keys_on_docs(indexed_docs[doc_id], keys) for score, doc_id in results[:4] if doc_id in doc_ids]
         scores = [score for score, doc_id in results[:4] if doc_id in doc_ids]
