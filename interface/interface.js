@@ -151,6 +151,7 @@ var keyStore = {
     googleSearchCxId: '',
     googleSearchApiKey: '',
     scrapingBrowserUrl: '',
+    activeDocId: '',
 }
 
 function setKeysOnServer() {
@@ -300,7 +301,7 @@ $(document).ready(function() {
         trust: true
     };
     
-    var activeDocId = null;
+    var activeDocId = localStorage.getItem('activeDocId') || null;
     var pdfUrl = null;
     const markdownParser = new marked.Renderer();
     function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
@@ -866,7 +867,7 @@ $(document).ready(function() {
                 // Populate the summary column
                 $('#summary-column').append('<h4>Summary</h4>');
                 if (data.summary === '') {
-                    
+                    $('#summary-column').append('<p id="summary-text"></p>');
                     $('#summary-column').append('<button id="get-summary-details-button" type="button" class="btn btn-primary">Generate Summary</button>');
                     $('#get-summary-details-button').click(async function() {
                         // The button element
@@ -912,7 +913,7 @@ $(document).ready(function() {
                             if (!accumulator.includes('<h') || (opening_regex.test(accumulator) && close_regex.test(accumulator))){
                                 paragraph.append(accumulator);
                                 accumulator = ''
-                                if (paragraph.html().length > content_length + 100){
+                                if (paragraph.html().length > content_length + 40){
                                     renderInnerContentAsMarkdown(paragraph, 
                                                                  callback=null, continuous=true)
                                     content_length = paragraph.html().length
@@ -1026,7 +1027,7 @@ $(document).ready(function() {
                                         }
                                         let part = decoder.decode(value);
                                         $('#' + key + '-text').append(part);
-                                        if ($('#' + key + '-text').html().length > content_length + 100){
+                                        if ($('#' + key + '-text').html().length > content_length + 40){
                                             renderInnerContentAsMarkdown($('#' + key + '-text'), 
                                                                          callback=null, continuous=true)
                                             content_length = $('#' + key + '-text').html().length
@@ -1059,6 +1060,7 @@ $(document).ready(function() {
                 // If the deleted document was the active one, deselect it and clear the views
                 if (docId === activeDocId) {
                     activeDocId = null;
+                    localStorage.setItem('activeDocId', activeDocId);
                     pdfUrl = null;
                     $('.view').empty();
                 }
@@ -1098,7 +1100,7 @@ $(document).ready(function() {
                 
                 if (autoselect){
                     if (firstDoc) {
-                        setActiveDoc(doc.doc_id);
+                        setActiveDoc(activeDocId|| doc.doc_id);
                         firstDoc = false;
                     }
                 }
@@ -1260,7 +1262,7 @@ $(document).ready(function() {
         $(`#${parentElementId}`).append(
             `<div style="display: flex; margin-bottom: 10px;">` +
 
-            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[0]}">References & Citations</label></div>` +
+            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" disabled><label class="form-check-label" for="${checkBoxIds[0]}">References & Citations</label></div>` +
 
             `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
 
@@ -1428,7 +1430,7 @@ $(document).ready(function() {
                     let part = decoder.decode(value);
                     answerParagraph.append(part);
                     answer = answer + part;
-                    if (answerParagraph.html().length > content_length + 100){
+                    if (answerParagraph.html().length > content_length + 40){
                         renderInnerContentAsMarkdown(answerParagraph, 
                                                      callback=null, continuous=true)
                         content_length = answerParagraph.html().length
@@ -1461,7 +1463,7 @@ $(document).ready(function() {
                         let part = decoder.decode(value);
                         answerParagraph.append(part);
                         answer = answer + part;
-                        if (answerParagraph.html().length > content_length + 100){
+                        if (answerParagraph.html().length > content_length + 40){
                             renderInnerContentAsMarkdown(answerParagraph, 
                                                          callback=null, continuous=true)
                             content_length = answerParagraph.html().length
@@ -1560,7 +1562,7 @@ $(document).ready(function() {
                     let part = decoder.decode(value);
                     answerParagraph.append(part);
                     answer = answer + part
-                    if (answerParagraph.html().length > content_length + 100){
+                    if (answerParagraph.html().length > content_length + 40){
                         renderInnerContentAsMarkdown(answerParagraph, 
                                                      callback=null, continuous=true)
                         content_length = answerParagraph.html().length
@@ -1595,7 +1597,7 @@ $(document).ready(function() {
                         let part = decoder.decode(value);
                         answerParagraph.append(part);
                         answer = answer + part;
-                        if (answerParagraph.html().length > content_length + 100){
+                        if (answerParagraph.html().length > content_length + 40){
                             renderInnerContentAsMarkdown(answerParagraph, 
                                                          callback=null, continuous=true)
                             content_length = answerParagraph.html().length
@@ -1638,6 +1640,7 @@ $(document).ready(function() {
 
     function setActiveDoc(docId) {
         activeDocId = docId;
+        localStorage.setItem('activeDocId', activeDocId);
         loadCitationsAndReferences();
         setupReviewTab();
         highLightActiveDoc();
@@ -1948,7 +1951,7 @@ $(document).ready(function() {
                 let part = decoder.decode(value);
                 reviewParagraph.append(part);
                 review = review + part;
-                if (reviewParagraph.html().length > content_length + 100){
+                if (reviewParagraph.html().length > content_length + 40){
                     renderInnerContentAsMarkdown(reviewParagraph, 
                                                     callback=null, continuous=true)
                     content_length = reviewParagraph.html().length
@@ -1971,7 +1974,6 @@ $(document).ready(function() {
     initSearch("searchBox");
     setupAskQuestionsView();
     setupPDFModalSubmit();
-    setupReviewTab();
     initiliseNavbarHiding();
     
     $('#refresh-references, #refresh-citations').on('click', function() {

@@ -169,7 +169,7 @@ def timer(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result: {result}")
+        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, result length: {len(result) if hasattr(result, '__len__') else None}")
         return result
     return wrapper
 

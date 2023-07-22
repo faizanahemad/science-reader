@@ -1,3 +1,4 @@
+from datetime import datetime
 import sys
 import random
 from functools import partial
@@ -35,7 +36,7 @@ from langchain.agents import initialize_agent
 from langchain.agents import AgentType
 from langchain import OpenAI, ConversationChain
 from langchain.embeddings import OpenAIEmbeddings
-
+from collections import defaultdict, Counter
 
 import openai
 import tiktoken
@@ -882,6 +883,218 @@ def get_page_content(link, playwright_cdp_link=None):
             page = browser.new_page()
             url = link
             page.goto(url)
+            page.wait_for_selector('body', timeout=10000)
+            while page.evaluate('document.readyState') != 'complete':
+                pass
+            
+            try:
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
+            except:
+                traceback.print_exc()
+                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
+                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
+                init_title = page.evaluate("""(function e(){return document.title})()""")
+                page.close();
+                page = browser.new_page();
+                page.goto("https://www.example.com/")
+                page.bring_to_front();
+                while page.evaluate('document.readyState') != 'complete':
+                    pass
+                page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
+                page.evaluate(f"""text=>document.title=text""", init_title)
+                logger.info(f"Loaded html and title into page with example.com as url")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                page.wait_for_selector('body', timeout=10000)
+                while page.evaluate('document.readyState') != 'complete':
+                    pass
+                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
+                
+            try:
+                browser.close()
+            except:
+                pass
+            
+            
+        
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            logger.info(f"Trying selenium for link {link}")
+            from selenium import webdriver
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.wait import WebDriverWait
+            from selenium.webdriver.common.action_chains import ActionChains
+            from selenium.webdriver.support import expected_conditions as EC
+            options = webdriver.ChromeOptions()
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--headless')
+            driver = webdriver.Chrome(options=options)
+            driver.get(link)
+            try:
+                driver.execute_script('''
+                    function myFunction() {
+                        if (document.readyState === 'complete') {
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+                            document.head.appendChild(script);
+
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
+                            document.head.appendChild(script);
+                        } else {
+                            setTimeout(myFunction, 1000);
+                        }
+                    }
+
+                    myFunction();
+                ''')
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
+                def document_initialised(driver):
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                WebDriverWait(driver, timeout=10).until(document_initialised)
+                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+            except Exception as e:
+                traceback.print_exc()
+                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
+                init_title = driver.execute_script("""return document.title;""")
+                init_html = driver.execute_script("""return document.body.innerHTML;""")
+                driver.get("https://www.example.com/")
+                logger.info(f"Loaded html and title into page with example.com as url")
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
+                driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
+                driver.execute_script("""document.title=arguments[0]""", init_title)
+                driver.execute_script('''
+                    function myFunction() {
+                        if (document.readyState === 'complete') {
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+                            document.head.appendChild(script);
+
+                            var script = document.createElement('script');
+                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
+                            document.head.appendChild(script);
+                        } else {
+                            setTimeout(myFunction, 1000);
+                        }
+                    }
+
+                    myFunction();
+                ''')
+                def document_initialised(driver):
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                WebDriverWait(driver, timeout=10).until(document_initialised)
+                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+                
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
+            try:
+                driver.close()
+            except:
+                pass
+        except Exception as e:
+            if 'driver' in locals():
+                try:
+                    driver.close()
+                except:
+                    pass
+        finally:
+            if 'driver' in locals():
+                try:
+                    driver.close()
+                except:
+                    pass
+    finally:
+        if "browser" in locals():
+            try:
+                browser.close()
+            except:
+                pass
+    return {"text": text, "title": title}
+
+def freePDFReader(url, page_ranges=None):
+    from langchain.document_loaders import PyPDFLoader
+    loader = PyPDFLoader(url)
+    pages = loader.load_and_split()
+    if page_ranges:
+        start, end = page_ranges.split("-")
+        start = int(start) - 1
+        end = int(end) - 1
+        " ".join([pages[i].page_content for i in range(start, end+1)])
+    return " ".join([p.page_content for p in pages])
+        
+
+class CustomPDFLoader(MathpixPDFLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.options = {"rm_fonts": True, 
+                   "enable_tables_fallback":True}
+        if self.processed_file_format != "mmd":
+            self.options["conversion_formats"] = {self.processed_file_format: True},
+        if "page_ranges" in kwargs and kwargs["page_ranges"] is not None:
+            self.options["page_ranges"] = kwargs["page_ranges"]
+        
+    @property
+    def data(self) -> dict:
+        if os.path.exists(self.file_path):
+            options = dict(**self.options)
+        else:
+            options = dict(url=self.file_path,**self.options)
+        return {"options_json": json.dumps(options)}
+    def clean_pdf(self, contents: str) -> str:
+        contents = "\n".join(
+            [line for line in contents.split("\n") if not line.startswith("![]")]
+        )
+        # replace the "\" slash that Mathpix adds to escape $, %, (, etc.
+        contents = (
+            contents.replace(r"\$", "$")
+            .replace(r"\%", "%")
+            .replace(r"\(", "(")
+            .replace(r"\)", ")")
+        )
+        return contents
+    
+
+class PDFReaderTool:
+    def __init__(self, keys):
+        self.mathpix_api_id=keys['mathpixId']
+        self.mathpix_api_key=keys['mathpixKey']
+        
+    def __call__(self, url, page_ranges=None):
+        if self.mathpix_api_id is not None and self.mathpix_api_key is not None:
+            
+            loader = CustomPDFLoader(url, should_clean_pdf=True,
+                              mathpix_api_id=self.mathpix_api_id, 
+                              mathpix_api_key=self.mathpix_api_key, 
+                              processed_file_format="mmd", page_ranges=page_ranges)
+            data = loader.load()
+            return data[0].page_content
+        else:
+            return freePDFReader(url, page_ranges)
+
+    
+def get_page_content(link, playwright_cdp_link=None):
+    
+    text = ''
+    title = ''
+    try:
+        logger.info(f"Trying playwright for link {link}")
+        from playwright.sync_api import sync_playwright
+        playwright_enabled = True
+        with sync_playwright() as p:
+            if playwright_cdp_link is not None and isinstance(playwright_cdp_link,str):
+                browser = p.chromium.connect_over_cdp(playwright_cdp_link)
+            else:
+                browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
+            page = browser.new_page()
+            url = link
+            page.goto(url)
             page.wait_for_selector('body')
             while page.evaluate('document.readyState') != 'complete':
                 pass
@@ -1016,5 +1229,328 @@ def get_page_content(link, playwright_cdp_link=None):
             except:
                 pass
     return {"text": text, "title": title}
+
+def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
+    import requests
+    arxiv_id = arxiv_url.split("/")[-1].split(".")[0]
+    semantic_scholar_api_url = f"https://api.semanticscholar.org/v1/paper/arXiv:{arxiv_id}"
+    response = requests.get(semantic_scholar_api_url)
+    if response.status_code == 200:
+        semantic_scholar_id = response.json()["paperId"]
+        semantic_url = f"https://www.semanticscholar.org/paper/{semantic_scholar_id}"
+        return semantic_url
+    raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
+
+
+def get_paper_details_from_semantic_scholar(arxiv_url):
+    print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
+    arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
+    from semanticscholar import SemanticScholar
+    sch = SemanticScholar()
+    paper = sch.get_paper(f"ARXIV:{arxiv_id}")
+    return paper
+
+
+
+
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
+
+    num_res = 4
+    n_query = "four" if previous_search_results else "four"
+    pqs = []
+    if previous_search_results:
+        for r in previous_search_results:
+            pqs.append(r["query"])
+    prompt = f"""Given the scientific query/question \n'{context}' for the research document \n'{doc_context}'. 
+    The provided query may not have all details or may not be web search friendly (contains abbreviations and typos which should be removed or corrected, i.e. convert abbreviations to full forms). 
+    {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
+    {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''. The previous search was not successful and hence we need to generate queries which break down the actual question into fragments and search the web using simpler terms." if len(pqs)>0 else ''}
+    Generate {n_query} proper, well specified and diverse web search queries as a valid python list. Each generated query must be different from others (and different from previous web search queries) and diverse from each other. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us answer the query better. When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.). Determine the subject domain from the research document and the query and make sure to mention the domain in your queries.
+Make sure each of your web search query is diverse and very different from the remaining queries.
+
+Your output will look like:
+
+["web_query_1", "web_query_2"]
+
+Be sure to output on valid python code which represents a list of web search friendly query strings.
+    
+Output only a valid python list of query strings: 
+"""
+    query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
+    
+    logger.info(f"Query string for {context} = {query_strings} , prompt = \n```\n{prompt}\n```\n") # prompt = \n```\n{prompt}\n```\n
+    query_strings = parse_array_string(query_strings.strip())
+    
+    rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
+    serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
+    bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
+    google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
+    if rerank_available:
+        import cohere
+        co = cohere.Client(api_keys["cohereKey"])
+        num_res = 20
+        rerank_query = "? ".join([context] + query_strings)
+    
+    if year_month:
+        year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
+    
+    if google_available:
+        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=None) for query in query_strings]
+        serps_web = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+        logger.info(f"Using GOOGLE for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+    elif serp_available:
+        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
+        serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+        logger.info(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+    elif bing_available:
+        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
+        serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+        logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+    else:
+        logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
+        return {"text":'', "search_results": [], "queries": query_strings}
+    try:
+        serps = [s.result() for s in serps]
+        serps_web = [s.result() for s in serps_web]
+    except Exception as e:
+        logger.error(f"Error in getting results from web search engines, error = {e}")
+        
+        if serp_available:
+            serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
+            serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+            logger.info(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        elif bing_available:
+            serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
+            serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
+            logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        else:
+            return {"text":'', "search_results": [], "queries": query_strings}
+        serps = [s.result() for s in serps]
+        serps_web = [s.result() for s in serps_web]
+    
+    qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" in r["link"]]
+    qres_web = [r for serp in serps_web for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" not in r["link"]]
+    logger.info(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])}, serps web len = {len([r for s in serps_web for r in s])}, Qres len = {len(qres)} and Qres web len = {len(qres_web)}")
+    dedup_results = []
+    seen_titles = set()
+    seen_links = set()
+    link_counter = Counter()
+    title_counter = Counter()
+    if previous_search_results:
+        for r in previous_search_results:
+            seen_links.add(r['link'])
+    len_before_dedup = len(qres)
+    for r in qres:
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        link_counter.update([link])
+        title_counter.update([link])
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+        
+    dedup_results_web = []
+    for r in qres_web:
+        title = r.get("title", "").lower()
+        link = r.get("link", "")
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        dedup_results_web.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+        
+    
+        
+    len_after_dedup = len(dedup_results)
+    logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
+#     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
+        
+    # Rerank here first
+    
+    if rerank_available:
+        st_rerank = time.time()
+        docs = [r["title"] + " " + r["snippet"] for r in dedup_results]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=64, model='rerank-english-v2.0') 
+        pre_rerank = dedup_results
+        dedup_results = [dedup_results[r.index] for r in rerank_results]
+        tt_rerank = time.time() - st_rerank
+        logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)}")
+        # logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
+        
+    if rerank_available:
+        pdfs = [pdf_process_executor.submit(get_pdf_text, doc["link"]) for doc in dedup_results]
+        pdfs = [p.result() for p in pdfs]
+        docs = [r["snippet"] + " " + p["small_text"] for p, r in zip(pdfs, dedup_results)]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
+        dedup_results = [dedup_results[r.index] for r in rerank_results]
+        pdfs = [pdfs[r.index] for r in rerank_results]
+        logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}")
+        
+#         logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
+        
+    if rerank_available:
+        for r in dedup_results_web:
+            if "snippet" not in r:
+                logger.warning(r)
+        docs = [r["title"] + " " + r["snippet"] for r in dedup_results_web]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
+        pre_rerank = dedup_results_web
+        dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
+    
+    dedup_results_web = dedup_results_web[:8]
+    web_links = [r["link"] for r in dedup_results_web]
+    web_titles = [r["title"] for r in dedup_results_web]
+    web_contexts = [context +"? " + r["query"] for r in dedup_results_web]
+    
+    
+    for r in dedup_results:
+        cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
+        r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
+        logger.info(f"Link: {r['link']} title: {r['title']}")
+    logger.info(f"SERP results for {context}, count = {len(dedup_results)}")
+    
+    dedup_results = dedup_results[:8]
+    links = [r["link"] for r in dedup_results]
+    titles = [r["title"] for r in dedup_results]
+    contexts = [context +"? " + r["query"] for r in dedup_results]
+    texts = None
+    if rerank_available:
+        texts = [p["text"] for p in pdfs]
+    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
+    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
+    read_text_web, per_pdf_texts_web = web_future.result()
+    read_text, per_pdf_texts = pdf_future.result()
+    
+    all_results_doc = dedup_results + dedup_results_web
+    all_text = read_text + "\n\n" + read_text_web
+#     if rerank_available:
+#         crawl_text = (per_pdf_texts + per_pdf_texts_web)
+#         docs = [r["text"] for r in crawl_text]
+#         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=len(docs)//2, model='rerank-english-v2.0')
+#         crawl_text = [crawl_text[r.index] for r in rerank_results]
+#         pre_rerank = all_results_doc
+#         all_results_doc = [all_results_doc[r.index] for r in rerank_results]
+#         all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_text])
+#         logger.info(f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
+    
+        
+    logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
+    return {"text":all_text, "search_results": all_results_doc, "queries": query_strings}
+
+def multi_doc_reader(context, docs):
+    pass
+
+def ref_and_cite_reader(context, doc_index, ss_obj):
+    pass
+
+
+import multiprocessing
+from multiprocessing import Pool
+
+from concurrent.futures import ThreadPoolExecutor
+
+def get_pdf_text(link):
+    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    try:
+        txt = pdfReader(link)
+        chunked_text = ChunkText(txt, 1536, 0)[0]
+        small_text = ChunkText(txt, 512, 0)[0]
+    except Exception as e:
+        return {"text": "No relevant text found in this document.", "small_text": "No relevant text found in this document."}
+    return {"text": chunked_text, "small_text": small_text}
+
+def process_pdf(link_title_context_apikeys):
+    link, title, context, api_keys, text = link_title_context_apikeys
+    st = time.time()
+    # Reading PDF
+    extracted_info = ''
+    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    try:
+        if len(text.strip()) == 0:
+            txt = pdfReader(link)
+
+            # Chunking text
+            chunked_text = ChunkText(txt, 1536, 0)[0]
+        else:
+            chunked_text = text
+
+        # Extracting info
+        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
+        tt = time.time() - st
+        logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
+    except Exception as e:
+        logger.info(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
+        return {"link": link, "title": title, "text": extracted_info, "exception": True}
+    return {"link": link, "title": title, "text": extracted_info, "exception": False}
+
+
+def process_page_link(link_title_context_apikeys):
+    link, title, context, api_keys, text = link_title_context_apikeys
+    st = time.time()
+    pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
+    title = pgc["title"]
+    text = pgc["text"]
+    extracted_info = ''
+    if len(text.strip()) > 0:
+        chunked_text = ChunkText(text, 1536, 0)[0]
+        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
+    else:
+        return {"link": link, "title": title, "text": extracted_info, "exception": True}
+    tt = time.time() - st
+    logger.info(f"Web page read and contextual reader for link: {link} with total time = {tt:.2f}")
+    return {"link": link, "title": normalize_whitespace(title), "text": extracted_info, "exception": False}
+
+
+pdf_process_executor = ThreadPoolExecutor(max_workers=32)
+def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
+    if texts is None:
+        texts = [''] * len(links)
+    # Combine links, titles, contexts and api_keys into tuples for processing
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
+    logger.info(f"Start reading over multiple pdf docs...")
+    # Use the executor to apply process_pdf to each tuple
+    futures = [pdf_process_executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
+    # Collect the results as they become available
+    processed_texts = [future.result() for future in futures]
+    processed_texts = [p for p in processed_texts if not p["exception"]]
+    assert len(processed_texts) > 0
+    for p in processed_texts:
+        del p["exception"]
+    # Concatenate all the texts
+    
+    # Cohere rerank here
+    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    import tiktoken
+    enc = tiktoken.encoding_for_model("gpt-4")
+    logger.info(f"Web search Result string len = {len(result.split())}, token len = {len(enc.encode(result))}")
+    return result, processed_texts
+
+def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None):
+    if texts is None:
+        texts = [''] * len(links)
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
+    futures = [pdf_process_executor.submit(process_page_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
+    processed_texts = [future.result() for future in futures]
+    processed_texts = [p for p in processed_texts if not p["exception"]]
+    assert len(processed_texts) > 0
+    for p in processed_texts:
+        del p["exception"]
+    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    return result, processed_texts
+
+
+def get_multiple_answers(query, additional_docs:list, current_doc_summary:str):
+    prompt = f"""Given question: '{query}'. We are trying to answer the given question about the main research document whose summary is given below \n
+'''{current_doc_summary}'''. We are trying to collect evidence and relevant information from this document we are reading now. Collect evidence useful to answer the question and relevant to the main research document. \n
+    """
+    
+    futures = [pdf_process_executor.submit(doc.get_short_answer, prompt, defaultdict(lambda:False), False)  for doc in additional_docs]
+    answers = [future.result() for future in futures]
+    answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
+    dedup_results = [{"link": doc.doc_source, "title": doc.title} for answer, doc in zip(answers, additional_docs)]
+    read_text = "\n\n".join([json.dumps(p, indent=2) for p in answers])
+    return {"text":read_text, "search_results": dedup_results, "queries": []}
 
 

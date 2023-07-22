@@ -15,7 +15,7 @@ from langchain.embeddings.base import Embeddings
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores.base import VectorStore
 from collections import defaultdict
-from DocIndex import DocIndex, create_immediate_document_index, ImmediateDocIndex
+from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex
 import os
 import time
 import multiprocessing
@@ -279,6 +279,7 @@ pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
 os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(users_dir, exist_ok=True)
 os.makedirs(pdfs_dir, exist_ok=True)
+os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 
@@ -468,17 +469,13 @@ def get_user_info():
 class IndexDict(dict):
     def __getitem__(self, key):
         item = super().__getitem__(key)
-        item = item.load_fresh_self()
+        item = item.copy()
         super().__setitem__(key, item)
         return item
-
-    def get(self, key, default=None):
-        if key in self:
-            item = super().get(key)
-            item = item.load_fresh_self()
-            super().__setitem__(key, item)
-            return item
-        return default
+    
+    def __setitem__(self, __key: str, __value: DocIndex) -> None:
+        __value = __value.copy()
+        return super().__setitem__(__key, __value)
 indexed_docs: IndexDict[str, DocIndex] = {}
 
     
@@ -493,7 +490,7 @@ def set_keys_on_docs(docs, keys):
                     j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     elif isinstance(docs, (list, tuple, set)):
-        docs = [d.load_fresh_self().copy() for d in docs]
+        docs = [d.copy() for d in docs]
         for d in docs:
             d.set_api_keys(keys)
             for i, j in vars(d).items():
@@ -502,9 +499,9 @@ def set_keys_on_docs(docs, keys):
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     else:
         assert isinstance(docs, (DocIndex, ImmediateDocIndex))
-        docs = docs.load_fresh_self().copy()
+        docs = docs.copy()
         for i, j in vars(docs).items():
-            if isinstance(j,  (FAISS, VectorStore)):
+            if isinstance(j,  (DocFAISS, FAISS, VectorStore)):
                 
                 j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
                 setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
@@ -559,8 +556,10 @@ def search_document():
         search_trigrams = generate_ngrams(search_tokens, 3)
         scores = bm.get_scores(search_unigrams + search_bigrams + search_trigrams)
         results = sorted([(score, doc_id) for doc_id, score in zip(indexed_docs.keys(), scores)], reverse=True)
-        top_results = [set_keys_on_docs(indexed_docs[doc_id], keys).get_short_info() for score, doc_id in results[:4] if doc_id in doc_ids]
-        logger.info(f"Search results = {[(score, indexed_docs[doc_id].doc_source) for score, doc_id in results[:4]]}")
+        docs = [set_keys_on_docs(indexed_docs[doc_id], keys) for score, doc_id in results[:4] if doc_id in doc_ids]
+        scores = [score for score, doc_id in results[:4] if doc_id in doc_ids]
+        top_results = [doc.get_short_info() for score, doc in zip(scores, docs)]
+        logger.info(f"Search results = {[(score, doc.doc_source) for score, doc in zip(scores, docs)]}")
         return jsonify(top_results)
     else:
         return jsonify({'error': 'No search text provided'}), 400
@@ -572,8 +571,8 @@ def list_all():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
     docs = getDocsForUser(email)
-    doc_ids = [d[1] for d in docs]
-    return jsonify([doc.get_short_info() for doc in indexed_docs.values() if doc.doc_id in doc_ids])
+    doc_ids = set([d[1] for d in docs])
+    return jsonify([set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs])
 
 
 @app.route('/get_document_detail', methods=['GET'])
@@ -635,7 +634,7 @@ def immediate_create_and_save_index(pdf_url, keys):
     pdf_url = pdf_url.strip()
     matching_docs = [v for k, v in indexed_docs.items() if v.doc_source==pdf_url]
     if len(matching_docs) == 0:
-        doc_index = create_immediate_document_index(pdf_url, keys)
+        doc_index = create_immediate_document_index(pdf_url, folder, keys)
         doc_index = set_keys_on_docs(doc_index, keys)
         save_index(doc_index, folder)
     else:
@@ -643,11 +642,10 @@ def immediate_create_and_save_index(pdf_url, keys):
         doc_index = matching_docs[0]
     return doc_index
     
-def save_index(doc_index, folder):
+def save_index(doc_index: DocIndex, folder):
     indexed_docs[doc_index.doc_id] = doc_index
     add_to_bm25_corpus(doc_index)
     doc_index.save_local(folder)
-    indexed_docs[doc_index.doc_id] = doc_index.load_self()
 
     
 @app.route('/streaming_get_answer', methods=['POST'])
@@ -679,8 +677,9 @@ def streaming_summary():
     keys = keyParser(session)
     doc_id = request.args.get('doc_id')
     if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_build_summary()
-        p = multiprocessing.Process(target=delayed_execution, args=(save_index, 180, indexed_docs[doc_id], folder))
+        doc = set_keys_on_docs(indexed_docs[doc_id], keys)
+        answer = doc.streaming_build_summary()
+        p = multiprocessing.Process(target=delayed_execution, args=(save_index, 180, doc, folder))
         p.start()
         return Response(stream_with_context(answer), content_type='text/plain')
     else:
@@ -739,18 +738,6 @@ def delete_document():
     if not doc_id or doc_id not in indexed_docs:
         return jsonify({'error': 'Document not found'}), 404
     removeUserFromDoc(email, doc_id)
-#     with lock:
-#         # Remove document from memory objects
-#         del indexed_docs[doc_id]
-#         bm25_index = doc_id_to_bm25_index[doc_id]
-#         del bm25_corpus[bm25_index]
-#         del doc_id_to_bm25_index[doc_id]
-
-#         # Remove document file from the file system
-#         try:
-#             os.remove(os.path.join(folder, f'{doc_id}.index'))
-#         except OSError:
-#             return jsonify({'error': 'Failed to delete document file'}), 500
 
     return jsonify({'status': 'Document deleted successfully'}), 200
 
