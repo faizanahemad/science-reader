@@ -37,6 +37,7 @@ import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
 from flask.json.provider import JSONProvider
+from common import SetQueue
 import typing as t
 try:
     import ujson as json
@@ -286,6 +287,8 @@ app.config["GOOGLE_CLIENT_ID"] = "829412467201-koo2d873vemgtg7g92m2ffkkl9r97ubp.
 app.config["GOOGLE_CLIENT_SECRET"] = "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"
 Session(app)
 oauth = OAuth(app)
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 google = oauth.register(
     name='google',
     client_id=app.config.get("GOOGLE_CLIENT_ID"),
@@ -500,7 +503,11 @@ def get_user_info():
 class IndexDict(dict):
     def __getitem__(self, key):
         item = super().__getitem__(key)
-        item = item.copy()
+        if item.doc_id in doc_index_cache:
+            return item
+        else:
+            item = item.copy()
+        doc_index_cache.add(item.doc_id)
         super().__setitem__(key, item)
         return item
     
@@ -508,7 +515,7 @@ class IndexDict(dict):
         __value = __value.copy()
         return super().__setitem__(__key, __value)
 indexed_docs: IndexDict[str, DocIndex] = {}
-
+doc_index_cache = SetQueue(maxsize=50)
     
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")

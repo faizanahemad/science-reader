@@ -319,14 +319,20 @@ class SetQueue:
         self.set = set()
         self.lock = threading.Lock()
 
+    def remove_any(self, item):
+        with self.lock:
+            if item in self.set:
+                self.set.remove(item)
+                self.queue.remove(item)
+    
     def add(self, item):
         with self.lock:
-            if item not in self.set:
-                if len(self.queue) >= self.maxsize:
-                    removed = self.queue.popleft()
-                    self.set.discard(removed)
-                self.queue.append(item)
-                self.set.add(item)
+            self.remove_any(item)
+            if len(self.queue) >= self.maxsize:
+                removed = self.queue.popleft()
+                self.set.remove(removed)
+            self.queue.append(item)
+            self.set.add(item)
 
     def __contains__(self, item):
         with self.lock:
@@ -339,6 +345,35 @@ class SetQueue:
     def items(self):
         with self.lock:
             return list(self.queue)
+
+        
+        
+# import threading
+# from lru import LRUDict
+
+# class SetQueue:
+#     def __init__(self, maxsize):
+#         self.maxsize = maxsize
+#         self.lru = LRUDict(maxsize)
+#         self.lock = threading.Lock()
+
+#     def add(self, item):
+#         with self.lock:
+#             self.lru[item] = item
+
+#     def __contains__(self, item):
+#         with self.lock:
+#             return item in self.lru
+
+#     def __len__(self):
+#         with self.lock:
+#             return len(self.lru)
+
+#     def items(self):
+#         with self.lock:
+#             # The keys() method returns a list of keys in the LRU cache from the oldest to the newest
+#             return list(self.lru.keys())
+
 
 
 
