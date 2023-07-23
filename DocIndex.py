@@ -22,7 +22,6 @@ from collections import defaultdict
 import requests
 import tempfile
 from tqdm import tqdm
-import json
 import requests
 import dill
 import os
@@ -41,6 +40,10 @@ from review_criterias import review_params
 
 import openai
 import tiktoken
+try:
+    import ujson as json
+except ImportError:
+    import json
 
 
 from langchain.agents import Tool
@@ -223,7 +226,10 @@ class DocIndex:
 
         folder = self._storage
             
+        
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
+        json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
+        
         try:
             assert top_key in self.store_separate
         except Exception as e:
@@ -235,9 +241,20 @@ class DocIndex:
             else:
                 return getattr(self, top_key, None)
         else:
-            if os.path.exists(filepath):
-                with open(os.path.join(filepath), "rb") as f:
+            if os.path.exists(json_filepath):
+                with open(json_filepath, "r") as f:
+                    obj = json.load(f)
+                setattr(self, top_key, obj)
+                if inner_key is not None:
+                    return obj.get(inner_key, None)
+                else:
+                    return obj
+            elif os.path.exists(filepath):
+                with open(filepath, "rb") as f:
                     obj = dill.load(f)
+                if top_key not in ["indices", "_paper_details"]:
+                    with open(json_filepath, "w") as f:
+                        json.dump(obj, f)
                 setattr(self, top_key, obj)
                 if inner_key is not None:
                     return obj.get(inner_key, None)
@@ -252,11 +269,15 @@ class DocIndex:
         doc_id = self.doc_id
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
+        json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
         lock_location = os.path.join(os.path.join(folder, "locks"), f"{doc_id}-{top_key}")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             if top_key == "deep_reader_data":
-                if os.path.exists(filepath):
+                if os.path.exists(json_filepath):
+                    with open(json_filepath, "r") as f:
+                        old_deep_reader_details = json.load(f)
+                elif os.path.exists(filepath):
                     with open(os.path.join(filepath), "rb") as f:
                         old_deep_reader_details = dill.load(f)
                 else:
@@ -269,7 +290,10 @@ class DocIndex:
                         self.set_doc_data("deep_reader_data", k, v)
             
             if top_key == "qna_data" and inner_key == "detailed_qna":
-                if os.path.exists(filepath):
+                if os.path.exists(json_filepath):
+                    with open(json_filepath, "r") as f:
+                        old_qna_details = json.load(f)
+                elif os.path.exists(filepath):
                     with open(os.path.join(filepath), "rb") as f:
                         old_qna_details = dill.load(f)
                 else:
@@ -325,8 +349,12 @@ class DocIndex:
                     setattr(self, top_key, tk)
                 else:
                     setattr(self, top_key, value)
-            with open(os.path.join(filepath), "wb") as f:
-                dill.dump(getattr(self, top_key, None), f)
+            if top_key not in ["indices", "_paper_details"]:
+                with open(json_filepath, "w") as f:
+                    json.dump(getattr(self, top_key, None), f)
+            else:
+                with open(os.path.join(filepath), "wb") as f:
+                    dill.dump(getattr(self, top_key, None), f)
             
     
     def get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
@@ -1171,6 +1199,7 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
+    
     doc_text = PDFReaderTool(keys)(pdf_url)
     chunks = ChunkText(doc_text, 1024, 96)
     nested_dict = {

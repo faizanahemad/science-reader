@@ -20,7 +20,6 @@ import os
 import time
 import multiprocessing
 import glob
-import json
 from rank_bm25 import BM25Okapi
 from typing import List, Dict
 from flask import Flask, Response, stream_with_context
@@ -37,6 +36,31 @@ from common import checkNoneOrEmpty
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
+from flask.json.provider import JSONProvider
+import typing as t
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+class FlaskJSONProvider(JSONProvider):
+    def dumps(self, obj: t.Any, **kwargs: t.Any) -> str:
+        """Serialize data as JSON.
+
+        :param obj: The data to serialize.
+        :param kwargs: May be passed to the underlying JSON library.
+        """
+        return json.dumps(obj, **kwargs)
+    def loads(self, s: str, **kwargs: t.Any) -> t.Any:
+        """Deserialize data as JSON.
+
+        :param s: Text or UTF-8 bytes.
+        :param kwargs: May be passed to the underlying JSON library.
+        """
+        return json.loads(s, **kwargs)
+    
+class OurFlask(Flask):
+    json_provider_class = FlaskJSONProvider
 
 os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
 
@@ -254,7 +278,7 @@ if __name__ == "__main__":
 else:
     folder = "storage"
     login_not_needed = True
-app = Flask(__name__)
+app = OurFlask(__name__)
 app.config['SESSION_PERMANENT'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -544,6 +568,7 @@ def add_to_bm25_corpus(doc_index: DocIndex):
 
 def load_documents(folder):
     global indexed_docs, bm25_corpus, doc_id_to_bm25_index
+    folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
     for filepath in glob.glob(os.path.join(folder, '*.index')):
         filename = os.path.basename(filepath)
         doc_index = DocIndex.load_local(folder, filename).copy()
@@ -856,7 +881,6 @@ def upload_pdf():
 
 
 def cached_get_file(file_url):
-    
     chunk_size = 1024  # Define your chunk size
     file_data = cache.get(file_url)
 
