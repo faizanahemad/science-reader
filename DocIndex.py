@@ -38,6 +38,7 @@ from langchain.agents import AgentType
 from langchain import OpenAI, ConversationChain
 from langchain.embeddings import OpenAIEmbeddings
 from review_criterias import review_params
+from pathlib import Path
 
 import openai
 import tiktoken
@@ -199,7 +200,7 @@ class DocIndex:
         self.doc_type = doc_type
         self._title = ''
         self._short_summary = ''
-        folder = os.path.join(folder, f"{self.doc_id}")
+        folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
@@ -207,21 +208,28 @@ class DocIndex:
         self.is_local = os.path.exists(doc_source)
         
         
-        self.static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text,)
-        self.raw_data = dict(chunks=full_summary["chunks"], small_chunks=full_summary["small_chunks"])
-        self.indices = dict(dqna_index = create_index_faiss([''], openai_embed, doc_id=self.doc_id,), 
-                            raw_index = create_index_faiss(self.raw_data['chunks'], openai_embed,), 
+        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text,)
+        raw_data = dict(chunks=full_summary["chunks"], small_chunks=full_summary["small_chunks"])
+        indices = dict(dqna_index = create_index_faiss([''], openai_embed, doc_id=self.doc_id,), 
+                            raw_index = create_index_faiss(raw_data['chunks'], openai_embed,), 
                             summary_index = create_index_faiss([''], openai_embed,), 
-                            small_chunk_index = create_index_faiss(self.raw_data["small_chunks"], openai_embed,))
+                            small_chunk_index = create_index_faiss(raw_data["small_chunks"], openai_embed,))
         
         del full_summary["chunks"]
         del full_summary["small_chunks"]
         
-        self.qna_data = dict(chunked_summary=full_summary["chunked_summary"], running_summary=full_summary["running_summary"], detailed_qna=full_summary["detailed_qna"], extended_abstract=dict())
-        self.deep_reader_data = full_summary["deep_reader_details"]
-        self.review_data = []
-        self._paper_details = None
-        # index, raw data, qna data, doc_overall, paper_details,
+        qna_data = dict(chunked_summary=full_summary["chunked_summary"], running_summary=full_summary["running_summary"], detailed_qna=full_summary["detailed_qna"], extended_abstract=dict())
+        deep_reader_data = full_summary["deep_reader_details"]
+        review_data = []
+        _paper_details = None
+        self.set_doc_data("static_data", None, static_data)
+        self.set_doc_data("raw_data", None, raw_data)
+        self.set_doc_data("qna_data", None, qna_data)
+        self.set_doc_data("deep_reader_data", None, deep_reader_data)
+        self.set_doc_data("review_data", None, review_data)
+        self.set_doc_data("_paper_details", None, _paper_details)
+        self.set_doc_data("indices", None, indices)
+        
         
     def get_doc_data(self, top_key, inner_key=None,):
         import dill
@@ -272,7 +280,8 @@ class DocIndex:
         print(folder)
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
-        lock_location = os.path.join(os.path.join(folder, "locks"), f"{doc_id}-{top_key}")
+        path = Path(folder)
+        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}-{top_key}")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             if top_key == "deep_reader_data":
@@ -1104,10 +1113,15 @@ Don't give your final remarks or conclusion in this response. We will ask you to
         original_folder = folder
         folder = os.path.join(folder, os.path.basename(folder)+".index")
         import dill
-        with open(folder, "rb") as f:
-            obj = dill.load(f)
-            setattr(obj, "_storage", original_folder)
-            return obj
+        try:
+            with open(folder, "rb") as f:
+                obj = dill.load(f)
+                setattr(obj, "_storage", original_folder)
+                return obj
+        except Exception as e:
+            logger.error(f"Error loading from local storage {folder} with error {e}")
+            shutil.rmtree(original_folder)
+            return None
     
     def save_local(self):
         import dill
@@ -1115,7 +1129,8 @@ Don't give your final remarks or conclusion in this response. We will ask you to
         folder = self._storage
         os.makedirs(folder, exist_ok=True)
         os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
-        lock_location = os.path.join(os.path.join(folder, "locks"), f"{doc_id}")
+        path = Path(folder)
+        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}")
         filepath = os.path.join(folder, f"{doc_id}.index")
         lock = FileLock(f"{lock_location}.lock")
         if hasattr(self, "api_keys"):
@@ -1220,8 +1235,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_index = ImmediateDocIndex(pdf_url, 
                     "pdf", 
                     "scientific_article", doc_text, nested_dict, openai_embed, folder)
-        for k in doc_index.store_separate:
-            doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
+        # for k in doc_index.store_separate:
+        #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
     except Exception as e:
         folder = os.path.join(folder, f"{doc_index.doc_id}")
         if os.path.exists(folder):

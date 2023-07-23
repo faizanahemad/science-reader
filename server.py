@@ -571,10 +571,10 @@ def add_to_bm25_corpus(doc_index: DocIndex):
 def load_documents(folder):
     global indexed_docs, bm25_corpus, doc_id_to_bm25_index
     folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
-    for filepath in folders:
-        # filename = os.path.basename(filepath)
-        doc_index = DocIndex.load_local(os.path.join(folder, filepath))
-        
+    docs = [DocIndex.load_local(os.path.join(folder, filepath)) for filepath in folders]
+    docs = [doc for doc in docs if doc is not None]
+    # filename = os.path.basename(filepath)
+    for doc_index in docs:
         indexed_docs[doc_index.doc_id] = doc_index
         add_to_bm25_corpus(doc_index)
 

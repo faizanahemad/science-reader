@@ -13,6 +13,8 @@ import types
 
 import pickle
 import dill
+import collections
+import threading
 
 from multiprocessing import Process, Queue
 from functools import partial
@@ -307,6 +309,37 @@ def parse_array_string(s):
 
 def normalize_whitespace(s):
     return re.sub(r'\s+', ' ', s).strip()
+
+
+
+class SetQueue:
+    def __init__(self, maxsize):
+        self.maxsize = maxsize
+        self.queue = collections.deque(maxlen=maxsize)
+        self.set = set()
+        self.lock = threading.Lock()
+
+    def add(self, item):
+        with self.lock:
+            if item not in self.set:
+                if len(self.queue) >= self.maxsize:
+                    removed = self.queue.popleft()
+                    self.set.discard(removed)
+                self.queue.append(item)
+                self.set.add(item)
+
+    def __contains__(self, item):
+        with self.lock:
+            return item in self.set
+
+    def __len__(self):
+        with self.lock:
+            return len(self.queue)
+
+    def items(self):
+        with self.lock:
+            return list(self.queue)
+
 
 
 
