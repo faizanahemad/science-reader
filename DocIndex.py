@@ -1,3 +1,4 @@
+import shutil
 import sys
 import random
 from functools import partial
@@ -198,7 +199,9 @@ class DocIndex:
         self.doc_type = doc_type
         self._title = ''
         self._short_summary = ''
-        self._storage = storage
+        folder = os.path.join(folder, f"{self.doc_id}")
+        os.makedirs(folder, exist_ok=True)
+        self._storage = folder
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
         assert  doc_filetype == "pdf" and ("http" in doc_source or os.path.exists(doc_source))
         self.is_local = os.path.exists(doc_source)
@@ -225,8 +228,6 @@ class DocIndex:
         doc_id = self.doc_id
 
         folder = self._storage
-            
-        
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
         
@@ -234,7 +235,7 @@ class DocIndex:
             assert top_key in self.store_separate
         except Exception as e:
             raise ValueError(f"Invalid top_key {top_key} provided")
-        logger.info(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, filepath = {filepath}, already loaded = {getattr(self, top_key, None) is not None}")
+        logger.info(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
         if getattr(self, top_key, None) is not None:
             if inner_key is not None:
                 return getattr(self, top_key, None).get(inner_key, None)
@@ -268,6 +269,7 @@ class DocIndex:
         import dill
         doc_id = self.doc_id
         folder = self._storage
+        print(folder)
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
         lock_location = os.path.join(os.path.join(folder, "locks"), f"{doc_id}-{top_key}")
@@ -1098,21 +1100,19 @@ Don't give your final remarks or conclusion in this response. We will ask you to
 
         
     @staticmethod
-    def load_local(folder, filename):
+    def load_local(folder):
+        original_folder = folder
+        folder = os.path.join(folder, os.path.basename(folder)+".index")
         import dill
-        with open(os.path.join(folder, filename), "rb") as f:
+        with open(folder, "rb") as f:
             obj = dill.load(f)
-            setattr(obj, "_storage", folder)
+            setattr(obj, "_storage", original_folder)
             return obj
     
-    def save_local(self, folder):
+    def save_local(self):
         import dill
         doc_id = self.doc_id
-
-        if folder is None:
-            folder = self._storage
-        else:
-            setattr(self, "_storage", folder)
+        folder = self._storage
         os.makedirs(folder, exist_ok=True)
         os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
         lock_location = os.path.join(os.path.join(folder, "locks"), f"{doc_id}")
@@ -1199,7 +1199,6 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
-    
     doc_text = PDFReaderTool(keys)(pdf_url)
     chunks = ChunkText(doc_text, 1024, 96)
     nested_dict = {
@@ -1224,10 +1223,9 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         for k in doc_index.store_separate:
             doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
     except Exception as e:
-        for k in doc_index.store_separate:
-            filepath = os.path.join(folder, f"{doc_index.doc_id}-{k}.partial")
-            if os.path.exists(filepath):
-                os.remove(filepath)
+        folder = os.path.join(folder, f"{doc_index.doc_id}")
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
         logger.error(f"Error creating immediate doc index for {pdf_url}")
         raise e
     

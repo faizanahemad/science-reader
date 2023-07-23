@@ -310,6 +310,8 @@ os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
 nlp = English()  # just the language with no model
 _ = nlp.add_pipe("lemmatizer")
 nlp.initialize()
+folder = os.path.join(os.getcwd(), folder, "documents")
+os.makedirs(folder, exist_ok=True)
 
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
@@ -569,9 +571,9 @@ def add_to_bm25_corpus(doc_index: DocIndex):
 def load_documents(folder):
     global indexed_docs, bm25_corpus, doc_id_to_bm25_index
     folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
-    for filepath in glob.glob(os.path.join(folder, '*.index')):
-        filename = os.path.basename(filepath)
-        doc_index = DocIndex.load_local(folder, filename).copy()
+    for filepath in folders:
+        # filename = os.path.basename(filepath)
+        doc_index = DocIndex.load_local(os.path.join(folder, filepath))
         
         indexed_docs[doc_index.doc_id] = doc_index
         add_to_bm25_corpus(doc_index)
@@ -683,7 +685,7 @@ def immediate_create_and_save_index(pdf_url, keys):
 def save_index(doc_index: DocIndex, folder):
     indexed_docs[doc_index.doc_id] = doc_index
     add_to_bm25_corpus(doc_index)
-    doc_index.save_local(folder)
+    doc_index.save_local()
 
     
 @app.route('/streaming_get_answer', methods=['POST'])
