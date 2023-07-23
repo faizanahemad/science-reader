@@ -127,7 +127,6 @@ import time
 def get_embedding_model(keys):
     openai_key = keys["openAIKey"]
     assert openai_key
-    logger.info(f"Getting embedding model with user provided keys")
     openai_embed = OpenAIEmbeddings(openai_api_key=openai_key, model='text-embedding-ada-002')
     return openai_embed
 
@@ -488,8 +487,7 @@ def process_text(text, chunk_size, my_function, keys):
     tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
-        logger.warning("--- process_text --- Multiple chunks as result.")
-        logger.info(f"Results len = {len(results)} and type of results =  {type(results[0])}")
+        logger.warning(f"--- process_text --- Multiple chunks as result. Results len = {len(results)} and type of results =  {type(results[0])}")
         assert isinstance(results[0], str)
         results = [process_text_executor.submit(contrain_text_length_by_summary, r, keys, threshold) for r in results]
         results = [future.result() for future in results]
@@ -728,8 +726,6 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     seen_links = set()
     dedup_results = []
     for r in results:
-        if "snippet" not in r:
-            logger.warning(r)
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         if title in seen_titles or len(title) == 0 or link in seen_links:
@@ -778,8 +774,6 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     seen_links = set()
     dedup_results = []
     for r in results:
-        if "snippet" not in r:
-            logger.warning(r)
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         if title in seen_titles or len(title) == 0 or link in seen_links:
@@ -843,8 +837,6 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     seen_links = set()
     dedup_results = []
     for r in results:
-        if "snippet" not in r:
-            logger.warning(r)
         title = r.get("title", "").lower()
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         if title in seen_titles or len(title) == 0 or link in seen_links:
@@ -872,7 +864,6 @@ def get_page_content(link, playwright_cdp_link=None):
     text = ''
     title = ''
     try:
-        logger.info(f"Trying playwright for link {link}")
         from playwright.sync_api import sync_playwright
         playwright_enabled = True
         with sync_playwright() as p:
@@ -922,9 +913,9 @@ def get_page_content(link, playwright_cdp_link=None):
             
         
     except Exception as e:
-        traceback.print_exc()
+        # traceback.print_exc()
         try:
-            logger.info(f"Trying selenium for link {link}")
+            logger.info(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
             from selenium import webdriver
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.wait import WebDriverWait
@@ -1084,7 +1075,6 @@ def get_page_content(link, playwright_cdp_link=None):
     text = ''
     title = ''
     try:
-        logger.info(f"Trying playwright for link {link}")
         from playwright.sync_api import sync_playwright
         playwright_enabled = True
         with sync_playwright() as p:
@@ -1134,9 +1124,8 @@ def get_page_content(link, playwright_cdp_link=None):
             
         
     except Exception as e:
-        traceback.print_exc()
         try:
-            logger.info(f"Trying selenium for link {link}")
+            logger.info(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
             from selenium import webdriver
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.wait import WebDriverWait
@@ -1278,7 +1267,7 @@ Output only a valid python list of query strings:
 """
     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
     
-    logger.info(f"Query string for {context} = {query_strings} , prompt = \n```\n{prompt}\n```\n") # prompt = \n```\n{prompt}\n```\n
+    logger.info(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
     query_strings = parse_array_string(query_strings.strip())
     
     rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
@@ -1297,15 +1286,15 @@ Output only a valid python list of query strings:
     if google_available:
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=None) for query in query_strings]
         serps_web = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.info(f"Using GOOGLE for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     elif serp_available:
         serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
         serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.info(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        logger.debug(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     elif bing_available:
         serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
         serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     else:
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         return {"text":'', "search_results": [], "queries": query_strings}
@@ -1318,11 +1307,11 @@ Output only a valid python list of query strings:
         if serp_available:
             serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
             serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-            logger.info(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+            logger.debug(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
         elif bing_available:
             serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
             serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-            logger.info(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+            logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
         else:
             return {"text":'', "search_results": [], "queries": query_strings}
         serps = [s.result() for s in serps]
@@ -1364,19 +1353,19 @@ Output only a valid python list of query strings:
     
         
     len_after_dedup = len(dedup_results)
-    logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
+    logger.info(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
 #     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
         
     # Rerank here first
     
     if rerank_available:
         st_rerank = time.time()
-        docs = [r["title"] + " " + r["snippet"] for r in dedup_results]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=64, model='rerank-english-v2.0') 
+        docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=16, model='rerank-english-v2.0') 
         pre_rerank = dedup_results
         dedup_results = [dedup_results[r.index] for r in rerank_results]
         tt_rerank = time.time() - st_rerank
-        logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)}")
+        logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} --- rerank len = {len(dedup_results)}")
         # logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
         
     if rerank_available:
@@ -1386,7 +1375,7 @@ Output only a valid python list of query strings:
         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
         dedup_results = [dedup_results[r.index] for r in rerank_results]
         pdfs = [pdfs[r.index] for r in rerank_results]
-        logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}")
+        logger.info(f"--- Cohere PDF Reranked --- rerank len = {len(dedup_results)}")
         
 #         logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
         
@@ -1394,7 +1383,7 @@ Output only a valid python list of query strings:
         for r in dedup_results_web:
             if "snippet" not in r:
                 logger.warning(r)
-        docs = [r["title"] + " " + r["snippet"] for r in dedup_results_web]
+        docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results_web]
         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
         pre_rerank = dedup_results_web
         dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
@@ -1408,8 +1397,6 @@ Output only a valid python list of query strings:
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
-        logger.info(f"Link: {r['link']} title: {r['title']}")
-    logger.info(f"SERP results for {context}, count = {len(dedup_results)}")
     
     dedup_results = dedup_results[:8]
     links = [r["link"] for r in dedup_results]
@@ -1436,7 +1423,7 @@ Output only a valid python list of query strings:
 #         logger.info(f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
     
         
-    logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
+    logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
     return {"text":all_text, "search_results": all_results_doc, "queries": query_strings}
 
 def multi_doc_reader(context, docs):
@@ -1481,7 +1468,7 @@ def process_pdf(link_title_context_apikeys):
         tt = time.time() - st
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
-        logger.info(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
+        logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
         return {"link": link, "title": title, "text": extracted_info, "exception": True}
     return {"link": link, "title": title, "text": extracted_info, "exception": False}
 
@@ -1509,7 +1496,6 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
         texts = [''] * len(links)
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
-    logger.info(f"Start reading over multiple pdf docs...")
     # Use the executor to apply process_pdf to each tuple
     futures = [pdf_process_executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
@@ -1524,7 +1510,7 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     import tiktoken
     enc = tiktoken.encoding_for_model("gpt-4")
-    logger.info(f"Web search Result string len = {len(result.split())}, token len = {len(enc.encode(result))}")
+    logger.info(f"read_over_multiple_pdf:: Web search Result string len = {len(result.split())}, token len = {len(enc.encode(result))}")
     return result, processed_texts
 
 def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None):

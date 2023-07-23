@@ -228,8 +228,8 @@ class DocIndex:
             assert top_key in self.store_separate
         except Exception as e:
             raise ValueError(f"Invalid top_key {top_key} provided")
-        logger.info(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath}, already loaded = {getattr(self, top_key, None) is not None}")
-        if hasattr(self, top_key) and getattr(self, top_key, None) is not None:
+        logger.info(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, filepath = {filepath}, already loaded = {getattr(self, top_key, None) is not None}")
+        if getattr(self, top_key, None) is not None:
             if inner_key is not None:
                 return getattr(self, top_key, None).get(inner_key, None)
             else:
@@ -426,7 +426,6 @@ class DocIndex:
         else:
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+"\n\n"+raw_text, summary="", 
                                             questions_answers="", full_summary=self.get_doc_data("qna_data", "running_summary"))
-        logger.info(f"Started streaming answering")
         if mode=="detailed" or mode=="detailed_with_followup" or mode=="review":
             if mode=="detailed_with_followup":
                 if depth == 2:
@@ -441,7 +440,7 @@ class DocIndex:
             
         elif mode=="web_search":
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
-            logger.info(f"Web search Results for query = {query}, Results = {web_results}")
+            logger.info(f"Web search Results for query = {query}")
             additional_info = web_results
         else:
             main_ans_gen = llm(prompt, temperature=0.7, stream=True)
@@ -450,7 +449,7 @@ class DocIndex:
             additional_info = wrap_in_future(additional_info)
         answer = ''
         ans_begin_time = time.time()
-        logger.info(f"Start to answer by {(ans_begin_time-ent_time):4f}s")
+        logger.info(f"streaming_get_short_answer:: Start to answer by {(ans_begin_time-ent_time):4f}s")
         
         breaker = ''
         decision_var = ''
@@ -474,7 +473,7 @@ class DocIndex:
                 breaker = ''
         yield "</br> \n"
         decision_var = True if re.sub(r"[^a-z]+", "", decision_var.lower().strip()) in ["true", "yes", "ok", "sure"] else False
-        logger.info(f"Decision to continue the answer for short answer = {decision_var}")
+        logger.debug(f"Decision to continue the answer for short answer = {decision_var}")
         
         if ((mode == "detailed" or mode == "detailed_with_followup")) or mode == "web_search" or mode == "review":
             follow_breaker = ''
@@ -583,7 +582,7 @@ class DocIndex:
         
     def get_fixed_details(self, key):
         if self.get_doc_data("deep_reader_data") is not None and self.get_doc_data("deep_reader_data", key) is not None and len(self.get_doc_data("deep_reader_data", key)["text"].strip())>0:
-            logger.info(f'Found fixed details for key = {key}')
+            logger.debug(f'Found fixed details for key = {key}')
             return self.get_doc_data("deep_reader_data", key)
         keys = [
                         "methodology",
@@ -640,7 +639,6 @@ class DocIndex:
     - What are some overlooked experiments which could have provided more insights into this approach or work.
             """,
         }
-        logger.info(f"Create fixed details for key = {key} ")
         full_text = ''
         for txt in self.streaming_get_short_answer(key_to_query_map[key], defaultdict(lambda: False, {"provide_detailed_answers": True}), save_answer=False):
             full_text += txt
@@ -1119,7 +1117,7 @@ Don't give your final remarks or conclusion in this response. We will ask you to
         for ix, qna_pair in enumerate(self.get_doc_data("qna_data", "detailed_qna")):
             if qna_pair[0] == question_id and found_index is None:
                 found_index = ix
-        logger.info(f"Put answer in doc with question_id = {question_id}, query = {query}, found_index = {found_index}")
+        logger.info(f"Put answer in doc for storage with question_id = {question_id}, query = {query}, found_index = {found_index}")
         if found_index is None:
             self.set_doc_data("qna_data", "detailed_qna", [[question_id, final_query, answer]])
         else:
@@ -1133,7 +1131,7 @@ Don't give your final remarks or conclusion in this response. We will ask you to
     
     
     def get_api_keys(self):
-        logger.info(f"get api keys for self hash = {hash(self)}")
+        logger.info(f"get api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
         if hasattr(self, "api_keys"):
             api_keys = deepcopy(self.api_keys)
         else:
@@ -1202,7 +1200,6 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             if os.path.exists(filepath):
                 os.remove(filepath)
         logger.error(f"Error creating immediate doc index for {pdf_url}")
-        logger.error(e)
         raise e
     
     return doc_index

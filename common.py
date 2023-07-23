@@ -130,7 +130,7 @@ def wrap_in_future(s):
     return future
 
 def execute_in_thread(function, *args, **kwargs):
-    logger.info(f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
+    logger.debug(f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
     submit_st = time.time()
     with ProcessPoolExecutor(max_workers=2) as executor:
         future = executor.submit(function, *args, **kwargs)
@@ -181,7 +181,7 @@ def streaming_timer(func):
             yield r
             accum = accum + r
         end_time = time.time()
-        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result: {accum}")
+        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds")
     return wrapper
 
 def print_nested(val, nesting = -5): 

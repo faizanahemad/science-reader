@@ -293,13 +293,13 @@ cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, '
 def check_login(session):
     email = dict(session).get('email', None)
     name = dict(session).get('name', None)
-    logger.info(f"Check Login for email {session.get('email')} and name {session.get('name')}")
+    logger.debug(f"Check Login for email {session.get('email')} and name {session.get('name')}")
     return email, name, email is not None and name is not None
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        logger.info(f"Login Required call for email {session.get('email')} and name {session.get('name')}")
+        logger.debug(f"Login Required call for email {session.get('email')} and name {session.get('name')}")
         if session.get('email') is None or session.get('name') is None:
             return redirect('/login', code=302)
         return f(*args, **kwargs)
@@ -310,10 +310,10 @@ def login_required(f):
 def add_upvote_downvote():
     email, name, _ = check_login(session)
     data = request.get_json()
-    logger.info(f"GEt upvote-downvote request with {data}")
+    logger.info(f"'/addUpvoteOrDownvote' Get upvote-downvote request with {data}")
     if "question_text" in data:
         question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
-        logger.info(f"'/addUpvoteOrDownvote' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
+        logger.debug(f"'/addUpvoteOrDownvote' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
         if checkNoneOrEmpty(data['question_id']):
             data['question_id'] = question_id
     if checkNoneOrEmpty(data['question_id']) or checkNoneOrEmpty(data['doc_id']):
@@ -326,7 +326,7 @@ def add_upvote_downvote():
 def get_votes_by_user():
     email, name, _ = check_login(session)
     rows = getUpvotesDownvotesByUser(email)
-    logger.info(f"called , response = {rows}")
+    logger.debug(f"called , response = {rows}")
     return jsonify(rows), 200
 
 @app.route('/getUpvotesDownvotesByQuestionId/<question_id>', methods=['GET'])
@@ -334,10 +334,9 @@ def get_votes_by_user():
 def get_votes_by_question(question_id):
     if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
         data = ast.literal_eval(unquote(request.query_string))
-        logger.info(f"'/getUpvotesDownvotesByQuestionId' -> data = {data}")
+        logger.debug(f"'/getUpvotesDownvotesByQuestionId' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
             question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
-            logger.info(f"'/getUpvotesDownvotesByQuestionId' -> generated question_id = {question_id}")
         else:
             return "Question Id empty", 400
     email, name, _ = check_login(session)
@@ -356,7 +355,7 @@ def get_votes_by_question_and_user():
         logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
             question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
-            logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> generated question_id = {question_id}")
+            logger.debug(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> generated question_id = {question_id}")
         else:
             return "Question Id empty", 400
     rows = getUpvotesDownvotesByQuestionIdAndUser(question_id, email)
@@ -369,10 +368,10 @@ def get_votes_by_question_and_user():
 def add_user_question_feedback():
     email, name, _ = check_login(session)
     data = request.get_json()
-    logger.info(f"GEt granular feedback request with {data}")
+    logger.info(f"Get granular feedback request with {data}")
     if "question_text" in data:
         question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
-        logger.info(f"'/addUserQuestionFeedback' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
+        logger.debug(f"'/addUserQuestionFeedback' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
         if checkNoneOrEmpty(data['question_id']):
             data['question_id'] = question_id
     if checkNoneOrEmpty(data['question_id']) or checkNoneOrEmpty(data['doc_id']):
@@ -434,7 +433,6 @@ def logout():
     
     if 'token' in session: 
         access_token = session['token']['access_token'] 
-        logger.info(f"Called /logout with token as {access_token} for logging out.")
         requests.post('https://accounts.google.com/o/oauth2/revoke',
             params={'token': access_token},
             headers = {'content-type': 'application/x-www-form-urlencoded'})
@@ -487,7 +485,7 @@ indexed_docs: IndexDict[str, DocIndex] = {}
 
     
 def set_keys_on_docs(docs, keys):
-    logger.info(f"Attaching keys to doc")
+    logger.debug(f"Attaching keys to doc")
     if isinstance(docs, dict):
         docs = {k: v.copy() for k, v in docs.items()}
         for k, v in docs.items():
@@ -538,7 +536,7 @@ def add_to_bm25_corpus(doc_index: DocIndex):
         doc_info = doc_index.get_short_info()
         text = doc_info['title'].lower() + " " + doc_info['short_summary'].lower() + " " + doc_info['summary'].lower()
     except Exception as e:
-        logger.info(f"Error in getting text for doc_id = {doc_index.doc_id}, error = {e}")
+        logger.warning(f"Error in getting text for doc_id = {doc_index.doc_id}, error = {e}")
         text = doc_index.indices["chunks"][0].lower()
     bm25_corpus.append(get_bm25_grams(text))
     doc_id_to_bm25_index[doc_index.doc_id] = len(bm25_corpus) - 1
@@ -574,7 +572,7 @@ def search_document():
         docs = [set_keys_on_docs(indexed_docs[doc_id], keys) for score, doc_id in results[:4] if doc_id in doc_ids]
         scores = [score for score, doc_id in results[:4] if doc_id in doc_ids]
         top_results = [doc.get_short_info() for score, doc in zip(scores, docs)]
-        logger.info(f"Search results = {[(score, doc.doc_source) for score, doc in zip(scores, docs)]}")
+        logger.debug(f"Search results = {[(score, doc.doc_source) for score, doc in zip(scores, docs)]}")
         return jsonify(top_results)
     else:
         return jsonify({'error': 'No search text provided'}), 400
@@ -826,7 +824,7 @@ from flask import Response, stream_with_context
 @login_required
 def proxy():
     file_url = request.args.get('file')
-    logger.info(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url)}")
+    logger.debug(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url)}")
     return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
 
 @app.route('/')
@@ -860,7 +858,6 @@ def upload_pdf():
 def cached_get_file(file_url):
     
     chunk_size = 1024  # Define your chunk size
-    logger.info(f"cached_get_file for {file_url}")
     file_data = cache.get(file_url)
 
     # If the file is not in the cache, read it from disk and save it to the cache
@@ -887,7 +884,7 @@ def cached_get_file(file_url):
         try:
             req = requests.get(file_url, stream=True)
         except requests.exceptions.RequestException as e:
-            app.logger.error(f"Failed to download file: {e}")
+            logger.error(f"Failed to download file: {e}")
             req = requests.get(file_url, stream=True, verify=False)
         # TODO: save the downloaded file to disk.
         
