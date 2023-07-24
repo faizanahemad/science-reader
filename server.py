@@ -32,7 +32,7 @@ import argparse
 from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
-from common import checkNoneOrEmpty
+from common import checkNoneOrEmpty, convert_http_to_https
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -448,7 +448,9 @@ def get_all_reviews(doc_id):
 @app.route('/login')
 def login():
     redirect_uri = url_for('authorize', _external=True)
+    redirect_uri = convert_http_to_https(redirect_uri)
     if login_not_needed:
+        logger.info(f"Login not needed send login.html")
         email = request.args.get('email')
         if email is None:
             return send_from_directory('interface', 'login.html', max_age=0)
@@ -456,6 +458,7 @@ def login():
         session['name'] = email
         return redirect('/interface', code=302)
     else:
+        logger.info(f"Login needed with redirect authorize uri = {redirect_uri}")
         return google.authorize_redirect(redirect_uri)
 
 @app.route('/logout')

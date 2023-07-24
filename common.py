@@ -2,6 +2,7 @@ import asyncio
 import threading
 from playwright.async_api import async_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future, ProcessPoolExecutor
+from urllib.parse import urlparse, urlunparse
 import time
 import logging
 import sys
@@ -345,6 +346,10 @@ class SetQueue:
     def items(self):
         with self.lock:
             return list(self.queue)
+def convert_http_to_https(url):
+    parsed_url = urlparse(url)
+    https_url = parsed_url._replace(scheme='https')
+    return urlunparse(https_url)
 
         
         
