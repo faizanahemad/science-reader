@@ -286,7 +286,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
 app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
-app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
+# app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
 Session(app)
 oauth = OAuth(app)
 log = logging.getLogger('werkzeug')
@@ -449,8 +449,9 @@ def get_all_reviews(doc_id):
     
 @app.route('/login')
 def login():
+    scheme_is_https = request.headers.get('X-Forwarded-Proto', 'http') == "https"
     redirect_uri = url_for('authorize', _external=True)
-    redirect_uri = convert_http_to_https(redirect_uri)
+    redirect_uri = convert_http_to_https(redirect_uri) if scheme_is_https else redirect_uri
     if login_not_needed:
         logger.info(f"Login not needed send login.html")
         email = request.args.get('email')
@@ -458,7 +459,7 @@ def login():
             return send_from_directory('interface', 'login.html', max_age=0)
         session['email'] = email
         session['name'] = email
-        return redirect(url_for('/interface', _external=True), code=302)
+        return redirect('/interface', code=302)
     else:
         logger.info(f"Login needed with redirect authorize uri = {redirect_uri}")
         return google.authorize_redirect(redirect_uri)

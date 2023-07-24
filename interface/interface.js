@@ -183,7 +183,10 @@ function createAndInitPseudoUserId() {
             // You can log all the parameters to see which one gives you the error message you're interested in.
             // 'jqXHR' is the full response object, 'textStatus' is a description of the type of error,
             // and 'errorThrown' is the textual portion of the HTTP status, such as "Not Found" or "Internal Server Error."
-            alert(`An error occurred: ${textStatus}, ${errorThrown}`);
+            console.log("HTTP Status Code: " + jqXHR.status);
+            console.log("Error Message: " + errorThrown);
+            console.log("Response: " + jqXHR);
+            console.log(`An error occurred: ${textStatus}, ${errorThrown}`);
         })
 }
 
