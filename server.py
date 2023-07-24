@@ -283,12 +283,14 @@ app = OurFlask(__name__)
 app.config['SESSION_PERMANENT'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_TYPE'] = 'filesystem'
-app.config["GOOGLE_CLIENT_ID"] = "829412467201-koo2d873vemgtg7g92m2ffkkl9r97ubp.apps.googleusercontent.com"
-app.config["GOOGLE_CLIENT_SECRET"] = "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"
+app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
+app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
 Session(app)
 oauth = OAuth(app)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+log = logging.getLogger('__main__')
+log.setLevel(logging.WARNING)
 google = oauth.register(
     name='google',
     client_id=app.config.get("GOOGLE_CLIENT_ID"),
@@ -520,7 +522,7 @@ doc_index_cache = SetQueue(maxsize=50)
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")
     if isinstance(docs, dict):
-        docs = {k: v.copy() for k, v in docs.items()}
+        # docs = {k: v.copy() for k, v in docs.items()}
         for k, v in docs.items():
             v.set_api_keys(keys)
             for i, j in vars(v).items():
@@ -528,7 +530,7 @@ def set_keys_on_docs(docs, keys):
                     j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     elif isinstance(docs, (list, tuple, set)):
-        docs = [d.copy() for d in docs]
+        # docs = [d.copy() for d in docs]
         for d in docs:
             d.set_api_keys(keys)
             for i, j in vars(d).items():
@@ -537,7 +539,7 @@ def set_keys_on_docs(docs, keys):
                     setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     else:
         assert isinstance(docs, (DocIndex, ImmediateDocIndex))
-        docs = docs.copy()
+        # docs = docs.copy()
         for i, j in vars(docs).items():
             if isinstance(j,  (DocFAISS, FAISS, VectorStore)):
                 
@@ -839,11 +841,13 @@ def get_fixed_details():
 from flask import send_from_directory
 
 @app.route('/favicon.ico')
+@login_required
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 @app.route('/interface/<path:path>')
+@login_required
 def send_static(path):
     return send_from_directory('interface', path, max_age=0)
 
@@ -862,6 +866,7 @@ def proxy():
     return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
 
 @app.route('/')
+@login_required
 def index():
     return redirect('/interface')
 
