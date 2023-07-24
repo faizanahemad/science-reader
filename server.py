@@ -841,13 +841,11 @@ def get_fixed_details():
 from flask import send_from_directory
 
 @app.route('/favicon.ico')
-@login_required
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 @app.route('/interface/<path:path>')
-@login_required
 def send_static(path):
     return send_from_directory('interface', path, max_age=0)
 
@@ -866,7 +864,6 @@ def proxy():
     return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
 
 @app.route('/')
-@login_required
 def index():
     return redirect('/interface')
 
