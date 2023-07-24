@@ -285,6 +285,8 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
 app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
 Session(app)
 oauth = OAuth(app)
 log = logging.getLogger('werkzeug')
@@ -456,7 +458,7 @@ def login():
             return send_from_directory('interface', 'login.html', max_age=0)
         session['email'] = email
         session['name'] = email
-        return redirect('/interface', code=302)
+        return redirect(url_for('/interface', _external=True), code=302)
     else:
         logger.info(f"Login needed with redirect authorize uri = {redirect_uri}")
         return google.authorize_redirect(redirect_uri)
