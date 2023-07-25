@@ -617,17 +617,19 @@ ContextualReader:
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=("Provide short, concise and informative response in 5-6 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "Provide elaborate and in-depth information relevant to the provided context after 'Extracted Information'. ") + """
-Gather information and context from the given document for the given question:
+Provide relevant information from the given document for the given question:
 "{context}"
 
-Document:
-"{document}"
+Document from which you need to extract information:
+'''
+{document}
+'''
 
-Read the above document and extract useful information in a concise manner for the query/question. If nothing highly relevant is found then output details from the document which might be similar or tangential or helpful relative to the given question.
+If highly relevant content is not found for the given question then output details from the document which might be helpful relative to the given question. If you find nothing useful at all then say 'No relevant information found.'.
 You can use markdown formatting to typeset/format your answer better.
 You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
 
-Extracted Information:
+Relevant Information:
 
 """,
         )
@@ -867,7 +869,7 @@ def get_page_content(link, playwright_cdp_link=None):
         from playwright.sync_api import sync_playwright
         playwright_enabled = True
         with sync_playwright() as p:
-            if playwright_cdp_link is not None and isinstance(playwright_cdp_link,str):
+            if playwright_cdp_link is not None and isinstance(playwright_cdp_link, str):
                 browser = p.chromium.connect_over_cdp(playwright_cdp_link)
             else:
                 browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
@@ -882,15 +884,13 @@ def get_page_content(link, playwright_cdp_link=None):
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
-            except:
-                traceback.print_exc()
+            except Exception as e:
+                logger.info(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
+                # traceback.print_exc()
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
                 init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
                 init_title = page.evaluate("""(function e(){return document.title})()""")
-                page.close();
-                page = browser.new_page();
                 page.goto("https://www.example.com/")
-                page.bring_to_front();
                 while page.evaluate('document.readyState') != 'complete':
                     pass
                 page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
@@ -909,9 +909,6 @@ def get_page_content(link, playwright_cdp_link=None):
                 browser.close()
             except:
                 pass
-            
-            
-        
     except Exception as e:
         # traceback.print_exc()
         try:
@@ -1069,155 +1066,6 @@ class PDFReaderTool:
         else:
             return freePDFReader(url, page_ranges)
 
-    
-def get_page_content(link, playwright_cdp_link=None):
-    
-    text = ''
-    title = ''
-    try:
-        from playwright.sync_api import sync_playwright
-        playwright_enabled = True
-        with sync_playwright() as p:
-            if playwright_cdp_link is not None and isinstance(playwright_cdp_link,str):
-                browser = p.chromium.connect_over_cdp(playwright_cdp_link)
-            else:
-                browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
-            page = browser.new_page()
-            url = link
-            page.goto(url)
-            page.wait_for_selector('body')
-            while page.evaluate('document.readyState') != 'complete':
-                pass
-            
-            try:
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
-            except:
-                traceback.print_exc()
-                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
-                init_title = page.evaluate("""(function e(){return document.title})()""")
-                page.close();
-                page = browser.new_page();
-                page.goto("https://www.example.com/")
-                page.bring_to_front();
-                while page.evaluate('document.readyState') != 'complete':
-                    pass
-                page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
-                page.evaluate(f"""text=>document.title=text""", init_title)
-                logger.info(f"Loaded html and title into page with example.com as url")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                page.wait_for_selector('body')
-                while page.evaluate('document.readyState') != 'complete':
-                    pass
-                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-                
-            try:
-                browser.close()
-            except:
-                pass
-            
-            
-        
-    except Exception as e:
-        try:
-            logger.info(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
-            from selenium import webdriver
-            from selenium.webdriver.common.by import By
-            from selenium.webdriver.support.wait import WebDriverWait
-            from selenium.webdriver.common.action_chains import ActionChains
-            from selenium.webdriver.support import expected_conditions as EC
-            options = webdriver.ChromeOptions()
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--headless')
-            driver = webdriver.Chrome(options=options)
-            driver.get(link)
-            try:
-                driver.execute_script('''
-                    function myFunction() {
-                        if (document.readyState === 'complete') {
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-                            document.head.appendChild(script);
-
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
-                            document.head.appendChild(script);
-                        } else {
-                            setTimeout(myFunction, 1000);
-                        }
-                    }
-
-                    myFunction();
-                ''')
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
-                def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=10).until(document_initialised)
-                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
-            except Exception as e:
-                traceback.print_exc()
-                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-                init_title = driver.execute_script("""return document.title;""")
-                init_html = driver.execute_script("""return document.body.innerHTML;""")
-                driver.get("https://www.example.com/")
-                logger.info(f"Loaded html and title into page with example.com as url")
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
-                driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
-                driver.execute_script("""document.title=arguments[0]""", init_title)
-                driver.execute_script('''
-                    function myFunction() {
-                        if (document.readyState === 'complete') {
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-                            document.head.appendChild(script);
-
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
-                            document.head.appendChild(script);
-                        } else {
-                            setTimeout(myFunction, 1000);
-                        }
-                    }
-
-                    myFunction();
-                ''')
-                def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=10).until(document_initialised)
-                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
-                
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-            try:
-                driver.close()
-            except:
-                pass
-        except Exception as e:
-            if 'driver' in locals():
-                try:
-                    driver.close()
-                except:
-                    pass
-        finally:
-            if 'driver' in locals():
-                try:
-                    driver.close()
-                except:
-                    pass
-    finally:
-        if "browser" in locals():
-            try:
-                browser.close()
-            except:
-                pass
-    return {"text": text, "title": title}
 
 def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
     import requests
@@ -1244,26 +1092,36 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
 
-    num_res = 4
-    n_query = "four" if previous_search_results else "four"
+    num_res = 10
+    n_query = "three" if previous_search_results else "four"
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    prompt = f"""Given the scientific query/question \n'{context}' for the research document \n'{doc_context}'. 
-    The provided query may not have all details or may not be web search friendly (contains abbreviations and typos which should be removed or corrected, i.e. convert abbreviations to full forms). 
-    {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
-    {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''. The previous search was not successful and hence we need to generate queries which break down the actual question into fragments and search the web using simpler terms." if len(pqs)>0 else ''}
-    Generate {n_query} proper, well specified and diverse web search queries as a valid python list. Each generated query must be different from others (and different from previous web search queries) and diverse from each other. Your output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} search query strings which are diverse and cover various topics about the query ('{context}') and help us answer the query better. When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.). Determine the subject domain from the research document and the query and make sure to mention the domain in your queries.
-Make sure each of your web search query is diverse and very different from the remaining queries.
+    prompt = f"""You are given a query/question as below:
+'{context}' 
+We want to answer it in context of the research document below: 
+'''{doc_context}''' 
+
+We want to generate web search queries to search the web for more information about the query/question.
+{f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
+{f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''}
+
+Generate {n_query} well specified and diverse web search queries as a valid python list. 
+Instructions for how to generate the queries are given below.
+Generated web search queries can break down the actual question into smaller parts. 
+Each generated query must be different from others and diverse from each other. 
+Dearch query strings must be diverse and cover various topics about the original query ('{context}').
+Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
+When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.). 
+Determine the subject domain from the research document and the query and make sure to mention the domain in your queries.
+Convert abbreviations to full forms and correct typos in the query using the research document as context.
 
 Your output will look like:
 
-["web_query_1", "web_query_2"]
-
-Be sure to output on valid python code which represents a list of web search friendly query strings.
+["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
     
-Output only a valid python list of query strings: 
+Output only a valid python list of web search query strings: 
 """
     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
     
@@ -1284,6 +1142,7 @@ Output only a valid python list of query strings:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     
     if google_available:
+        num_res = 10
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=None) for query in query_strings]
         serps_web = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
@@ -1349,9 +1208,7 @@ Output only a valid python list of query strings:
         dedup_results_web.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-        
-    
-        
+
     len_after_dedup = len(dedup_results)
     logger.info(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
 #     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
@@ -1361,7 +1218,7 @@ Output only a valid python list of query strings:
     if rerank_available:
         st_rerank = time.time()
         docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=16, model='rerank-english-v2.0') 
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=16, model='rerank-english-v2.0')
         pre_rerank = dedup_results
         dedup_results = [dedup_results[r.index] for r in rerank_results]
         tt_rerank = time.time() - st_rerank
@@ -1376,7 +1233,6 @@ Output only a valid python list of query strings:
         dedup_results = [dedup_results[r.index] for r in rerank_results]
         pdfs = [pdfs[r.index] for r in rerank_results]
         logger.info(f"--- Cohere PDF Reranked --- rerank len = {len(dedup_results)}")
-        
 #         logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
         
     if rerank_available:
@@ -1387,13 +1243,13 @@ Output only a valid python list of query strings:
         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
         pre_rerank = dedup_results_web
         dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
+
     
     dedup_results_web = dedup_results_web[:8]
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
     web_contexts = [context +"? " + r["query"] for r in dedup_results_web]
-    
-    
+
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1405,6 +1261,7 @@ Output only a valid python list of query strings:
     texts = None
     if rerank_available:
         texts = [p["text"] for p in pdfs]
+
     web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     read_text_web, per_pdf_texts_web = web_future.result()
@@ -1412,17 +1269,16 @@ Output only a valid python list of query strings:
     
     all_results_doc = dedup_results + dedup_results_web
     all_text = read_text + "\n\n" + read_text_web
-#     if rerank_available:
-#         crawl_text = (per_pdf_texts + per_pdf_texts_web)
-#         docs = [r["text"] for r in crawl_text]
-#         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=len(docs)//2, model='rerank-english-v2.0')
-#         crawl_text = [crawl_text[r.index] for r in rerank_results]
-#         pre_rerank = all_results_doc
-#         all_results_doc = [all_results_doc[r.index] for r in rerank_results]
-#         all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_text])
-#         logger.info(f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
-    
-        
+    if rerank_available:
+        crawl_text = (per_pdf_texts + per_pdf_texts_web)
+        docs = [r["text"] for r in crawl_text]
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(1, len(docs)//2), model='rerank-english-v2.0')
+        crawl_text = [crawl_text[r.index] for r in rerank_results]
+        pre_rerank = all_results_doc
+        all_results_doc = [all_results_doc[r.index] for r in rerank_results]
+        all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_text])
+        logger.info(f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
+
     logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
     return {"text":all_text, "search_results": all_results_doc, "queries": query_strings}
 
