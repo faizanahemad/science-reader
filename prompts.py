@@ -43,43 +43,6 @@ Answer:
 
 """,
         ),
-        streaming_more_details = PromptTemplate(
-            input_variables=["query", "answer", "fragment", "summary", "full_summary", "questions_answers"],
-            template="""Continue writing answer to a question which is partially answered. Provide new details from the context provided, don't repeat information from the partial answer already given.
-
-Question is given below:
-
-"{query}"
-
-
-Summary of the larger main document is given below:
-
-"{full_summary}"
-
-Context from within the document to answer this question is given below:
-
-"{fragment}"
-
-Few question and answer pairs from the document below:
-
-"{questions_answers}"
-
-Summarized chunks of certain parts of document below:
-
-"{summary}"
-
-Continue the answer ('Answer till now') by elaborating and expanding to provide more details after the partial answer. 
-Answer by thinking of Multiple different angles that 'the original question or request' can be thought from. 
-Provide details on jargons and difficult to understand terms in your continued answer as well. Provide further information over what is already provided in the partial answer. 
-Use markdown formatting to typeset/format your answer better.
-Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
-
-Question: {query}
-Answer till now (partial answer): {answer}
-Continued Answer: 
-
-""",
-        ),
         short_streaming_answer_prompt = PromptTemplate(
             input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
             template="""Answer a question or information request from given context (text chunks of larger document). 

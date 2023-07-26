@@ -293,10 +293,18 @@ def check_if_stream_and_raise_exception(iterable_or_str):
         raise ValueError("Unexpected input type.")
         
 def get_first_n_words(my_string, n=700):
-    words = my_string.split()
-    if len(words) < n:
+    return get_first_last_parts(my_string, first_n=n, last_n=0)
+
+def get_first_last_parts(my_string, first_n=250, last_n=750):
+    import tiktoken
+    enc = tiktoken.encoding_for_model('gpt-4')
+    str_encoded = enc.encode(my_string)
+    if len(str_encoded) < first_n + last_n:
         return my_string
-    return ' '.join(words[:n])
+    str_len = len(str_encoded)
+    first_part = enc.decode(str_encoded[:first_n])
+    last_part = enc.decode(str_encoded[str_len-last_n:])
+    return first_part + "\n" + last_part
 
 
 def parse_array_string(s):
@@ -378,6 +386,17 @@ def convert_http_to_https(url):
 #         with self.lock:
 #             # The keys() method returns a list of keys in the LRU cache from the oldest to the newest
 #             return list(self.lru.keys())
+
+def get_peekable_iterator(iterable):
+    from more_itertools import peekable
+    p = peekable(iterable)
+    try:
+        _ = p.peek(10)
+    except StopIteration:
+        _ = p.peek()
+        return p
+    return p
+
 
 
 

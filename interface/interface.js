@@ -1443,43 +1443,6 @@ $(document).ready(function() {
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
                 initialiseVoteBank(card, query,);
-                // Append a 'More Details' button to the card that streams more details
-                let moreDetailsButton = $('<button>').addClass('btn btn-primary').text('More Details');
-                let moreDetailsCount = 0;
-                moreDetailsButton.click(async function () {
-                    $('#loading').show();
-                    moreDetailsCount++;
-                    moreDetailsButton.prop('disabled', true); // Disable the button
-                    let moreDetailsResponse = await apiCall('/streaming_get_more_details', 'POST', { doc_id: activeDocId, query:query, previous_answer: answer, more_details_count: moreDetailsCount}, useFetch = true);
-
-                    if (!moreDetailsResponse.ok) {
-                        alert('An error occurred: ' + moreDetailsResponse.status);
-                        return;
-                    }
-                    var content_length = 0
-                    let moreDetailsReader = moreDetailsResponse.body.getReader();
-                    while (true) {
-                        let { value, done } = await moreDetailsReader.read();
-                        if (done) {
-                            break;
-                        }
-                        let part = decoder.decode(value);
-                        answerParagraph.append(part);
-                        answer = answer + part;
-                        if (answerParagraph.html().length > content_length + 40){
-                            renderInnerContentAsMarkdown(answerParagraph, 
-                                                         callback=null, continuous=true)
-                            content_length = answerParagraph.html().length
-                        }
-                    }
-                    renderInnerContentAsMarkdown(answerParagraph, function(){
-                        showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
-                    });
-                    moreDetailsButton.prop('disabled', false); // Enable the button again
-                    moreDetailsButton.remove();
-                    $('#loading').hide();
-                });
-                cardBody.append(moreDetailsButton);
 
                 answerParagraph.append('</br>');
                 resetOptions('questions-view', 'query');
@@ -1575,45 +1538,6 @@ $(document).ready(function() {
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
                 initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query,);
-                
-                // Append a 'More Details' button to the card that streams more details
-                let moreDetailsButton = $('<button>').addClass('btn btn-primary').text('More Details');
-                let moreDetailsCount = 0;
-                moreDetailsButton.click(async function () {
-                    $('#loading-follow-up').show();
-                    moreDetailsCount++;
-                    moreDetailsButton.prop('disabled', true); // Disable the button
-                    let moreDetailsResponse = await apiCall('/streaming_get_more_details', 'POST',{ doc_id: activeDocId, query:query, previous_answer: answer, more_details_count: moreDetailsCount}, useFetch = true);
-
-                    if (!moreDetailsResponse.ok) {
-                        alert('An error occurred: ' + moreDetailsResponse.status);
-                        return;
-                    }
-                    
-                    var content_length = 0
-                    let moreDetailsReader = moreDetailsResponse.body.getReader();
-                    while (true) {
-                        let { value, done } = await moreDetailsReader.read();
-                        if (done) {
-                            break;
-                        }
-                        let part = decoder.decode(value);
-                        answerParagraph.append(part);
-                        answer = answer + part;
-                        if (answerParagraph.html().length > content_length + 40){
-                            renderInnerContentAsMarkdown(answerParagraph, 
-                                                         callback=null, continuous=true)
-                            content_length = answerParagraph.html().length
-                        }
-                    }
-                    renderInnerContentAsMarkdown(answerParagraph, function(){
-                        showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
-                    });
-                    moreDetailsButton.prop('disabled', false); // Enable the button again
-                    moreDetailsButton.remove();
-                    $('#loading-follow-up').hide();
-                });
-                cardBody.append(moreDetailsButton);
 
                 answerParagraph.append('</br>');
 

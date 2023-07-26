@@ -87,6 +87,14 @@ from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
 from langchain.tools import DuckDuckGoSearchResults
 from langchain.prompts import PromptTemplate
 
+try:
+    from googleapiclient.discovery import build
+except ImportError:
+    raise ImportError(
+        "google-api-python-client is not installed. "
+        "Please install it with `pip install google-api-python-client`"
+    )
+
 
 import ai21
 
@@ -762,6 +770,8 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
         now = None
     cse_id = key["cx"]
     google_api_key = key["api_key"]
+    service = build("customsearch", "v1", developerKey=google_api_key)
+
     search = GoogleSearchAPIWrapper(google_api_key=google_api_key, google_cse_id=cse_id)
     pre_query = query
     after_string = f"after:{date_string}" if now else ""
@@ -769,9 +779,9 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " -site:arxiv.org AND -site:openreview.net "
     query = f"{query}{site_string}{after_string}{search_pdf}"
     
-    results = search.results(query, min(num, 10), search_params={"filter":1, "start": 1})
+    results = search.results(query, min(num, 10), search_params={"filter":"1", "start": "1"})
     if num > 10:
-        results.extend(search.results(query, min(num, 10), search_params={"filter":1, "start": 11}))
+        results.extend(search.results(query, min(num, 10), search_params={"filter":"1", "start": "11"}))
     seen_titles = set()
     seen_links = set()
     dedup_results = []
@@ -792,7 +802,7 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-    logger.info(f"Called GOOGLE API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    logger.info(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
@@ -1090,7 +1100,7 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 
 
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
+def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
 
     num_res = 10
     n_query = "three" if previous_search_results else "four"
@@ -1135,8 +1145,8 @@ Output only a valid python list of web search query strings:
     if rerank_available:
         import cohere
         co = cohere.Client(api_keys["cohereKey"])
-        num_res = 20
-        rerank_query = "? ".join([context] + query_strings)
+        num_res = 10
+        rerank_query = "\n".join(query_strings)
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1218,29 +1228,32 @@ Output only a valid python list of web search query strings:
     if rerank_available:
         st_rerank = time.time()
         docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=16, model='rerank-english-v2.0')
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
         pre_rerank = dedup_results
         dedup_results = [dedup_results[r.index] for r in rerank_results]
         tt_rerank = time.time() - st_rerank
         logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} --- rerank len = {len(dedup_results)}")
         # logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
         
-    if rerank_available:
-        pdfs = [pdf_process_executor.submit(get_pdf_text, doc["link"]) for doc in dedup_results]
-        pdfs = [p.result() for p in pdfs]
-        docs = [r["snippet"] + " " + p["small_text"] for p, r in zip(pdfs, dedup_results)]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
-        dedup_results = [dedup_results[r.index] for r in rerank_results]
-        pdfs = [pdfs[r.index] for r in rerank_results]
-        logger.info(f"--- Cohere PDF Reranked --- rerank len = {len(dedup_results)}")
-#         logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
+    # if rerank_available:
+    #     pdfs = [pdf_process_executor.submit(get_pdf_text, doc["link"]) for doc in dedup_results]
+    #     pdfs = [p.result() for p in pdfs]
+    #     docs = [r["snippet"] + " " + p["small_text"] for p, r in zip(pdfs, dedup_results)]
+    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
+    #     dedup_results = [dedup_results[r.index] for r in rerank_results]
+    #     pdfs = [pdfs[r.index] for r in rerank_results]
+    #     logger.info(f"--- Cohere PDF Reranked --- rerank len = {len(dedup_results)}")
+    #     logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
+    texts = None
+    # if rerank_available:
+    #     texts = [p["text"] for p in pdfs]
         
     if rerank_available:
         for r in dedup_results_web:
             if "snippet" not in r:
                 logger.warning(r)
         docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results_web]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0') 
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=4, model='rerank-english-v2.0')
         pre_rerank = dedup_results_web
         dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
@@ -1248,8 +1261,7 @@ Output only a valid python list of web search query strings:
     dedup_results_web = dedup_results_web[:8]
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
-    web_contexts = [context +"? " + r["query"] for r in dedup_results_web]
-
+    web_contexts = [context +"? \n" + r["query"] for r in dedup_results_web]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1257,36 +1269,47 @@ Output only a valid python list of web search query strings:
     dedup_results = dedup_results[:8]
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
-    contexts = [context +"? " + r["query"] for r in dedup_results]
-    texts = None
-    if rerank_available:
-        texts = [p["text"] for p in pdfs]
+    contexts = [r["query"] for r in dedup_results]
+    all_results_doc = dedup_results + dedup_results_web
+    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
+    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
+    return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results)
+    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+    part2_res = get_async_future(web_search_part2, part1_res, api_keys)
+    return [get_async_future(get_part_1_results, part1_res), part2_res]
+
+def get_part_1_results(part1_res):
+    return {"search_results": part1_res.result()[0], "queries": part1_res.result()[8]}
+
+
+def web_search_part2(part1_res, api_keys):
+    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     read_text_web, per_pdf_texts_web = web_future.result()
     read_text, per_pdf_texts = pdf_future.result()
-    
-    all_results_doc = dedup_results + dedup_results_web
+
     all_text = read_text + "\n\n" + read_text_web
     if rerank_available:
+        import cohere
+        co = cohere.Client(api_keys["cohereKey"])
         crawl_text = (per_pdf_texts + per_pdf_texts_web)
         docs = [r["text"] for r in crawl_text]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(1, len(docs)//2), model='rerank-english-v2.0')
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(1, len(docs) // 2),
+                                   model='rerank-english-v2.0')
         crawl_text = [crawl_text[r.index] for r in rerank_results]
         pre_rerank = all_results_doc
         all_results_doc = [all_results_doc[r.index] for r in rerank_results]
         all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_text])
-        logger.info(f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
+        logger.info(
+            f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
 
     logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
-    return {"text":all_text, "search_results": all_results_doc, "queries": query_strings}
+    return {"text": all_text, "search_results": all_results_doc, "queries": query_strings}
 
-def multi_doc_reader(context, docs):
-    pass
-
-def ref_and_cite_reader(context, doc_index, ss_obj):
-    pass
 
 
 import multiprocessing
@@ -1393,6 +1416,6 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str):
     answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
     dedup_results = [{"link": doc.doc_source, "title": doc.title} for answer, doc in zip(answers, additional_docs)]
     read_text = "\n\n".join([json.dumps(p, indent=2) for p in answers])
-    return {"text":read_text, "search_results": dedup_results, "queries": []}
+    return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 

@@ -292,7 +292,9 @@ oauth = OAuth(app)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 log = logging.getLogger('__main__')
-log.setLevel(logging.WARNING)
+log.setLevel(logging.ERROR)
+log = logging.getLogger('DocIndex')
+log.setLevel(logging.ERROR)
 google = oauth.register(
     name='google',
     client_id=app.config.get("GOOGLE_CLIENT_ID"),
@@ -765,22 +767,7 @@ def streaming_get_followup_answer():
         return Response(stream_with_context(answer), content_type='text/plain')
     else:
         return Response("Error Document not found", content_type='text/plain')
-    
-@app.route('/streaming_get_more_details', methods=['POST'])
-@login_required
-def streaming_get_more_details():
-    keys = keyParser(session)
-    print(request, request.get_json())
-    doc_id = request.json.get('doc_id')
-    query = request.json.get('query')
-    previous_answer = request.json.get('previous_answer')
-    counter = request.json.get('more_details_count')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_more_details(query, previous_answer, counter)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
-    
+
 from multiprocessing import Lock
 
 lock = Lock()
