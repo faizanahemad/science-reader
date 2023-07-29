@@ -1,3 +1,4 @@
+import random
 import sys
 from urllib.parse import unquote
 from functools import wraps
@@ -920,6 +921,123 @@ def cached_get_file(file_url):
             file_data.append(chunk)
             yield chunk
         cache.set(file_url, file_data)
+
+
+### chat apis
+data_once = False
+@app.route('/list_conversation_by_user', methods=['GET'])
+@login_required
+def list_conversation_by_user():
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    last_n_conversations = request.args.get('last_n_conversations', 10)
+    # Dummy data
+    data = [
+        {"conversation_id": "conversation_1", "title": "Conversation 1", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],},
+        {"conversation_id": "conversation_2", "title": "Conversation 2", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],},
+        {"conversation_id": "conversation_3", "title": "Conversation 3", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],}
+    ]
+    return jsonify(data)
+
+@app.route('/create_conversation', methods=['POST'])
+@login_required
+def create_conversation():
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    # We don't process the request data in this mockup, but we would normally create a new conversation here
+    new_conversation = {"conversation_id": "conversation_4", "title": "Conversation 1", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "empty", "summary_last_five_message": "empty", "message_ids": [],},
+    return jsonify(new_conversation)
+
+@app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
+@login_required
+def list_messages_by_conversation(conversation_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    last_n_messages = request.args.get('last_n_messages', 10)
+    data = [
+        {"message_id": 1, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 2, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 3, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 4, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 5, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 6, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 7, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 8, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 9, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 10, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 11, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 12, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 13, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 14, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 15, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
+        {"message_id": 16, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
+    ]
+    return jsonify(data)
+
+@app.route('/send_message/<conversation_id>', methods=['POST'])
+@login_required
+def send_message(conversation_id):
+    # TODO: if this is the first message then create a title for this conversation.
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    # We don't process the request data in this mockup, but we would normally send a new message here
+    def answer():
+        yield "Hello! `time.time()`\n"
+        time.sleep(1)
+        yield "How are you? `time.time()`\n"
+        time.sleep(1)
+        yield "How are you? `time.time()`\n"
+        time.sleep(1)
+        yield "How are you? `time.time()`\n"
+        time.sleep(1)
+        yield "How are you? `time.time()`\n"
+        time.sleep(1)
+        yield "Goodbye! `time.time()`\n"
+    return Response(stream_with_context(answer()), content_type='text/plain')
+
+@app.route('/get_message_by_message_id/<message_id>', methods=['GET'])
+@login_required
+def get_message_by_message_id(message_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    # Dummy data
+    message = {"message_id": message_id, "text": "Dummy Message", "sender": "user", "user_id": "user_1", "conversation_id": "conversation_1"}
+    return jsonify(message)
+
+@app.route('/get_conversation_details/<conversation_id>', methods=['GET'])
+@login_required
+def get_conversation_details(conversation_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    # Dummy data
+    data = {
+        "conversation_id": conversation_id,
+        "title": "Dummy Conversation",
+        "summary_till_now": "This conversation is about...",
+        "summary_last_five_message": "The last five messages were...",
+        "message_ids": [1,2,3,4,5],
+        "user_id": "user_1"
+    }
+    return jsonify(data)
+
+@app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
+@login_required
+def delete_conversation(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Conversation {conversation_id} deleted'})
+
+@app.route('/delete_last_message/<conversation_id>', methods=['DELETE'])
+@login_required
+def delete_last_message(conversation_id):
+    message_id=1
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Message {message_id} deleted'})
+
 
 
 def open_browser(url):

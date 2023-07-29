@@ -1,6 +1,5 @@
 # High Priority
     - Test only GPT-3.5
-    - Intermediate optimisation -> Don't write the FAISS indices on every update only the data, and separate the data of one doc into multiple files
     - Server release with internal URL
     - Literature survey chat
       - Side view of threads
@@ -12,12 +11,26 @@
     -  References and citations use in QnA
     -  References and citations use in Reviews
     -  References and citations use in chat
+    -  Use of diagrams in QnA
+    -  Write sections like intro/conclusion/abstract/lit review
     -  User can provide pdf/page links in QnA, review, or chat to compare with current doc.
     -  Folder Tree structure and Tags/Collections
-    -  Sort the shown documents by recently added to show
     - Make web search and multiple doc reading and detailed answers parallel to main call by making them api calls to same flask server.
     - References and Citations based QnA as feature
     - Better error messages if keys are not working. Check in javascript itself.
+    - Better overall error handling and recovery.
+    - List of user's to allow / allow list which can be used to allow only certain users to use the app.
+    - Key upload as json file or a csv file.
+    - Streaming status and text for all long time taking api like answering and indexing and deep reader and summarization. Show the status in UI near the spinner.
+    - AWS access key and use AWS bedrock through boto3
+    - In the chat assistant, make ways to write sections or make the review section to write.
+    - Correct toggle sidebar, with toggle function taking input of whether to toggle or not and toggling only if needed.
+    - In conversational assist, keep the pdf contexts as side context for use later in the conversation, like pdf plugins in chatgpt.
+    - Evergreen instructions
+    - Multi-Agent with multiple persona based research assist.
+    - NQS
+    - TODO: `.replace(/\n/g, '<br>')` for various parts of text.
+    
     
 
 # Medium Priority
@@ -39,6 +52,7 @@
     - Load and show PDF while indexing happens
     - Review -> Fill up a template. (Can be done by additional instructions now as well.)
     - Add a section to deep_reader_details for "similar works and extensions"
+    -  Sort the shown documents by recently added to show
 
 
 # Low Priority
@@ -66,13 +80,14 @@
 
 
 # bugs
-    - Double follow-up
+    - Double follow-up [P2]
     - OpenAI account or rate limit exhausted bug, especially for FAISS indexing API
     - Web search for reviews searches review guidelines instead of other relevant papers.
     - Clear review additional details input after it is used once.
-    - Streaming for Fixed details not happening.
+    - Streaming for Fixed details not happening. [Done]
     - Streaming for QnA also not happening. [Works]
     - Select the doc that was selected before in case of page refresh [Done]
+    - What happens when no conversation exists
 
 # Bills
 - Digitalocean

@@ -21,7 +21,7 @@ function showMore(parentElem, text=null, textElem=null, as_html=false, show_at_s
         var moreText = $('<span class="more-text" style="display:none;"></span>')
         moreText.html(text)
         moreText.find('.show-more').each(function(){$(this).remove();})
-        shortText = moreText.text().slice(0, 100);
+        shortText = moreText.text().slice(0, 10);
         var lessText = $(`<span class="less-text" style="display:block;">${shortText}</span>`)
         previous_sm = textElem.find('.show-more').length
         var smClick = $(' <a href="#" class="show-more">[show]</a> ')
@@ -34,9 +34,9 @@ function showMore(parentElem, text=null, textElem=null, as_html=false, show_at_s
         moreText.append(smClick.clone())
     }
     else {
-        var moreText = text.slice(200);
+        var moreText = text.slice(20);
         if(moreText) {
-            var lessText = text.slice(0, 200);
+            var lessText = text.slice(0, 20);
             textElem.append(lessText + '<span class="more-text" style="display:none;">' + moreText + '</span>' + ' <a href="#" class="show-more">[show]</a>');
         } else {
             textElem.append(text);
@@ -136,6 +136,411 @@ function verifyOpenAIKeyAndFetchModels(apiKey) {
             disableMainFunctionality();
         }
     });
+}
+function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
+    let voteCountElem = $('<p>').addClass('vote-count');
+    let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
+    let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
+
+    let voteBox = $('<div>').addClass('vote-box').css({
+        'position': 'absolute',
+        'top': '10px',
+        'right': '20px'
+    });
+    voteBox.append(upvoteBtn, voteCountElem, downvoteBtn);
+    cardElem.append(voteBox);
+
+    function updateVoteCount() {
+        if (contentId) {
+            var request = $.getJSON('/getUpvotesDownvotesByQuestionId/' + contentId);
+        } else {
+            var request = $.ajax({
+                url: '/getUpvotesDownvotesByQuestionId/' + contentId,
+                type: 'GET',
+                data: JSON.stringify({doc_id: activeDocId, question_text: text}),
+                dataType: 'json',
+                contentType: 'application/json',
+            });
+        }
+        
+        
+        request.done(function(data) {
+            if (data.length > 0) {
+                var upvotes = data[0][0];
+                var downvotes = data[0][1];
+            }
+            else {
+                var upvotes = 0;
+                var downvotes = 0;
+            }
+            
+            voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
+        }).fail(
+            function(data) {
+                var upvotes = 0;
+                var downvotes = 0;
+                voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
+            }
+        );
+    }
+
+    function checkUserVote() {
+        if (contentId) {
+            var request = $.getJSON('/getUpvotesDownvotesByQuestionIdAndUser', {question_id: contentId});
+        } else {
+            var request = $.ajax({
+                url: '/getUpvotesDownvotesByQuestionIdAndUser',
+                type: 'GET',
+                data: JSON.stringify({doc_id: activeDocId, question_text: text}),
+                dataType: 'json',
+                contentType: 'application/json',
+            });
+        }
+        request.done(function(data) {
+            if (data.length > 0) {
+                var upvotes = data[0][0];
+                var downvotes = data[0][1];
+            }
+            else {
+                var upvotes = 0;
+                var downvotes = 0;
+            }
+            if (upvotes > 0) {
+                upvoteBtn.addClass('voted');
+                downvoteBtn.removeClass('voted');
+            }
+            if (downvotes > 0) {
+                downvoteBtn.addClass('voted');
+                upvoteBtn.removeClass('voted');
+            }
+        });
+    }
+    
+    function getCheckedValues(modalID) {
+        let checkedValues = $(modalID + ' input[type=checkbox]:checked').map(function() {
+            return this.value;
+        }).get();
+        return checkedValues;
+    }
+
+    function getComments(modalID) {
+        return $(modalID + ' textarea').val();
+    }
+
+    function sendFeedback(feedbackType) {
+        let modalID = '#' + feedbackType + '-feedback-modal';
+        let feedbackData = {
+            feedback_type: feedbackType,
+            question_id: contentId,
+            feedback_items: getCheckedValues(modalID),
+            comments: getComments(modalID),
+            doc_id: activeDocId,
+            question_text: text
+        };
+        $(modalID).modal('hide');
+        apiCall('/addUserQuestionFeedback', 'POST', feedbackData).always(function() {
+            // After the feedback is successfully submitted, clear the checkboxes and textarea
+            $(modalID + ' input[type=checkbox]').prop('checked', false);
+            $(modalID + ' textarea').val('');
+        });;
+    }
+
+    upvoteBtn.click(function() {
+        apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 1, downvote: 0, question_text: text}).done(function() {
+            upvoteBtn.addClass('voted');
+            downvoteBtn.removeClass('voted');
+            updateVoteCount();
+            checkUserVote();
+            
+            $('#positive-feedback-modal').modal('show');
+            $('.submit-positive-feedback').off('click').click(function() {
+                sendFeedback('positive');
+            });
+        });
+        
+    });
+
+    downvoteBtn.click(function() {
+        apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 0, downvote: 1, question_text: text}).done(function() {
+            upvoteBtn.addClass('voted');
+            downvoteBtn.removeClass('voted');
+            updateVoteCount();
+            checkUserVote();
+            
+            $('#negative-feedback-modal').modal('show');
+            $('.submit-negative-feedback').off('click').click(function() {
+                sendFeedback('negative');
+            });
+        });
+    });
+
+    updateVoteCount();
+    checkUserVote();
+}
+const markdownParser = new marked.Renderer();
+function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
+    parent = jqelem.parent()
+    elem_id = jqelem.attr('id');
+    elem_to_render_in = jqelem
+    brother_elem_id = elem_id + "-md-render"
+    if (continuous) {
+        brother_elem = parent.find('#' + brother_elem_id);
+        if (!brother_elem.length) {
+            var brother_elem = $('<p/>', {id: brother_elem_id})
+            parent.append(brother_elem);
+        }
+        jqelem.hide();
+        brother_elem.show();
+        elem_to_render_in = brother_elem
+        
+    } else {
+        jqelem.show();
+        brother_elem = parent.find('#' + brother_elem_id);
+        if (brother_elem.length) {
+            brother_elem.hide();
+        }
+    }
+    
+    try {
+        html = jqelem.html()
+    } catch(error) {
+        try{html = jqelem[0].innerHTML} catch (error) {html = jqelem.innerHTML}
+    }
+    var htmlChunk = marked.marked(html, { renderer: markdownParser });
+    htmlChunk = removeEmTags(htmlChunk);
+    try{elem_to_render_in.empty();} catch(error){
+        try{elem_to_render_in[0].innerHTML=''} catch (error) {elem_to_render_in.innerHTML=''}
+    }
+    try{elem_to_render_in.append(htmlChunk)} catch(error){
+        try{elem_to_render_in[0].innerHTML=htmlChunk} catch (error) {elem_to_render_in.innerHTML=htmlChunk}
+    }
+    mathjax_elem = elem_to_render_in[0]
+    if (mathjax_elem === undefined) {
+        mathjax_elem = jqelem
+    }
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+    if (callback) {
+        MathJax.Hub.Queue(callback)
+    }
+}
+
+function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='') {
+    var api;
+    var search_mode;
+
+    if (search_term.length > 0) {
+        api = '/search_document?text='+ search_term;
+        search_mode = true;
+    } else {
+        api = '/list_all';
+        search_mode = false;
+    }
+
+    var request = apiCall(api, 'GET', {});
+    request.done(function(data) {
+        var searchResultsArea = $('#' + searchResultsAreaId);
+        searchResultsArea.empty();
+
+        var resultList = $('<ol></ol>'); // Create an ordered list
+        var documentIds = [];
+        $('.document-tag').each(function() {
+            documentIds.push($(this).attr('data-doc-id'));
+        });
+
+        data.filter(doc=>doc.doc_id !== activeDocId).filter(doc=>!documentIds.includes(doc.doc_id)).forEach(function(doc, index) {
+            var docItem = $(`
+                <li class="my-2">
+                    <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
+                </li>
+            `);
+            docItem.click(function(event) {
+                event.preventDefault();
+                addDocumentTags(tagsAreaId, [doc]);
+            });
+            resultList.append(docItem); // Append list items to the ordered list
+        });
+        searchResultsArea.append(resultList); // Append the ordered list to the search results area
+    });
+
+    return request;
+}
+
+
+function addDocumentTags(tagsAreaId, data){
+    
+    data.forEach(function(doc) {
+        var docTag = $(`
+            <div class="document-tag bg-light border rounded mb-2 mr-2 p-2 d-inline-flex align-items-center" data-doc-id="${doc.doc_id}">
+                <span class="me-2">${doc.title}</span>
+                <button class="delete-tag-button btn btn-sm btn-danger">Delete</button>
+            </div>`);
+        var count = $('#' + tagsAreaId).children().length;
+        var limit = 4
+        if (count > limit - 1){
+            alert(`you cannot add more than ${limit} documents for Multiple Doc Search`);
+        }
+        else {$('#' + tagsAreaId).append(docTag);}
+        // Handle click events for the delete button
+        $('.delete-tag-button').click(function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            $(this).parent().remove();
+        });
+    });
+}
+
+
+
+
+function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId){
+    var lastTimeoutId = null;  
+    var previousSearchLength = 0;
+    var searchBox = $('#' + searchBoxId);
+    $('#' + tagsAreaId).empty();
+
+    searchBox.on('input', function() {
+        var currentSearchLength = searchBox.val().length;
+
+        if (lastTimeoutId !== null) {
+            clearTimeout(lastTimeoutId);
+        }
+
+        lastTimeoutId = setTimeout(function() {
+            currentSearchLength = searchBox.val().length;
+            if (currentSearchLength >= 5 || (previousSearchLength >= 5 && currentSearchLength < 5)) {  
+                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val());
+            } else if (currentSearchLength === 0 && previousSearchLength >= 1) {
+                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '');
+            }
+            previousSearchLength = currentSearchLength;
+
+            lastTimeoutId = null; 
+        }, 400);
+    });
+}
+
+
+
+
+function addOptions(parentElementId, type) {
+    $(`#${parentElementId}`).empty();
+    var checkBoxIds = [
+        type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`,
+        `${parentElementId}-${type}-perform-web-search-checkbox`,
+        `${parentElementId}-${type}-use-multiple-docs-checkbox`,
+        `${parentElementId}-${type}-provide-detailed-answers-checkbox`
+    ];
+    var checkboxOneText = type==="assistant"?"Use Google Scholar":"Use References and Citations";
+    var disabled = type==="assistant"?"":"disabled";
+
+    $(`#${parentElementId}`).append(
+        `<div style="display: flex; margin-bottom: 10px;">` +
+
+        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
+
+        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
+
+        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
+
+        `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
+        (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 20px;">Delete Last Turn</button>`:'') + 
+        `</div>`
+    );
+
+    // Elements for Multiple Documents option
+    var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);
+    var searchResultsArea = $(`<div id="${parentElementId}-${type}-search-results" style="display: none;"></div>`);
+    var docTagsArea = $(`<div id="${parentElementId}-${type}-document-tags" style="display: none;"></div>`);
+
+    // Add them to the parent element
+    $(`#${parentElementId}`).append(searchBox, searchResultsArea, docTagsArea);
+
+    // Add event handlers to make checkboxes mutually exclusive
+    checkBoxIds.forEach(function(id, index) {
+        $('#' + id).change(function() {
+            if(this.checked) {
+                checkBoxIds.forEach(function(otherId, otherIndex) {
+                    if(index !== otherIndex) {
+                        var otherCheckBox = $('#' + otherId);
+                        if(otherCheckBox.is(':checked')) {
+                            otherCheckBox.prop('checked', false).trigger('change');
+                        }
+                    }
+                });
+            }
+        });
+    });
+
+    // Add an event handler on the Multiple Docs checkbox
+    $('#' + checkBoxIds[2]).change(function() {
+        if(this.checked) {
+            // If checked, display the search box, search results area and document tags area
+            searchBox.css('display', 'block');
+            searchResultsArea.css('display', 'block');
+            docTagsArea.css('display', 'block');
+
+            // Initialize search functionality
+            initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`);
+        } else {
+            // If unchecked, hide the search box, search results area and document tags area
+            searchBox.css('display', 'none');
+            searchResultsArea.css('display', 'none');
+            docTagsArea.css('display', 'none');
+            searchBox.val('');
+            searchResultsArea.empty();
+            docTagsArea.empty();
+        }
+    });
+}
+
+
+
+function getOptions(parentElementId, type) {
+    checkBoxOptionOne = type==="assistant" ? "googleScholar":"use_references_and_citations"
+    optionOneChecked = $(type==="assistant"?`#${parentElementId}-${type}-use-google-scholar`:`#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked');
+    values = {
+        perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
+        use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
+        provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
+    };
+    values[checkBoxOptionOne] = optionOneChecked;
+    var documentIds = [];
+    $(`#${parentElementId}`).find('.document-tag').each(function() {
+        documentIds.push($(this).attr('data-doc-id'));
+    });
+    values['additional_docs_to_read'] = documentIds;
+    return values
+}
+
+function resetOptions(parentElementId, type) {
+    $(type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
+    $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
+    $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
+    $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
+    
+    var searchBox = $(`#${parentElementId}-${type}-search-box`);
+    var searchResultsArea = $(`#${parentElementId}-${type}-search-results`);
+    var docTagsArea = $(`#${parentElementId}-${type}-document-tags`);
+    searchBox.css('display', 'none');
+    searchResultsArea.css('display', 'none');
+    docTagsArea.css('display', 'none');
+    searchBox.val('');
+    searchResultsArea.empty();
+    docTagsArea.empty();
+    
+    
+}
+
+function removeOptions(parentElementId, type) {
+    $(type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`).parent().remove();
+    $(`#${parentElementId}-${type}-perform-web-search-checkbox`).parent().remove();
+    $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
+    $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
+    
+    $(`[id$="${type}-search-box"]`).remove();
+    $(`[id$="${type}-document-tags"]`).remove();
+    $(`[id$="${type}-search-results"]`).remove();
+
 }
 
 
@@ -306,52 +711,8 @@ $(document).ready(function() {
     
     var activeDocId = localStorage.getItem('activeDocId') || null;
     var pdfUrl = null;
-    const markdownParser = new marked.Renderer();
-    function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
-        parent = jqelem.parent()
-        elem_id = jqelem.attr('id');
-        elem_to_render_in = jqelem
-        brother_elem_id = elem_id + "-md-render"
-        if (continuous) {
-            brother_elem = parent.find('#' + brother_elem_id);
-            if (!brother_elem.length) {
-                var brother_elem = $('<p/>', {id: brother_elem_id})
-                parent.append(brother_elem);
-            }
-            jqelem.hide();
-            brother_elem.show();
-            elem_to_render_in = brother_elem
-            
-        } else {
-            jqelem.show();
-            brother_elem = parent.find('#' + brother_elem_id);
-            if (brother_elem.length) {
-                brother_elem.hide();
-            }
-        }
-        
-        try {
-            html = jqelem.html()
-        } catch(error) {
-            try{html = jqelem[0].innerHTML} catch (error) {html = jqelem.innerHTML}
-        }
-        var htmlChunk = marked.marked(html, { renderer: markdownParser });
-        htmlChunk = removeEmTags(htmlChunk);
-        try{elem_to_render_in.empty();} catch(error){
-            try{elem_to_render_in[0].innerHTML=''} catch (error) {elem_to_render_in.innerHTML=''}
-        }
-        try{elem_to_render_in.append(htmlChunk)} catch(error){
-            try{elem_to_render_in[0].innerHTML=htmlChunk} catch (error) {elem_to_render_in.innerHTML=htmlChunk}
-        }
-        mathjax_elem = elem_to_render_in[0]
-        if (mathjax_elem === undefined) {
-            mathjax_elem = jqelem
-        }
-        MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-        if (callback) {
-            MathJax.Hub.Queue(callback)
-        }
-    }
+    
+    
     
     function createAndPopulateOneTable(data, identifier){
         if ( $.fn.dataTable.isDataTable(identifier) ) {
@@ -661,6 +1022,7 @@ $(document).ready(function() {
 
     function toggleSidebar() {
         var sidebar = $('.sidebar');
+        var sidebar = $('#doc-keys-sidebar');
         var contentCol = $('#content-col');
         var hideSidebarButton = $('#hide-sidebar');
         var showSidebarButton = $('#show-sidebar');
@@ -696,146 +1058,7 @@ $(document).ready(function() {
         });
     }
     
-    function initialiseVoteBank(cardElem, text, contentId=null) {
-        let voteCountElem = $('<p>').addClass('vote-count');
-        let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
-        let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
-
-        let voteBox = $('<div>').addClass('vote-box').css({
-            'position': 'absolute',
-            'top': '10px',
-            'right': '20px'
-        });
-        voteBox.append(upvoteBtn, voteCountElem, downvoteBtn);
-        cardElem.append(voteBox);
-
-        function updateVoteCount() {
-            if (contentId) {
-                var request = $.getJSON('/getUpvotesDownvotesByQuestionId/' + contentId);
-            } else {
-                var request = $.ajax({
-                    url: '/getUpvotesDownvotesByQuestionId/' + contentId,
-                    type: 'GET',
-                    data: JSON.stringify({doc_id: activeDocId, question_text: text}),
-                    dataType: 'json',
-                    contentType: 'application/json',
-                });
-            }
-            
-            
-            request.done(function(data) {
-                if (data.length > 0) {
-                    var upvotes = data[0][0];
-                    var downvotes = data[0][1];
-                }
-                else {
-                    var upvotes = 0;
-                    var downvotes = 0;
-                }
-                
-                voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
-            }).fail(
-                function(data) {
-                    var upvotes = 0;
-                    var downvotes = 0;
-                    voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
-                }
-            );
-        }
-
-        function checkUserVote() {
-            if (contentId) {
-                var request = $.getJSON('/getUpvotesDownvotesByQuestionIdAndUser', {question_id: contentId});
-            } else {
-                var request = $.ajax({
-                    url: '/getUpvotesDownvotesByQuestionIdAndUser',
-                    type: 'GET',
-                    data: JSON.stringify({doc_id: activeDocId, question_text: text}),
-                    dataType: 'json',
-                    contentType: 'application/json',
-                });
-            }
-            request.done(function(data) {
-                if (data.length > 0) {
-                    var upvotes = data[0][0];
-                    var downvotes = data[0][1];
-                }
-                else {
-                    var upvotes = 0;
-                    var downvotes = 0;
-                }
-                if (upvotes > 0) {
-                    upvoteBtn.addClass('voted');
-                    downvoteBtn.removeClass('voted');
-                }
-                if (downvotes > 0) {
-                    downvoteBtn.addClass('voted');
-                    upvoteBtn.removeClass('voted');
-                }
-            });
-        }
-        
-        function getCheckedValues(modalID) {
-            let checkedValues = $(modalID + ' input[type=checkbox]:checked').map(function() {
-                return this.value;
-            }).get();
-            return checkedValues;
-        }
-
-        function getComments(modalID) {
-            return $(modalID + ' textarea').val();
-        }
-
-        function sendFeedback(feedbackType) {
-            let modalID = '#' + feedbackType + '-feedback-modal';
-            let feedbackData = {
-                feedback_type: feedbackType,
-                question_id: contentId,
-                feedback_items: getCheckedValues(modalID),
-                comments: getComments(modalID),
-                doc_id: activeDocId,
-                question_text: text
-            };
-            $(modalID).modal('hide');
-            apiCall('/addUserQuestionFeedback', 'POST', feedbackData).always(function() {
-                // After the feedback is successfully submitted, clear the checkboxes and textarea
-                $(modalID + ' input[type=checkbox]').prop('checked', false);
-                $(modalID + ' textarea').val('');
-            });;
-        }
-
-        upvoteBtn.click(function() {
-            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 1, downvote: 0, question_text: text}).done(function() {
-                upvoteBtn.addClass('voted');
-                downvoteBtn.removeClass('voted');
-                updateVoteCount();
-                checkUserVote();
-                
-                $('#positive-feedback-modal').modal('show');
-                $('.submit-positive-feedback').off('click').click(function() {
-                    sendFeedback('positive');
-                });
-            });
-            
-        });
-
-        downvoteBtn.click(function() {
-            apiCall('/addUpvoteOrDownvote', 'POST', {question_id: contentId, doc_id: activeDocId, upvote: 0, downvote: 1, question_text: text}).done(function() {
-                upvoteBtn.addClass('voted');
-                downvoteBtn.removeClass('voted');
-                updateVoteCount();
-                checkUserVote();
-                
-                $('#negative-feedback-modal').modal('show');
-                $('.submit-negative-feedback').off('click').click(function() {
-                    sendFeedback('negative');
-                });
-            });
-        });
-
-        updateVoteCount();
-        checkUserVote();
-    }
+    
 
 
     function setupViewDetailsView() {
@@ -935,7 +1158,7 @@ $(document).ready(function() {
                     });
 
                 } else {
-                    $('#summary-column').append('<p id="summary-text">' + data.summary + '</p>');
+                    $('#summary-column').append('<p id="summary-text">' + data.summary.replace(/\n/g, '<br>') + '</p>');
                     renderInnerContentAsMarkdown($('#summary-text'), function(){
                         showMore(null, text=null, textElem=$('#summary-text'), as_html=true);
                     });
@@ -948,7 +1171,7 @@ $(document).ready(function() {
 
                 for (var i = 0; i < chunked_summary.length; i++) {
                     // $('#summary-column').append('<h5>' + titles[i] + '</h5>');
-                    chunkContainer.append('<p>' + data.details.chunked_summary[i] + '</p></br>');
+                    chunkContainer.append('<p>' + data.details.chunked_summary[i].replace(/\n/g, '<br>') + '</p></br>');
                 }
                 if (chunked_summary.length > 0 && chunked_summary[0].length > 0) {
                     $('#summary-column').append(chunkContainer)
@@ -965,13 +1188,13 @@ $(document).ready(function() {
                         let card = $('<div>').addClass('card').attr("content-id", one_qa[0]);
                         let cardBody = $('<div>').addClass('card-body');
                         card.append(cardBody);
-                        cardBody.append('<p><strong>Q:</strong> ' + one_qa[1] + '</p>');
+                        cardBody.append('<p><strong>Q:</strong> ' + one_qa[1].replace(/\n/g, '<br>') + '</p>');
                         var ansArea = $('<p><strong>A:</strong></p>')
-                        var ansContainer = $('<span class = "summary-text">' + one_qa[2] +'</span>')
+                        var ansContainer = $('<span class = "summary-text">' + one_qa[2].replace(/\n/g, '<br>') +'</span>')
                         ansArea.append(ansContainer)
                         cardBody.append(ansArea);
                         $('#qna-column').append(card);
-                        initialiseVoteBank(card, one_qa[1], one_qa[0]);
+                        initialiseVoteBank(card, one_qa[1], one_qa[0], activeDocId=activeDocId);
                         renderInnerContentAsMarkdown(ansContainer, function(){
                             showMore(null, text=null, textElem=ansContainer, as_html=true);
                         });
@@ -1001,7 +1224,7 @@ $(document).ready(function() {
                             cardBody.append('<h5>' + key.replace(/_/g, ' ') + '</h5>');
                             cardBody.append(`<p class="summary-text" id="${key}-text">` + data.details.deep_reader_details[key]["text"] + '</p>');
                             $('#deep-details-column').append(card);
-                            initialiseVoteBank(card, key, data.details.deep_reader_details[key]["id"]);
+                            initialiseVoteBank(card, key, data.details.deep_reader_details[key]["id"], activeDocId=activeDocId);
                             renderInnerContentAsMarkdown($(`#${key}-text`), function(){
                                 if (data.details.deep_reader_details[key]["text"].trim().length > 0){
                                     showMore(null, text=null, textElem=$(`#${key}-text`), as_html=true);
@@ -1028,7 +1251,7 @@ $(document).ready(function() {
                                         if (done) {
                                             break;
                                         }
-                                        let part = decoder.decode(value);
+                                        let part = decoder.decode(value).replace(/\n/g, '<br>');
                                         $('#' + key + '-text').append(part);
                                         if ($('#' + key + '-text').html().length > content_length + 40){
                                             renderInnerContentAsMarkdown($('#' + key + '-text'), 
@@ -1092,13 +1315,13 @@ $(document).ready(function() {
             $('#documents').empty();
             data.forEach(function(doc) {
                 var docItem = $('<a href="#" class="list-group-item list-group-item-action" data-doc-id="' + doc.doc_id + '"></a>');
-                var deleteButton = $('<button class="btn p-0 ms-2 delete-button"><i class="bi bi-trash-fill"></i></button>');
-                docItem.append('<strong>' + doc.title.slice(0, 100) + '</strong></br>');
+                var deleteButton = $('<small><button class="btn p-0 ms-2 delete-button"><i class="bi bi-trash-fill"></i></button></small>');
+                docItem.append('<strong class="doc-title-in-sidebar">' + doc.title.slice(0, 60).trim() + '</strong></br>');
                 docItem.append(deleteButton);
-                docItem.append('&nbsp;<span>' + '<a class="sidebar-source-link" href="' + doc.source +'">' + "PDF Link" + '</a>' + '</span></br>');
+                docItem.append('&nbsp; &nbsp; <span>' + '<a class="sidebar-source-link" href="' + doc.source +'">' + "Link" + '</a>' + '</span></br>');
                 // Append delete button to docItem
                 
-                showMore(docItem, doc.short_summary)
+                showMore(docItem, doc.short_summary.replace(/\n/g, '<br>'))
                 $('#documents').append(docItem);
                 
                 if (autoselect){
@@ -1116,7 +1339,7 @@ $(document).ready(function() {
             $('.delete-button').click(function(event) {
                 event.preventDefault();
                 event.stopPropagation();
-                var docId = $(this).parent().attr('data-doc-id');
+                var docId = $(this).closest('[data-doc-id]').attr('data-doc-id');
                 deleteDocument(docId);
             });
 
@@ -1156,212 +1379,7 @@ $(document).ready(function() {
         });
     }
     
-    function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='') {
-        var api;
-        var search_mode;
 
-        if (search_term.length > 0) {
-            api = '/search_document?text='+ search_term;
-            search_mode = true;
-        } else {
-            api = '/list_all';
-            search_mode = false;
-        }
-
-        var request = apiCall(api, 'GET', {});
-        request.done(function(data) {
-            var searchResultsArea = $('#' + searchResultsAreaId);
-            searchResultsArea.empty();
-
-            var resultList = $('<ol></ol>'); // Create an ordered list
-            var documentIds = [];
-            $('.document-tag').each(function() {
-                documentIds.push($(this).attr('data-doc-id'));
-            });
-
-            data.filter(doc=>doc.doc_id !== activeDocId).filter(doc=>!documentIds.includes(doc.doc_id)).forEach(function(doc, index) {
-                var docItem = $(`
-                    <li class="my-2">
-                        <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
-                    </li>
-                `);
-                docItem.click(function(event) {
-                    event.preventDefault();
-                    addDocumentTags(tagsAreaId, [doc]);
-                });
-                resultList.append(docItem); // Append list items to the ordered list
-            });
-            searchResultsArea.append(resultList); // Append the ordered list to the search results area
-        });
-
-        return request;
-    }
-
-    
-    function addDocumentTags(tagsAreaId, data){
-        
-        data.forEach(function(doc) {
-            var docTag = $(`
-                <div class="document-tag bg-light border rounded mb-2 mr-2 p-2 d-inline-flex align-items-center" data-doc-id="${doc.doc_id}">
-                    <span class="me-2">${doc.title}</span>
-                    <button class="delete-tag-button btn btn-sm btn-danger">Delete</button>
-                </div>`);
-            var count = $('#' + tagsAreaId).children().length;
-            var limit = 4
-            if (count > limit - 1){
-                alert(`you cannot add more than ${limit} documents for Multiple Doc Search`);
-            }
-            else {$('#' + tagsAreaId).append(docTag);}
-            // Handle click events for the delete button
-            $('.delete-tag-button').click(function(event) {
-                event.preventDefault();
-                event.stopPropagation();
-                $(this).parent().remove();
-            });
-        });
-    }
-
-
-
-    
-    function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId){
-        var lastTimeoutId = null;  
-        var previousSearchLength = 0;
-        var searchBox = $('#' + searchBoxId);
-        $('#' + tagsAreaId).empty();
-
-        searchBox.on('input', function() {
-            var currentSearchLength = searchBox.val().length;
-
-            if (lastTimeoutId !== null) {
-                clearTimeout(lastTimeoutId);
-            }
-
-            lastTimeoutId = setTimeout(function() {
-                currentSearchLength = searchBox.val().length;
-                if (currentSearchLength >= 5 || (previousSearchLength >= 5 && currentSearchLength < 5)) {  
-                    loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val());
-                } else if (currentSearchLength === 0 && previousSearchLength >= 1) {
-                    loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '');
-                }
-                previousSearchLength = currentSearchLength;
-
-                lastTimeoutId = null; 
-            }, 400);
-        });
-    }
-
-    
-
-    
-    function addOptions(parentElementId, type) {
-        var checkBoxIds = [
-            `${parentElementId}-${type}-use-references-and-citations-checkbox`,
-            `${parentElementId}-${type}-perform-web-search-checkbox`,
-            `${parentElementId}-${type}-use-multiple-docs-checkbox`,
-            `${parentElementId}-${type}-provide-detailed-answers-checkbox`
-        ];
-
-        $(`#${parentElementId}`).append(
-            `<div style="display: flex; margin-bottom: 10px;">` +
-
-            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" disabled><label class="form-check-label" for="${checkBoxIds[0]}">References & Citations</label></div>` +
-
-            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
-
-            `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
-
-            `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
-            `</div>`
-        );
-
-        // Elements for Multiple Documents option
-        var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);
-        var searchResultsArea = $(`<div id="${parentElementId}-${type}-search-results" style="display: none;"></div>`);
-        var docTagsArea = $(`<div id="${parentElementId}-${type}-document-tags" style="display: none;"></div>`);
-
-        // Add them to the parent element
-        $(`#${parentElementId}`).append(searchBox, searchResultsArea, docTagsArea);
-
-        // Add event handlers to make checkboxes mutually exclusive
-        checkBoxIds.forEach(function(id, index) {
-            $('#' + id).change(function() {
-                if(this.checked) {
-                    checkBoxIds.forEach(function(otherId, otherIndex) {
-                        if(index !== otherIndex) {
-                            var otherCheckBox = $('#' + otherId);
-                            if(otherCheckBox.is(':checked')) {
-                                otherCheckBox.prop('checked', false).trigger('change');
-                            }
-                        }
-                    });
-                }
-            });
-        });
-
-        // Add an event handler on the Multiple Docs checkbox
-        $('#' + checkBoxIds[2]).change(function() {
-            if(this.checked) {
-                // If checked, display the search box, search results area and document tags area
-                searchBox.css('display', 'block');
-                searchResultsArea.css('display', 'block');
-                docTagsArea.css('display', 'block');
-
-                // Initialize search functionality
-                initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`);
-            } else {
-                // If unchecked, hide the search box, search results area and document tags area
-                searchBox.css('display', 'none');
-                searchResultsArea.css('display', 'none');
-                docTagsArea.css('display', 'none');
-                searchBox.val('');
-                searchResultsArea.empty();
-                docTagsArea.empty();
-            }
-        });
-    }
-
-
-
-    function getOptions(parentElementId, type) {
-        return {
-            use_references_and_citations: $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked'),
-            perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
-            use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
-            provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
-        };
-    }
-
-    function resetOptions(parentElementId, type) {
-        $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
-        $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
-        $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
-        $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
-        
-        var searchBox = $(`#${parentElementId}-${type}-search-box`);
-        var searchResultsArea = $(`#${parentElementId}-${type}-search-results`);
-        var docTagsArea = $(`#${parentElementId}-${type}-document-tags`);
-        searchBox.css('display', 'none');
-        searchResultsArea.css('display', 'none');
-        docTagsArea.css('display', 'none');
-        searchBox.val('');
-        searchResultsArea.empty();
-        docTagsArea.empty();
-        
-        
-    }
-    
-    function removeOptions(parentElementId, type) {
-        $(`#${parentElementId}-${type}-use-references-and-citations-checkbox`).parent().remove();
-        $(`#${parentElementId}-${type}-perform-web-search-checkbox`).parent().remove();
-        $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
-        $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
-        
-        $(`[id$="${type}-search-box"]`).remove();
-        $(`[id$="${type}-document-tags"]`).remove();
-        $(`[id$="${type}-search-results"]`).remove();
-
-    }
 
 
     
@@ -1397,12 +1415,7 @@ $(document).ready(function() {
                 $('#submit-question-button').prop('disabled', true);
                 $('#loading').show();
                 let options = getOptions('questions-view', 'query');
-                var documentIds = [];
-                $('.document-tag').each(function() {
-                    documentIds.push($(this).attr('data-doc-id'));
-                });
-                let response = await apiCall('/streaming_get_answer', 'POST', { doc_id: activeDocId, query: query,"additional_docs_to_read": documentIds, ...options}, useFetch = true);
-
+                let response = await apiCall('/streaming_get_answer', 'POST', { doc_id: activeDocId, query: query, ...options}, useFetch = true);
                 if (!response.ok) {
                     alert('An error occurred: ' + response.status);
                     return;
@@ -1442,7 +1455,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, query,);
+                initialiseVoteBank(card, query, activeDocId=activeDocId);
 
                 answerParagraph.append('</br>');
                 resetOptions('questions-view', 'query');
@@ -1494,11 +1507,7 @@ $(document).ready(function() {
                 $('#submit-follow-up-question-button').prop('disabled', true); // Disable the submit button
                 $('#loading-follow-up').show(); // Show the loading spinner
                 let options = getOptions('followup-view', 'followup');
-                var documentIds = [];
-                $('.document-tag').each(function() {
-                    documentIds.push($(this).attr('data-doc-id'));
-                });
-                let response = await apiCall('/streaming_get_followup_answer', 'POST', { doc_id: activeDocId, query: query, previous_answer: previousAnswer, "additional_docs_to_read": documentIds, ...options }, useFetch = true);
+                let response = await apiCall('/streaming_get_followup_answer', 'POST', { doc_id: activeDocId, query: query, previous_answer: previousAnswer, ...options}, useFetch = true);
                 if (!response.ok) {
                     alert('An error occurred: ' + response.status);
                     return;
@@ -1525,7 +1534,7 @@ $(document).ready(function() {
                     if (done) {
                         break;
                     }
-                    let part = decoder.decode(value);
+                    let part = decoder.decode(value).replace(/\n/g, '<br>');
                     answerParagraph.append(part);
                     answer = answer + part
                     if (answerParagraph.html().length > content_length + 40){
@@ -1537,7 +1546,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query,);
+                initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query, activeDocId=activeDocId);
 
                 answerParagraph.append('</br>');
 
@@ -1748,7 +1757,7 @@ $(document).ready(function() {
                 renderInnerContentAsMarkdown(reviewParagraph, function(){
                     showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
                 });
-                initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id);
+                initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id), activeDocId=activeDocId;
 
             });
             // populate review parameters dropdown
@@ -1887,7 +1896,7 @@ $(document).ready(function() {
             renderInnerContentAsMarkdown(reviewParagraph, function(){
                 showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
             });
-            initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","),);
+            initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","), activeDocId=activeDocId);
         });
 
 
@@ -1921,6 +1930,7 @@ $(document).ready(function() {
         $('#pdf-view').hide();
         $('#review-assistant-view').hide();
         $('#references-view').show();
+        $('#chat-assistant-view').hide();
 
         loadCitationsAndReferences();
     });
@@ -1930,6 +1940,7 @@ $(document).ready(function() {
         $('#pdf-view').hide();
         $('#references-view').hide();
         $('#review-assistant-view').show();
+        $('#chat-assistant-view').hide();
         
     });
     
@@ -1938,7 +1949,18 @@ $(document).ready(function() {
         $('#review-assistant-view').hide();
         $('#references-view').hide();
         $('#pdf-view').show();
+        $('#chat-assistant-view').hide();
         
+    });
+
+    $('#assistant-tab').on('shown.bs.tab', function (e) {
+        // Clear the details viewer
+        $('#review-assistant-view').hide();
+        $('#references-view').hide();
+        $('#pdf-view').hide();
+        $('#chat-assistant-view').show();
+        var chatView = $('#chatView');
+        chatView.scrollTop(chatView.prop('scrollHeight'));
     });
     
     $('#hide-sidebar').on('click', toggleSidebar);
