@@ -141,10 +141,10 @@ var ChatManager = {
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column"></div>');
+          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column" style="width: 80%!important;"></div>');
           
           var cardHeader = $('<div class="card-header text-end"><strong>' + senderText + '</strong></div>');
-          var cardBody = $('<div class="card-body"></div>');
+          var cardBody = $('<div class="card-body chat-card-body"></div>');
           var textElem = $('<p id="message-render-space" class="card-text actual-card-text">' + message.text.replace(/\n/g, '  \n') + '</p>');
           
           cardBody.append(textElem);

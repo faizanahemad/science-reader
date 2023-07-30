@@ -238,3 +238,12 @@ bi bi-trash-fill {
 .hljs {
     padding: 25px 10px 10px 10px;
 }
+
+.chat-card-body {
+    padding: 0.5rem;
+    margin-top: 5px;
+}
+
+.card-header {
+    padding: 0.5rem 0.75rem;
+}
