@@ -74,7 +74,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                         showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                     }
                 });
-                initialiseVoteBank(card, messageText, activeDocId=ConversationManager.activeConversationId);
+                initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId=null, activeDocId=ConversationManager.activeConversationId);
             }
             return;
         }
@@ -83,7 +83,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
         part = JSON.parse(part);
         part['text'] = part['text'].replace(/\n/g, '  \n');
 
-        answer = answer + part;
+        answer = answer + part['text'];
 
         // Render server message
         var serverMessage = {
@@ -165,7 +165,9 @@ var ChatManager = {
             messageElement.addClass('ml-md-auto');  // For right alignment
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
           } else {
-            initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+            if (message.text.trim().length > 0) {
+                initialiseVoteBank(messageElement, null, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+            }
             messageElement.addClass('mr-md-auto');  // For left alignment
             messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
           }

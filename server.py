@@ -348,7 +348,8 @@ def add_upvote_downvote():
     data = request.get_json()
     logger.info(f"'/addUpvoteOrDownvote' Get upvote-downvote request with {data}")
     if "question_text" in data:
-        question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
+        source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
+        question_id = str(mmh3.hash(source + data["question_text"], signed=False))
         logger.debug(f"'/addUpvoteOrDownvote' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
         if checkNoneOrEmpty(data['question_id']):
             data['question_id'] = question_id
@@ -372,7 +373,8 @@ def get_votes_by_question(question_id):
         data = ast.literal_eval(unquote(request.query_string))
         logger.debug(f"'/getUpvotesDownvotesByQuestionId' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
-            question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
+            source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
+            question_id = str(mmh3.hash(source + data["question_text"], signed=False))
         else:
             return "Question Id empty", 400
     email, name, _ = check_login(session)
@@ -390,7 +392,8 @@ def get_votes_by_question_and_user():
         data = ast.literal_eval(unquote(request.query_string))
         logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
-            question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
+            source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
+            question_id = str(mmh3.hash(source + data["question_text"], signed=False))
             logger.debug(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> generated question_id = {question_id}")
         else:
             return "Question Id empty", 400
@@ -406,7 +409,8 @@ def add_user_question_feedback():
     data = request.get_json()
     logger.info(f"Get granular feedback request with {data}")
     if "question_text" in data:
-        question_id = str(mmh3.hash(indexed_docs[data['doc_id']].doc_source + data["question_text"], signed=False))
+        source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
+        question_id = str(mmh3.hash(source + data["question_text"], signed=False))
         logger.debug(f"'/addUserQuestionFeedback' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
         if checkNoneOrEmpty(data['question_id']):
             data['question_id'] = question_id
