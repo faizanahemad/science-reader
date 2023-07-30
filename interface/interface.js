@@ -141,13 +141,19 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     let voteCountElem = $('<p>').addClass('vote-count');
     let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
     let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
-
+    let copyBtn = $('<button>').addClass('vote-btn').addClass('copy-btn').text('📋');
+    copyBtn.click(function() {
+        // Here we get the card text and copy it to the clipboard
+        // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
+        copyToClipboard(cardElem);
+    });
+    
     let voteBox = $('<div>').addClass('vote-box').css({
         'position': 'absolute',
         'top': '10px',
         'right': '20px'
     });
-    voteBox.append(upvoteBtn, voteCountElem, downvoteBtn);
+    voteBox.append(copyBtn, upvoteBtn, voteCountElem, downvoteBtn);
     cardElem.append(voteBox);
 
     function updateVoteCount() {
@@ -278,6 +284,38 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     checkUserVote();
 }
 const markdownParser = new marked.Renderer();
+marked.setOptions({
+    renderer: markdownParser,
+    highlight: function(code, language) {
+        const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
+        return hljs.highlight(validLanguage, code).value;
+    },
+    pedantic: false,
+    gfm: true,
+    breaks: false,
+    sanitize: false,
+    smartLists: true,
+    smartypants: false,
+    xhtml: false
+});
+markdownParser.codespan = function(text) {
+  return '<code>' + text + '</code>';
+};
+markdownParser.code = function(code, language) {
+    var validLang = !!(language && hljs.getLanguage(language));
+    var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
+    return '<div class="code-block">' +
+           '<div class="code-header">' +
+           '<span class="code-language">' + (language || 'plaintext') + '</span>' +
+           '<button class="copy-code-btn">Copy</button>' +
+           '</div>' +
+           '<pre><code class="hljs ' + (language || '') + '">' +
+           highlighted +
+           '</code></pre>' +
+           '</div>';
+};
+
+
 function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
     parent = jqelem.parent()
     elem_id = jqelem.attr('id');
@@ -308,12 +346,23 @@ function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
     }
     var htmlChunk = marked.marked(html, { renderer: markdownParser });
     htmlChunk = removeEmTags(htmlChunk);
-    try{elem_to_render_in.empty();} catch(error){
-        try{elem_to_render_in[0].innerHTML=''} catch (error) {elem_to_render_in.innerHTML=''}
+    try{
+        elem_to_render_in.empty();
+    } catch(error){
+        try{
+            elem_to_render_in[0].innerHTML=''
+        } catch (error) {elem_to_render_in.innerHTML=''}
     }
-    try{elem_to_render_in.append(htmlChunk)} catch(error){
-        try{elem_to_render_in[0].innerHTML=htmlChunk} catch (error) {elem_to_render_in.innerHTML=htmlChunk}
+    try{
+        elem_to_render_in.append(htmlChunk)
+    } catch(error){
+        try{
+            elem_to_render_in[0].innerHTML=htmlChunk
+        } catch (error) {
+            elem_to_render_in.innerHTML=htmlChunk
+        }
     }
+    
     mathjax_elem = elem_to_render_in[0]
     if (mathjax_elem === undefined) {
         mathjax_elem = jqelem
@@ -322,6 +371,10 @@ function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
     if (callback) {
         MathJax.Hub.Queue(callback)
     }
+    code_elems = $(elem_to_render_in).find('code')
+    Array.from(code_elems).forEach(function(code_elem){
+        // hljs.highlightBlock(code_elem);
+    });
 }
 
 function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='') {
@@ -389,6 +442,37 @@ function addDocumentTags(tagsAreaId, data){
     });
 }
 
+function copyToClipboard(textElem, mode="text") {
+    // var text = textElem.text().replace(/\[show\]|\[hide\]/g, '');
+    if (mode === "text") {
+        var textElements = $(textElem);
+        // .find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em');
+    }
+    else if (mode === "code") {
+        var textElements = $(textElem).closest('.code-block').find('code');
+        // .find('p, span, div, code');
+    }
+    else {
+        var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em');
+    }
+    
+    var textToCopy = "";
+    textElements.each(function() {
+        textToCopy += $(this).text().replace(/\[show\]|\[hide\]/g, '') + "\n";
+    });
+    var textarea = document.createElement("textarea");
+    textarea.textContent = textToCopy;
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        return document.execCommand("copy");  // Security exception may be thrown by some browsers.
+    } catch (ex) {
+        console.warn("Copy to clipboard failed.", ex);
+        return false;
+    } finally {
+        document.body.removeChild(textarea);
+    }
+}
 
 
 
@@ -423,7 +507,6 @@ function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAr
 
 
 function addOptions(parentElementId, type) {
-    $(`#${parentElementId}`).empty();
     var checkBoxIds = [
         type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`,
         `${parentElementId}-${type}-perform-web-search-checkbox`,
@@ -1158,7 +1241,7 @@ $(document).ready(function() {
                     });
 
                 } else {
-                    $('#summary-column').append('<p id="summary-text">' + data.summary.replace(/\n/g, '<br>') + '</p>');
+                    $('#summary-column').append('<p id="summary-text">' + data.summary.replace(/\n/g, '  \n') + '</p>');
                     renderInnerContentAsMarkdown($('#summary-text'), function(){
                         showMore(null, text=null, textElem=$('#summary-text'), as_html=true);
                     });
@@ -1171,7 +1254,7 @@ $(document).ready(function() {
 
                 for (var i = 0; i < chunked_summary.length; i++) {
                     // $('#summary-column').append('<h5>' + titles[i] + '</h5>');
-                    chunkContainer.append('<p>' + data.details.chunked_summary[i].replace(/\n/g, '<br>') + '</p></br>');
+                    chunkContainer.append('<p>' + data.details.chunked_summary[i].replace(/\n/g, '  \n') + '</p></br>');
                 }
                 if (chunked_summary.length > 0 && chunked_summary[0].length > 0) {
                     $('#summary-column').append(chunkContainer)
@@ -1188,9 +1271,9 @@ $(document).ready(function() {
                         let card = $('<div>').addClass('card').attr("content-id", one_qa[0]);
                         let cardBody = $('<div>').addClass('card-body');
                         card.append(cardBody);
-                        cardBody.append('<p><strong>Q:</strong> ' + one_qa[1].replace(/\n/g, '<br>') + '</p>');
+                        cardBody.append('<p><strong>Q:</strong> ' + one_qa[1].replace(/\n/g, '  \n') + '</p>');
                         var ansArea = $('<p><strong>A:</strong></p>')
-                        var ansContainer = $('<span class = "summary-text">' + one_qa[2].replace(/\n/g, '<br>') +'</span>')
+                        var ansContainer = $('<span class = "summary-text">' + one_qa[2].replace(/\n/g, '  \n') +'</span>')
                         ansArea.append(ansContainer)
                         cardBody.append(ansArea);
                         $('#qna-column').append(card);
@@ -1251,7 +1334,7 @@ $(document).ready(function() {
                                         if (done) {
                                             break;
                                         }
-                                        let part = decoder.decode(value).replace(/\n/g, '<br>');
+                                        let part = decoder.decode(value).replace(/\n/g, '  \n');
                                         $('#' + key + '-text').append(part);
                                         if ($('#' + key + '-text').html().length > content_length + 40){
                                             renderInnerContentAsMarkdown($('#' + key + '-text'), 
@@ -1534,7 +1617,7 @@ $(document).ready(function() {
                     if (done) {
                         break;
                     }
-                    let part = decoder.decode(value).replace(/\n/g, '<br>');
+                    let part = decoder.decode(value).replace(/\n/g, '  \n');
                     answerParagraph.append(part);
                     answer = answer + part
                     if (answerParagraph.html().length > content_length + 40){
@@ -1989,6 +2072,12 @@ $(document).ready(function() {
         var tabContent = document.querySelector('.tab-content');
         tabContent.style.display = 'block';
     });
+
+    $(document).on('click', '.copy-code-btn', function() {
+        copyToClipboard($(this), "code");
+    });
+    hljs.initHighlightingOnLoad();
+
 
     $('#toggle-tab-content').on('click', function() {
         var caretUp = $(this).find('.bi-caret-up-fill');

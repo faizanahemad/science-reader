@@ -30,6 +30,7 @@
     - Multi-Agent with multiple persona based research assist.
     - NQS
     - TODO: `.replace(/\n/g, '<br>')` for various parts of text.
+    - Request model to provide code in numpy/python/pytorch instead of formulas based on its understanding.
     
     
 

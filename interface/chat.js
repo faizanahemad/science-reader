@@ -66,37 +66,44 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             // Final rendering of markdown and setting up the voting mechanism
             if (answerParagraph) {
                 renderInnerContentAsMarkdown(answerParagraph, function(){
-                    showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
+                    if (answerParagraph.text().length > 300) {
+                        showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
+                    }
                 });
                 initialiseVoteBank(card, messageText, activeDocId=ConversationManager.activeConversationId);
             }
             return;
         }
 
-        let part = decoder.decode(value).replace(/\n/g, '<br>');
+        let part = decoder.decode(value).replace(/\n/g, '  \n');
         answer = answer + part;
 
         // Render server message
         var serverMessage = {
             sender: 'server',
-            text: part
+            text: ''
         };
 
         if (!card) {
             card = ChatManager.renderMessages([serverMessage], false);
         }  
         if (!answerParagraph) {
-            answerParagraph = card.find('.card-body p').last();
+            answerParagraph = card.find('.actual-card-text').last();
         }
         answerParagraph.append(part);  // Find the last p tag within the card-body and append the message part
+        console.log(part)
+        console.log(answerParagraph.text())
+        answer_pre_text = answerParagraph.text()
         if (answerParagraph.html().length > content_length + 40){
             renderInnerContentAsMarkdown(answerParagraph, 
                                             callback=null, continuous=true)
             content_length = answerParagraph.html().length
         }
+        answer_post_text = answerParagraph.text()
+        console.log(answer_pre_text == answer_post_text)
 
         // Recursive call to read next message part
-        setTimeout(read, 0);
+        setTimeout(read, 10);
     }
 
     read();
@@ -130,34 +137,39 @@ var ChatManager = {
   
     renderMessages: function(messages, shouldClearChatView) {
         if (shouldClearChatView) {
-            $('#chatView').empty();  // Clear the chat view first
+          $('#chatView').empty();  // Clear the chat view first
         }
         messages.forEach(function(message, index, array) {
-            var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-            var messageElement = $('<div class="card w-75 my-2 d-flex flex-column"></div>');
-            
-            var cardHeader = $('<div class="card-header text-end"><strong>' + senderText + '</strong></div>');
-            var cardBody = $('<div class="card-body"></div>');
-            var textElem = $('<p class="card-text">' + message.text.replace(/\n/g, '<br>') + '</p>');
-            
-            cardBody.append(textElem);
-            messageElement.append(cardHeader);
-            messageElement.append(cardBody);
-            
-            // Depending on who the sender is, we adjust the alignment and add different background shading
-            if (message.sender == 'user') {
-                messageElement.addClass('ml-md-auto');  // For right alignment
-                messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
-            } else {
-                initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
-                messageElement.addClass('mr-md-auto');  // For left alignment
-                messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
-            }
-            renderInnerContentAsMarkdown(textElem, function(){
-                showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=index >= array.length - 2);
-            });
-            
-            $('#chatView').append(messageElement);
+          var senderText = message.sender === 'user' ? 'You' : 'Assistant';
+          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column"></div>');
+          
+          var cardHeader = $('<div class="card-header text-end"><strong>' + senderText + '</strong></div>');
+          var cardBody = $('<div class="card-body"></div>');
+          var textElem = $('<p id="message-render-space" class="card-text actual-card-text">' + message.text.replace(/\n/g, '  \n') + '</p>');
+          
+          cardBody.append(textElem);
+          messageElement.append(cardHeader);
+          messageElement.append(cardBody);
+          
+          // Depending on who the sender is, we adjust the alignment and add different background shading
+          if (message.sender == 'user') {
+            messageElement.addClass('ml-md-auto');  // For right alignment
+            messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
+          } else {
+            initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+            messageElement.addClass('mr-md-auto');  // For left alignment
+            messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
+          }
+          if (message.text.trim().length > 0){
+              renderInnerContentAsMarkdown(textElem, function(){
+                  if ((textElem.text().length > 300) && (index < array.length - 2)){
+                    showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=index >= array.length - 2);
+                  }
+              });
+          }
+          
+          
+          $('#chatView').append(messageElement);
         });
         var chatView = $('#chatView');
         chatView.scrollTop(chatView.prop('scrollHeight'));
