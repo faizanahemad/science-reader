@@ -59,8 +59,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
     async function read() {
         const {value, done} = await reader.read();
-
         if (done) {
+            var statusDiv = card.find('.status-div');
+            statusDiv.hide();
+            statusDiv.find('.status-text').text('');
+            statusDiv.find('.spinner-border').hide();
+            statusDiv.find('.spinner-border').removeClass('spinner-border');
             resetOptions('chat-options', 'assistant');
             console.log('Stream complete');
             // Final rendering of markdown and setting up the voting mechanism
@@ -75,7 +79,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             return;
         }
 
-        let part = decoder.decode(value).replace(/\n/g, '  \n');
+        let part = decoder.decode(value)
+        part = JSON.parse(part);
+        part['text'] = part['text'].replace(/\n/g, '  \n');
+
         answer = answer + part;
 
         // Render server message
@@ -90,9 +97,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
         if (!answerParagraph) {
             answerParagraph = card.find('.actual-card-text').last();
         }
-        answerParagraph.append(part);  // Find the last p tag within the card-body and append the message part
-        console.log(part)
-        console.log(answerParagraph.text())
+        var statusDiv = card.find('.status-div');
+        statusDiv.show();
+        statusDiv.find('.spinner-border').show();
+        answerParagraph.append(part['text']);  // Find the last p tag within the card-body and append the message part
         answer_pre_text = answerParagraph.text()
         if (answerParagraph.html().length > content_length + 40){
             renderInnerContentAsMarkdown(answerParagraph, 
@@ -100,7 +108,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             content_length = answerParagraph.html().length
         }
         answer_post_text = answerParagraph.text()
-        console.log(answer_pre_text == answer_post_text)
+        var statusDiv = card.find('.status-div');
+        statusDiv.find('.status-text').text(part['status']);
 
         // Recursive call to read next message part
         setTimeout(read, 10);
@@ -168,8 +177,16 @@ var ChatManager = {
               });
           }
           
-          
+          var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
+          var spinner = $('<div class="spinner-border text-primary" role="status"></div>');
+          var statusText = $('<span class="status-text ms-2"></span>');
+
+          statusDiv.append(spinner);
+          statusDiv.append(statusText);
+          messageElement.append(statusDiv);
           $('#chatView').append(messageElement);
+          statusDiv.hide();
+          statusDiv.find('.spinner-border').hide();
         });
         var chatView = $('#chatView');
         chatView.scrollTop(chatView.prop('scrollHeight'));

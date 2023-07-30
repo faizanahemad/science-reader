@@ -247,3 +247,8 @@ bi bi-trash-fill {
 .card-header {
     padding: 0.5rem 0.75rem;
 }
+
+.status-text {
+    color: #0000ff; 
+    margin-left: 10px;
+}

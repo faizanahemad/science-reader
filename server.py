@@ -977,22 +977,21 @@ def list_messages_by_conversation(conversation_id):
 @app.route('/send_message/<conversation_id>', methods=['POST'])
 @login_required
 def send_message(conversation_id):
-    # TODO: if this is the first message then create a title for this conversation.
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
     # We don't process the request data in this mockup, but we would normally send a new message here
     def answer():
-        yield "Hello! `time.time()`\n"
+        yield json.dumps({"text": "Hello! `time.time()`\n", "status":"analysing"})
         time.sleep(1)
-        yield "How are you? `time.time()`\n"
+        yield json.dumps({"text": "Lets discuss your problem `time.time()`\n", "status":"reading"})
         time.sleep(1)
-        yield "How are you? `time.time()`\n"
+        yield json.dumps({"text": "Let me search the web `time.time()`\n", "status":"web search"})
         time.sleep(1)
-        yield "How are you? `time.time()`\n"
+        yield json.dumps({"text": "Look what I found `time.time()`\n", "status":"contemplating"})
         time.sleep(1)
-        yield "How are you? `time.time()`\n"
+        yield json.dumps({"text": "This isn't what we expected. `time.time()`\n", "status":"contemplating"})
         time.sleep(1)
-        yield "Goodbye! `time.time()`\n"
+        yield json.dumps({"text": "Bidding Adieu `import pandas as pd`\n", "status":"bye"})
     return Response(stream_with_context(answer()), content_type='text/plain')
 
 @app.route('/get_message_by_message_id/<message_id>', methods=['GET'])
