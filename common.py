@@ -227,6 +227,8 @@ def checkNoneOrEmpty(x):
         return True
     elif isinstance(x, str):
         return len(x.strip())==0
+    elif isinstance(x, str) and x.strip().lower() in ['null', 'none']:
+        return x.strip().lower() in ['null', 'none']
     else:
         return len(x) == 0
     
@@ -354,38 +356,11 @@ class SetQueue:
     def items(self):
         with self.lock:
             return list(self.queue)
+
 def convert_http_to_https(url):
     parsed_url = urlparse(url)
     https_url = parsed_url._replace(scheme='https')
     return urlunparse(https_url)
-
-        
-        
-# import threading
-# from lru import LRUDict
-
-# class SetQueue:
-#     def __init__(self, maxsize):
-#         self.maxsize = maxsize
-#         self.lru = LRUDict(maxsize)
-#         self.lock = threading.Lock()
-
-#     def add(self, item):
-#         with self.lock:
-#             self.lru[item] = item
-
-#     def __contains__(self, item):
-#         with self.lock:
-#             return item in self.lru
-
-#     def __len__(self):
-#         with self.lock:
-#             return len(self.lru)
-
-#     def items(self):
-#         with self.lock:
-#             # The keys() method returns a list of keys in the LRU cache from the oldest to the newest
-#             return list(self.lru.keys())
 
 def get_peekable_iterator(iterable):
     from more_itertools import peekable
@@ -396,6 +371,33 @@ def get_peekable_iterator(iterable):
         _ = p.peek()
         return p
     return p
+
+def truncate_string(input_str, n):
+    # This list will store the original separators for each word
+    separators = []
+
+    # Replace all separators with a space and remember the original separator
+    for sep in [',', '\n', '\t', '\r', ';', '"', "'", '(', ')', '{', '}', '[', ']', '<', '>', '?', '/', '\\', '|', '`', '~', '!', '@', '#', '$', '%', '^', '&', '*', '-', '_', '+', '=', ':', '.']:
+        input_str = input_str.replace(sep, ' ')
+        separators.append(sep)
+
+    # Split the string into words
+    words = input_str.split(' ')
+
+    # Remove the last n words
+    truncated_words = words[:-n]
+
+    # Join the words back together using the original separators
+    truncated_str = ''
+    for word in truncated_words:
+        # Check if the word ends with a separator and add it back if it does
+        for sep in separators:
+            if word.endswith(sep):
+                word = word.rstrip(sep) + sep
+        truncated_str += word + ' '
+    # Remove the trailing space
+    truncated_str = truncated_str.rstrip(' ')
+    return truncated_str
 
 
 

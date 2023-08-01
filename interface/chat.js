@@ -11,7 +11,7 @@ var ConversationManager = {
             type: 'POST',
             success: function(conversation) {
                 // Add new conversation to the list
-                loadConversations(false).done(function(){
+                loadConversations(true).done(function(){
                     // Set the new conversation as the active conversation and highlight it
                     ConversationManager.setActiveConversation(conversation.conversation_id);
                     highLightActiveConversation();
@@ -49,7 +49,7 @@ var ConversationManager = {
 
 };
 
-function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+function renderStreamingResponseT(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let card = null;
@@ -60,12 +60,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     async function read() {
         const {value, done} = await reader.read();
         if (done) {
+            $('#messageText').prop('disabled', false);
             var statusDiv = card.find('.status-div');
             statusDiv.hide();
             statusDiv.find('.status-text').text('');
             statusDiv.find('.spinner-border').hide();
             statusDiv.find('.spinner-border').removeClass('spinner-border');
-            resetOptions('chat-options', 'assistant');
+            // resetOptions('chat-options', 'assistant');
             console.log('Stream complete');
             // Final rendering of markdown and setting up the voting mechanism
             if (answerParagraph) {
@@ -118,6 +119,84 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     read();
 }
 
+function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+    var reader = streamingResponse.body.getReader();
+    var decoder = new TextDecoder();
+    let buffer = '';
+    let card = null;
+    let answerParagraph = null;
+    var content_length = 0;
+    var answer = ''
+
+    async function read() {
+        const {value, done} = await reader.read();
+
+        buffer += decoder.decode(value || new Uint8Array, {stream: !done});
+        let boundary = buffer.indexOf('\n');
+        // Render server message
+        var serverMessage = {
+            sender: 'server',
+            text: ''
+        };
+
+        if (!card) {
+            card = ChatManager.renderMessages([serverMessage], false);
+        }
+        while (boundary !== -1) {
+            const part = JSON.parse(buffer.slice(0, boundary));
+            buffer = buffer.slice(boundary + 1);
+            boundary = buffer.indexOf('\n');
+
+            part['text'] = part['text'].replace(/\n/g, '  \n');
+            answer = answer + part['text'];
+
+              
+            if (!answerParagraph) {
+                answerParagraph = card.find('.actual-card-text').last();
+            }
+            var statusDiv = card.find('.status-div');
+            statusDiv.show();
+            statusDiv.find('.spinner-border').show();
+            answerParagraph.append(part['text']);  // Find the last p tag within the card-body and append the message part
+            answer_pre_text = answerParagraph.text()
+            if (answerParagraph.html().length > content_length + 40){
+                renderInnerContentAsMarkdown(answerParagraph, 
+                                                callback=null, continuous=true)
+                content_length = answerParagraph.html().length
+            }
+            answer_post_text = answerParagraph.text()
+            var statusDiv = card.find('.status-div');
+            statusDiv.find('.status-text').text(part['status']);
+        }
+
+        if (done) {
+            $('#messageText').prop('disabled', false);
+            var statusDiv = card.find('.status-div');
+            statusDiv.hide();
+            statusDiv.find('.status-text').text('');
+            statusDiv.find('.spinner-border').hide();
+            statusDiv.find('.spinner-border').removeClass('spinner-border');
+            resetOptions('chat-options', 'assistant');
+            console.log('Stream complete');
+            // Final rendering of markdown and setting up the voting mechanism
+            if (answerParagraph) {
+                renderInnerContentAsMarkdown(answerParagraph, function(){
+                    if (answerParagraph.text().length > 300) {
+                        showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
+                    }
+                });
+                initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId=null, activeDocId=ConversationManager.activeConversationId);
+            }
+            return;
+        }
+        // Recursive call to read next message part
+        setTimeout(read, 10);
+    }
+
+    read();
+}
+
+
 
 function highLightActiveConversation(){
     $('#conversations .list-group-item').removeClass('active');
@@ -166,7 +245,7 @@ var ChatManager = {
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
           } else {
             if (message.text.trim().length > 0) {
-                initialiseVoteBank(messageElement, null, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+                initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
             }
             messageElement.addClass('mr-md-auto');  // For left alignment
             messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
@@ -248,6 +327,7 @@ function loadConversations(autoselect=true) {
             
             // Include a summary of the conversation
             showMore(conversationItem, conversation.summary_till_now);
+            // showMore(conversationItem, text=null, textElem=$('#summary-text'), as_html=true);
             
             $('#conversations').append(conversationItem);
             conversationItem.on('click', function() {
@@ -291,12 +371,7 @@ function loadConversations(autoselect=true) {
 function sendMessageCallback() {
     var messageText = $('#messageText').val();
     $('#messageText').val('');  // Clear the messageText field
-    var checkboxes = {
-        'webSearch': $('#webSearchCheckbox').is(':checked'),
-        'document': $('#documentCheckbox').is(':checked'),
-        'googleScholar': $('#googleScholarCheckbox').is(':checked'),
-        'longerResponses': $('#longerResponses').is(':checked'),
-    };
+    $('#messageText').prop('disabled', true);
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
     let options = getOptions('chat-options', 'assistant');
@@ -308,6 +383,8 @@ function sendMessageCallback() {
         }
         // Call the renderStreamingResponse function to handle the streaming response
         renderStreamingResponse(response, ConversationManager.activeConversationId, messageText);
+        // $('#linkInput').val('')
+        // $('#searchInput').val('')
     });
 }
 

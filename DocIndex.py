@@ -1007,7 +1007,11 @@ Don't give final remarks or conclusions unless asked in reviewer instructions.
                 return obj
         except Exception as e:
             logger.error(f"Error loading from local storage {folder} with error {e}")
-            shutil.rmtree(original_folder)
+            try:
+                shutil.rmtree(original_folder)
+            except Exception as e:
+                logger.error(
+                    f"Error deleting local storage {folder} with error {e}")
             return None
     
     def save_local(self):
@@ -1087,11 +1091,7 @@ Don't give final remarks or conclusions unless asked in reviewer instructions.
         for k in self.store_separate:
             if hasattr(result, k):
                 setattr(result, k, None)
-        # Now we need to replace api_keys with a deepcopy
-        for k, v in vars(result).items():
-            if isinstance(v,  (FAISS, VectorStore)):
-                v = deepcopy(v)
-                setattr(result, k, v)
+        
         if hasattr(result, "api_keys"):
             result.api_keys = deepcopy(self.api_keys)
         

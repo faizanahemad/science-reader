@@ -119,6 +119,82 @@
 }
 
 
+/* Delete button for Chat */
+
+.list-group-item-action .delete-chat-button {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;            /* Adjust padding as needed */
+    color: #000000;
+}
+
+.delete-chat-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+.delete-chat-button:visited {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: #551A8B;
+}
+
+.list-group-item-action.active .delete-chat-button,
+.list-group-item-action.active .delete-chat-button:visited {
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px; 
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .delete-chat-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+/* Show details button for Chat */
+.list-group-item-action .detail-button {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;            /* Adjust padding as needed */
+    color: #000000;
+}
+
+.detail-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+.detail-button:visited {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: #551A8B;
+}
+
+.list-group-item-action.active .detail-button,
+.list-group-item-action.active .detail-button:visited {
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px; 
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .detail-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+
 /* Sidebar element coloring */
 
 

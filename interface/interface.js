@@ -157,17 +157,14 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     cardElem.append(voteBox);
 
     function updateVoteCount() {
-        if (contentId) {
-            var request = $.getJSON('/getUpvotesDownvotesByQuestionId/' + contentId);
-        } else {
-            var request = $.ajax({
-                url: '/getUpvotesDownvotesByQuestionId/' + contentId,
-                type: 'GET',
-                data: JSON.stringify({doc_id: activeDocId, question_text: text}),
-                dataType: 'json',
-                contentType: 'application/json',
-            });
-        }
+        var request = $.ajax({
+            url: '/getUpvotesDownvotesByQuestionId/' + contentId,
+            type: 'POST',
+            data: JSON.stringify({doc_id: activeDocId, question_text: text, question_id: contentId}),
+            dataType: 'json',
+            contentType: 'application/json',
+        });
+        
         
         
         request.done(function(data) {
@@ -191,17 +188,15 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     }
 
     function checkUserVote() {
-        if (contentId) {
-            var request = $.getJSON('/getUpvotesDownvotesByQuestionIdAndUser', {question_id: contentId});
-        } else {
-            var request = $.ajax({
-                url: '/getUpvotesDownvotesByQuestionIdAndUser',
-                type: 'GET',
-                data: JSON.stringify({doc_id: activeDocId, question_text: text}),
-                dataType: 'json',
-                contentType: 'application/json',
-            });
-        }
+        
+        var request = $.ajax({
+            url: '/getUpvotesDownvotesByQuestionIdAndUser',
+            type: 'POST',
+            data: JSON.stringify({doc_id: activeDocId, question_text: text, question_id: contentId}),
+            dataType: 'json',
+            contentType: 'application/json',
+        });
+        
         request.done(function(data) {
             if (data.length > 0) {
                 var upvotes = data[0][0];
@@ -2016,6 +2011,7 @@ $(document).ready(function() {
         $('#chat-assistant-view').hide();
 
         loadCitationsAndReferences();
+        pdfTabIsActive();
     });
 
     $('#review-assistant-tab').on('shown.bs.tab', function (e) {
@@ -2024,6 +2020,7 @@ $(document).ready(function() {
         $('#references-view').hide();
         $('#review-assistant-view').show();
         $('#chat-assistant-view').hide();
+        pdfTabIsActive();
         
     });
     
@@ -2033,6 +2030,7 @@ $(document).ready(function() {
         $('#references-view').hide();
         $('#pdf-view').show();
         $('#chat-assistant-view').hide();
+        pdfTabIsActive();
         
     });
 
@@ -2044,6 +2042,7 @@ $(document).ready(function() {
         $('#chat-assistant-view').show();
         var chatView = $('#chatView');
         chatView.scrollTop(chatView.prop('scrollHeight'));
+        pdfTabIsActive();
     });
     
     $('#hide-sidebar').on('click', toggleSidebar);
@@ -2193,5 +2192,27 @@ $(document).ready(function() {
     $('#review-assistant-view').hide();
     $('#references-view').hide();
     $('#pdf-view').show();
+
+    $("#hide-navbar").parent().hide();
+    $("#toggle-tab-content").parent().hide();
+
+    // Listen for click events on the tabs
+    $(".nav-link").click(function() {
+        // Check if the PDF tab is active
+        pdfTabIsActive();
+    });
+
+    function pdfTabIsActive() {
+        if ($("#pdf-tab").hasClass("active")) {
+            // If it is, show the elements
+            $("#hide-navbar").parent().show();
+            $("#toggle-tab-content").parent().show();
+        } else {
+            // If it's not, hide the elements
+            $("#hide-navbar").parent().hide();
+            $("#toggle-tab-content").parent().hide();
+        }
+    }
+    pdfTabIsActive();
 
 });

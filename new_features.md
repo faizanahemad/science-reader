@@ -31,6 +31,11 @@
     - NQS
     - TODO: `.replace(/\n/g, '<br>')` for various parts of text.
     - Request model to provide code in numpy/python/pytorch instead of formulas based on its understanding.
+    - Chat: Control how many times we should run web search.
+    - Handle too long input exception.
+    - Wikipedia and Wolfram and other structured KG integration
+    - Multiple workers by making server stateless and using redis or other db for state.
+    - Change the title once first message is created.
     
     
 

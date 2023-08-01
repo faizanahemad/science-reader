@@ -1,4 +1,5 @@
 import random
+import secrets
 import sys
 from urllib.parse import unquote
 from functools import wraps
@@ -16,6 +17,7 @@ from langchain.embeddings.base import Embeddings
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores.base import VectorStore
 from collections import defaultdict
+from Conversation import Conversation
 from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex
 import os
 import time
@@ -39,6 +41,10 @@ from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
 from flask.json.provider import JSONProvider
 from common import SetQueue
+import secrets
+import string
+import tiktoken
+alphabet = string.ascii_letters + string.digits
 import typing as t
 try:
     import ujson as json
@@ -107,6 +113,13 @@ def create_tables():
                                     created_at text,
                                     updated_at text
                                 );"""
+                                
+    sql_create_user_to_conversation_id_table = """CREATE TABLE IF NOT EXISTS UserToConversationId (
+                                    user_email text,
+                                    conversation_id text,
+                                    created_at text,
+                                    updated_at text
+                                ); """
 
 
     # create a database connection
@@ -119,12 +132,19 @@ def create_tables():
         create_table(conn, sql_create_user_to_doc_id_table)
         # create UserToVotes table
         create_table(conn, sql_create_user_to_votes_table)
+        create_table(conn, sql_create_user_to_conversation_id_table)
     else:
         print("Error! cannot create the database connection.")
         
     cur = conn.cursor()
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToVotes_email_question ON UserToVotes (user_email, question_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_User_email_doc_votes ON UserToVotes (user_email)")
     cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToDocId_email_doc ON UserToDocId (user_email, doc_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc ON UserToDocId (user_email)")
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToConversationId_email_doc ON UserToConversationId (user_email, conversation_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
     conn.commit()
         
         
@@ -143,12 +163,35 @@ def addUserToDoc(user_email, doc_id, doc_source_url):
     )
     conn.commit()
     conn.close()
+    
+def addConversationToUser(user_email, conversation_id):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT OR IGNORE INTO UserToConversationId
+        (user_email, conversation_id, created_at, updated_at)
+        VALUES(?,?,?,?)
+        """, 
+        (user_email, conversation_id, datetime.now(), datetime.now())
+    )
+    conn.commit()
+    conn.close()
 
 
 def getDocsForUser(user_email):
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
     cur.execute("SELECT * FROM UserToDocId WHERE user_email=?", (user_email,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def getCoversationsForUser(user_email):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM UserToConversationId WHERE user_email=?", (user_email,))
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -223,6 +266,13 @@ def removeUserFromDoc(user_email, doc_id):
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
     cur.execute("DELETE FROM UserToDocId WHERE user_email=? AND doc_id=?", (user_email, doc_id,))
+    conn.commit()
+    conn.close()
+    
+def removeUserFromConversation(user_email, conversation_id):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM UserToConversationId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
     conn.commit()
     conn.close()
 
@@ -320,8 +370,10 @@ os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
 nlp = English()  # just the language with no model
 _ = nlp.add_pipe("lemmatizer")
 nlp.initialize()
+conversation_folder = os.path.join(os.getcwd(), folder, "conversations")
 folder = os.path.join(os.getcwd(), folder, "documents")
 os.makedirs(folder, exist_ok=True)
+os.makedirs(conversation_folder, exist_ok=True)
 
 
 cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
@@ -366,11 +418,11 @@ def get_votes_by_user():
     logger.debug(f"called , response = {rows}")
     return jsonify(rows), 200
 
-@app.route('/getUpvotesDownvotesByQuestionId/<question_id>', methods=['GET'])
+@app.route('/getUpvotesDownvotesByQuestionId/<question_id>', methods=['POST'])
 @login_required
 def get_votes_by_question(question_id):
     if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
-        data = ast.literal_eval(unquote(request.query_string))
+        data = request.get_json()
         logger.debug(f"'/getUpvotesDownvotesByQuestionId' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
             source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
@@ -382,14 +434,14 @@ def get_votes_by_question(question_id):
     logger.info(f"'/getUpvotesDownvotesByQuestionId' called with question_id = {question_id}, response = {rows}")
     return jsonify(rows), 200
 
-@app.route('/getUpvotesDownvotesByQuestionIdAndUser', methods=['GET'])
+@app.route('/getUpvotesDownvotesByQuestionIdAndUser', methods=['POST'])
 @login_required
 def get_votes_by_question_and_user():
     email, name, _ = check_login(session)
-    question_id = request.args.get('question_id')
-    
+    data = request.get_json()
+    question_id = data.get('question_id')
     if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
-        data = ast.literal_eval(unquote(request.query_string))
+
         logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
             source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
@@ -538,27 +590,12 @@ def set_keys_on_docs(docs, keys):
         # docs = {k: v.copy() for k, v in docs.items()}
         for k, v in docs.items():
             v.set_api_keys(keys)
-            for i, j in vars(v).items():
-                if isinstance(j,  (FAISS, VectorStore)):
-                    j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
-                    setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     elif isinstance(docs, (list, tuple, set)):
         # docs = [d.copy() for d in docs]
         for d in docs:
             d.set_api_keys(keys)
-            for i, j in vars(d).items():
-                if isinstance(j, (FAISS, VectorStore)):
-                    j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
-                    setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
     else:
-        assert isinstance(docs, (DocIndex, ImmediateDocIndex))
-        # docs = docs.copy()
-        for i, j in vars(docs).items():
-            if isinstance(j,  (DocFAISS, FAISS, VectorStore)):
-                
-                j.embedding_function.__self__.openai_api_key = keys["openAIKey"]
-                setattr(j.embedding_function.__self__, "openai_api_key", keys["openAIKey"])
-                
+        assert isinstance(docs, (DocIndex, ImmediateDocIndex, Conversation))
         docs.set_api_keys(keys)
     return docs
     
@@ -899,8 +936,7 @@ def cached_get_file(file_url):
         for chunk in file_data:
             yield chunk
         # how do I chunk with chunk size?
-        
-        
+
     elif os.path.exists(file_url):
         file_data = []
         with open(file_url, 'rb') as f:
@@ -928,19 +964,19 @@ def cached_get_file(file_url):
 
 
 ### chat apis
-data_once = False
 @app.route('/list_conversation_by_user', methods=['GET'])
 @login_required
 def list_conversation_by_user():
+    # TODO: sort by last_updated
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     last_n_conversations = request.args.get('last_n_conversations', 10)
-    # Dummy data
-    data = [
-        {"conversation_id": "conversation_1", "title": "Conversation 1", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],},
-        {"conversation_id": "conversation_2", "title": "Conversation 2", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],},
-        {"conversation_id": "conversation_3", "title": "Conversation 3", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "This conversation is about...", "summary_last_five_message": "The last five messages were...", "message_ids": [1,2,3,4,5],}
-    ]
+    # TODO: add ability to get only n conversations
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    conversations = [Conversation.load_local(os.path.join(conversation_folder, conversation_id)) for conversation_id in conversation_ids]
+    conversations = [conversation for conversation in conversations if conversation is not None]
+    conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
+    data = [conversation.get_metadata() for conversation in conversations]
     return jsonify(data)
 
 @app.route('/create_conversation', methods=['POST'])
@@ -948,9 +984,14 @@ def list_conversation_by_user():
 def create_conversation():
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    # We don't process the request data in this mockup, but we would normally create a new conversation here
-    new_conversation = {"conversation_id": "conversation_4", "title": "Conversation 1", "user_id": email, "last_updated": "YYYY-MM-DD HH:MM:SS", "summary_till_now": "empty", "summary_last_five_message": "empty", "message_ids": [],},
-    return jsonify(new_conversation)
+    from base import get_embedding_model
+    conversation_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(36))
+    conversation = Conversation(email, openai_embed = get_embedding_model(keys), storage = conversation_folder,
+                                conversation_id= conversation_id)
+    conversation = set_keys_on_docs(conversation, keys)
+    data = conversation.get_metadata()
+    addConversationToUser(email, conversation.conversation_id)
+    return jsonify(data)
 
 @app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
 @login_required
@@ -958,69 +999,45 @@ def list_messages_by_conversation(conversation_id):
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
     last_n_messages = request.args.get('last_n_messages', 10)
-    data = [
-        {"message_id": 1, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 2, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 3, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 4, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 5, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 6, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 7, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 8, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 9, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 10, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 11, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 12, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 13, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 14, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 15, "text": f"Hello, {random.random()}", "sender": "user", "user_id": "user_1", "conversation_id": conversation_id},
-        {"message_id": 16, "text": f"Hi I am model {random.random()}", "sender": "model", "user_id": "user_1", "conversation_id": conversation_id},
-    ]
-    return jsonify(data)
+    # TODO: add capability to get only last n messages
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = set_keys_on_docs(conversation, keys)
+    return jsonify(conversation.get_message_list())
 
 @app.route('/send_message/<conversation_id>', methods=['POST'])
 @login_required
 def send_message(conversation_id):
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
-    # We don't process the request data in this mockup, but we would normally send a new message here
-    def answer():
-        yield json.dumps({"text": "Hello! `time.time()`\n", "status":"analysing"})
-        time.sleep(1)
-        yield json.dumps({"text": "Lets discuss your problem `time.time()`\n", "status":"reading"})
-        time.sleep(1)
-        yield json.dumps({"text": "Let me search the web `time.time()`\n", "status":"web search"})
-        time.sleep(1)
-        yield json.dumps({"text": "Look what I found `time.time()`\n", "status":"contemplating"})
-        time.sleep(1)
-        yield json.dumps({"text": "This isn't what we expected. `time.time()`\n", "status":"contemplating"})
-        time.sleep(1)
-        yield json.dumps({"text": "Bidding Adieu `import pandas as pd`\n", "status":"bye"})
-    return Response(stream_with_context(answer()), content_type='text/plain')
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = set_keys_on_docs(conversation, keys)
 
-@app.route('/get_message_by_message_id/<message_id>', methods=['GET'])
-@login_required
-def get_message_by_message_id(message_id):
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    # Dummy data
-    message = {"message_id": message_id, "text": "Dummy Message", "sender": "user", "user_id": "user_1", "conversation_id": "conversation_1"}
-    return jsonify(message)
+    # We don't process the request data in this mockup, but we would normally send a new message here
+    return Response(stream_with_context(conversation(request.json)), content_type='text/plain')
+
 
 @app.route('/get_conversation_details/<conversation_id>', methods=['GET'])
 @login_required
 def get_conversation_details(conversation_id):
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
+
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = set_keys_on_docs(conversation, keys)
     # Dummy data
-    data = {
-        "conversation_id": conversation_id,
-        "title": "Dummy Conversation",
-        "summary_till_now": "This conversation is about...",
-        "summary_last_five_message": "The last five messages were...",
-        "message_ids": [1,2,3,4,5],
-        "user_id": "user_1"
-    }
+    data = conversation.get_metadata()
     return jsonify(data)
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
@@ -1028,6 +1045,13 @@ def get_conversation_details(conversation_id):
 def delete_conversation(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = set_keys_on_docs(conversation, keys)
+    removeUserFromConversation(email, conversation_id)
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
 
@@ -1037,11 +1061,15 @@ def delete_last_message(conversation_id):
     message_id=1
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation: Conversation = set_keys_on_docs(conversation, keys)
+    conversation.delete_last_turn()
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
-
-
 
 def open_browser(url):
     import webbrowser
@@ -1055,6 +1083,15 @@ def open_browser(url):
     
 create_tables()
 load_documents(folder)
+
+def removeAllUsersFromConversation():
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM UserToConversationId")
+    conn.commit()
+    conn.close()
+
+removeAllUsersFromConversation()
 
 if __name__ == '__main__':
     
