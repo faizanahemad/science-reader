@@ -45,36 +45,26 @@ Answer:
         ),
         short_streaming_answer_prompt = PromptTemplate(
             input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
-            template="""Answer a question or information request from given context (text chunks of larger document). 
-
-Question/Query/Information Request:
-
+            template="""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
+Question or Query is given below:
 {query}
 
-You are given the short summary of the document below:
+Short summary of the document is given below:
+'''{full_summary}'''
 
-{full_summary}
-
-You are given few text chunks from the document to answer the question below:
-
-{fragment}
+Few text chunks from the document to answer the question below:
+'''{fragment}'''
 
 Next, You are given few question and answer pairs from the document below:
-
-{questions_answers}
+'''{questions_answers}'''
 
 You are also given summaries of certain parts of document below:
+'''{summary}'''
 
-{summary}
-
-If the given context can't be used to provide a proper answer then write only a very small answer using the context.
-Use markdown formatting to typeset/format your answer better.
-Use markdown syntax for clear formatting in your answer.
+If the given context can't be used to provide a good and complete answer then provide detailed information which can help in answering the question partly.
+Use markdown syntax and markdown formatting to typeset and format your answer better.
 Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
-
-Question: {query}
-Answer:
-
+Helpful, detailed and informative answer:
 """,
         ),
         

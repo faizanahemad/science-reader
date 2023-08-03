@@ -328,7 +328,7 @@ class SetQueue:
         self.maxsize = maxsize
         self.queue = collections.deque(maxlen=maxsize)
         self.set = set()
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def remove_any(self, item):
         with self.lock:
@@ -339,7 +339,7 @@ class SetQueue:
     def add(self, item):
         with self.lock:
             self.remove_any(item)
-            if len(self.queue) >= self.maxsize:
+            if len(self.queue) >= self.maxsize - 1:
                 removed = self.queue.popleft()
                 self.set.remove(removed)
             self.queue.append(item)
@@ -356,6 +356,66 @@ class SetQueue:
     def items(self):
         with self.lock:
             return list(self.queue)
+
+
+import collections
+import threading
+
+
+class DefaultDictQueue:
+    def __init__(self, maxsize, default_factory=None):  # Added default_factory parameter
+        self.maxsize = maxsize
+        self.queue = collections.deque(maxlen=maxsize)
+        self.set = set()
+        self.data = dict()
+        self.lock = threading.RLock()
+        self.default_factory = default_factory  # Save the default factory
+
+    def remove_any(self, item):
+        with self.lock:
+            if item in self.set:
+                self.set.remove(item)
+                self.queue.remove(item)
+                del self.data[item]
+
+    def add(self, item, item_data=None):  # Modified to allow adding an item without data
+        with self.lock:
+            self.remove_any(item)
+            if len(self.queue) >= self.maxsize - 1:
+                removed = self.queue.popleft()
+                self.set.remove(removed)
+                del self.data[removed]
+            self.queue.append(item)
+            self.set.add(item)
+            self.data[item] = item_data if item_data is not None else self.default_factory() if self.default_factory else None
+
+    def __contains__(self, item):
+        with self.lock:
+            return item in self.set
+
+    def __len__(self):
+        with self.lock:
+            return len(self.queue)
+
+    def items(self):
+        with self.lock:
+            return list(self.queue)
+
+    def get_data(self, item):
+        with self.lock:
+            if item not in self.set and self.default_factory:
+                self.add(item, self.default_factory(item))
+            return self.data.get(item, None)
+
+    def __getitem__(self, item):
+        return self.get_data(item)
+
+    def __setitem__(self, item, data):
+        with self.lock:
+            if item in self.set:
+                self.data[item] = data
+            else:
+                self.add(item, data)
 
 def convert_http_to_https(url):
     parsed_url = urlparse(url)
@@ -398,6 +458,65 @@ def truncate_string(input_str, n):
     # Remove the trailing space
     truncated_str = truncated_str.rstrip(' ')
     return truncated_str
+
+
+from collections import defaultdict, deque
+
+
+def round_robin_by_group(dict_list, group_key='group'):
+    # Group dictionaries by 'group' key
+    groups = defaultdict(list)
+    for d in dict_list:
+        groups[d[group_key]].append(d)
+
+    # Convert groups to a deque of deques for round-robin iteration
+    groups = deque(deque(group) for group in groups.values())
+
+    while groups:
+        group = groups.popleft()  # Take the next group
+        yield group.popleft()  # Yield the next dictionary from this group
+
+        if group:  # If the group still has dictionaries, put it back at the end
+            groups.append(group)
+
+from flask_caching import Cache
+from inspect import signature
+from functools import wraps
+import mmh3
+import diskcache as dc
+
+def typed_memoize(cache, *types):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            # Get the function's signature
+            sig = signature(f)
+
+            # Bind the arguments to the signature
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+
+            # Filter the arguments based on their type
+            filtered_args = {k: v for k, v in bound_args.arguments.items() if isinstance(v, types)}
+
+            # Define a key function that generates a cache key based on the filtered arguments
+            key = f"{f.__module__}:{f.__name__}:{str(filtered_args)}"
+
+            # Try to get the result from the cache
+            key = str(mmh3.hash(key, signed=False))
+            result = cache.get(key)
+            cache_timeout = 7 * 24 * 60 * 60
+            # If the result is not in the cache, call the function and store the result in the cache
+            if result is None:
+                result = f(*args, **kwargs)
+                cache.set(key, result, expire=cache_timeout)
+
+            return result
+
+        return wrapper
+    return decorator
+
+
 
 
 

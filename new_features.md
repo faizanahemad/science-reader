@@ -1,3 +1,10 @@
+# Up next
+- Links to visit
+- JSON keys
+- Use Google scholar
+- Store doc results from PDFs and Links we read in the conversation DB.
+- Speed up web based answering.
+
 # High Priority
     - Test only GPT-3.5
     - Server release with internal URL
@@ -36,6 +43,8 @@
     - Wikipedia and Wolfram and other structured KG integration
     - Multiple workers by making server stateless and using redis or other db for state.
     - Change the title once first message is created.
+    - Prompt optimisation and checking output of all LLM calls
+    - Query reformulation if we need multi-turn for chat based Doc QnA
     
     
 

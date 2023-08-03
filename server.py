@@ -1,3 +1,4 @@
+import copy
 import random
 import secrets
 import sys
@@ -35,7 +36,7 @@ import argparse
 from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
-from common import checkNoneOrEmpty, convert_http_to_https
+from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -346,6 +347,8 @@ log = logging.getLogger('__main__')
 log.setLevel(logging.ERROR)
 log = logging.getLogger('DocIndex')
 log.setLevel(logging.ERROR)
+log = logging.getLogger('Conversation')
+log.setLevel(logging.DEBUG)
 google = oauth.register(
     name='google',
     client_id=app.config.get("GOOGLE_CLIENT_ID"),
@@ -583,6 +586,10 @@ class IndexDict(dict):
         return super().__setitem__(__key, __value)
 indexed_docs: IndexDict[str, DocIndex] = {}
 doc_index_cache = SetQueue(maxsize=50)
+def load_conversation(conversation_id):
+    return Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+
+conversation_cache = DefaultDictQueue(maxsize=50, default_factory=load_conversation)
     
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")
@@ -644,7 +651,6 @@ def load_documents(folder):
 def search_document():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
-    docs = getDocsForUser(email)
     docs = getDocsForUser(email)
     doc_ids = [d[1] for d in docs]
     
@@ -973,11 +979,12 @@ def list_conversation_by_user():
     last_n_conversations = request.args.get('last_n_conversations', 10)
     # TODO: add ability to get only n conversations
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    conversations = [Conversation.load_local(os.path.join(conversation_folder, conversation_id)) for conversation_id in conversation_ids]
+    conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
     conversations = [conversation for conversation in conversations if conversation is not None]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [conversation.get_metadata() for conversation in conversations]
-    return jsonify(data)
+    sorted_data_reverse = sorted(data, key=lambda x: x['last_updated'], reverse=True)
+    return jsonify(sorted_data_reverse)
 
 @app.route('/create_conversation', methods=['POST'])
 @login_required
@@ -1004,7 +1011,7 @@ def list_messages_by_conversation(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
     return jsonify(conversation.get_message_list())
 
@@ -1017,11 +1024,25 @@ def send_message(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
 
+    query = request.json
+    query["additional_docs_to_read"] = []
+    additional_params: dict = query["checkboxes"]
+    additional_docs_to_read = additional_params.get("additional_docs_to_read", [])
+    use_multiple_docs = additional_params.get("use_multiple_docs", False) and isinstance(additional_docs_to_read,
+                                                                                         (tuple, list)) and len(
+        additional_docs_to_read) > 0
+    if use_multiple_docs:
+        keys = copy.deepcopy(keys)
+        keys["use_gpt4"] = False
+        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in
+                                   additional_docs_to_read]
+        query["additional_docs_to_read"] = additional_docs_to_read
+
     # We don't process the request data in this mockup, but we would normally send a new message here
-    return Response(stream_with_context(conversation(request.json)), content_type='text/plain')
+    return Response(stream_with_context(conversation(query)), content_type='text/plain')
 
 
 @app.route('/get_conversation_details/<conversation_id>', methods=['GET'])
@@ -1034,7 +1055,7 @@ def get_conversation_details(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
     # Dummy data
     data = conversation.get_metadata()
@@ -1049,7 +1070,7 @@ def delete_conversation(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
     removeUserFromConversation(email, conversation_id)
     # In a real application, you'd delete the conversation here
@@ -1065,7 +1086,7 @@ def delete_last_message(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+        conversation = conversation_cache[conversation_id]
         conversation: Conversation = set_keys_on_docs(conversation, keys)
     conversation.delete_last_turn()
     # In a real application, you'd delete the conversation here
@@ -1084,14 +1105,14 @@ def open_browser(url):
 create_tables()
 load_documents(folder)
 
-def removeAllUsersFromConversation():
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("DELETE FROM UserToConversationId")
-    conn.commit()
-    conn.close()
-
-removeAllUsersFromConversation()
+# def removeAllUsersFromConversation():
+#     conn = create_connection("{}/users.db".format(users_dir))
+#     cur = conn.cursor()
+#     cur.execute("DELETE FROM UserToConversationId")
+#     conn.commit()
+#     conn.close()
+#
+# removeAllUsersFromConversation()
 
 if __name__ == '__main__':
     

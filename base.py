@@ -87,6 +87,13 @@ from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
 from langchain.tools import DuckDuckGoSearchResults
 from langchain.prompts import PromptTemplate
 
+import tempfile
+from flask_caching import Cache
+temp_dir = tempfile.gettempdir()
+import diskcache as dc
+cache = dc.Cache(temp_dir)
+cache_timeout = 7 * 24 * 60 * 60
+# cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 try:
     from googleapiclient.discovery import build
 except ImportError:
@@ -209,6 +216,7 @@ class CallLLm:
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self_hosted_model_url
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m]
+        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True)
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
         openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m]
         openai_basic_models = [
@@ -672,7 +680,9 @@ Relevant Information:
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         assert isinstance(result, str)
         return result
-    
+
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=3000)->str:
     from base import ContextualReader
     assert isinstance(document, str)
@@ -715,7 +725,8 @@ def get_year(dres):
     # If no match is found, return None
     return None
 
-
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     if our_datetime:
@@ -756,7 +767,8 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     return dedup_results
 
-
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
     from datetime import datetime, timedelta
@@ -806,7 +818,8 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     
     return dedup_results
 
-
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -870,7 +883,8 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     return dedup_results
     
-    
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def get_page_content(link, playwright_cdp_link=None):
     
     text = ''
@@ -1099,11 +1113,14 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 
 
+# TODO: Add caching
+def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None):
 
-def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
-
+    if extra_queries is None:
+        extra_queries = []
     num_res = 10
-    n_query = "three" if previous_search_results else "four"
+    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "four"
+
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
@@ -1133,10 +1150,13 @@ Your output will look like:
     
 Output only a valid python list of web search query strings: 
 """
-    query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
-    
-    logger.info(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-    query_strings = parse_array_string(query_strings.strip())
+    if len(extra_queries) < 1:
+        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
+        logger.info(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
+        query_strings = parse_array_string(query_strings.strip())
+        query_strings = query_strings + extra_queries
+    else:
+        query_strings = extra_queries
     
     rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
@@ -1147,6 +1167,8 @@ Output only a valid python list of web search query strings:
         co = cohere.Client(api_keys["cohereKey"])
         num_res = 10
         rerank_query = "\n".join(query_strings)
+    if len(extra_queries) > 0:
+        num_res = 5
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1224,15 +1246,15 @@ Output only a valid python list of web search query strings:
 #     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
         
     # Rerank here first
-    
-    if rerank_available:
-        st_rerank = time.time()
-        docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
-        pre_rerank = dedup_results
-        dedup_results = [dedup_results[r.index] for r in rerank_results]
-        tt_rerank = time.time() - st_rerank
-        logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} --- rerank len = {len(dedup_results)}")
+
+    # if rerank_available:
+    #     st_rerank = time.time()
+    #     docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
+    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
+    #     pre_rerank = dedup_results
+    #     dedup_results = [dedup_results[r.index] for r in rerank_results]
+    #     tt_rerank = time.time() - st_rerank
+    #     logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} --- rerank len = {len(dedup_results)}")
         # logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
         
     # if rerank_available:
@@ -1248,17 +1270,17 @@ Output only a valid python list of web search query strings:
     # if rerank_available:
     #     texts = [p["text"] for p in pdfs]
         
-    if rerank_available:
-        for r in dedup_results_web:
-            if "snippet" not in r:
-                logger.warning(r)
-        docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results_web]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=4, model='rerank-english-v2.0')
-        pre_rerank = dedup_results_web
-        dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
+    # if rerank_available:
+    #     for r in dedup_results_web:
+    #         if "snippet" not in r:
+    #             logger.warning(r)
+    #     docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results_web]
+    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=4, model='rerank-english-v2.0')
+    #     pre_rerank = dedup_results_web
+    #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
-    
-    dedup_results_web = dedup_results_web[:8]
+    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:(4 if len(extra_queries) > 0 else 8)]
+    dedup_results_web = dedup_results_web[:4]
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
     web_contexts = [context +"? \n" + r["query"] for r in dedup_results_web]
@@ -1275,8 +1297,8 @@ Output only a valid python list of web search query strings:
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results)
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries)
     # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     part2_res = get_async_future(web_search_part2, part1_res, api_keys)
     return [get_async_future(get_part_1_results, part1_res), part2_res]
@@ -1317,6 +1339,8 @@ from multiprocessing import Pool
 
 from concurrent.futures import ThreadPoolExecutor
 
+# TODO: Add caching
+@typed_memoize(cache, str, int, tuple, bool)
 def get_pdf_text(link):
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
     try:
@@ -1407,9 +1431,12 @@ def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None):
 
 
 def get_multiple_answers(query, additional_docs:list, current_doc_summary:str):
-    prompt = f"""Given question: '{query}'. We are trying to answer the given question about the main research document whose summary is given below \n
-'''{current_doc_summary}'''. We are trying to collect evidence and relevant information from this document we are reading now. Collect evidence useful to answer the question and relevant to the main research document. \n
-    """
+    prompt = f"""Given question: '{query}'. A summary of prior conversation or documents that maybe related to this query is given below.\n
+'''{current_doc_summary}'''. 
+Collect evidence and relevant information from the document we are reading now to answer the given question.
+If it is possible to answer the question with the information in the document, please answer the question by carefully reading and analysing the information in the document.
+Answer or information for the given question:
+"""
     
     futures = [pdf_process_executor.submit(doc.get_short_answer, prompt, defaultdict(lambda:False), False)  for doc in additional_docs]
     answers = [future.result() for future in futures]

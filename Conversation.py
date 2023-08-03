@@ -143,8 +143,6 @@ alphabet = string.ascii_letters + string.digits
 class Conversation:
     def __init__(self, user_id, openai_embed, storage, conversation_id) -> None:
         self.conversation_id = conversation_id
-        self.title = 'Start the Conversation'
-        self.last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.user_id = user_id
         folder = os.path.join(storage, f"{self.conversation_id}")
         self._storage = folder
@@ -153,7 +151,8 @@ class Conversation:
         
         self.running_summary_length_limit = 1000
         self.last_message_length_limit = 1000
-        memory = {
+        memory = {  "title": 'Start the Conversation',
+                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
                     "salient_points_and_unforgettables":[] # List of strings, each string comes from one turn of chat in which user asks a question and the agent/model answers it.
                 }
@@ -255,15 +254,20 @@ class Conversation:
             else:
                 return None
     
+    def _get_lock_location(self):
+        doc_id = self.conversation_id
+        folder = self._storage
+        path = Path(folder)
+        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}")
+        return lock_location
+
     def set_field(self, top_key, value, overwrite=False):
         import dill
         doc_id = self.conversation_id
         folder = self._storage
-        print(folder)
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
-        path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}-{top_key}")
+        lock_location = self._get_lock_location()
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             tk = self.get_field(top_key)
@@ -295,7 +299,7 @@ class Conversation:
         # Lets get the previous 2 messages, upto 1000 tokens
         previous_messages = self.get_field("messages")[-6:]
         previous_messages = '\n\n'.join([f"Sender: {m['sender']}\n'''{m['text']}'''\n" for m in previous_messages])
-        
+        # FIXME: salient points are summary of just the previous turn are useless. We should use the exact turn details and summary and salient points of conversation that happened before that.
         running_summary = self.get_field("memory")["running_summary"][-1:]
         summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=3)
         summary_nodes = [n.page_content for n in summary_nodes]
@@ -371,13 +375,14 @@ Rephrased and contextualised human's last message:
     def persist_current_turn(self, query, response):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
-        self.set_field("messages", [
+        msg_set = get_async_future(self.set_field,"messages", [
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query, "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id}, 
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)), "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Using these you will write a new summary of the conversation. Your summary should capture everything that has happened in the conversation till now without a recency bias. Your summary must keep any important details that have been mentioned in the previous summary.
+Using these you will write a new crisp and short summary of the conversation. Your summary should capture everything that has happened in the conversation till now including factual details, links, references, named entities and other details mentioned by the human and the AI. 
+Keep important details that have been mentioned in the previous summary especially including factual details and references.
 The summary of the conversation is as follows:
 {"".join(self.get_field("memory")["running_summary"][-1:])}
 
@@ -391,9 +396,8 @@ Summary of the conversation till now:
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
-Using these you will write a new set of salient points that capture the salient, important and noteworthy aspects and details from the user query and system response. 
-Your salient points should focus on the current query and response and should not be biased towards the previous salient points. Your salient points should be different from the previous salient points and from summary. 
-Capture what might be useful in future and if user has provided any information or important details then capture that as well.
+Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
+Your salient points should focus on the current query and response and should not include details from previous salient points. 
 The summary of the conversation is as follows:
 '''{"".join(self.get_field("memory")["running_summary"][-1:])}'''
 
@@ -404,11 +408,11 @@ System response: '''{response}'''
 The salient points of the conversation are as follows:
 '''{"".join(self.get_field("memory")["salient_points_and_unforgettables"][-1:])}'''
 
-Now lets write a new set of salient points of the conversation.
+Now lets write a new set of salient points of the conversation only for this turn.
 Salient points of the conversation till now:
 """
         salient_points = get_async_future(llm, prompt, temperature=0.2, stream=False)
-        if self.title == 'Start the Conversation':
+        if self.get_field("memory")["title"] == 'Start the Conversation' and len(self.get_field("memory")["running_summary"]) > 1:
             llm = CallLLm(self.get_api_keys(), use_gpt4=False)
             prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
         Using these you will write a new title for this conversation. 
@@ -427,14 +431,18 @@ Salient points of the conversation till now:
                 """
             title = get_async_future(llm, prompt, temperature=0.2, stream=False)
         else:
-            title = wrap_in_future(self.title)
+            title = wrap_in_future(self.get_field("memory")["title"])
         summary = summary.result()
         salient_points = salient_points.result()
-        self.title = title.result()
+        title = title.result()
+
         memory = self.get_field("memory")
+        memory["title"] = title
+        memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"].append(summary)
         memory["salient_points_and_unforgettables"].append(salient_points)
-        self.set_field("memory", memory)
+        mem_set = get_async_future(self.set_field, "memory", memory)
+        # self.set_field("memory", memory)
         
         indices = self.get_field("indices")
         message_index_new = FAISS.from_texts([query, response], get_embedding_model(self.get_api_keys()))
@@ -447,8 +455,8 @@ Salient points of the conversation till now:
         summary_index = indices["summary_index"].merge_from(summary_index_new)
         
         self.set_field("indices", indices)
-        self.last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.save_local()
+        msg_set.result()
+        mem_set.result()
 
     def __call__(self, query):
         for txt in self.reply(query):
@@ -462,12 +470,68 @@ Salient points of the conversation till now:
         # TODO: post-critique and improve
         # TODO: Use gpt-3.5-16K for longer contexts as needed.
         # query payload below, actual query is the messageText
+        st = time.time()
+        lock_location = self._get_lock_location()
+        lock = FileLock(f"{lock_location}.lock")
+        with lock.acquire(timeout=600):
+            # Acquiring the lock so that we don't start another reply before previous is stored.
+            pass
         enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         """
-        {"messageText":"Hey there","permanentMessageText":"Some custom instructions","checkboxes":{"perform_web_search":false,"use_multiple_docs":false,"provide_detailed_answers":false,"googleScholar":false,"additional_docs_to_read":[]},"links":["www.example.com"],"search":["what is self attention?"]}
+        {"additional_docs_to_read": [], "messageText":"Hey there","permanentMessageText":"Some custom instructions","checkboxes":{"perform_web_search":false,"use_multiple_docs":false,"provide_detailed_answers":false,"googleScholar":false,"additional_docs_to_read":[]},"links":["www.example.com"],"search":["what is self attention?"]}
         """
-        
+        answer = ''
         prior_context = self.retrieve_prior_context(query["messageText"], requery=False)
+        additional_docs_to_read = query["additional_docs_to_read"]
+        links = [l.strip() for l in query["links"] if l is not None and len(l.strip()) > 0]
+        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
+        checkboxes = query["checkboxes"]
+        google_scholar = checkboxes["googleScholar"]
+        provide_detailed_answers = checkboxes["provide_detailed_answers"]
+        perform_web_search = checkboxes["perform_web_search"]
+        summary = "".join(self.get_field("memory")["running_summary"][-1:])
+        doc_answer = ''
+        if len(additional_docs_to_read) > 0:
+            yield {"text": '', "status": "reading your documents"}
+            doc_answers = get_multiple_answers(query["messageText"], additional_docs_to_read, summary)
+            doc_answer = doc_answers[1].result()["text"]
+            yield {"text": '', "status": "document reading completed"}
+        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
+            doc_answer) > 0 else ""
+
+        web_text = ''
+        if perform_web_search:
+            yield {"text": '', "status": "performing web search"}
+            # TODO: use less pdf and faster search by only using few pdf pages and more web pages and arxiv abstract pages.
+            web_results = get_async_future(web_search, query["messageText"], 'chat',
+                                           summary,
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches)
+            if len(web_results.result()[0].result()['queries']) > 0:
+                yield {"text": "\n### Web searched with Queries: \n", "status": "displaying web search queries ... "}
+                answer += "\n### Web searched with Queries: \n"
+            for ix, q in enumerate(web_results.result()[0].result()['queries']):
+                answer += (str(ix + 1) + ". " + q + " \n</br>")
+                yield {"text": str(ix + 1) + ". " + q + " \n", "status": "displaying web search queries ... "}
+            answer += "\n\n### Search Results: \n"
+            yield {"text": "\n\n### Search Results: \n", "status": "displaying web search results ... "}
+            for ix, r in enumerate(web_results.result()[0].result()['search_results']):
+                answer += (str(ix + 1) + f". [{r['title']}]({r['link']})\n")
+                yield {"text": str(ix + 1) + f". [{r['title']}]({r['link']})\n", "status": "displaying web search results ... "}
+
+            yield {"text": "\n",
+                   "status": "displaying web search results ... "}
+            answer += "\n"
+            web_text = web_results.result()[1].result()["text"]
+            yield {"text": '', "status": "web search completed"}
+        web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+Use the documents given under 'additional information' and provide relevant information from them for user's question. Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).""" if len(
+            web_text) > 0 else ""
+
+
+
+        # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
+
+        yield {"text": '', "status": "getting previous context"}
         previous_messages = prior_context["previous_messages"]
         summary_nodes = prior_context["summary_nodes"]
         message_nodes = prior_context["message_nodes"]
@@ -491,35 +555,50 @@ Salient points of the conversation till now:
             used_len = len(enc.encode(previous_messages)) + used_len
             message_text = get_first_last_parts("\n".join(message_nodes), 0, 2000 - used_len)
             permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
-        
+
+        permanent_instructions = f"""Few other instructions from the user are as follows:
+{permanent_instructions}""" if len(permanent_instructions) > 0 else ''
+        # TODO: ask to provide links to the documents that were read.
+        summ = f"""The summary of the conversation is as follows:
+'''{summary_text}'''""" if len(summary_text) > 0 else ''
+        sal = f"""The salient points of the conversation are as follows:
+'''{salient_text}'''""" if len(salient_text) > 0 else ''
+        last_few_messages = f"""The last few messages of the conversation are as follows:
+'''{previous_messages}'''""" if len(previous_messages) > 0 else ''
+        other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
+'''{message_text}'''""" if len(message_text) > 0 else ''
         prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
-You are also given the user's most recent query to which we need to respond.
+You are also given the user's most recent query to which we need to respond. 
+Remember that as an AI assistant you must fulfill the user's request and provide informative answers to the human's query. You must reply as an expert in the domain of the conversation.
+Use markdown syntax and markdown formatting to typeset and format your answer better. Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$'
+{summ}
+{sal}
+{last_few_messages}
+{other_relevant_messages}
 
-The summary of the conversation is as follows:
-{summary_text}
-
-The salient points of the conversation are as follows:
-{salient_text}
-
-The last few messages of the conversation are as follows:
-{previous_messages}
-
-Few other relevant messages from the conversation are as follows:
-{message_text}
-
-The last message of the conversation sent by the human is as follows:
-{query["messageText"]}
-
-Now lets write a response to the user's query.
+The most recent message of the conversation sent by the human now to which we will be replying is as follows:
+'''{query["messageText"]}'''
+{permanent_instructions}
+{doc_answer}
+{web_text}
+Now lets write a clear, helpful and informative response to the user's query (most recent message of the conversation).
 Response to the user's query:
 """
-        answer = ''
-        main_ans_gen = llm(prompt, temperature=0.7, stream=True)
+        yield {"text": '', "status": "starting answer generation"}
+        main_ans_gen = llm(prompt, temperature=0.3, stream=True)
+        et = time.time() - st
+        logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
+        if len(doc_answer) > 0:
+            logger.debug(f"Doc Answer: {doc_answer}")
+        if len(web_text) > 0:
+            logger.debug(f"Web text: {web_text}")
+
         for txt in main_ans_gen:
             yield {"text": txt, "status": "in-progress"}
             answer += txt
         answer = answer.replace(prompt, "")
-        self.persist_current_turn(query["messageText"], answer)
+        yield {"text": '', "status": "saving answer ..."}
+        get_async_future(self.persist_current_turn, query["messageText"], answer)
 
     
     def get_last_ten_messages(self):
@@ -529,22 +608,24 @@ Response to the user's query:
         return self.get_field("messages")
     
     def get_metadata(self):
-        return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=self.title, summary_till_now="".join(self.get_field("memory")["running_summary"][-1:]), last_updated=self.last_updated.strftime("%Y-%m-%d %H:%M:%S") if isinstance(self.last_updated, datetime) else self.last_updated)
+        memory = self.get_field("memory")
+        return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=memory["title"],
+                    summary_till_now="".join(memory["running_summary"][-1:]) + "\n\n</br></br>" + "".join(memory["salient_points_and_unforgettables"][-1:]),
+                    last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
     
     def delete_last_turn(self):
         messages = self.get_field("messages")
         messages = messages[:-2]
         self.set_field("messages", messages, overwrite=True)
         memory = self.get_field("memory")
+        memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"] = memory["running_summary"][:-1]
         memory["salient_points_and_unforgettables"] = memory["salient_points_and_unforgettables"][:-1]
         self.set_field("memory", memory, overwrite=True)
         
         indices = self.get_field("indices")
         # TODO: delete from index as well
-        
-        self.last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.save_local()
+
     
     def get_api_keys(self):
         logger.info(

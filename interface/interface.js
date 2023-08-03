@@ -10,7 +10,7 @@ function showMore(parentElem, text=null, textElem=null, as_html=false, show_at_s
         }
         
     }
-    else if (text) {
+    else if ((text) || (typeof text === 'string')) {
         var textElem = $('<small class="summary-text"></small>');
     } else {
         throw "Either text or textElem must be provided to `showMore`"
@@ -372,7 +372,7 @@ function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
     });
 }
 
-function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='') {
+function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='', activeDocId=null) {
     var api;
     var search_mode;
 
@@ -394,8 +394,10 @@ function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term='
         $('.document-tag').each(function() {
             documentIds.push($(this).attr('data-doc-id'));
         });
-
-        data.filter(doc=>doc.doc_id !== activeDocId).filter(doc=>!documentIds.includes(doc.doc_id)).forEach(function(doc, index) {
+        if (activeDocId) {
+            data = data.filter(doc=>doc.doc_id !== activeDocId);
+        }
+        data.filter(doc=>!documentIds.includes(doc.doc_id)).forEach(function(doc, index) {
             var docItem = $(`
                 <li class="my-2">
                     <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
@@ -471,7 +473,7 @@ function copyToClipboard(textElem, mode="text") {
 
 
 
-function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId){
+function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId, activeDocId=null){
     var lastTimeoutId = null;  
     var previousSearchLength = 0;
     var searchBox = $('#' + searchBoxId);
@@ -487,9 +489,9 @@ function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAr
         lastTimeoutId = setTimeout(function() {
             currentSearchLength = searchBox.val().length;
             if (currentSearchLength >= 5 || (previousSearchLength >= 5 && currentSearchLength < 5)) {  
-                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val());
+                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val(), activeDocId);
             } else if (currentSearchLength === 0 && previousSearchLength >= 1) {
-                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '');
+                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '', activeDocId);
             }
             previousSearchLength = currentSearchLength;
 
@@ -501,7 +503,7 @@ function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAr
 
 
 
-function addOptions(parentElementId, type) {
+function addOptions(parentElementId, type, activeDocId=null) {
     var checkBoxIds = [
         type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`,
         `${parentElementId}-${type}-perform-web-search-checkbox`,
@@ -558,7 +560,7 @@ function addOptions(parentElementId, type) {
             docTagsArea.css('display', 'block');
 
             // Initialize search functionality
-            initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`);
+            initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`, activeDocId);
         } else {
             // If unchecked, hide the search box, search results area and document tags area
             searchBox.css('display', 'none');
@@ -569,6 +571,13 @@ function addOptions(parentElementId, type) {
             docTagsArea.empty();
         }
     });
+    if (type === 'assistant') {
+        $('#deleteLastTurn').click(function() {
+            if (ConversationManager.activeConversationId) {
+                ChatManager.deleteLastMessage(ConversationManager.activeConversationId);
+            }
+        });
+    }
 }
 
 
@@ -1481,7 +1490,7 @@ $(document).ready(function() {
         view.append('<input id="question-input" type="text" placeholder="Ask a question...">');
         view.append('<button id="submit-question-button" type="button">Submit Question</button>');
         view.append('<div id="loading" style="display:none;"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
-        addOptions('questions-view', 'query');
+        addOptions('questions-view', 'query', activeDocId);
 
         async function askQuestion() {
             $("#answers").removeAttr('style')
@@ -1575,7 +1584,7 @@ $(document).ready(function() {
 
         view.append('<input id="follow-up-question-input" type="text" placeholder="Ask a follow-up question...">');
         view.append('<button id="submit-follow-up-question-button" type="button">Submit Follow-Up Question</button>');
-        addOptions('followup-view', 'followup');
+        addOptions('followup-view', 'followup', activeDocId);
         view.append('<div id="loading-follow-up" style="display:none;"><div class="spinner-border text-primary" role="status"><span class="sr-only">Loading...</span></div></div>');
 
         async function askFollowUpQuestion() {

@@ -49,76 +49,6 @@ var ConversationManager = {
 
 };
 
-function renderStreamingResponseT(streamingResponse, conversationId, messageText) {
-    var reader = streamingResponse.body.getReader();
-    var decoder = new TextDecoder();
-    let card = null;
-    let answerParagraph = null;
-    var content_length = 0;
-    var answer = ''
-
-    async function read() {
-        const {value, done} = await reader.read();
-        if (done) {
-            $('#messageText').prop('disabled', false);
-            var statusDiv = card.find('.status-div');
-            statusDiv.hide();
-            statusDiv.find('.status-text').text('');
-            statusDiv.find('.spinner-border').hide();
-            statusDiv.find('.spinner-border').removeClass('spinner-border');
-            // resetOptions('chat-options', 'assistant');
-            console.log('Stream complete');
-            // Final rendering of markdown and setting up the voting mechanism
-            if (answerParagraph) {
-                renderInnerContentAsMarkdown(answerParagraph, function(){
-                    if (answerParagraph.text().length > 300) {
-                        showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
-                    }
-                });
-                initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId=null, activeDocId=ConversationManager.activeConversationId);
-            }
-            return;
-        }
-
-        let part = decoder.decode(value)
-        part = JSON.parse(part);
-        part['text'] = part['text'].replace(/\n/g, '  \n');
-
-        answer = answer + part['text'];
-
-        // Render server message
-        var serverMessage = {
-            sender: 'server',
-            text: ''
-        };
-
-        if (!card) {
-            card = ChatManager.renderMessages([serverMessage], false);
-        }  
-        if (!answerParagraph) {
-            answerParagraph = card.find('.actual-card-text').last();
-        }
-        var statusDiv = card.find('.status-div');
-        statusDiv.show();
-        statusDiv.find('.spinner-border').show();
-        answerParagraph.append(part['text']);  // Find the last p tag within the card-body and append the message part
-        answer_pre_text = answerParagraph.text()
-        if (answerParagraph.html().length > content_length + 40){
-            renderInnerContentAsMarkdown(answerParagraph, 
-                                            callback=null, continuous=true)
-            content_length = answerParagraph.html().length
-        }
-        answer_post_text = answerParagraph.text()
-        var statusDiv = card.find('.status-div');
-        statusDiv.find('.status-text').text(part['status']);
-
-        // Recursive call to read next message part
-        setTimeout(read, 10);
-    }
-
-    read();
-}
-
 function renderStreamingResponse(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
@@ -176,7 +106,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             statusDiv.find('.status-text').text('');
             statusDiv.find('.spinner-border').hide();
             statusDiv.find('.spinner-border').removeClass('spinner-border');
-            resetOptions('chat-options', 'assistant');
+            // resetOptions('chat-options', 'assistant');
             console.log('Stream complete');
             // Final rendering of markdown and setting up the voting mechanism
             if (answerParagraph) {
@@ -252,7 +182,7 @@ var ChatManager = {
           }
           if (message.text.trim().length > 0){
               renderInnerContentAsMarkdown(textElem, function(){
-                  if ((textElem.text().length > 300) && (index < array.length - 2)){
+                  if ((textElem.text().length > 300)){ // && (index < array.length - 2)
                     showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=index >= array.length - 2);
                   }
               });
@@ -402,13 +332,8 @@ $(document).ready(function() {
                 return false; // Prevents the default action
             }
         });
-
-    $('#deleteLastTurn').click(function() {
-        if (ConversationManager.activeConversationId) {
-            ChatManager.deleteLastMessage(ConversationManager.activeConversationId);
-        }
-    });
-    addOptions('chat-options', 'assistant');
+    addOptions('chat-options', 'assistant', null);
+    
 
 })
 
