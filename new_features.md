@@ -1,9 +1,13 @@
 # Up next
-- Links to visit
-- JSON keys
+- Links to visit [Done]
 - Use Google scholar
-- Store doc results from PDFs and Links we read in the conversation DB.
+- Store doc results from PDFs and Links we read in the conversation DB [Done].
 - Speed up web based answering.
+- Salient points may not be useful, best to reserve space for previous messages [Done].
+- How many messages to look back -> decision
+- Rerank extracted content "Slightly better results using an "agent 0" to rank results from the db query while considering the original user question, and pick only the top n."
+- JSON keys [Done]
+- When detailed answers is selected then scan the full document if Link is given, maybe use gpt-3.5 16K.
 
 # High Priority
     - Test only GPT-3.5

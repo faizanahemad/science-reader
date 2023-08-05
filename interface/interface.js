@@ -450,24 +450,40 @@ function copyToClipboard(textElem, mode="text") {
         // .find('p, span, div, code');
     }
     else {
-        var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em');
+        var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em, input');
     }
     
     var textToCopy = "";
     textElements.each(function() {
-        textToCopy += $(this).text().replace(/\[show\]|\[hide\]/g, '') + "\n";
+        var $this = $(this);
+        if ($this.is("input, textarea")) {
+            textToCopy += $this.val().replace(/\[show\]|\[hide\]/g, '') + "\n";
+        } else {
+            textToCopy += $this.text().replace(/\[show\]|\[hide\]/g, '') + "\n";
+        }
     });
-    var textarea = document.createElement("textarea");
-    textarea.textContent = textToCopy;
-    document.body.appendChild(textarea);
-    textarea.select();
-    try {
-        return document.execCommand("copy");  // Security exception may be thrown by some browsers.
-    } catch (ex) {
-        console.warn("Copy to clipboard failed.", ex);
-        return false;
-    } finally {
-        document.body.removeChild(textarea);
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        // New Clipboard API
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            console.log("Text successfully copied to clipboard")
+        }).catch(err => {
+            console.warn("Copy to clipboard failed.", err);
+        });
+    } else {
+        // Fallback to the older method for incompatible browsers
+        var textarea = document.createElement("textarea");
+        textarea.textContent = textToCopy;
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            return document.execCommand("copy");
+        } catch (ex) {
+            console.warn("Copy to clipboard failed.", ex);
+            return false;
+        } finally {
+            document.body.removeChild(textarea);
+        }
     }
 }
 
@@ -682,6 +698,34 @@ function createAndInitPseudoUserId() {
         })
 }
 
+// function to update All Keys as JSON text field with current keyStore
+function updateAllKeysAsJson() {
+    document.getElementById('allKeysAsJson').value = JSON.stringify(keyStore, null, 0);
+}
+
+// function to set keys from JSON text field to individual keys
+function setKeysFromJson() {
+    let allKeysAsJsonElem = document.getElementById('allKeysAsJson');
+    try {
+        const newKeys = JSON.parse(allKeysAsJsonElem.value);
+        // merge newKeys and keyStore
+        Object.assign(keyStore, newKeys);
+        for (const key in keyStore) {
+            // update the input field value
+            let keyElement = document.getElementById(key);
+            if (keyElement) {
+                keyElement.value = keyStore[key];
+            }
+        }
+        // set keys on server
+        setKeysOnServer();
+        // update allKeysAsJson text field with current keyStore
+        updateAllKeysAsJson();
+    } catch (error) {
+        alert('Invalid JSON format in All Keys field: ' + error.message);
+    }
+}
+
 function initialiseKeyStore() {
     for (const key of Object.keys(keyStore)) {
         if (key === 'pseudoUserId') {
@@ -697,8 +741,10 @@ function initialiseKeyStore() {
                 keyString = evt.target.value;
                 keyStore[key] = keyString
                 localStorage.setItem(key, keyString);
+                // update All Keys as JSON text field whenever individual key changes
+                updateAllKeysAsJson();
 
-                // if OpenAI key is provided, verify it and fetch the list of models
+                // If OpenAI key is provided, verify it and fetch the list of models
                 if (key === 'openAIKey' && keyString) {
                     disableMainFunctionality();
                     verifyOpenAIKeyAndFetchModels(keyString);
@@ -715,7 +761,17 @@ function initialiseKeyStore() {
     }
     createAndInitPseudoUserId();
     setKeysOnServer();
-};
+
+    // Initialise All Keys as JSON text field
+    updateAllKeysAsJson();
+    // Add event listener to All Keys as JSON text field
+    document.getElementById('allKeysAsJson').addEventListener('input', setKeysFromJson);
+    // Add event listener to Copy button
+    document.getElementById('copyButton').addEventListener('click', function () {
+        let allKeysAsJsonElem = document.getElementById('allKeysAsJson');
+        copyToClipboard(allKeysAsJsonElem);
+    });
+}
 
 
 
@@ -724,24 +780,6 @@ function isAbsoluteUrl(url) {
   return url.indexOf('://') > 0;
 };
 
-function appendDictToUrl(dict, url) {
-    if (isAbsoluteUrl(url)) {
-        urlObj = new URL(url);
-    } else {
-        // If the URL is relative, provide the base URL (origin of the current page)
-        urlObj = new URL(url, window.location.origin);
-    }
-    const params = new URLSearchParams(urlObj.search);
-    for (const key in dict) {
-        params.append(key, dict[key]);
-    }
-    urlObj.search = params.toString();
-    return urlObj.toString();
-}
-
-function appendKeyStore(url) {
-    return appendDictToUrl(keyStore, url)
-}
 
 function apiCall(url, method, data, useFetch = false) {
 //     url = appendKeyStore(url);

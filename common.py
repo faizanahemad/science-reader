@@ -484,7 +484,7 @@ from inspect import signature
 from functools import wraps
 import mmh3
 import diskcache as dc
-
+cache_timeout = 7 * 24 * 60 * 60
 def typed_memoize(cache, *types):
     def decorator(f):
         @wraps(f)
@@ -505,7 +505,6 @@ def typed_memoize(cache, *types):
             # Try to get the result from the cache
             key = str(mmh3.hash(key, signed=False))
             result = cache.get(key)
-            cache_timeout = 7 * 24 * 60 * 60
             # If the result is not in the cache, call the function and store the result in the cache
             if result is None:
                 result = f(*args, **kwargs)
@@ -515,6 +514,13 @@ def typed_memoize(cache, *types):
 
         return wrapper
     return decorator
+
+import requests
+
+def is_pdf_link(link):
+    response = requests.head(link)
+    content_type = response.headers.get('Content-Type')
+    return content_type == 'application/pdf' or 'pdf' in content_type
 
 
 

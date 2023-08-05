@@ -1077,7 +1077,7 @@ class PDFReaderTool:
     def __init__(self, keys):
         self.mathpix_api_id=keys['mathpixId']
         self.mathpix_api_key=keys['mathpixKey']
-        
+    @typed_memoize(cache, str, int, tuple, bool)
     def __call__(self, url, page_ranges=None):
         if self.mathpix_api_id is not None and self.mathpix_api_key is not None:
             
@@ -1293,8 +1293,6 @@ Output only a valid python list of web search query strings:
     titles = [r["title"] for r in dedup_results]
     contexts = [r["query"] for r in dedup_results]
     all_results_doc = dedup_results + dedup_results_web
-    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
-    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None):
@@ -1313,12 +1311,11 @@ def web_search_part2(part1_res, api_keys):
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     read_text_web, per_pdf_texts_web = web_future.result()
     read_text, per_pdf_texts = pdf_future.result()
-
+    crawl_text = (per_pdf_texts + per_pdf_texts_web)
     all_text = read_text + "\n\n" + read_text_web
     if rerank_available:
         import cohere
         co = cohere.Client(api_keys["cohereKey"])
-        crawl_text = (per_pdf_texts + per_pdf_texts_web)
         docs = [r["text"] for r in crawl_text]
         rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(1, len(docs) // 2),
                                    model='rerank-english-v2.0')
@@ -1330,39 +1327,50 @@ def web_search_part2(part1_res, api_keys):
             f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
 
     logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
-    return {"text": all_text, "search_results": all_results_doc, "queries": query_strings}
+    return {"text": all_text, "full_info": crawl_text, "search_results": all_results_doc, "queries": query_strings}
 
 
 
 import multiprocessing
 from multiprocessing import Pool
 
+def process_link(link_title_context_apikeys):
+    link, title, context, api_keys, text = link_title_context_apikeys
+    key = f"{str([link, title, context])}"
+    key = str(mmh3.hash(key, signed=False))
+    result = cache.get(key)
+    if result is not None:
+        return result
+    st = time.time()
+    is_pdf = is_pdf_link(link)
+    if is_pdf:
+        result = process_pdf(link_title_context_apikeys)
+    else:
+        result = process_page_link(link_title_context_apikeys)
+    logger.debug(f"Processing {link} took {time.time() - st} seconds")
+    cache.set(key, result, expire=cache_timeout)
+    return result
+
 from concurrent.futures import ThreadPoolExecutor
 
 # TODO: Add caching
-@typed_memoize(cache, str, int, tuple, bool)
-def get_pdf_text(link):
-    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    try:
-        txt = pdfReader(link)
-        chunked_text = ChunkText(txt, 1536, 0)[0]
-        small_text = ChunkText(txt, 512, 0)[0]
-    except Exception as e:
-        return {"text": "No relevant text found in this document.", "small_text": "No relevant text found in this document."}
-    return {"text": chunked_text, "small_text": small_text}
-
 def process_pdf(link_title_context_apikeys):
     link, title, context, api_keys, text = link_title_context_apikeys
+    key = f"{str([link, title, context])}"
+    key = str(mmh3.hash(key, signed=False))
+    result = cache.get(key)
+    if result is not None:
+        return result
     st = time.time()
     # Reading PDF
     extracted_info = ''
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    txt = text
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link)
-
             # Chunking text
-            chunked_text = ChunkText(txt, 1536, 0)[0]
+            chunked_text = ChunkText(txt, 3072, 0)[0]
         else:
             chunked_text = text
 
@@ -1372,28 +1380,58 @@ def process_pdf(link_title_context_apikeys):
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
         logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
-        return {"link": link, "title": title, "text": extracted_info, "exception": True}
-    return {"link": link, "title": title, "text": extracted_info, "exception": False}
+        return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
+    cache.set(key, {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": txt}, expire=cache_timeout)
+    return {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": txt}
 
 
 def process_page_link(link_title_context_apikeys):
     link, title, context, api_keys, text = link_title_context_apikeys
+    key = f"{str([link, title, context])}"
+    key = str(mmh3.hash(key, signed=False))
+    result = cache.get(key)
+    if result is not None:
+        return result
     st = time.time()
     pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
     title = pgc["title"]
     text = pgc["text"]
     extracted_info = ''
+
     if len(text.strip()) > 0:
-        chunked_text = ChunkText(text, 1536, 0)[0]
+        chunked_text = ChunkText(text, 3072, 0)[0]
         extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
     else:
-        return {"link": link, "title": title, "text": extracted_info, "exception": True}
+        chunked_text = text
+        return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}
     tt = time.time() - st
     logger.info(f"Web page read and contextual reader for link: {link} with total time = {tt:.2f}")
-    return {"link": link, "title": normalize_whitespace(title), "text": extracted_info, "exception": False}
+    cache.set(key, {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": text}, expire=cache_timeout)
+    return {"link": link, "title": normalize_whitespace(title), "text": extracted_info, "exception": False, "full_text": text}
 
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
+
+
+def read_over_multiple_links(links, titles, contexts, api_keys, texts=None):
+    if texts is None:
+        texts = [''] * len(links)
+    # Combine links, titles, contexts and api_keys into tuples for processing
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts))
+    # Use the executor to apply process_pdf to each tuple
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
+    # Collect the results as they become available
+    processed_texts = [future.result() for future in futures]
+    processed_texts = [p for p in processed_texts if not p["exception"]]
+    assert len(processed_texts) > 0
+    for p in processed_texts:
+        del p["exception"]
+    # Concatenate all the texts
+
+    # Cohere rerank here
+    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    return result, processed_texts
+
 def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
     if texts is None:
         texts = [''] * len(links)
@@ -1411,9 +1449,6 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
     
     # Cohere rerank here
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    import tiktoken
-    enc = tiktoken.encoding_for_model("gpt-4")
-    logger.info(f"read_over_multiple_pdf:: Web search Result string len = {len(result.split())}, token len = {len(enc.encode(result))}")
     return result, processed_texts
 
 def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None):
