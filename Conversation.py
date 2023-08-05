@@ -347,7 +347,7 @@ Rephrased and contextualised human's last message:
 """
             rephrase = llm(prompt, temperature=0.7, stream=False)
             logger.info(f"Rephrased and contextualised human's last message: {rephrase}")
-            prior_context = self.retrieve_prior_context(rephrase, requery=False)
+            prior_context = self.retrieve_prior_context(rephrase, links=links, requery=False)
             del prior_context["previous_messages"]
             summary_nodes = [s for s in prior_context["summary_nodes"] if s not in summary_nodes] + summary_nodes
             summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
@@ -462,13 +462,15 @@ Now lets write a title of the conversation.
         """
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
-        prior_context = self.retrieve_prior_context(query["messageText"], requery=False)
+        yield {"text": '', "status": "Getting prior chat context ..."}
         additional_docs_to_read = query["additional_docs_to_read"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         checkboxes = query["checkboxes"]
         google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+        prior_context = self.retrieve_prior_context(query["messageText"],
+                                                    requery=True if provide_detailed_answers else False)
         # raw_documents_index = self.get_field("raw_documents_index")
         links = [l.strip() for l in query["links"] if l is not None and len(l.strip()) > 0] # and l.strip() not in raw_documents_index
         link_result_text = ''
@@ -482,23 +484,12 @@ The most recent message by the human is as follows:
 We want to provide an informative response to the human using the documents provided by the human.
 Your task is to extract information from the document or context given which can help provide more information for the human's query. """
             yield {"text": '', "status": "Reading your provided links."}
-            link_result_text, all_docs_info = read_over_multiple_links(links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers)
+            link_future = get_async_future(read_over_multiple_links, links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers)
 
-            full_doc_texts = {dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info}
-            yield {"text": '', "status": "Finished reading your provided links."}
-        link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
-            link_result_text) > 0 else ""
-        logger.info(f"Time taken to read links: {time.time() - st}")
-        logger.info(f"Link result text:\n```\n{link_result_text}\n```")
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_answers = get_multiple_answers(query["messageText"], additional_docs_to_read, summary, provide_detailed_answers)
-            doc_answer = doc_answers[1].result()["text"]
-            yield {"text": '', "status": "document reading completed"}
-        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
-            doc_answer) > 0 else ""
-
+            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary, provide_detailed_answers)
         web_text = ''
         if perform_web_search:
             yield {"text": '', "status": "performing web search"}
@@ -506,6 +497,22 @@ Your task is to extract information from the document or context given which can
             web_results = get_async_future(web_search, query["messageText"], 'chat',
                                            summary,
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches)
+
+        if len(links) > 0:
+            link_result_text, all_docs_info = link_future.result()
+            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
+            yield {"text": '', "status": "Finished reading your provided links."}
+        link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
+            link_result_text) > 0 else ""
+        logger.info(f"Time taken to read links: {time.time() - st}")
+        logger.info(f"Link result text:\n```\n{link_result_text}\n```")
+        if len(additional_docs_to_read) > 0:
+            doc_answers = doc_future.result()
+            doc_answer = doc_answers[1].result()["text"]
+            yield {"text": '', "status": "document reading completed"}
+        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
+            doc_answer) > 0 else ""
+        if perform_web_search:
             if len(web_results.result()[0].result()['queries']) > 0:
                 yield {"text": "\n### Web searched with Queries: \n", "status": "displaying web search queries ... "}
                 answer += "\n### Web searched with Queries: \n"
@@ -522,7 +529,7 @@ Your task is to extract information from the document or context given which can
                    "status": "displaying web search results ... "}
             answer += "\n"
             full_info = web_results.result()[1].result()["full_info"]
-            full_doc_texts = {dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info}
+            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             web_text = web_results.result()[1].result()["text"]
             yield {"text": '', "status": "web search completed"}
         web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''

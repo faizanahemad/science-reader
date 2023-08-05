@@ -2,16 +2,15 @@
 - Links to visit [Done]
 - Use Google scholar
 - Store doc results from PDFs and Links we read in the conversation DB [Done].
-- Speed up web based answering.
 - Salient points may not be useful, best to reserve space for previous messages [Done].
-- How many messages to look back -> decision
-- Rerank extracted content "Slightly better results using an "agent 0" to rank results from the db query while considering the original user question, and pick only the top n."
 - JSON keys [Done]
 - When detailed answers is selected then scan the full document if Link is given or if Multiple Docs is specified, maybe use gpt-3.5 16K. [Done]
-- Logging in Chat, log what the LLM is getting as input and generating output and from where. For better prompt and flow optimisation.
+- Write a set of sample queries which test each of chat functionalities and then run them on the server to see if they are working.
+- Write a set of use cases.
 
 # High Priority
     - Test only GPT-3.5
+    - Speed up DocQnA using chat based optimisation made for chat interface.
     - Server release with internal URL
     - Literature survey chat
       - Side view of threads
@@ -22,12 +21,10 @@
     -  Ability to perform custom google search for a QnA. With adding filetype and other filters or not.
     -  References and citations use in QnA
     -  References and citations use in Reviews
-    -  References and citations use in chat
     -  Use of diagrams in QnA
     -  Write sections like intro/conclusion/abstract/lit review
     -  User can provide pdf/page links in QnA, review, or chat to compare with current doc.
     -  Folder Tree structure and Tags/Collections
-    - Make web search and multiple doc reading and detailed answers parallel to main call by making them api calls to same flask server.
     - References and Citations based QnA as feature
     - Better error messages if keys are not working. Check in javascript itself.
     - Better overall error handling and recovery.
@@ -42,12 +39,8 @@
     - Multi-Agent with multiple persona based research assist.
     - NQS
     - TODO: `.replace(/\n/g, '<br>')` for various parts of text.
-    - Request model to provide code in numpy/python/pytorch instead of formulas based on its understanding.
-    - Chat: Control how many times we should run web search.
     - Handle too long input exception.
-    - Wikipedia and Wolfram and other structured KG integration
     - Multiple workers by making server stateless and using redis or other db for state.
-    - Change the title once first message is created.
     - Prompt optimisation and checking output of all LLM calls
     - Query reformulation if we need multi-turn for chat based Doc QnA
     
