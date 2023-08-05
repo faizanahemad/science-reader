@@ -499,7 +499,7 @@ def process_text(text, chunk_size, my_function, keys):
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    threshold = 2000
+    threshold = 1024
     tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
@@ -507,7 +507,7 @@ def process_text(text, chunk_size, my_function, keys):
         assert isinstance(results[0], str)
         results = [process_text_executor.submit(contrain_text_length_by_summary, r, keys, threshold) for r in results]
         results = [future.result() for future in results]
-        results = combine_array_two_at_a_time(results)
+        results = combine_array_two_at_a_time(results, '\n\n')
     assert len(results) == 1
     results = results[0]
     if not tlc(results):
@@ -1335,8 +1335,8 @@ import multiprocessing
 from multiprocessing import Pool
 
 def process_link(link_title_context_apikeys):
-    link, title, context, api_keys, text = link_title_context_apikeys
-    key = f"{str([link, title, context])}"
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    key = f"{str([link, title, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1355,7 +1355,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # TODO: Add caching
 def process_pdf(link_title_context_apikeys):
-    link, title, context, api_keys, text = link_title_context_apikeys
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"{str([link, title, context])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
@@ -1370,12 +1370,12 @@ def process_pdf(link_title_context_apikeys):
         if len(text.strip()) == 0:
             txt = pdfReader(link)
             # Chunking text
-            chunked_text = ChunkText(txt, 3072, 0)[0]
+            chunked_text = ChunkText(txt, 14336 if detailed else 3072, 0)[0]
         else:
             chunked_text = text
 
         # Extracting info
-        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
+        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=False if detailed else True)
         tt = time.time() - st
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
@@ -1386,7 +1386,7 @@ def process_pdf(link_title_context_apikeys):
 
 
 def process_page_link(link_title_context_apikeys):
-    link, title, context, api_keys, text = link_title_context_apikeys
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"{str([link, title, context])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
@@ -1399,8 +1399,8 @@ def process_page_link(link_title_context_apikeys):
     extracted_info = ''
 
     if len(text.strip()) > 0:
-        chunked_text = ChunkText(text, 3072, 0)[0]
-        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=True)
+        chunked_text = ChunkText(text, 14336 if detailed else 3072, 0)[0]
+        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=False if detailed else True)
     else:
         chunked_text = text
         return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}
@@ -1413,59 +1413,65 @@ def process_page_link(link_title_context_apikeys):
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
 
-def read_over_multiple_links(links, titles, contexts, api_keys, texts=None):
+def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
         texts = [''] * len(links)
     # Combine links, titles, contexts and api_keys into tuples for processing
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts))
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
     futures = [pdf_process_executor.submit(process_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     assert len(processed_texts) > 0
+    full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
+        del p["full_text"]
     # Concatenate all the texts
 
     # Cohere rerank here
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    return result, processed_texts
+    return result, full_processed_texts
 
-def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None):
+def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
         texts = [''] * len(links)
     # Combine links, titles, contexts and api_keys into tuples for processing
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
     futures = [pdf_process_executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     assert len(processed_texts) > 0
+    full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
+        del p["full_text"]
     # Concatenate all the texts
     
     # Cohere rerank here
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    return result, processed_texts
+    return result, full_processed_texts
 
-def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None):
+def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
         texts = [''] * len(links)
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts))
+    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts, [provide_detailed_answers] * len(links)))
     futures = [pdf_process_executor.submit(process_page_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     assert len(processed_texts) > 0
+    full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
+        del p["full_text"]
     result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    return result, processed_texts
+    return result, full_processed_texts
 
 
-def get_multiple_answers(query, additional_docs:list, current_doc_summary:str):
+def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, provide_detailed_answers=False):
     prompt = f"""Given question: '{query}'. A summary of prior conversation or documents that maybe related to this query is given below.\n
 '''{current_doc_summary}'''. 
 Collect evidence and relevant information from the document we are reading now to answer the given question.
@@ -1473,7 +1479,7 @@ If it is possible to answer the question with the information in the document, p
 Answer or information for the given question:
 """
     
-    futures = [pdf_process_executor.submit(doc.get_short_answer, prompt, defaultdict(lambda:False), False)  for doc in additional_docs]
+    futures = [pdf_process_executor.submit(doc.get_short_answer, prompt, defaultdict(lambda:False, {"provide_detailed_answers": provide_detailed_answers}), False)  for doc in additional_docs]
     answers = [future.result() for future in futures]
     answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
     dedup_results = [{"link": doc.doc_source, "title": doc.title} for answer, doc in zip(answers, additional_docs)]

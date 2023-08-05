@@ -7,7 +7,8 @@
 - How many messages to look back -> decision
 - Rerank extracted content "Slightly better results using an "agent 0" to rank results from the db query while considering the original user question, and pick only the top n."
 - JSON keys [Done]
-- When detailed answers is selected then scan the full document if Link is given, maybe use gpt-3.5 16K.
+- When detailed answers is selected then scan the full document if Link is given or if Multiple Docs is specified, maybe use gpt-3.5 16K. [Done]
+- Logging in Chat, log what the LLM is getting as input and generating output and from where. For better prompt and flow optimisation.
 
 # High Priority
     - Test only GPT-3.5

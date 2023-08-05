@@ -296,20 +296,21 @@ class Conversation:
         encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
         # Lets get the previous 2 messages, upto 1000 tokens
         # TODO: contextualizing the query maybe important since user queries are not well specified
-
-        previous_messages = self.get_field("messages")[-6:]
+        message_lookback = 6
+        summary_lookback = 3
+        previous_messages = self.get_field("messages")[-message_lookback:]
         previous_messages = '\n\n'.join([f"Sender: {m['sender']}\n'''{m['text']}'''\n" for m in previous_messages])
         running_summary = self.get_field("memory")["running_summary"][-1:]
         summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=3)
         summary_nodes = [n.page_content for n in summary_nodes]
-        not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-3:]
+        not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-summary_lookback:]
         summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
         summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
         # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
 
         message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=3)
         message_nodes = [n.page_content for n in message_nodes]
-        not_taken_messages = self.get_field("messages")[-6:]
+        not_taken_messages = self.get_field("messages")[-message_lookback:]
         message_nodes = [n for n in message_nodes if n not in not_taken_messages]
         message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
 
@@ -352,6 +353,7 @@ Rephrased and contextualised human's last message:
             summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
             message_nodes = [s for s in prior_context["message_nodes"] if s not in message_nodes] + message_nodes
             message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
+            document_nodes = [s for s in prior_context["document_nodes"] if s not in document_nodes] + document_nodes
 
         # We return a dict
         return dict(previous_messages=previous_messages, 
@@ -425,7 +427,8 @@ Now lets write a title of the conversation.
         for link, text in new_docs.items():
             if link in raw_doc_index:
                 continue
-            chunks = ChunkText(text, 256, 32)
+            text = ChunkText(text, 2**14, 0)[0]
+            chunks = ChunkText(text, 512, 32)
             chunks = [f"link:{link}\n\ntext:{c}" for c in chunks if len(c.strip()) > 0]
             idx = create_index_faiss(chunks, get_embedding_model(self.get_api_keys()), )
             raw_doc_index[link] = idx
@@ -461,7 +464,12 @@ Now lets write a title of the conversation.
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
         prior_context = self.retrieve_prior_context(query["messageText"], requery=False)
         additional_docs_to_read = query["additional_docs_to_read"]
-        raw_documents_index = self.get_field("raw_documents_index")
+        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
+        checkboxes = query["checkboxes"]
+        google_scholar = checkboxes["googleScholar"]
+        provide_detailed_answers = checkboxes["provide_detailed_answers"]
+        perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+        # raw_documents_index = self.get_field("raw_documents_index")
         links = [l.strip() for l in query["links"] if l is not None and len(l.strip()) > 0] # and l.strip() not in raw_documents_index
         link_result_text = ''
         full_doc_texts = {}
@@ -473,19 +481,19 @@ The most recent message by the human is as follows:
 
 We want to provide an informative response to the human using the documents provided by the human.
 Your task is to extract information from the document or context given which can help provide more information for the human's query. """
-            link_result_text, all_docs_info = read_over_multiple_links(links, links, [link_context] * (len(links)), self.get_api_keys())
+            yield {"text": '', "status": "Reading your provided links."}
+            link_result_text, all_docs_info = read_over_multiple_links(links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers)
+
             full_doc_texts = {dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info}
+            yield {"text": '', "status": "Finished reading your provided links."}
         link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
             link_result_text) > 0 else ""
-        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
-        checkboxes = query["checkboxes"]
-        google_scholar = checkboxes["googleScholar"]
-        provide_detailed_answers = checkboxes["provide_detailed_answers"]
-        perform_web_search = checkboxes["perform_web_search"]
+        logger.info(f"Time taken to read links: {time.time() - st}")
+        logger.info(f"Link result text:\n```\n{link_result_text}\n```")
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_answers = get_multiple_answers(query["messageText"], additional_docs_to_read, summary)
+            doc_answers = get_multiple_answers(query["messageText"], additional_docs_to_read, summary, provide_detailed_answers)
             doc_answer = doc_answers[1].result()["text"]
             yield {"text": '', "status": "document reading completed"}
         doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
@@ -556,7 +564,7 @@ Use the documents given under 'additional information' and provide relevant info
 You are also given the user's most recent query to which we need to respond. 
 Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query. You must reply as an expert in the domain of the conversation.
 Use markdown syntax and markdown formatting to typeset and format your answer better. Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$'
-When you write code, write a brief description of the code and its functionality in the first line as a comment.
+When you write code, write a brief description of the code and its functionality in the first line as a comment. {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else 'Provide short and concise responses to the query'}
 {summ}
 {last_few_messages}
 {other_relevant_messages}

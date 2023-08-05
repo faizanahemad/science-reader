@@ -1105,14 +1105,14 @@ def open_browser(url):
 create_tables()
 load_documents(folder)
 
-# def removeAllUsersFromConversation():
-#     conn = create_connection("{}/users.db".format(users_dir))
-#     cur = conn.cursor()
-#     cur.execute("DELETE FROM UserToConversationId")
-#     conn.commit()
-#     conn.close()
-#
-# removeAllUsersFromConversation()
+def removeAllUsersFromConversation():
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM UserToConversationId")
+    conn.commit()
+    conn.close()
+
+removeAllUsersFromConversation()
 
 if __name__ == '__main__':
     
