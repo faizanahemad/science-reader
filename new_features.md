@@ -7,6 +7,7 @@
 - When detailed answers is selected then scan the full document if Link is given or if Multiple Docs is specified, maybe use gpt-3.5 16K. [Done]
 - Write a set of sample queries which test each of chat functionalities and then run them on the server to see if they are working.
 - Write a set of use cases.
+- Log all LLM inputs and outputs in a file with reference to feedback entities to know which LLM input and output resulted in favorable vs unfavorable feedbacks. Log which LLM was used as well.
 
 # High Priority
     - Test only GPT-3.5

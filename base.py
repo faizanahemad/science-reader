@@ -882,6 +882,63 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     logger.info(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
+
+
+@typed_memoize(cache, str, int, tuple, bool)
+def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+    from datetime import datetime, timedelta
+    import requests
+
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365 * 3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
+    else:
+        now = None
+    # format the date as YYYY-MM-DD
+
+    url = "https://serpapi.com/search"
+    pre_query = query
+    search_pdf = " filetype:pdf" if only_pdf else ""
+    site_string = ""
+    query = f"{query}{search_pdf}"
+    params = {
+        "q": query,
+        "api_key": key,
+        "num": num,
+        "engine": "google_scholar",
+        "no_cache": False,
+    }
+    response = requests.get(url, params=params)
+    rjs = response.json()
+    if "organic_results" in rjs:
+        results = rjs["organic_results"]
+    else:
+        return []
+    keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
+    results = [{k: r[k] for k in keys if k in r} for r in results]
+    seen_titles = set()
+    seen_links = set()
+    dedup_results = []
+    for r in results:
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3",
+                                                                                                         '').replace(
+            "v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        if not only_pdf and "pdf" in link:
+            continue
+        r["citations"] = int(r.get("inline_links", {}).get("cited_by", {}).get("total", "-1"))
+        r["year"] = re.search(r'(\d{4})', r.get("publication_info", {}).get("summary", ""))
+        _ = r.pop("rich_snippet", None)
+        r['query'] = pre_query
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+    logger.info(
+        f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    return dedup_results
     
 # TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
@@ -1114,7 +1171,7 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 
 # TODO: Add caching
-def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None):
+def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False):
 
     if extra_queries is None:
         extra_queries = []
@@ -1162,18 +1219,25 @@ Output only a valid python list of web search query strings:
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
+    rerank_query = "\n".join(query_strings)
     if rerank_available:
         import cohere
         co = cohere.Client(api_keys["cohereKey"])
         num_res = 10
-        rerank_query = "\n".join(query_strings)
     if len(extra_queries) > 0:
         num_res = 5
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     
-    if google_available:
+    if gscholar and serp_available:
+        serps = [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in
+                 query_strings]
+        serps_web = [
+            get_async_future(serpapi, query, api_keys["serpApiKey"], min(num_res, 2), our_datetime=year_month, only_pdf=False,
+                             only_science_sites=False) for query in query_strings]
+        logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+    elif google_available:
         num_res = 10
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=None) for query in query_strings]
         serps_web = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
@@ -1188,7 +1252,7 @@ Output only a valid python list of web search query strings:
         logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     else:
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
-        return {"text":'', "search_results": [], "queries": query_strings}
+        return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
         serps = [s.result() for s in serps]
         serps_web = [s.result() for s in serps_web]
@@ -1295,14 +1359,15 @@ Output only a valid python list of web search query strings:
     all_results_doc = dedup_results + dedup_results_web
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries)
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar)
     # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     part2_res = get_async_future(web_search_part2, part1_res, api_keys)
-    return [get_async_future(get_part_1_results, part1_res), part2_res]
+    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def get_part_1_results(part1_res):
-    return {"search_results": part1_res.result()[0], "queries": part1_res.result()[8]}
+    rs = part1_res.result()
+    return {"search_results": rs[0], "queries": rs[8]}
 
 
 def web_search_part2(part1_res, api_keys):
@@ -1322,7 +1387,10 @@ def web_search_part2(part1_res, api_keys):
         crawl_text = [crawl_text[r.index] for r in rerank_results]
         pre_rerank = all_results_doc
         all_results_doc = [all_results_doc[r.index] for r in rerank_results]
-        all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_text])
+        crawl_copy = deepcopy(crawl_text)
+        for i, r in enumerate(crawl_copy):
+            _ = r.pop("full_text", None)
+        all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_copy])
         logger.info(
             f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
 

@@ -439,6 +439,7 @@ Now lets write a title of the conversation.
         mem_set.result()
 
     def __call__(self, query):
+        logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
@@ -491,12 +492,11 @@ Your task is to extract information from the document or context given which can
             yield {"text": '', "status": "reading your documents"}
             doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary, provide_detailed_answers)
         web_text = ''
-        if perform_web_search:
-            yield {"text": '', "status": "performing web search"}
-            # TODO: use less pdf and faster search by only using few pdf pages and more web pages and arxiv abstract pages.
+        if google_scholar or perform_web_search:
+            yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search, query["messageText"], 'chat',
                                            summary,
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches)
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar)
 
         if len(links) > 0:
             link_result_text, all_docs_info = link_future.result()
@@ -512,7 +512,7 @@ Your task is to extract information from the document or context given which can
             yield {"text": '', "status": "document reading completed"}
         doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
             doc_answer) > 0 else ""
-        if perform_web_search:
+        if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
                 yield {"text": "\n### Web searched with Queries: \n", "status": "displaying web search queries ... "}
                 answer += "\n### Web searched with Queries: \n"
@@ -528,9 +528,10 @@ Your task is to extract information from the document or context given which can
             yield {"text": "\n",
                    "status": "displaying web search results ... "}
             answer += "\n"
-            full_info = web_results.result()[1].result()["full_info"]
+            wrs = web_results.result()[1].result()
+            full_info = wrs["full_info"]
+            web_text = wrs["text"]
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
-            web_text = web_results.result()[1].result()["text"]
             yield {"text": '', "status": "web search completed"}
         web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
 Use the documents given under 'additional information' and provide relevant information from them for user's question. Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).""" if len(
@@ -541,6 +542,7 @@ Use the documents given under 'additional information' and provide relevant info
         previous_messages = prior_context["previous_messages"]
         summary_nodes = prior_context["summary_nodes"]
         message_nodes = prior_context["message_nodes"]
+        document_nodes = prior_context["document_nodes"]
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=True,)
         if llm.use_gpt4:
@@ -550,6 +552,7 @@ Use the documents given under 'additional information' and provide relevant info
             used_len = len(enc.encode(previous_messages)) + used_len
             message_text = get_first_last_parts("\n".join(message_nodes), 0, 4500 - used_len)
             permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 500)
+            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6000 - used_len)
         else:
             summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
             used_len = len(enc.encode(summary_text))
@@ -557,24 +560,28 @@ Use the documents given under 'additional information' and provide relevant info
             used_len = len(enc.encode(previous_messages)) + used_len
             message_text = get_first_last_parts("\n".join(message_nodes), 0, 2500 - used_len)
             permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
+            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 3500 - used_len)
 
         permanent_instructions = f"""Few other instructions from the user are as follows:
 {permanent_instructions}""" if len(permanent_instructions) > 0 else ''
         # TODO: ask to provide links to the documents that were read.
-        summ = f"""The summary of the conversation is as follows:
+        summary_text = f"""The summary of the conversation is as follows:
 '''{summary_text}'''""" if len(summary_text) > 0 else ''
         last_few_messages = f"""The last few messages of the conversation are as follows:
 '''{previous_messages}'''""" if len(previous_messages) > 0 else ''
         other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
 '''{message_text}'''""" if len(message_text) > 0 else ''
+        document_text = f"""The documents that were read are as follows:
+'''{document_nodes}'''""" if len(document_nodes) > 0 else ''
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
 Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query. You must reply as an expert in the domain of the conversation.
 Use markdown syntax and markdown formatting to typeset and format your answer better. Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$'
 When you write code, write a brief description of the code and its functionality in the first line as a comment. {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else 'Provide short and concise responses to the query'}
-{summ}
+{summary_text}
 {last_few_messages}
 {other_relevant_messages}
+{document_text}
 
 The most recent message of the conversation sent by the human now to which we will be replying is as follows:
 '''{query["messageText"]}'''
