@@ -635,7 +635,7 @@ function resetOptions(parentElementId, type) {
 }
 
 function removeOptions(parentElementId, type) {
-    $(type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`).parent().remove();
+    $(type==="assistant"?`#${parentElementId}-${type}-use-google-scholar`:`#${parentElementId}-${type}-use-references-and-citations-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();

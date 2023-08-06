@@ -154,12 +154,26 @@ def call_ai21(text, temperature=0.7, api_key=None):
           maxTokens=4000,
           temperature=temperature,
           topKReturn=0,
-          topP=1,
+          topP=0.9,
           stopSequences=["##"],
           api_key=api_key,
     )
     result = response_grande["completions"][0]["data"]["text"]
     return result
+@retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(3))
+def call_cohere(text, temperature=0.7, api_key=None):
+    import cohere
+    co = cohere.Client(api_key)
+    logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
+    if get_gpt4_word_count(text) > 1200:
+        logger.warning(f"Text too long, taking only first 1200 words")
+        text = get_first_last_parts(text, 1200)
+    response = co.generate(
+        model='command-nightly',
+        prompt=text,
+        max_tokens=4000,
+        temperature=temperature)
+    return response.generations[0].text
 
 
 
@@ -208,7 +222,7 @@ def call_non_chat_model(model, text, temperature, system, api_key):
 
 
 class CallLLm:
-    def __init__(self, keys, use_gpt4=False, self_hosted_model_url=None):
+    def __init__(self, keys, use_gpt4=False, use_small_models=False, self_hosted_model_url=None):
         
         
         self.keys = keys
@@ -216,7 +230,8 @@ class CallLLm:
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self_hosted_model_url
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m]
-        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True)
+        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models
+        self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
         openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m]
         openai_basic_models = [
@@ -229,10 +244,11 @@ class CallLLm:
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
+
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
     def __call__(self, text, temperature=0.7, stream=False,):
-#         logger.info(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
+        logger.info(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert len(self.gpt4_enc.encode(text)) < 8000
@@ -248,7 +264,7 @@ class CallLLm:
                 else:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
-        elif self.keys["openAIKey"] is not None:
+        elif self.keys["openAIKey"] is not None and not self.use_small_models:
             models = round_robin(self.openai_turbo_models)
             assert len(self.turbo_enc.encode(text)) < 4000
             try:
@@ -275,11 +291,15 @@ class CallLLm:
                     else:
                         raise e
                         
+        elif self.keys["cohereKey"] is not None:
+            return call_with_stream(call_cohere, stream, text, temperature, self.keys["cohereKey"])
         elif self.keys["ai21Key"] is not None:
 #             logger.info(f"Try Ai21 model with stream = {stream}, Ai21 key = {self.keys['ai21Key']}")
             return call_with_stream(call_ai21, stream, text, temperature, self.keys["ai21Key"])
+        elif self.self_hosted_model_url is not None:
+            raise ValueError("Self hosted models not yet supported")
         else:
-            raise ValueError(str(self.keys))
+            raise ValueError("No model use criteria met")
             
 
 def chunk_text_langchain(text, chunk_size=3400):
@@ -434,12 +454,11 @@ Summarizer:
         `summary = Summarizer()(text_document="document to summarize") # Note: this tool needs to be initialized first.`
     """
         template = f""" 
-Summarize the document below into a {"detailed and informational " if is_detailed else ""}shorter version (by eliminating repeatation, by paraphrasing etc.) while preserving the main points and context, do not miss any important details, do not remove mathematical details.
+Write a {"detailed and informational " if is_detailed else ""}summary of the document below while preserving the main points and context, do not miss any important details, do not remove mathematical details and references.
 Document:
-{{document}}
+'''{{document}}'''
 
 {"Detailed and informational " if is_detailed else ""}Summary:
-
 """
         self.prompt = PromptTemplate(
             input_variables=["document"],
@@ -448,7 +467,7 @@ Document:
     @timer
     def __call__(self, text_document):
         prompt = self.prompt.format(document=text_document)
-        return CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.7)
+        return CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.8)
     
 class ReduceRepeatTool:
     def __init__(self, keys):
@@ -499,7 +518,7 @@ def process_text(text, chunk_size, my_function, keys):
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    threshold = 1024
+    threshold = 512*3
     tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
@@ -510,6 +529,8 @@ def process_text(text, chunk_size, my_function, keys):
         results = combine_array_two_at_a_time(results, '\n\n')
     assert len(results) == 1
     results = results[0]
+    threshold = 384
+    tlc = partial(TextLengthCheck, threshold=threshold)
     if not tlc(results):
         summariser = Summarizer(keys, is_detailed=True)
         logger.warning("--- process_text --- Calling Summarizer on single result")
@@ -632,28 +653,26 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Provide short, concise and informative response in 5-6 sentences ( after 'Extracted Information') for the given question and using the given document. " if provide_short_responses else "Provide elaborate and in-depth information relevant to the provided context after 'Extracted Information'. ") + """
-Provide relevant information from the given document for the given question:
-"{context}"
+            template=("Provide short, concise and informative response in 4-5 sentences ( after 'Extracted Information') for the given question using the given document. " if provide_short_responses else "Provide elaborate and in-depth information relevant to the provided context after 'Extracted Information'. ") + """
+Provide relevant amd helpful information from the given document for the given question or conversation context below:
+'''{context}'''
 
-Document from which you need to extract information:
+Document to read and extract information from:
 '''
 {document}
 '''
 
-If highly relevant content is not found for the given question then output details from the document which might be helpful relative to the given question. If you find nothing useful at all then say 'No relevant information found.'.
-You can use markdown formatting to typeset/format your answer better.
-You can output any relevant equations in latex/markdown format as well. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math in less width.
-
+If you find nothing useful at all then say 'No relevant information found.'.
+Use markdown formatting to typeset or format your answer better.
+Output any relevant equations in latex or markdown format.
 Relevant Information:
-
 """,
         )
         
     def get_one(self, context, document):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result,str)
         return result
@@ -683,11 +702,10 @@ Relevant Information:
 
 # TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
-def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=3000)->str:
-    from base import ContextualReader
+def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=1200)->str:
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses)
-    return cr(query, document, chunk_size=chunk_size)
+    return cr(query, document, chunk_size=chunk_size+512)
 
 
 
@@ -763,7 +781,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-    logger.info(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
@@ -814,7 +832,7 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-    logger.info(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    logger.debug(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
@@ -879,7 +897,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-    logger.info(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+    logger.debug(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
@@ -936,7 +954,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
-    logger.info(
+    logger.debug(
         f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     return dedup_results
     
@@ -957,7 +975,7 @@ def get_page_content(link, playwright_cdp_link=None):
             page = browser.new_page()
             url = link
             page.goto(url)
-            page.wait_for_selector('body', timeout=10000)
+            page.wait_for_selector('body', timeout=20000)
             while page.evaluate('document.readyState') != 'complete':
                 pass
             
@@ -966,7 +984,8 @@ def get_page_content(link, playwright_cdp_link=None):
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             except Exception as e:
-                logger.info(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
+                # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
+                logger.debug(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
                 # traceback.print_exc()
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
                 init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
@@ -976,10 +995,10 @@ def get_page_content(link, playwright_cdp_link=None):
                     pass
                 page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
                 page.evaluate(f"""text=>document.title=text""", init_title)
-                logger.info(f"Loaded html and title into page with example.com as url")
+                logger.debug(f"Loaded html and title into page with example.com as url")
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                page.wait_for_selector('body', timeout=10000)
+                page.wait_for_selector('body', timeout=20000)
                 while page.evaluate('document.readyState') != 'complete':
                     pass
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
@@ -993,7 +1012,7 @@ def get_page_content(link, playwright_cdp_link=None):
     except Exception as e:
         # traceback.print_exc()
         try:
-            logger.info(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
+            logger.debug(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
             from selenium import webdriver
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.wait import WebDriverWait
@@ -1004,8 +1023,7 @@ def get_page_content(link, playwright_cdp_link=None):
             options.add_argument('--headless')
             driver = webdriver.Chrome(options=options)
             driver.get(link)
-            try:
-                driver.execute_script('''
+            add_readability_to_selenium = '''
                     function myFunction() {
                         if (document.readyState === 'complete') {
                             var script = document.createElement('script');
@@ -1021,12 +1039,16 @@ def get_page_content(link, playwright_cdp_link=None):
                     }
 
                     myFunction();
-                ''')
+                '''
+            try:
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
+                driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
                     pass
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=10).until(document_initialised)
+                WebDriverWait(driver, timeout=20).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
             except Exception as e:
                 traceback.print_exc()
@@ -1034,31 +1056,15 @@ def get_page_content(link, playwright_cdp_link=None):
                 init_title = driver.execute_script("""return document.title;""")
                 init_html = driver.execute_script("""return document.body.innerHTML;""")
                 driver.get("https://www.example.com/")
-                logger.info(f"Loaded html and title into page with example.com as url")
+                logger.debug(f"Loaded html and title into page with example.com as url")
                 while driver.execute_script('return document.readyState;') != 'complete':
                     pass
                 driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
                 driver.execute_script("""document.title=arguments[0]""", init_title)
-                driver.execute_script('''
-                    function myFunction() {
-                        if (document.readyState === 'complete') {
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-                            document.head.appendChild(script);
-
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
-                            document.head.appendChild(script);
-                        } else {
-                            setTimeout(myFunction, 1000);
-                        }
-                    }
-
-                    myFunction();
-                ''')
+                driver.execute_script(add_readability_to_selenium)
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=10).until(document_initialised)
+                WebDriverWait(driver, timeout=20).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
                 
             title = normalize_whitespace(result['title'])
@@ -1182,11 +1188,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    prompt = f"""You are given a query/question as below:
+    prompt = f"""You are given a query or question or conversation context as below:
 '{context}' 
-We want to answer it in context of the research document below: 
-'''{doc_context}''' 
-
+{"We want to answer it in context of the following research document: '''{doc_context}'''" if len(doc_context)>0 else ""} 
 We want to generate web search queries to search the web for more information about the query/question.
 {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
 {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''}
@@ -1195,7 +1199,7 @@ Generate {n_query} well specified and diverse web search queries as a valid pyth
 Instructions for how to generate the queries are given below.
 Generated web search queries can break down the actual question into smaller parts. 
 Each generated query must be different from others and diverse from each other. 
-Dearch query strings must be diverse and cover various topics about the original query ('{context}').
+Search query strings must be diverse and cover various topics about the original query ('{context}').
 Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
 When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.). 
 Determine the subject domain from the research document and the query and make sure to mention the domain in your queries.
@@ -1209,7 +1213,7 @@ Output only a valid python list of web search query strings:
 """
     if len(extra_queries) < 1:
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
-        logger.info(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
+        logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
         query_strings = parse_array_string(query_strings.strip())
         query_strings = query_strings + extra_queries
     else:
@@ -1234,7 +1238,7 @@ Output only a valid python list of web search query strings:
         serps = [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in
                  query_strings]
         serps_web = [
-            get_async_future(serpapi, query, api_keys["serpApiKey"], min(num_res, 2), our_datetime=year_month, only_pdf=False,
+            get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False,
                              only_science_sites=False) for query in query_strings]
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     elif google_available:
@@ -1274,7 +1278,7 @@ Output only a valid python list of web search query strings:
     
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" in r["link"]]
     qres_web = [r for serp in serps_web for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" not in r["link"]]
-    logger.info(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])}, serps web len = {len([r for s in serps_web for r in s])}, Qres len = {len(qres)} and Qres web len = {len(qres_web)}")
+    logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])}, serps web len = {len([r for s in serps_web for r in s])}, Qres len = {len(qres)} and Qres web len = {len(qres_web)}")
     dedup_results = []
     seen_titles = set()
     seen_links = set()
@@ -1289,7 +1293,7 @@ Output only a valid python list of web search query strings:
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         link_counter.update([link])
         title_counter.update([link])
-        if title in seen_titles or len(title) == 0 or link in seen_links:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link:
             continue
         dedup_results.append(r)
         seen_titles.add(title)
@@ -1299,14 +1303,14 @@ Output only a valid python list of web search query strings:
     for r in qres_web:
         title = r.get("title", "").lower()
         link = r.get("link", "")
-        if title in seen_titles or len(title) == 0 or link in seen_links:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link:
             continue
         dedup_results_web.append(r)
         seen_titles.add(title)
         seen_links.add(link)
 
     len_after_dedup = len(dedup_results)
-    logger.info(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
+    logger.debug(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
 #     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
         
     # Rerank here first
@@ -1355,7 +1359,7 @@ Output only a valid python list of web search query strings:
     dedup_results = dedup_results[:8]
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
-    contexts = [r["query"] for r in dedup_results]
+    contexts = [context +"? \n" + r["query"] for r in dedup_results]
     all_results_doc = dedup_results + dedup_results_web
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
@@ -1378,11 +1382,11 @@ def web_search_part2(part1_res, api_keys):
     read_text, per_pdf_texts = pdf_future.result()
     crawl_text = (per_pdf_texts + per_pdf_texts_web)
     all_text = read_text + "\n\n" + read_text_web
-    if rerank_available:
+    if rerank_available and len(crawl_text) > 10:
         import cohere
         co = cohere.Client(api_keys["cohereKey"])
         docs = [r["text"] for r in crawl_text]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(1, len(docs) // 2),
+        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(8, len(docs) // 2),
                                    model='rerank-english-v2.0')
         crawl_text = [crawl_text[r.index] for r in rerank_results]
         pre_rerank = all_results_doc
@@ -1391,7 +1395,7 @@ def web_search_part2(part1_res, api_keys):
         for i, r in enumerate(crawl_copy):
             _ = r.pop("full_text", None)
         all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_copy])
-        logger.info(
+        logger.debug(
             f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
 
     logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
@@ -1438,12 +1442,14 @@ def process_pdf(link_title_context_apikeys):
         if len(text.strip()) == 0:
             txt = pdfReader(link)
             # Chunking text
-            chunked_text = ChunkText(txt, 14336 if detailed else 3072, 0)[0]
+            chunked_text = ChunkText(txt, 14336 if detailed else 2816, 0)[0]
         else:
             chunked_text = text
 
         # Extracting info
-        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=False if detailed else True)
+
+        logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
         tt = time.time() - st
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
@@ -1467,8 +1473,9 @@ def process_page_link(link_title_context_apikeys):
     extracted_info = ''
 
     if len(text.strip()) > 0:
-        chunked_text = ChunkText(text, 14336 if detailed else 3072, 0)[0]
-        extracted_info = call_contextual_reader(context, chunked_text, api_keys, provide_short_responses=False if detailed else True)
+        chunked_text = ChunkText(text, 14336 if detailed else 2816, 0)[0]
+        logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
     else:
         chunked_text = text
         return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}

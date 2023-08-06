@@ -348,7 +348,11 @@ log.setLevel(logging.ERROR)
 log = logging.getLogger('DocIndex')
 log.setLevel(logging.ERROR)
 log = logging.getLogger('Conversation')
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.ERROR)
+log = logging.getLogger('base')
+log.setLevel(logging.INFO)
+log = logging.getLogger('faiss.loader')
+log.setLevel(logging.ERROR)
 google = oauth.register(
     name='google',
     client_id=app.config.get("GOOGLE_CLIENT_ID"),

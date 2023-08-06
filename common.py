@@ -297,6 +297,11 @@ def check_if_stream_and_raise_exception(iterable_or_str):
 def get_first_n_words(my_string, n=700):
     return get_first_last_parts(my_string, first_n=n, last_n=0)
 
+def get_gpt4_word_count(my_string):
+    import tiktoken
+    enc = tiktoken.encoding_for_model('gpt-4')
+    str_encoded = enc.encode(my_string)
+    return len(str_encoded)
 def get_first_last_parts(my_string, first_n=250, last_n=750):
     import tiktoken
     enc = tiktoken.encoding_for_model('gpt-4')

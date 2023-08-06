@@ -476,26 +476,25 @@ Now lets write a title of the conversation.
         links = [l.strip() for l in query["links"] if l is not None and len(l.strip()) > 0] # and l.strip() not in raw_documents_index
         link_result_text = ''
         full_doc_texts = {}
-        if len(links) > 0:
-            link_context = f"""The following is the summary of the conversation between a human and an AI assisant.
+        link_context = f"""Summary of the conversation between a human and an AI assisant is given below.
 '''{summary}'''
-The most recent message by the human is as follows:
-{query["messageText"]}
 
-We want to provide an informative response to the human using the documents provided by the human.
-Your task is to extract information from the document or context given which can help provide more information for the human's query. """
+The most recent query by the human is as follows:
+{query["messageText"]}
+        """
+        if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers)
 
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary, provide_detailed_answers)
+            doc_future = get_async_future(get_multiple_answers, link_context, additional_docs_to_read, '', provide_detailed_answers)
         web_text = ''
         if google_scholar or perform_web_search:
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search, query["messageText"], 'chat',
-                                           summary,
+            web_results = get_async_future(web_search, link_context, 'chat',
+                                           '',
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar)
 
         if len(links) > 0:
