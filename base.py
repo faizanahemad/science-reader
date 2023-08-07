@@ -1229,7 +1229,7 @@ Output only a valid python list of web search query strings:
         co = cohere.Client(api_keys["cohereKey"])
         num_res = 10
     if len(extra_queries) > 0:
-        num_res = 5
+        num_res = 10
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1348,15 +1348,14 @@ Output only a valid python list of web search query strings:
     #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
     dedup_results = list(round_robin_by_group(dedup_results, "query"))[:(4 if len(extra_queries) > 0 else 8)]
-    dedup_results_web = dedup_results_web[:4]
+    dedup_results_web = list(round_robin_by_group(dedup_results_web, "query"))[:(4 if len(extra_queries) > 0 else 8)]
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
     web_contexts = [context +"? \n" + r["query"] for r in dedup_results_web]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
-    
-    dedup_results = dedup_results[:8]
+
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
     contexts = [context +"? \n" + r["query"] for r in dedup_results]
@@ -1537,7 +1536,8 @@ def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, p
     futures = [pdf_process_executor.submit(process_page_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
-    assert len(processed_texts) > 0
+    if len(processed_texts) == 0:
+        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links}")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]

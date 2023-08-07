@@ -489,7 +489,7 @@ The most recent query by the human is as follows:
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers, link_context, additional_docs_to_read, '', provide_detailed_answers)
+            doc_future = get_async_future(get_multiple_answers, link_context + '\n\n' + "Provide elaborate, detailed and informative answer.", additional_docs_to_read, '', provide_detailed_answers)
         web_text = ''
         if google_scholar or perform_web_search:
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
