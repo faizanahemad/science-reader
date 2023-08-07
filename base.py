@@ -1375,7 +1375,18 @@ def get_part_1_results(part1_res):
 
 def web_search_part2(part1_res, api_keys):
     all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = web_links[:4], web_titles[:4], web_contexts[:4], api_keys[:4], links[:4], titles[:4], contexts[:4], api_keys[:4], texts[:4]
+
+    variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
+    variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
+
+    for i, (var, name) in enumerate(zip(variables, variable_names)):
+        if not isinstance(var, (list, str)):
+            print(f"{name} is not a list or a string, but a {type(var)}")
+        else:
+            variables[i] = var[:4]
+
+    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+
     web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     read_text_web, per_pdf_texts_web = web_future.result()
