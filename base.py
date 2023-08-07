@@ -653,7 +653,7 @@ ContextualReader:
         
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Provide short, concise and informative response in 4-5 sentences ( after 'Extracted Information') for the given question using the given document. " if provide_short_responses else "Provide elaborate and in-depth information relevant to the provided context after 'Extracted Information'. ") + """
+            template=("Important instruction: Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Important instruction: Provide elaborate and in-depth information. \n") + """
 Provide relevant amd helpful information from the given document for the given question or conversation context below:
 '''{context}'''
 
@@ -1182,7 +1182,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     num_res = 10
-    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "three"
 
     pqs = []
     if previous_search_results:
@@ -1347,8 +1347,8 @@ Output only a valid python list of web search query strings:
     #     pre_rerank = dedup_results_web
     #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
-    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:(4 if len(extra_queries) > 0 else 8)]
-    dedup_results_web = list(round_robin_by_group(dedup_results_web, "query"))[:(4 if len(extra_queries) > 0 else 8)]
+    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:8]
+    dedup_results_web = list(round_robin_by_group(dedup_results_web, "query"))[:8]
     web_links = [r["link"] for r in dedup_results_web]
     web_titles = [r["title"] for r in dedup_results_web]
     web_contexts = [context +"? \n" + r["query"] for r in dedup_results_web]
@@ -1375,6 +1375,7 @@ def get_part_1_results(part1_res):
 
 def web_search_part2(part1_res, api_keys):
     all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = web_links[:4], web_titles[:4], web_contexts[:4], api_keys[:4], links[:4], titles[:4], contexts[:4], api_keys[:4], texts[:4]
     web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
     pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
     read_text_web, per_pdf_texts_web = web_future.result()
