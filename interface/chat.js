@@ -244,7 +244,7 @@ function loadConversations(autoselect=true) {
         $('#conversations').empty();
 
         // Since we want most recently updated conversations at the top, reverse the data
-        data.reverse().forEach(function(conversation) {
+        data.forEach(function(conversation) {
             var conversationItem = $('<a href="#" class="list-group-item list-group-item-action" data-conversation-id="' + conversation.conversation_id + '"></a>');
             var deleteButton = $('<small><button class="btn p-0 ms-2 delete-chat-button"><i class="bi bi-trash-fill"></i></button></small>');
 
