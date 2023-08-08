@@ -478,6 +478,7 @@ class DocIndex:
         if mode == "detailed" or mode == "web_search" or mode == "review":
             txc = ''
             if mode == "review" or mode == "web_search":
+                # TODO: Render search results like in chat interface
                 if len(web_results.result()[0].result()['queries'])>0:
                     answer += "\n### Web searched with Queries: \n"
                     yield "\n### Web searched with Queries: \n"

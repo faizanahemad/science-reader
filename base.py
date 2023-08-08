@@ -697,6 +697,7 @@ Relevant Information:
         import functools
         part_fn = functools.partial(self.get_one_with_exception, context_user_query)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
+        result = get_first_last_parts(result, 150, 0) if self.provide_short_responses else get_first_last_parts(result, 300, 0)
         assert isinstance(result, str)
         return result
 
@@ -1572,5 +1573,40 @@ Answer or information for the given question:
     dedup_results = [{"link": doc.doc_source, "title": doc.title} for answer, doc in zip(answers, additional_docs)]
     read_text = "\n\n".join([json.dumps(p, indent=2) for p in answers])
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
+
+def two_column_list(items):
+    half = (len(items) + 1) // 2   # adjust for odd lengths
+    column1 = items[:half]
+    column2 = items[half:]
+
+    output = '<table><tr><td><ul>'
+    for item in column1:
+        output += f'<li>{item}</li>'
+    output += '</ul></td><td><ul>'
+    for item in column2:
+        output += f'<li>{item}</li>'
+    output += '</ul></td></tr></table>'
+
+    return output
+
+def two_column_list_md(items):
+    half = (len(items) + 1) // 2   # adjust for odd lengths
+    column1 = items[:half]
+    column2 = items[half:]
+
+    # Create a Markdown table with two columns
+    output = '| Column 1 | Column 2 |\n| --- | --- |\n'
+    for item1, item2 in zip(column1, column2 + [None]):
+        # Check if item2 is None (in case of odd number of items)
+        second_column_item = item2 if item2 is not None else ""
+        output += f'| {item1} | {second_column_item} |\n'
+
+    # If there are an odd number of items, we'll add the last item
+    if len(items) % 2 != 0:
+        output += f'| {items[-1]} | |\n'
+
+    return output
+
+
 
 

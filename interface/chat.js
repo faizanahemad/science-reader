@@ -159,11 +159,12 @@ var ChatManager = {
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column" style="width: 80%!important;"></div>');
+          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column" style="width: 95%!important;"></div>');
           
-          var cardHeader = $('<div class="card-header text-end"><strong>' + senderText + '</strong></div>');
-          var cardBody = $('<div class="card-body chat-card-body"></div>');
-          var textElem = $('<p id="message-render-space" class="card-text actual-card-text">' + message.text.replace(/\n/g, '  \n') + '</p>');
+          var cardHeader = $('<div class="card-header text-end"><small><strong>' + senderText + '</strong></small></div>');
+          var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
+          var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
+          textElem.html(message.text.replace(/\n/g, '  \n'))
           
           cardBody.append(textElem);
           messageElement.append(cardHeader);
@@ -333,6 +334,27 @@ $(document).ready(function() {
             }
         });
     addOptions('chat-options', 'assistant', null);
+    $('.dynamic-textarea').on('input', function() {
+      if ($(this).val().length === 0) {
+          // If the textarea is empty, reset to the default height of 30px
+          this.style.height = '35px';
+      } else {
+          this.style.height = 'auto'; // Reset height to auto to recalculate
+          this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
+      }
+  });
+  $('#show-chat-sidebar').hide(); // Hide the "show-chat-sidebar" button
+  $('#hide-chat-sidebar').click(function() {
+        $('#chat-assistant-sidebar').hide(); // Hide the sidebar
+        $('#show-chat-sidebar').show(); // Show the "show-chat-sidebar" button
+        $('#chat-assistant').removeClass('col-9').addClass('col-12'); // Change the class to col-12
+    });
+
+    $('#show-chat-sidebar').click(function() {
+        $('#chat-assistant-sidebar').show(); // Show the sidebar
+        $('#show-chat-sidebar').hide(); // Hide the "show-chat-sidebar" button
+        $('#chat-assistant').removeClass('col-12').addClass('col-9'); // Change the class back to col-9
+    });
     
 
 })

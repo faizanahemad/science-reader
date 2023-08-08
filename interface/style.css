@@ -321,10 +321,25 @@ bi bi-trash-fill {
 }
 
 .card-header {
-    padding: 0.5rem 0.75rem;
+    padding: 0.25rem 0.75rem;
 }
 
 .status-text {
     color: #0000ff; 
     margin-left: 10px;
+}
+
+.nav-link {
+    padding: 0.1rem 1rem;
+    display: block;
+}
+
+
+textarea.form-control.dynamic-textarea {
+    overflow: hidden;
+    resize: none;
+    height: 35px;
+    min-height: 30px;
+    margin: 0px !important; /* Remove margin */
+    padding: 2px 10px !important; /* Control padding, no vertical padding */
 }

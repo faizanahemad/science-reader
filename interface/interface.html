@@ -132,7 +132,7 @@
                       </a>
                   </li>
                 </ul>
-                <div id="navbar-trigger" style="height: 10px;"></div>
+                <div id="navbar-trigger" style="height: 5px;"></div>
                 <div id="references-view">
                   <div class="tab-content">
                     <div class="tab-pane fade" id="details-content" role="tabpanel">
@@ -257,47 +257,48 @@
                       <div class="row scrolling-row">
                         <div class="col-3 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
                             <!-- Sidebar -->
-                              <div class="d-flex justify-content-between align-items-center mt-2">
-                                <button class="btn btn-primary" id="hide-chat-sidebar"><i class="fa fa-bars"></i></button>
-                                <button id="add-new-chat" type="button" class="btn btn-primary ml-2"><i class="fa fa-plus">&nbsp; New Conversation</i></button>
-                              </div>
-                              </br>
-                              <h4>Conversations</h4>
-                              <div id="conversations" class="list-group">
-                                  <!-- Conversations will be dynamically populated here -->
-                              </div>
-                            
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <button class="btn btn-primary btn-sm" id="hide-chat-sidebar"><i class="fa fa-bars"></i></button>
+                                <h4 class="mb-0">Conversations</h4> <!-- Added class mb-0 to remove default bottom margin -->
+                                <button id="add-new-chat" type="button" class="btn btn-primary ml-2 btn-sm"><i class="fa fa-plus">&nbsp; New Chat</i></button>
+                            </div>
+                            <div id="conversations" class="list-group" style="margin-top: 10px;">
+                                <!-- Conversations will be dynamically populated here -->
+                            </div>
                         </div>
+                        <button class="btn btn-primary btn-sm" id="show-chat-sidebar" style="display: none;"><i class="fa fa-bars"></i></button>
                         <div class="col-9" id="chat-assistant">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
                               <div id="chatView" class="row flex-grow-1 overflow-auto">
                                   <!-- Chat messages will be dynamically populated here -->
                               </div>
-                              <div class="row">
-                                <div class="col">
-                                  <textarea id="messageText" class="form-control" placeholder="Your message here."></textarea>
-                                </div>
-                                <div class="col">
-                                  <div id="messageInput" class="input-group mb-3">
-                                    <textarea id="permanentMessageText" class="form-control" placeholder="Custom instructions for this session." style="margin-right: 10px;"></textarea>
-                                    <div class="input-group-append">
-                                      <button id="sendMessageButton" class="btn btn-success rounded-pill">
-                                          <i class="fas fa-paper-plane"></i> <!-- This is a Font Awesome icon -->
-                                      </button>
+                              <div id="chat-controls">
+                                <div class="row mb-1"> <!-- Reduced margin bottom -->
+                                    <div class="col p-0"> <!-- Removed padding -->
+                                        <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Your message here."></textarea>
                                     </div>
-                                  </div>
+                                    <div class="col p-0"> <!-- Removed padding -->
+                                        <div id="messageInput" class="input-group">
+                                            <textarea id="permanentMessageText" class="dynamic-textarea form-control" placeholder="Custom instructions for this session." style="margin-right: 10px !important; margin-left: 10px !important;"></textarea>
+                                            <div class="input-group-append">
+                                                <button id="sendMessageButton" class="btn btn-success rounded-pill">
+                                                    <i class="fas fa-paper-plane"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                              </div>
-                              <div class="row">
-                                  <div class="col">
-                                      <textarea id="linkInput" class="form-control" placeholder="Links to Visit, each in a new line"></textarea>
-                                  </div>
-                                  <div class="col">
-                                      <textarea id="searchInput" class="form-control" placeholder="Search Phrases, each in a new line"></textarea>
-                                  </div>
-                              </div>
-                              <div id="chat-options" class="mt-2 mb-2">
-                                
+                                <div class="row mb-1"> <!-- Reduced margin bottom -->
+                                    <div class="col p-0"> <!-- Removed padding -->
+                                        <textarea id="linkInput" class="dynamic-textarea form-control" placeholder="Links to Visit, each in a new line"></textarea>
+                                    </div>
+                                    <div class="col p-0"> <!-- Removed padding -->
+                                        <textarea id="searchInput" class="dynamic-textarea form-control" placeholder="Search Phrases, each in a new line" style="margin-left: 10px !important;"></textarea>
+                                    </div>
+                                </div>
+                                <div id="chat-options" class="mt-0 mb-0"> <!-- Removed top and bottom margin -->
+                                    
+                                </div>
                               </div>
                           </div>
                         </div>

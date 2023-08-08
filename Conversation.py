@@ -513,20 +513,19 @@ The most recent query by the human is as follows:
             doc_answer) > 0 else ""
         if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
-                yield {"text": "\n### Web searched with Queries: \n", "status": "displaying web search queries ... "}
-                answer += "\n### Web searched with Queries: \n"
-            for ix, q in enumerate(web_results.result()[0].result()['queries']):
-                answer += (str(ix + 1) + ". " + q + " \n</br>")
-                yield {"text": str(ix + 1) + ". " + q + " \n", "status": "displaying web search queries ... "}
-            answer += "\n\n### Search Results: \n"
-            yield {"text": "\n\n### Search Results: \n", "status": "displaying web search results ... "}
-            for ix, r in enumerate(web_results.result()[0].result()['search_results']):
-                answer += (str(ix + 1) + f". [{r['title']}]({r['link']})\n")
-                yield {"text": str(ix + 1) + f". [{r['title']}]({r['link']})\n", "status": "displaying web search results ... "}
-
-            yield {"text": "\n",
-                   "status": "displaying web search results ... "}
-            answer += "\n"
+                yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
+                answer += "#### Web searched with Queries: \n"
+                queries = two_column_list(web_results.result()[0].result()['queries'])
+                answer += (queries + "\n")
+                yield {"text": queries + "\n", "status": "displaying web search queries ... "}
+            if len(web_results.result()[0].result()['search_results']) > 0:
+                query_results = web_results.result()[0].result()['search_results']
+                answer += "\n#### Search Results: \n"
+                yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
+                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in query_results]
+                query_results = two_column_list(query_results)
+                answer += (query_results + "\n")
+                yield {"text": query_results + "\n", "status": "displaying web search results ... "}
             wrs = web_results.result()[1].result()
             full_info = wrs["full_info"]
             web_text = wrs["text"]
@@ -545,16 +544,25 @@ Use the documents given under 'additional information' and provide relevant info
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=True,)
         if llm.use_gpt4:
-            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 1000)
-            used_len = len(enc.encode(summary_text))
+            # Set limit on how many documents can be selected
+            link_result_text = get_first_last_parts("\n".join(link_result_text), 0, 2500)
+            web_text = get_first_last_parts("\n".join(web_text), 0, 2500)
+            doc_answer = get_first_last_parts("\n".join(doc_answer), 0, 2500)
+
+            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
+            used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
             previous_messages = get_first_last_parts(previous_messages, 0, 3500 - used_len)
             used_len = len(enc.encode(previous_messages)) + used_len
-            message_text = get_first_last_parts("\n".join(message_nodes), 0, 4500 - used_len)
-            permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 500)
-            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6000 - used_len)
+            message_text = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
+            permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
+            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6500 - used_len)
         else:
-            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
-            used_len = len(enc.encode(summary_text))
+            link_result_text = get_first_last_parts("\n".join(link_result_text), 0, 1000)
+            web_text = get_first_last_parts("\n".join(web_text), 0, 1000)
+            doc_answer = get_first_last_parts("\n".join(doc_answer), 0, 1000)
+
+            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 250)
+            used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
             previous_messages = get_first_last_parts(previous_messages, 0, 1500 - used_len)
             used_len = len(enc.encode(previous_messages)) + used_len
             message_text = get_first_last_parts("\n".join(message_nodes), 0, 2500 - used_len)
@@ -574,9 +582,10 @@ Use the documents given under 'additional information' and provide relevant info
 '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
-Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query. You must reply as an expert in the domain of the conversation.
-Use markdown syntax and markdown formatting to typeset and format your answer better. Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$'
-When you write code, write a brief description of the code and its functionality in the first line as a comment. {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else 'Provide short and concise responses to the query'}
+Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query.
+Use markdown formatting to typeset and format your answer better. Provide references in markdown link format like `[Link Text](link-url)`. Output any relevant equations in latex. Remember to put each equation or math in their own environment of '$$'. 
+Use all the documents provided in your answer to the user's query. Don't write code unless specifically asked to do so.
+{'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''}
 {summary_text}
 {last_few_messages}
 {other_relevant_messages}
