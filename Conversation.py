@@ -373,13 +373,13 @@ Rephrased and contextualised human's last message:
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Using these you will write a new summary of the conversation, and then you will write the salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
-Your salient points should focus on the current query and response and should not include details from previous salient points.
-Your summary should capture everything that has happened in the conversation till now including code, factual details, links, references, named entities and other details mentioned by the human and the AI. 
+Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
+Your salient points should only focus on the current query and response.
+Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references. Salient points (unforgettables) should be different from summary and capture different aspects of the conversation at a higher level.
 
 The previous summary and salient points of the conversation is as follows:
-'''{"".join(self.get_field("memory")["running_summary"][-1:])}'''
+'''{get_first_last_parts("".join(self.get_field("memory")["running_summary"][-2:]),0, 1000)}'''
 
 
 The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
@@ -492,6 +492,7 @@ The most recent query by the human is as follows:
             doc_future = get_async_future(get_multiple_answers, link_context + '\n\n' + "Provide elaborate, detailed and informative answer.", additional_docs_to_read, '', provide_detailed_answers)
         web_text = ''
         if google_scholar or perform_web_search:
+            # TODO: provide_detailed_answers addition
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search, link_context, 'chat',
                                            '',

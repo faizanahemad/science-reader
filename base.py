@@ -962,7 +962,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
 # TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
 def get_page_content(link, playwright_cdp_link=None):
-    
+    # TODO: try local browser based extraction first, if blocked then use cdplink
     text = ''
     title = ''
     try:
@@ -1461,7 +1461,7 @@ def process_pdf(link_title_context_apikeys):
         # Extracting info
 
         logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816*3 if detailed else 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
         tt = time.time() - st
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
@@ -1479,7 +1479,15 @@ def process_page_link(link_title_context_apikeys):
     if result is not None:
         return result
     st = time.time()
-    pgc = get_page_content(link, api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None)
+    scraping_browser_url = api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None
+    pgc = get_page_content(link, scraping_browser_url)
+    if len(pgc["text"].strip()) == 0:
+        pgc = get_page_content(link, scraping_browser_url)
+    if len(pgc["text"].strip()) == 0:
+        pgc = get_page_content(link)
+    if len(pgc["text"].strip()) == 0:
+        logger.error(f"[process_page_link] Empty text for link: {link}")
+        return {"link": link, "title": title, "text": '', "exception": True, "full_text": ''}
     title = pgc["title"]
     text = pgc["text"]
     extracted_info = ''
@@ -1487,7 +1495,7 @@ def process_page_link(link_title_context_apikeys):
     if len(text.strip()) > 0:
         chunked_text = ChunkText(text, 14336 if detailed else 2816, 0)[0]
         logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816*3 if detailed else 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
     else:
         chunked_text = text
         return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}
