@@ -528,6 +528,41 @@ def is_pdf_link(link):
     return content_type == 'application/pdf' or 'pdf' in content_type
 
 
+import threading
+from queue import Queue
+
+class ProcessFnWithTimeout:
+    def __init__(self, result_queue: Queue):
+        self.result_queue = result_queue
+
+    def __call__(self, fn, timeout, *args, **kwargs):
+        result = None
+        exception_event = threading.Event()
+
+        def worker():
+            nonlocal result
+            try:
+                result = fn(*args, **kwargs)  # Call the original function with its args and kwargs
+            except Exception as e:
+                # Handle exceptions if needed
+                print(f"Exception processing function {fn.__name__}: {e}")
+            finally:
+                exception_event.set()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        # Wait for either the result to be ready or the timeout to occur
+        exception_event.wait(timeout)
+        if not exception_event.is_set():
+            print(f"Timeout processing function {fn.__name__}")
+            result = None  # Use None to indicate timeout
+
+        # Put the result (or None if there was a timeout) in the queue
+        self.result_queue.put(result)
+        return result
+
+
+
 
 
 

@@ -301,14 +301,14 @@ class Conversation:
         previous_messages = self.get_field("messages")[-message_lookback:]
         previous_messages = '\n\n'.join([f"Sender: {m['sender']}\n'''{m['text']}'''\n" for m in previous_messages])
         running_summary = self.get_field("memory")["running_summary"][-1:]
-        summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=3)
+        summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=2)
         summary_nodes = [n.page_content for n in summary_nodes]
         not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-summary_lookback:]
         summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
         summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
         # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
 
-        message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=3)
+        message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=2)
         message_nodes = [n.page_content for n in message_nodes]
         not_taken_messages = self.get_field("messages")[-message_lookback:]
         message_nodes = [n for n in message_nodes if n not in not_taken_messages]
@@ -319,7 +319,7 @@ class Conversation:
         if links is not None and len(links) > 0:
             for link in links:
                 if link in raw_documents_index:
-                    raw_document_nodes = raw_documents_index[link].similarity_search(query, k=2)
+                    raw_document_nodes = raw_documents_index[link].similarity_search(query, k=3)
                     document_nodes.extend(raw_document_nodes)
         document_nodes = [n.page_content for n in document_nodes]
         document_nodes = [n for n in document_nodes if len(n.strip()) > 0]
@@ -428,7 +428,7 @@ Now lets write a title of the conversation.
             if link in raw_doc_index:
                 continue
             text = ChunkText(text, 2**14, 0)[0]
-            chunks = ChunkText(text, 512, 32)
+            chunks = ChunkText(text, 256, 32)
             chunks = [f"link:{link}\n\ntext:{c}" for c in chunks if len(c.strip()) > 0]
             idx = create_index_faiss(chunks, get_embedding_model(self.get_api_keys()), )
             raw_doc_index[link] = idx
@@ -458,6 +458,7 @@ Now lets write a title of the conversation.
             # Acquiring the lock so that we don't start another reply before previous is stored.
             pass
         enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        query["messageText"] = query["messageText"].strip()
         """
         {"additional_docs_to_read": [], "messageText":"Hey there","permanentMessageText":"Some custom instructions","checkboxes":{"perform_web_search":false,"use_multiple_docs":false,"provide_detailed_answers":false,"googleScholar":false,"additional_docs_to_read":[]},"links":["www.example.com"],"search":["what is self attention?"]}
         """
@@ -496,22 +497,20 @@ The most recent query by the human is as follows:
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search, link_context, 'chat',
                                            '',
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar)
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
         if len(links) > 0:
             link_result_text, all_docs_info = link_future.result()
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             yield {"text": '', "status": "Finished reading your provided links."}
-        link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
-            link_result_text) > 0 else ""
+
         logger.info(f"Time taken to read links: {time.time() - st}")
         logger.info(f"Link result text:\n```\n{link_result_text}\n```")
         if len(additional_docs_to_read) > 0:
             doc_answers = doc_future.result()
             doc_answer = doc_answers[1].result()["text"]
             yield {"text": '', "status": "document reading completed"}
-        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
-            doc_answer) > 0 else ""
+
         if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
                 yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
@@ -520,21 +519,33 @@ The most recent query by the human is as follows:
                 answer += (queries + "\n")
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
-                query_results = web_results.result()[0].result()['search_results']
+                query_results_part1 = web_results.result()[0].result()['search_results'][0]
+                query_results_part2 = web_results.result()[0].result()['search_results'][1]
+                cut_off = 4 if provide_detailed_answers else 2
+                seen_query_results = query_results_part1[:cut_off] + query_results_part2[:cut_off]
+                unseen_query_results = query_results_part1[cut_off:] + query_results_part2[cut_off:]
                 answer += "\n#### Search Results: \n"
+                answer += "\n###### Results used in answering: \n"
                 yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
-                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in query_results]
+                yield {"text": "\n###### Results used in answering: \n", "status": "displaying web search results ... "}
+                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
-                yield {"text": query_results + "\n", "status": "displaying web search results ... "}
+                yield {"text": query_results + "\n", "status": "Reading web search results ... "}
+
+                if len(unseen_query_results) > 0:
+                    answer += "\n###### Other Results: \n"
+                    yield {"text": "\n###### Other Results: \n", "status": "displaying web search results ... "}
+                    query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in unseen_query_results]
+                    query_results = two_column_list(query_results)
+                    answer += (query_results + "\n")
+                    yield {"text": query_results + "\n", "status": "Reading web search results ... "}
             wrs = web_results.result()[1].result()
             full_info = wrs["full_info"]
             web_text = wrs["text"]
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             yield {"text": '', "status": "web search completed"}
-        web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
-Use the documents given under 'additional information' and provide relevant information from them for user's question. Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).""" if len(
-            web_text) > 0 else ""
+
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
         yield {"text": '', "status": "getting previous context"}
@@ -545,63 +556,76 @@ Use the documents given under 'additional information' and provide relevant info
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=True,)
         if llm.use_gpt4:
+            enc = tiktoken.encoding_for_model("gpt-4")
             # Set limit on how many documents can be selected
-            link_result_text = get_first_last_parts("\n".join(link_result_text), 0, 2500)
-            web_text = get_first_last_parts("\n".join(web_text), 0, 2500)
-            doc_answer = get_first_last_parts("\n".join(doc_answer), 0, 2500)
+            link_result_text = get_first_last_parts(link_result_text, 0, 2500)
+            web_text = get_first_last_parts(web_text, 0, 2500)
+            doc_answer = get_first_last_parts(doc_answer, 0, 2500)
 
             summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
             used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-            previous_messages = get_first_last_parts(previous_messages, 0, 3500 - used_len)
+            previous_messages = get_first_last_parts(previous_messages, 0, 4000 - used_len)
             used_len = len(enc.encode(previous_messages)) + used_len
-            message_text = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
+            other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
             permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
             document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6500 - used_len)
         else:
-            link_result_text = get_first_last_parts("\n".join(link_result_text), 0, 1000)
-            web_text = get_first_last_parts("\n".join(web_text), 0, 1000)
-            doc_answer = get_first_last_parts("\n".join(doc_answer), 0, 1000)
+            # TODO: just use gpt-3.5 16k here
+            enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+            link_result_text = get_first_last_parts(link_result_text, 0, 1000)
+            web_text = get_first_last_parts(web_text, 0, 1000)
+            doc_answer = get_first_last_parts(doc_answer, 0, 1000)
 
             summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 250)
             used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
             previous_messages = get_first_last_parts(previous_messages, 0, 1500 - used_len)
             used_len = len(enc.encode(previous_messages)) + used_len
-            message_text = get_first_last_parts("\n".join(message_nodes), 0, 2500 - used_len)
+            other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 2500 - used_len)
             permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
             document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 3500 - used_len)
 
+        web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).""" if len(
+            web_text) > 0 else ""
+        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
+            doc_answer) > 0 else ""
+        link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
+            link_result_text) > 0 else ""
         permanent_instructions = f"""Few other instructions from the user are as follows:
 {permanent_instructions}""" if len(permanent_instructions) > 0 else ''
         # TODO: ask to provide links to the documents that were read.
         summary_text = f"""The summary of the conversation is as follows:
 '''{summary_text}'''""" if len(summary_text) > 0 else ''
-        last_few_messages = f"""The last few messages of the conversation are as follows:
+        previous_messages = f"""The last few messages of the conversation are as follows:
 '''{previous_messages}'''""" if len(previous_messages) > 0 else ''
         other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
-'''{message_text}'''""" if len(message_text) > 0 else ''
-        document_text = f"""The documents that were read are as follows:
+'''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
+        document_nodes = f"""The documents that were read are as follows:
 '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
 Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query.
 Use markdown formatting to typeset and format your answer better. Provide references in markdown link format like `[Link Text](link-url)`. Output any relevant equations in latex. Remember to put each equation or math in their own environment of '$$'. 
-Use all the documents provided in your answer to the user's query. Don't write code unless specifically asked to do so.
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''}
-{summary_text}
-{last_few_messages}
-{other_relevant_messages}
-{document_text}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: '''{query["messageText"]}'''
 
-The most recent message of the conversation sent by the human now to which we will be replying is as follows:
-'''{query["messageText"]}'''
+{summary_text}
+{previous_messages}
+{other_relevant_messages}
+{document_nodes}
 {permanent_instructions}
 {doc_answer}
 {web_text}
 {link_result_text}
-Now lets write a clear, helpful and informative response to the user's query (most recent message of the conversation).
+Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """
         yield {"text": '', "status": "starting answer generation"}
+        logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
+last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 
+permanent instructions length: {len(enc.encode(permanent_instructions))}, doc answer length: {len(enc.encode(doc_answer))}, web text length: {len(enc.encode(web_text))}, link result text length: {len(enc.encode(link_result_text))}""")
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
         et = time.time() - st
         logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
@@ -611,7 +635,7 @@ Response to the user's query:
             logger.debug(f"Web text: {web_text}")
 
         for txt in main_ans_gen:
-            yield {"text": txt, "status": "in-progress"}
+            yield {"text": txt, "status": "answering in progress"}
             answer += txt
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}

@@ -490,7 +490,8 @@ class DocIndex:
                 answer += "\n\n### Search Results: \n"
                 yield "\n\n### Search Results: \n"
                 yield '</br>'
-                for ix, r in enumerate(web_results.result()[0].result()['search_results']):
+                search_results = web_results.result()[0].result()['search_results'][0] + web_results.result()[0].result()['search_results'][1]
+                for ix, r in enumerate(search_results):
                     answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
                     yield str(ix+1) + f". [{r['title']}]({r['link']})"
                     yield '</br>'
@@ -773,7 +774,8 @@ Detailed and comprehensive summary:
             answer += "\n\n### Search Results: \n"
             yield "\n\n### Search Results: \n"
             yield '</br>'
-            for ix, r in enumerate(additional_info['search_results']):
+            search_results = additional_info['search_results'][0] + additional_info['search_results'][1]
+            for ix, r in enumerate(search_results):
                 answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
                 yield str(ix+1) + f". [{r['title']}]({r['link']})"
                 yield '</br>'

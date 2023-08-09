@@ -222,9 +222,9 @@ def call_non_chat_model(model, text, temperature, system, api_key):
 
 
 class CallLLm:
-    def __init__(self, keys, use_gpt4=False, use_small_models=False, self_hosted_model_url=None):
+    def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
         
-        
+        assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
         self.system = "You are a helpful assistant. Please follow the instructions and respond to the user request."
         available_openai_models = self.keys["openai_models_list"]
@@ -233,13 +233,16 @@ class CallLLm:
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models
         self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
-        openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m]
+        openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m and "16k" not in m]
+        openai_16k_models = ["gpt-3.5-turbo-16k"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo-16k" in m]
+        self.use_16k = use_16k and len(openai_16k_models) > 0
         openai_basic_models = [
             "text-davinci-003", "text-davinci-003", 
             "text-davinci-002",]
         
         self.openai_basic_models = random.sample(openai_basic_models, len(openai_basic_models))
         self.openai_turbo_models = random.sample(openai_turbo_models, len(openai_turbo_models))
+        self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
         self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
@@ -264,7 +267,7 @@ class CallLLm:
                 else:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
-        elif self.keys["openAIKey"] is not None and not self.use_small_models:
+        elif self.keys["openAIKey"] is not None and not self.use_small_models and not self.use_16k:
             models = round_robin(self.openai_turbo_models)
             assert len(self.turbo_enc.encode(text)) < 4000
             try:
@@ -290,7 +293,27 @@ class CallLLm:
                         return call_with_stream(call_ai21, stream, text, temperature, self.keys["ai21Key"])
                     else:
                         raise e
-                        
+        elif self.keys["openAIKey"] is not None and self.use_16k:
+            text_len = len(self.turbo_enc.encode(text))
+            logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
+            models = round_robin(self.openai_16k_models)
+            assert text_len < 15000
+            try:
+                model = next(models)
+#                 logger.info(f"Try 16k model with stream = {stream}")
+                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+            except Exception as e:
+                if type(e).__name__ == 'AssertionError':
+                    raise e
+                if len(self.openai_16k_models) > 1:
+                    model = next(models)
+                    fn = call_chat_model
+                else:
+                    raise e
+                try:
+                    return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                except Exception as e:
+                    raise e
         elif self.keys["cohereKey"] is not None:
             return call_with_stream(call_cohere, stream, text, temperature, self.keys["cohereKey"])
         elif self.keys["ai21Key"] is not None:
@@ -536,9 +559,9 @@ def process_text(text, chunk_size, my_function, keys):
         logger.warning("--- process_text --- Calling Summarizer on single result")
         results = summariser(results)
     
-    if not tlc(results):
-        logger.warning("--- process_text --- Calling ReduceRepeatTool")
-        results = ReduceRepeatTool(keys)(results)
+    # if not tlc(results):
+    #     logger.warning("--- process_text --- Calling ReduceRepeatTool")
+    #     results = ReduceRepeatTool(keys)(results)
     assert isinstance(results, str)
     return results
 
@@ -650,38 +673,39 @@ ContextualReader:
         `contextual_content_from_document = ContextualReader()(context_user_query="instructions on how to read document", text_document="document to read") # Note: this tool needs to be initialized first.`
 
     """
-        
+        # Use markdown formatting to typeset or format your answer better.
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide elaborate, informative and in-depth response. \n"
+        response_prompt = "Short, concise and informative" if provide_short_responses else "Elaborate, informative and in-depth response"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=("Important instruction: Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Important instruction: Provide elaborate and in-depth information. \n") + """
-Provide relevant amd helpful information from the given document for the given question or conversation context below:
-'''{context}'''
+            template=f"""
+{long_or_short}Provide relevant and helpful information from the given document for the given question or conversation context below:
+'''{{context}}'''
 
 Document to read and extract information from:
 '''
-{document}
+{{document}}
 '''
 
 If you find nothing useful at all then say 'No relevant information found.'.
-Use markdown formatting to typeset or format your answer better.
 Output any relevant equations in latex or markdown format.
-Relevant Information:
+{response_prompt} Response:
 """,
         )
         
-    def get_one(self, context, document):
+    def get_one(self, context, chunk_size, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_small_models=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>4000, use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
-        assert isinstance(result,str)
+        assert isinstance(result, str)
         return result
         
         
     
-    def get_one_with_exception(self, context, document):
+    def get_one_with_exception(self, context, chunk_size, document):
         try:
-            text = self.get_one(context, document)
+            text = self.get_one(context, chunk_size, document)
             return text
         except Exception as e:
             exp_str = str(e)
@@ -690,14 +714,14 @@ Relevant Information:
                 logger.warning(f"ContextualReader:: Too long context, raised exception {str(e)}")
                 return " ".join([self.get_one_with_exception(context, st) for st in split_text(document)])
             raise e
-            
 
-    def __call__(self, context_user_query, text_document, chunk_size=3000):
+    def __call__(self, context_user_query, text_document, chunk_size=3072):
         assert isinstance(text_document, str)
         import functools
-        part_fn = functools.partial(self.get_one_with_exception, context_user_query)
+        part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
-        result = get_first_last_parts(result, 150, 0) if self.provide_short_responses else get_first_last_parts(result, 300, 0)
+        short = self.provide_short_responses and chunk_size < 4000
+        result = get_first_last_parts(result, 150, 0) if short else get_first_last_parts(result, 384, 0)
         assert isinstance(result, str)
         return result
 
@@ -1304,7 +1328,7 @@ Output only a valid python list of web search query strings:
     for r in qres_web:
         title = r.get("title", "").lower()
         link = r.get("link", "")
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "arxiv.org" in link:
             continue
         dedup_results_web.append(r)
         seen_titles.add(title)
@@ -1360,13 +1384,13 @@ Output only a valid python list of web search query strings:
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
     contexts = [context +"? \n" + r["query"] for r in dedup_results]
-    all_results_doc = dedup_results + dedup_results_web
+    all_results_doc = [dedup_results, dedup_results_web]
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False):
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar)
     # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    part2_res = get_async_future(web_search_part2, part1_res, api_keys)
+    part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def get_part_1_results(part1_res):
@@ -1374,43 +1398,49 @@ def get_part_1_results(part1_res):
     return {"search_results": rs[0], "queries": rs[8]}
 
 
-def web_search_part2(part1_res, api_keys):
+def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
     all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
 
     variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
 
+    cut_off = 4 if provide_detailed_answers else 2
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
-            print(f"{name} is not a list or a string, but a {type(var)}")
+            pass
+            # print(f"{name} is not a list or a string, but a {type(var)}")
         else:
-            variables[i] = var[:4]
+            variables[i] = var[:cut_off]
 
     web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
 
-    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys)
-    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts)
+    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys, provide_detailed_answers=provide_detailed_answers)
+    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
     read_text_web, per_pdf_texts_web = web_future.result()
     read_text, per_pdf_texts = pdf_future.result()
+
+
     crawl_text = (per_pdf_texts + per_pdf_texts_web)
     all_text = read_text + "\n\n" + read_text_web
-    if rerank_available and len(crawl_text) > 10:
-        import cohere
-        co = cohere.Client(api_keys["cohereKey"])
-        docs = [r["text"] for r in crawl_text]
-        rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(8, len(docs) // 2),
-                                   model='rerank-english-v2.0')
-        crawl_text = [crawl_text[r.index] for r in rerank_results]
-        pre_rerank = all_results_doc
-        all_results_doc = [all_results_doc[r.index] for r in rerank_results]
-        crawl_copy = deepcopy(crawl_text)
-        for i, r in enumerate(crawl_copy):
-            _ = r.pop("full_text", None)
-        all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_copy])
-        logger.debug(
-            f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
+    # if rerank_available and len(crawl_text) > 10:
+    #     import cohere
+    #     co = cohere.Client(api_keys["cohereKey"])
+    #     docs = [r["text"] for r in crawl_text]
+    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(8, len(docs) // 2),
+    #                                model='rerank-english-v2.0')
+    #     crawl_text = [crawl_text[r.index] for r in rerank_results]
+    #     pre_rerank = all_results_doc
+    #     all_results_doc = [all_results_doc[r.index] for r in rerank_results]
+    #     crawl_copy = deepcopy(crawl_text)
+    #     for i, r in enumerate(crawl_copy):
+    #         _ = r.pop("full_text", None)
+    #     all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_copy])
+    #     all_text = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in crawl_copy])
+    #     logger.debug(
+    #         f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
 
     logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
+    logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results len = {len(all_text.split())}, {len(enc.encode(all_text))}")
     return {"text": all_text, "full_info": crawl_text, "search_results": all_results_doc, "queries": query_strings}
 
 
@@ -1461,7 +1491,9 @@ def process_pdf(link_title_context_apikeys):
         # Extracting info
 
         logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816*3 if detailed else 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
+                                                api_keys, provide_short_responses=False,
+                                                chunk_size=3072 if detailed else 3072)
         tt = time.time() - st
         logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
     except Exception as e:
@@ -1495,7 +1527,8 @@ def process_page_link(link_title_context_apikeys):
     if len(text.strip()) > 0:
         chunked_text = ChunkText(text, 14336 if detailed else 2816, 0)[0]
         logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816*3 if detailed else 1280, 0)[0], api_keys, provide_short_responses=True, chunk_size=3072)
+        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0], api_keys, provide_short_responses=False,
+                                                chunk_size=3072 if detailed else 3072)
     else:
         chunked_text = text
         return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}
@@ -1518,6 +1551,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
+    processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     assert len(processed_texts) > 0
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
@@ -1539,6 +1573,7 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provid
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
+    # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     assert len(processed_texts) > 0
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
@@ -1547,7 +1582,8 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provid
     # Concatenate all the texts
     
     # Cohere rerank here
-    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
+    # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     return result, full_processed_texts
 
 def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
@@ -1557,13 +1593,15 @@ def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, p
     futures = [pdf_process_executor.submit(process_page_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
+    # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     if len(processed_texts) == 0:
         logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links}")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
         del p["full_text"]
-    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
+    # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     return result, full_processed_texts
 
 
