@@ -147,11 +147,14 @@ def get_embedding_model(keys):
 
 @retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(3))
 def call_ai21(text, temperature=0.7, api_key=None):
+    if get_gpt4_word_count(text) > 3600:
+        logger.warning(f"Text too long, taking only first 3600 tokens")
+        text = get_first_last_parts(text, 3600, 0)
     response_grande = ai21.Completion.execute(
           model="j2-jumbo-instruct",
           prompt=text,
           numResults=1,
-          maxTokens=4000,
+          maxTokens=4000 - get_gpt4_word_count(text),
           temperature=temperature,
           topKReturn=0,
           topP=0.9,
@@ -165,13 +168,13 @@ def call_cohere(text, temperature=0.7, api_key=None):
     import cohere
     co = cohere.Client(api_key)
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
-    if get_gpt4_word_count(text) > 1200:
-        logger.warning(f"Text too long, taking only first 1200 words")
-        text = get_first_last_parts(text, 1200)
+    if get_gpt4_word_count(text) > 3600:
+        logger.warning(f"Text too long, taking only first 3600 tokens")
+        text = get_first_last_parts(text, 3600, 0)
     response = co.generate(
         model='command-nightly',
         prompt=text,
-        max_tokens=4000,
+        max_tokens=4000 - get_gpt4_word_count(text),
         temperature=temperature)
     return response.generations[0].text
 
@@ -267,7 +270,7 @@ class CallLLm:
                 else:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
-        elif self.keys["openAIKey"] is not None and not self.use_small_models and not self.use_16k:
+        elif self.keys["openAIKey"] is not None and not self.use_16k and ((not self.use_small_models) or (self.use_small_models and self.keys["cohereKey"] is None and self.keys["ai21Key"] is None)):
             models = round_robin(self.openai_turbo_models)
             assert len(self.turbo_enc.encode(text)) < 4000
             try:
@@ -696,7 +699,7 @@ Output any relevant equations in latex or markdown format.
     def get_one(self, context, chunk_size, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>4000, use_small_models=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>4000, use_small_models=True)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -721,7 +724,7 @@ Output any relevant equations in latex or markdown format.
         part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         short = self.provide_short_responses and chunk_size < 4000
-        result = get_first_last_parts(result, 150, 0) if short else get_first_last_parts(result, 384, 0)
+        result = get_first_last_parts(result, 256, 0) if short else get_first_last_parts(result, 384, 0)
         assert isinstance(result, str)
         return result
 

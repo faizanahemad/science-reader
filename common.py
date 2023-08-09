@@ -525,7 +525,7 @@ import requests
 def is_pdf_link(link):
     response = requests.head(link)
     content_type = response.headers.get('Content-Type')
-    return content_type == 'application/pdf' or 'pdf' in content_type
+    return content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type)
 
 
 import threading
