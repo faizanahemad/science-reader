@@ -10,6 +10,8 @@ var ConversationManager = {
             url: '/create_conversation',
             type: 'POST',
             success: function(conversation) {
+                $('#linkInput').val('')
+                $('#searchInput').val('')
                 // Add new conversation to the list
                 loadConversations(true).done(function(){
                     // Set the new conversation as the active conversation and highlight it
@@ -314,8 +316,8 @@ function sendMessageCallback() {
         }
         // Call the renderStreamingResponse function to handle the streaming response
         renderStreamingResponse(response, ConversationManager.activeConversationId, messageText);
-        // $('#linkInput').val('')
-        // $('#searchInput').val('')
+        $('#linkInput').val('')
+        $('#searchInput').val('')
     });
 }
 
