@@ -451,6 +451,7 @@ Now lets write a title of the conversation.
         # TODO: post-critique and improve
         # TODO: Use gpt-3.5-16K for longer contexts as needed.
         # query payload below, actual query is the messageText
+        pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         lock_location = self._get_lock_location()
         lock = FileLock(f"{lock_location}.lock")
@@ -502,8 +503,8 @@ The most recent query by the human is as follows:
         if len(links) > 0:
             link_result_text, all_docs_info = link_future.result()
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
-            read_links = [("".join(link_details.split("\n")[:1]), "".join(link_details.split("\n")[1:])) for link_details in link_result_text.split("\n\n")]
-            read_links = "\nWe read the below links:\n" + "\n".join([f"{r[0]} : {len(enc.encode(r[1]))}" for r in read_links if len(r[0]) > 0])
+            read_links = re.findall(pattern, link_result_text)
+            read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
 
             yield {"text": read_links, "status": "Finished reading your provided links."}
 
@@ -547,10 +548,8 @@ The most recent query by the human is as follows:
             full_info = wrs["full_info"]
             web_text = wrs["text"]
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
-            read_links = [("".join(link_details.split("\n")[:1]), "".join(link_details.split("\n")[1:])) for
-                          link_details in web_text.split("\n\n")]
-            read_links = "\nWe read the below links:\n" + "\n".join(
-                [f"{r[0]} : {len(enc.encode(r[1]))}" for r in read_links if len(r[0]) > 0])
+            read_links = re.findall(pattern, web_text)
+            read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
             yield {"text": read_links, "status": "web search completed"}
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.

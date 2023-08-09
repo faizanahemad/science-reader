@@ -1414,8 +1414,8 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
 
     web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
 
-    web_future = get_async_future(read_over_multiple_webpages, web_links, web_titles, web_contexts, api_keys, provide_detailed_answers=provide_detailed_answers)
-    pdf_future = get_async_future(read_over_multiple_pdf, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
+    web_future = get_async_future(read_over_multiple_links, web_links, web_titles, web_contexts, api_keys, provide_detailed_answers=provide_detailed_answers)
+    pdf_future = get_async_future(read_over_multiple_links, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
     read_text_web, per_pdf_texts_web = web_future.result()
     read_text, per_pdf_texts = pdf_future.result()
 
