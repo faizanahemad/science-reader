@@ -502,7 +502,10 @@ The most recent query by the human is as follows:
         if len(links) > 0:
             link_result_text, all_docs_info = link_future.result()
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
-            yield {"text": '', "status": "Finished reading your provided links."}
+            read_links = [("".join(link_details.split("\n")[:1]), "".join(link_details.split("\n")[1:])) for link_details in link_result_text.split("\n\n")]
+            read_links = "\nWe read the below links:\n" + "\n".join([f"{r[0]} : {len(enc.encode(r[1]))}" for r in read_links if len(r[0]) > 0])
+
+            yield {"text": read_links, "status": "Finished reading your provided links."}
 
         logger.info(f"Time taken to read links: {time.time() - st}")
         logger.info(f"Link result text:\n```\n{link_result_text}\n```")
@@ -527,15 +530,15 @@ The most recent query by the human is as follows:
                 answer += "\n#### Search Results: \n"
                 answer += "\n###### Results used in answering: \n"
                 yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
-                yield {"text": "\n###### Results used in answering: \n", "status": "displaying web search results ... "}
+                yield {"text": "\n###### Trying to read below links: \n", "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Reading web search results ... "}
 
                 if len(unseen_query_results) > 0:
-                    answer += "\n###### Other Results: \n"
-                    yield {"text": "\n###### Other Results: \n", "status": "displaying web search results ... "}
+                    answer += "\n###### Other Search Results: \n"
+                    yield {"text": "\n###### Other Search Results: \n", "status": "displaying web search results ... "}
                     query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in unseen_query_results]
                     query_results = two_column_list(query_results)
                     answer += (query_results + "\n")
@@ -544,7 +547,11 @@ The most recent query by the human is as follows:
             full_info = wrs["full_info"]
             web_text = wrs["text"]
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
-            yield {"text": '', "status": "web search completed"}
+            read_links = [("".join(link_details.split("\n")[:1]), "".join(link_details.split("\n")[1:])) for
+                          link_details in web_text.split("\n\n")]
+            read_links = "\nWe read the below links:\n" + "\n".join(
+                [f"{r[0]} : {len(enc.encode(r[1]))}" for r in read_links if len(r[0]) > 0])
+            yield {"text": read_links, "status": "web search completed"}
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 

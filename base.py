@@ -1551,8 +1551,10 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
-    processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
-    assert len(processed_texts) > 0
+    # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
+    # assert len(processed_texts) > 0
+    if len(processed_texts) == 0:
+        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_links")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
@@ -1560,7 +1562,8 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Concatenate all the texts
 
     # Cohere rerank here
-    result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
+    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
     return result, full_processed_texts
 
 def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
@@ -1574,7 +1577,9 @@ def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provid
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
-    assert len(processed_texts) > 0
+    # assert len(processed_texts) > 0
+    if len(processed_texts) == 0:
+        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_pdf")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
@@ -1595,7 +1600,7 @@ def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, p
     processed_texts = [p for p in processed_texts if not p["exception"]]
     # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     if len(processed_texts) == 0:
-        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links}")
+        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_webpages")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
         del p["exception"]
