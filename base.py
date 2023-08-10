@@ -168,13 +168,13 @@ def call_cohere(text, temperature=0.7, api_key=None):
     import cohere
     co = cohere.Client(api_key)
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
-    if get_gpt4_word_count(text) > 3600:
+    if get_gpt4_word_count(text) > 3400:
         logger.warning(f"Text too long, taking only first 3600 tokens")
-        text = get_first_last_parts(text, 3600, 0)
+        text = get_first_last_parts(text, 3400, 0)
     response = co.generate(
         model='command-nightly',
         prompt=text,
-        max_tokens=4000 - get_gpt4_word_count(text),
+        max_tokens=3800 - get_gpt4_word_count(text),
         temperature=temperature)
     return response.generations[0].text
 
