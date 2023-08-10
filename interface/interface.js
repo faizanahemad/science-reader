@@ -713,6 +713,7 @@ function setKeysFromJson() {
         for (const key in keyStore) {
             // update the input field value
             let keyElement = document.getElementById(key);
+            localStorage.setItem(key, keyStore[key]);
             if (keyElement) {
                 keyElement.value = keyStore[key];
             }
