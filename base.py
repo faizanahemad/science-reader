@@ -126,6 +126,7 @@ logging.basicConfig(
 
 from tenacity import (
     retry,
+    RetryError,
     stop_after_attempt,
     wait_random_exponential,
 )
@@ -145,7 +146,7 @@ def get_embedding_model(keys):
     openai_embed = OpenAIEmbeddings(openai_api_key=openai_key, model='text-embedding-ada-002')
     return openai_embed
 
-@retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(3))
+@retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_ai21(text, temperature=0.7, api_key=None):
     if get_gpt4_word_count(text) > 3600:
         logger.warning(f"Text too long, taking only first 3600 tokens")
@@ -159,14 +160,14 @@ def call_ai21(text, temperature=0.7, api_key=None):
           topKReturn=0,
           topP=0.9,
           stopSequences=["##"],
-          api_key=api_key,
+          api_key=api_key["ai21Key"],
     )
     result = response_grande["completions"][0]["data"]["text"]
     return result
-@retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(3))
+@retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_cohere(text, temperature=0.7, api_key=None):
     import cohere
-    co = cohere.Client(api_key)
+    co = cohere.Client(api_key["cohereKey"])
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
     if get_gpt4_word_count(text) > 3400:
         logger.warning(f"Text too long, taking only first 3600 tokens")
@@ -293,7 +294,7 @@ class CallLLm:
                     if type(e).__name__ == 'AssertionError':
                         raise e
                     elif self.keys["ai21Key"] is not None:
-                        return call_with_stream(call_ai21, stream, text, temperature, self.keys["ai21Key"])
+                        return call_with_stream(call_ai21, stream, text, temperature, self.keys)
                     else:
                         raise e
         elif self.keys["openAIKey"] is not None and self.use_16k:
@@ -318,10 +319,10 @@ class CallLLm:
                 except Exception as e:
                     raise e
         elif self.keys["cohereKey"] is not None:
-            return call_with_stream(call_cohere, stream, text, temperature, self.keys["cohereKey"])
+            return call_with_stream(call_cohere, stream, text, temperature, self.keys, backup_function=call_ai21 if self.keys["ai21Key"] is not None else None)
         elif self.keys["ai21Key"] is not None:
 #             logger.info(f"Try Ai21 model with stream = {stream}, Ai21 key = {self.keys['ai21Key']}")
-            return call_with_stream(call_ai21, stream, text, temperature, self.keys["ai21Key"])
+            return call_with_stream(call_ai21, stream, text, temperature, self.keys, backup_function=call_cohere if self.keys["cohereKey"] is not None else None)
         elif self.self_hosted_model_url is not None:
             raise ValueError("Self hosted models not yet supported")
         else:
@@ -681,7 +682,7 @@ ContextualReader:
         response_prompt = "Short, concise and informative" if provide_short_responses else "Elaborate, informative and in-depth response"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=f"""
+            template=f"""You are an AI expert assistant for scientific research and study.
 {long_or_short}Provide relevant and helpful information from the given document for the given question or conversation context below:
 '''{{context}}'''
 

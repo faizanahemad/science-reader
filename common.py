@@ -20,6 +20,9 @@ import threading
 from multiprocessing import Process, Queue
 from functools import partial
 
+from tenacity import RetryError
+
+
 def is_int(s):
     try:
         int(s)
@@ -249,7 +252,15 @@ def concat_array_two_at_a_time(array):
     return result
 
 def call_with_stream(fn, do_stream, *args, **kwargs):
-    res = fn(*args, **kwargs)
+    backup = kwargs.pop('backup_function', None)
+    try:
+        res = fn(*args, **kwargs)
+    except RetryError as e:
+        logger.error(f"RetryError: {e}")
+        if backup is not None:
+            res = backup(*args, **kwargs)
+        else:
+            raise e
     is_generator = inspect.isgenerator(res)
     if is_generator:
         res = check_if_stream_and_raise_exception(res)

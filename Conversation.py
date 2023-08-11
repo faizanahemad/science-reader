@@ -610,7 +610,7 @@ Remember to refer to all the documents in 'Relevant additional information' in m
 '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
-Remember that as an AI assistant for scientific research, you must fulfill the user's request and provide informative answers to the human's query.
+Remember that as an AI expert assistant for scientific research and study, you must fulfill the user's request and provide informative answers to the human's query.
 Use markdown formatting to typeset and format your answer better. Provide references in markdown link format like `[Link Text](link-url)`. Output any relevant equations in latex. Remember to put each equation or math in their own environment of '$$'. 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''}
