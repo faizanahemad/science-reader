@@ -988,23 +988,41 @@ def list_conversation_by_user():
     conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
     conversations = [conversation for conversation in conversations if conversation is not None]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
-    data = [conversation.get_metadata() for conversation in conversations]
-    sorted_data_reverse = sorted(data, key=lambda x: x['last_updated'], reverse=True)
+    data = [[conversation.get_metadata(), conversation] for conversation in conversations]
+    sorted_data_reverse = sorted(data, key=lambda x: x[0]['last_updated'], reverse=True)
+    # TODO: if any conversation has 0 messages then just make it the latest. IT should also have a zero length summary.
+
+    if len(sorted_data_reverse) > 0 and len(sorted_data_reverse[0][0]["summary_till_now"].strip()) > 0:
+        sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: len(x[0]['summary_till_now'].strip()), reverse=False)
+        if sorted_data_reverse[0][0]["summary_till_now"].strip() == "":
+            new_conversation = sorted_data_reverse[0][1]
+            sorted_data_reverse = sorted_data_reverse[1:]
+            sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]['last_updated'], reverse=True)
+            new_conversation.set_field("memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        else:
+            new_conversation = create_conversation_simple(session)
+        sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
+    sorted_data_reverse = [sd[0] for sd in sorted_data_reverse]
     return jsonify(sorted_data_reverse)
 
 @app.route('/create_conversation', methods=['POST'])
 @login_required
 def create_conversation():
+    conversation = create_conversation_simple(session)
+    data = conversation.get_metadata()
+    return jsonify(data)
+
+def create_conversation_simple(session):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     from base import get_embedding_model
     conversation_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(36))
-    conversation = Conversation(email, openai_embed = get_embedding_model(keys), storage = conversation_folder,
-                                conversation_id= conversation_id)
+    conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,
+                                conversation_id=conversation_id)
     conversation = set_keys_on_docs(conversation, keys)
-    data = conversation.get_metadata()
     addConversationToUser(email, conversation.conversation_id)
-    return jsonify(data)
+    return conversation
+
 
 @app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
 @login_required

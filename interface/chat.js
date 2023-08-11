@@ -16,7 +16,6 @@ var ConversationManager = {
                 loadConversations(true).done(function(){
                     // Set the new conversation as the active conversation and highlight it
                     ConversationManager.setActiveConversation(conversation.conversation_id);
-                    highLightActiveConversation();
                 });
             }
         });
@@ -35,7 +34,6 @@ var ConversationManager = {
                     var firstConversationId = $('#conversations a:first').attr('data-conversation-id');
                     // TODO: if there are no conversations, then hide the chat view
                     ConversationManager.setActiveConversation(firstConversationId);
-                    highLightActiveConversation();
                 }
             }
         });
@@ -46,7 +44,10 @@ var ConversationManager = {
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function(messages) {
             ChatManager.renderMessages(messages, true);
+            $('#messageText').focus();
+            
         });
+        highLightActiveConversation();
     }
 
 };
@@ -119,6 +120,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 });
                 initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId=null, activeDocId=ConversationManager.activeConversationId);
             }
+            $('#messageText').focus();
             return;
         }
         // Recursive call to read next message part
@@ -266,13 +268,11 @@ function loadConversations(autoselect=true) {
             conversationItem.on('click', function() {
                 var conversationId = $(this).attr('data-conversation-id');
                 ConversationManager.setActiveConversation(conversationId);
-                highLightActiveConversation();
             });
 
             if (autoselect){
                 if (firstConversation) {
                     ConversationManager.setActiveConversation(conversation.conversation_id);
-                    highLightActiveConversation();
                     firstConversation = false;
                 }
             }
@@ -318,6 +318,7 @@ function sendMessageCallback() {
         renderStreamingResponse(response, ConversationManager.activeConversationId, messageText);
         $('#linkInput').val('')
         $('#searchInput').val('')
+        $('#messageText').focus();
     });
 }
 
@@ -328,7 +329,6 @@ $(document).ready(function() {
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();
     });
-    $('#sendMessageButton').on('click', sendMessageCallback);
     $('#messageText').keypress(function(e) { // Add this block to submit the question on enter
             if (e.which == 13) {
                 sendMessageCallback();
@@ -336,6 +336,7 @@ $(document).ready(function() {
             }
         });
     addOptions('chat-options', 'assistant', null);
+    $('#sendMessageButton').on('click', sendMessageCallback);
     $('.dynamic-textarea').on('input', function() {
       if ($(this).val().length === 0) {
           // If the textarea is empty, reset to the default height of 30px

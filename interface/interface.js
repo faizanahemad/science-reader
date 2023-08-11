@@ -540,6 +540,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
 
         `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
         (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 20px;">Delete Last Turn</button>`:'') + 
+        (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 20px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
 
@@ -2090,6 +2091,7 @@ $(document).ready(function() {
         $('#chat-assistant-view').show();
         var chatView = $('#chatView');
         chatView.scrollTop(chatView.prop('scrollHeight'));
+        $('#messageText').focus();
         pdfTabIsActive();
     });
     
