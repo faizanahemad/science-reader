@@ -680,6 +680,7 @@ def search_document():
 def list_all():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
+    addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
     docs = getDocsForUser(email)
     doc_ids = set([d[1] for d in docs])
     return jsonify([set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs])
