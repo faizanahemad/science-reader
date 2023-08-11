@@ -525,6 +525,7 @@ def login():
             return send_from_directory('interface', 'login.html', max_age=0)
         session['email'] = email
         session['name'] = email
+        addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
         return redirect('/interface', code=302)
     else:
         logger.info(f"Login needed with redirect authorize uri = {redirect_uri}")
