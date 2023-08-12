@@ -21,6 +21,7 @@ from multiprocessing import Process, Queue
 from functools import partial
 
 from tenacity import RetryError
+FINISHED_TASK = "FINISHED_TASK"
 
 
 def is_int(s):
@@ -536,7 +537,7 @@ import requests
 def is_pdf_link(link):
     response = requests.head(link)
     content_type = response.headers.get('Content-Type')
-    return content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type)
+    return ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
 
 
 import threading
@@ -571,6 +572,53 @@ class ProcessFnWithTimeout:
         # Put the result (or None if there was a timeout) in the queue
         self.result_queue.put(result)
         return result
+
+
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from queue import Queue
+
+
+def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
+    if not isinstance(args_list, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in args_list):
+        raise ValueError("args_list must be a list of tuples containing (*args, **kwargs)")
+
+    if timeout < 0:
+        raise ValueError("Timeout must be non-negative")
+
+    task_queue = Queue()
+
+    def task_worker(args, kwargs):
+        try:
+            result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
+            if callback:
+                result = callback(result, args, kwargs)
+            task_queue.put(result)
+        except Exception as e:
+            print(f"Exception in task_worker: {e}")
+            task_queue.put(None)  # Put None to indicate an error
+
+    process_fn_with_timeout = ProcessFnWithTimeout(Queue())
+
+    def run_tasks():
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = [pool.submit(task_worker, args, kwargs) for args, kwargs in args_list]
+                for future in futures:
+                    future.result()
+        except Exception as e:
+            print(f"Exception in run_tasks: {e}")
+        finally:
+            # Signal the end of the task results
+            task_queue.put(FINISHED_TASK)
+
+    # Start a separate thread to run the tasks
+    orchestrator_thread = threading.Thread(target=run_tasks)
+    orchestrator_thread.start()
+
+    # Return the task queue immediately
+    return task_queue
+
 
 
 

@@ -268,6 +268,8 @@ class CallLLm:
                     raise e
                 if len(self.openai_gpt4_models) > 1:
                     model = next(models)
+                elif len(self.openai_16k_models) > 0:
+                    model = self.openai_16k_models[0]
                 else:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
@@ -286,7 +288,7 @@ class CallLLm:
                     fn = call_chat_model
                 else:
                     models = round_robin(self.openai_basic_models)
-                    model = next(model)
+                    model = next(models)
                     fn = call_non_chat_model
                 try:  
                     return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys["openAIKey"])
@@ -1397,6 +1399,34 @@ def web_search(context, doc_source, doc_context, api_keys, year_month=None, prev
     part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
+def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar)
+    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
+
+def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
+    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+
+    variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
+    variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
+
+    cut_off = 4 if provide_detailed_answers else 2
+    if len(links) == 0:
+        cut_off = cut_off * 2
+    for i, (var, name) in enumerate(zip(variables, variable_names)):
+        if not isinstance(var, (list, str)):
+            pass
+            # print(f"{name} is not a list or a string, but a {type(var)}")
+        else:
+            variables[i] = var[:cut_off]
+
+    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
+
+    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
+    return read_queue
+
 def get_part_1_results(part1_res):
     rs = part1_res.result()
     return {"search_results": rs[0], "queries": rs[8]}
@@ -1409,6 +1439,8 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
     variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
 
     cut_off = 4 if provide_detailed_answers else 2
+    if len(links) == 0:
+        cut_off = cut_off * 2
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
@@ -1417,15 +1449,13 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
             variables[i] = var[:cut_off]
 
     web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
 
-    web_future = get_async_future(read_over_multiple_links, web_links, web_titles, web_contexts, api_keys, provide_detailed_answers=provide_detailed_answers)
     pdf_future = get_async_future(read_over_multiple_links, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
-    read_text_web, per_pdf_texts_web = web_future.result()
     read_text, per_pdf_texts = pdf_future.result()
 
-
-    crawl_text = (per_pdf_texts + per_pdf_texts_web)
-    all_text = read_text + "\n\n" + read_text_web
+    crawl_text = per_pdf_texts
+    all_text = read_text
     # if rerank_available and len(crawl_text) > 10:
     #     import cohere
     #     co = cohere.Client(api_keys["cohereKey"])
@@ -1544,6 +1574,26 @@ def process_page_link(link_title_context_apikeys):
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
+def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
+    if texts is None:
+        texts = [''] * len(links)
+
+    link_title_context_apikeys = list(
+        zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
+    link_title_context_apikeys = [[l] for l in link_title_context_apikeys]
+
+    def call_back(result, *args, **kwargs):
+        full_result = None
+        text = ''
+        if result is not None:
+            full_result = deepcopy(result)
+            del result["full_text"]
+            del result["exception"]
+            text = f"[{result['title']}]({result['link']})\n{result['text']}"
+        return {"text": text, "full_info": full_result}
+
+    task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, min(4, os.cpu_count()), 90)
+    return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:

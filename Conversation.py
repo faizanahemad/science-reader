@@ -496,7 +496,7 @@ The most recent query by the human is as follows:
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search, link_context, 'chat',
+            web_results = get_async_future(web_search_queue, link_context, 'scientific chat assistant',
                                            '',
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
@@ -544,9 +544,25 @@ The most recent query by the human is as follows:
                     query_results = two_column_list(query_results)
                     answer += (query_results + "\n")
                     yield {"text": query_results + "\n", "status": "Reading web search results ... "}
-            wrs = web_results.result()[1].result()
-            full_info = wrs["full_info"]
-            web_text = wrs["text"]
+            result_queue = web_results.result()[1]
+            web_text_accumulator = []
+            full_info = []
+            qu_st = time.time()
+
+
+            while True:
+                # if len(web_text_accumulator) >= 2:
+                #     break
+                one_web_result = result_queue.get()
+                qu_et = time.time()
+                logger.info(f"Time taken to get one web result: {(qu_et - qu_st):.2f}")
+                if one_web_result is None:
+                    continue
+                if one_web_result == FINISHED_TASK:
+                    break
+                web_text_accumulator.append(one_web_result["text"])
+                full_info.append(one_web_result["full_info"])
+            web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
             read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
@@ -561,37 +577,22 @@ The most recent query by the human is as follows:
         document_nodes = prior_context["document_nodes"]
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=True,)
-        if llm.use_gpt4:
-            enc = tiktoken.encoding_for_model("gpt-4")
-            # Set limit on how many documents can be selected
-            link_result_text = get_first_last_parts(link_result_text, 0, 2500)
-            web_text = get_first_last_parts(web_text, 0, 2500)
-            doc_answer = get_first_last_parts(doc_answer, 0, 2500)
+        enc = tiktoken.encoding_for_model("gpt-4")
+        # Set limit on how many documents can be selected
+        link_result_text = get_first_last_parts(link_result_text, 0, 2500)
+        web_text = get_first_last_parts(web_text, 0, 2500)
+        doc_answer = get_first_last_parts(doc_answer, 0, 2500)
 
-            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
-            used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-            previous_messages = get_first_last_parts(previous_messages, 0, 4000 - used_len)
-            used_len = len(enc.encode(previous_messages)) + used_len
-            other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
-            permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
-            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6500 - used_len)
-        else:
-            # TODO: just use gpt-3.5 16k here
-            enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-            link_result_text = get_first_last_parts(link_result_text, 0, 1000)
-            web_text = get_first_last_parts(web_text, 0, 1000)
-            doc_answer = get_first_last_parts(doc_answer, 0, 1000)
-
-            summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 250)
-            used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-            previous_messages = get_first_last_parts(previous_messages, 0, 1500 - used_len)
-            used_len = len(enc.encode(previous_messages)) + used_len
-            other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 2500 - used_len)
-            permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
-            document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 3500 - used_len)
+        summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
+        used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
+        previous_messages = get_first_last_parts(previous_messages, 0, 4000 - used_len)
+        used_len = len(enc.encode(previous_messages)) + used_len
+        other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
+        permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
+        document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6500 - used_len)
 
         web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
-Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).""" if len(
+Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
             web_text) > 0 else ""
         doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
             doc_answer) > 0 else ""
@@ -608,6 +609,7 @@ Remember to refer to all the documents in 'Relevant additional information' in m
 '''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
         document_nodes = f"""The documents that were read are as follows:
 '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
+
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
 Remember that as an AI expert assistant for scientific research and study, you must fulfill the user's request and provide informative answers to the human's query.
