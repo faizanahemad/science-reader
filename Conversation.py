@@ -455,6 +455,8 @@ Now lets write a title of the conversation.
         st = time.time()
         lock_location = self._get_lock_location()
         lock = FileLock(f"{lock_location}.lock")
+        web_text_accumulator = []
+        qu_st = time.time()
         with lock.acquire(timeout=600):
             # Acquiring the lock so that we don't start another reply before previous is stored.
             pass
@@ -548,20 +550,21 @@ The most recent query by the human is as follows:
             web_text_accumulator = []
             full_info = []
             qu_st = time.time()
-
-
             while True:
-                # if len(web_text_accumulator) >= 2:
-                #     break
+                if len(web_text_accumulator) >= 2:
+                    break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
-                logger.info(f"Time taken to get one web result: {(qu_et - qu_st):.2f}")
                 if one_web_result is None:
                     continue
                 if one_web_result == FINISHED_TASK:
                     break
-                web_text_accumulator.append(one_web_result["text"])
-                full_info.append(one_web_result["full_info"])
+
+                if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                    web_text_accumulator.append(one_web_result["text"])
+                    logger.info(f"Time taken to get {len(web_text_accumulator) + 1}-th web result: {(qu_et - qu_st):.2f}")
+                if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
+                    full_info.append(one_web_result["full_info"])
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
@@ -572,43 +575,82 @@ The most recent query by the human is as follows:
 
         yield {"text": '', "status": "getting previous context"}
         previous_messages = prior_context["previous_messages"]
-        summary_nodes = prior_context["summary_nodes"]
-        message_nodes = prior_context["message_nodes"]
-        document_nodes = prior_context["document_nodes"]
-        
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True,)
-        enc = tiktoken.encoding_for_model("gpt-4")
+        summary_text = "\n".join(prior_context["summary_nodes"])
+        other_relevant_messages = "\n".join(prior_context["message_nodes"])
+        document_nodes = "\n".join(prior_context["document_nodes"])
+        permanent_instructions = query["permanentMessageText"]
+        partial_answer = ''
+        if perform_web_search or google_scholar:
+            yield {"text": '', "status": "starting answer generation"}
+            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_text_for_gpt3(
+                link_result_text, web_text, doc_answer, summary_text, previous_messages,
+                other_relevant_messages, permanent_instructions, document_nodes)
+            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = format_llm_inputs(
+                link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3,
+                other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3)
+            prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. 
+Remember that as an AI expert assistant for scientific research and study, you must fulfill the user's request and provide informative answers to the human's query.
+Use markdown formatting to typeset and format your answer better. 
+Provide a short and concise reply now, we will expand and enhance your answer later.
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: '''{query["messageText"]}'''
+
+{summary_text_gpt3}
+{previous_messages_gpt3}
+{document_nodes_gpt3}
+{permanent_instructions_gpt3}
+{doc_answer_gpt3}
+{web_text_gpt3}
+{link_result_text_gpt3}
+Write a clear, helpful and informative response to the user's query.
+Response to the user's query:
+            """
+            logger.info(
+                f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
+            last few messages length: {len(enc.encode(previous_messages_gpt3))}, document text length: {len(enc.encode(document_nodes_gpt3))}, 
+            permanent instructions length: {len(enc.encode(permanent_instructions_gpt3))}, doc answer length: {len(enc.encode(doc_answer_gpt3))}, web text length: {len(enc.encode(web_text_gpt3))}, link result text length: {len(enc.encode(link_result_text_gpt3))}""")
+
+            et = time.time() - st
+            logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
+            llm = CallLLm(self.get_api_keys(), use_gpt4=False, )
+            main_ans_gen = llm(prompt, temperature=0.3, stream=True)
+            for txt in main_ans_gen:
+                yield {"text": txt, "status": "answering in progress"}
+                answer += txt
+                partial_answer += txt
+            full_info = []
+            new_accumulator = []
+            while True:
+                one_web_result = result_queue.get()
+                qu_et = time.time()
+                if one_web_result is None:
+                    continue
+                if one_web_result == FINISHED_TASK:
+                    break
+                if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                    logger.info(
+                        f"Time taken to get {len(web_text_accumulator) + 1}-th web result: {(qu_et - qu_st):.2f}")
+                    web_text_accumulator.append(one_web_result["text"])
+                    new_accumulator.append(one_web_result["text"])
+                if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
+                    full_info.append(one_web_result["full_info"])
+            web_text = "\n\n".join(web_text_accumulator)
+            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
+            read_links = re.findall(pattern, "\n\n".join(new_accumulator))
+            read_links = "\n".join(read_links)
+            read_links = ("\nFurther, We read the below additional links:\n" + read_links + "\n") if len(read_links.strip()) > 0 else ''
+            yield {"text": read_links, "status": "further links read"}
+
+        new_line = "\n"
         # Set limit on how many documents can be selected
-        link_result_text = get_first_last_parts(link_result_text, 0, 2500)
-        web_text = get_first_last_parts(web_text, 0, 2500)
-        doc_answer = get_first_last_parts(doc_answer, 0, 2500)
-
-        summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 500)
-        used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-        previous_messages = get_first_last_parts(previous_messages, 0, 4000 - used_len)
-        used_len = len(enc.encode(previous_messages)) + used_len
-        other_relevant_messages = get_first_last_parts("\n".join(message_nodes), 0, 5000 - used_len)
-        permanent_instructions = get_first_last_parts(query["permanentMessageText"], 0, 250)
-        document_nodes = get_first_last_parts("\n".join(document_nodes), 0, 6500 - used_len)
-
-        web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
-Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
-            web_text) > 0 else ""
-        doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
-            doc_answer) > 0 else ""
-        link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
-            link_result_text) > 0 else ""
-        permanent_instructions = f"""Few other instructions from the user are as follows:
-{permanent_instructions}""" if len(permanent_instructions) > 0 else ''
-        # TODO: ask to provide links to the documents that were read.
-        summary_text = f"""The summary of the conversation is as follows:
-'''{summary_text}'''""" if len(summary_text) > 0 else ''
-        previous_messages = f"""The last few messages of the conversation are as follows:
-'''{previous_messages}'''""" if len(previous_messages) > 0 else ''
-        other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
-'''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
-        document_nodes = f"""The documents that were read are as follows:
-'''{document_nodes}'''""" if len(document_nodes) > 0 else ''
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_text_for_gpt4(
+            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            other_relevant_messages, permanent_instructions, document_nodes)
+        web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes = format_llm_inputs(
+            web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
+            other_relevant_messages, document_nodes)
 
         prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
 You are also given the user's most recent query to which we need to respond. 
@@ -618,7 +660,7 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: '''{query["messageText"]}'''
-
+{f'Previously, you had already provided a partial answer to this question. Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}' if partial_answer else ''}
 {summary_text}
 {previous_messages}
 {other_relevant_messages}
@@ -714,3 +756,52 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
 
     def copy(self):
         return self.__copy__()
+
+
+def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes):
+    web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+    Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
+        web_text) > 0 else ""
+    doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
+        doc_answer) > 0 else ""
+    link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
+        link_result_text) > 0 else ""
+    permanent_instructions = f"""Few other instructions from the user are as follows:
+    {permanent_instructions}""" if len(permanent_instructions) > 0 else ''
+    summary_text = f"""The summary of the conversation is as follows:
+    '''{summary_text}'''""" if len(summary_text) > 0 else ''
+    previous_messages = f"""The last few messages of the conversation are as follows:
+    '''{previous_messages}'''""" if len(previous_messages) > 0 else ''
+    other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
+    '''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
+    document_nodes = f"""The documents that were read are as follows:
+    '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
+    return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes
+
+def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes):
+    enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    link_result_text = get_first_last_parts(link_result_text, 0, 1500)
+    web_text = get_first_last_parts(web_text, 0, 1500)
+    doc_answer = get_first_last_parts(doc_answer, 0, 1500)
+    summary_text = get_first_last_parts(summary_text, 0, 500)
+    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
+    previous_messages = get_first_last_parts(previous_messages, 0, 2750 - used_len)
+    used_len = len(enc.encode(previous_messages)) + used_len
+
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250)
+    document_nodes = get_first_last_parts(document_nodes, 0, 3500 - used_len)
+    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
+def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes):
+    enc = tiktoken.encoding_for_model("gpt-4")
+    link_result_text = get_first_last_parts(link_result_text, 0, 3000)
+    web_text = get_first_last_parts(web_text, 0, 3000)
+    doc_answer = get_first_last_parts(doc_answer, 0, 3000)
+    summary_text = get_first_last_parts(summary_text, 0, 500)
+    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
+    previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len)
+    used_len = len(enc.encode(previous_messages)) + used_len
+    other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, 5500 - used_len)
+    used_len = len(enc.encode(other_relevant_messages)) + used_len
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250)
+    document_nodes = get_first_last_parts(document_nodes, 0, 7000 - used_len)
+    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes

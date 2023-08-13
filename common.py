@@ -1,5 +1,7 @@
 import asyncio
 import threading
+import traceback
+
 from playwright.async_api import async_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future, ProcessPoolExecutor
 from urllib.parse import urlparse, urlunparse
@@ -21,7 +23,7 @@ from multiprocessing import Process, Queue
 from functools import partial
 
 from tenacity import RetryError
-FINISHED_TASK = "FINISHED_TASK"
+FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
 
 
 def is_int(s):
@@ -556,6 +558,7 @@ class ProcessFnWithTimeout:
             try:
                 result = fn(*args, **kwargs)  # Call the original function with its args and kwargs
             except Exception as e:
+                traceback.print_exc()
                 # Handle exceptions if needed
                 print(f"Exception processing function {fn.__name__}: {e}")
             finally:
@@ -595,6 +598,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                 result = callback(result, args, kwargs)
             task_queue.put(result)
         except Exception as e:
+            traceback.print_exc()
             print(f"Exception in task_worker: {e}")
             task_queue.put(None)  # Put None to indicate an error
 
@@ -611,6 +615,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
         finally:
             # Signal the end of the task results
             task_queue.put(FINISHED_TASK)
+            task_queue.put(FINISHED_TASK) # this line has to be repeated so that we can handle the second queue poll after staggered LLM response.
 
     # Start a separate thread to run the tasks
     orchestrator_thread = threading.Thread(target=run_tasks)
@@ -618,6 +623,67 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
 
     # Return the task queue immediately
     return task_queue
+
+
+from concurrent.futures import Future
+
+
+
+def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, timeout=60):
+    task_queue = Queue()
+
+    def task_worker(result, args, kwargs):
+        try:
+            if result is not TERMINATION_SIGNAL:
+                new_result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
+                if callback:
+                    new_result = callback(new_result, args, kwargs)
+                task_queue.put(new_result)
+        except Exception as e:
+            traceback.print_exc()
+            print(f"Exception in task_worker: {e}")
+            task_queue.put(None)  # Put None to indicate an error
+
+    process_fn_with_timeout = ProcessFnWithTimeout(Queue())
+
+    def run_tasks():
+        try:
+            args_list = []
+            futures = []
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                while True:
+                    result = input_queue.get()
+                    if result is TERMINATION_SIGNAL or result is FINISHED_TASK or result == FINISHED_TASK:  # End of results
+                        break
+                    args, kwargs = result
+                    future = pool.submit(task_worker, result, [args], kwargs)
+                    futures.append(future)
+                for future in futures:
+                    future.result()
+        except Exception as e:
+            print(f"Exception in run_tasks: {e}")
+        finally:
+            # Signal the end of the task results
+            task_queue.put(TERMINATION_SIGNAL)
+            task_queue.put(FINISHED_TASK)
+
+    # Start a separate thread to run the tasks
+    orchestrator_thread = threading.Thread(target=run_tasks)
+    orchestrator_thread.start()
+
+    # Return the task queue immediately
+    return task_queue
+
+
+def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeout=60):
+    if not isinstance(args_list, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in args_list):
+        raise ValueError("args_list must be a list of tuples containing (*args, **kwargs)")
+
+    task_queue1 = orchestrator(fn1, args_list, max_workers=max_workers, timeout=timeout)
+    task_queue2 = orchestrator_with_queue(task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout)
+
+    return task_queue2
+
 
 
 

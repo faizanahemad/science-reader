@@ -255,7 +255,7 @@ class CallLLm:
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
     def __call__(self, text, temperature=0.7, stream=False,):
-        logger.info(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
+        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert len(self.gpt4_enc.encode(text)) < 8000
@@ -329,13 +329,6 @@ class CallLLm:
             raise ValueError("Self hosted models not yet supported")
         else:
             raise ValueError("No model use criteria met")
-            
-
-def chunk_text_langchain(text, chunk_size=3400):
-    text_splitter = TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=100)
-    texts = text_splitter.split_text(text)
-    for t in texts:
-        yield t
         
 def split_text(text):
     # Split the text by spaces, newlines, and HTML tags
@@ -484,10 +477,10 @@ Summarizer:
     """
         template = f""" 
 Write a {"detailed and informational " if is_detailed else ""}summary of the document below while preserving the main points and context, do not miss any important details, do not remove mathematical details and references.
-Document:
+Document to summarize is given below.
 '''{{document}}'''
 
-{"Detailed and informational " if is_detailed else ""}Summary:
+Write {"detailed and informational " if is_detailed else ""}Summary below.
 """
         self.prompt = PromptTemplate(
             input_variables=["document"],
@@ -496,7 +489,7 @@ Document:
     @timer
     def __call__(self, text_document):
         prompt = self.prompt.format(document=text_document)
-        return CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.8)
+        return CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.5)
     
 class ReduceRepeatTool:
     def __init__(self, keys):
@@ -539,7 +532,10 @@ def contrain_text_length_by_summary(text, keys, threshold=2000):
 
 def process_text(text, chunk_size, my_function, keys):
     # Split the text into chunks
-    chunks = list(chunk_text_langchain(text, chunk_size))
+    chunks = [c.strip() for c in list(ChunkText(text, chunk_size)) if len(c.strip()) > 0]
+    if len(chunks) == 0:
+        return 'No relevant information found.'
+    assert len(chunks) == 1
     if len(chunks) > 1:
         futures = [process_text_executor.submit(my_function, chunk) for chunk in chunks]
         # Get the results from the futures
@@ -547,7 +543,7 @@ def process_text(text, chunk_size, my_function, keys):
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    threshold = 512*3
+    threshold = 512*4
     tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
@@ -558,12 +554,14 @@ def process_text(text, chunk_size, my_function, keys):
         results = combine_array_two_at_a_time(results, '\n\n')
     assert len(results) == 1
     results = results[0]
-    threshold = 384
-    tlc = partial(TextLengthCheck, threshold=threshold)
-    if not tlc(results):
-        summariser = Summarizer(keys, is_detailed=True)
-        logger.warning("--- process_text --- Calling Summarizer on single result")
-        results = summariser(results)
+    # threshold = 384
+    # tlc = partial(TextLengthCheck, threshold=threshold)
+    # if not tlc(results):
+    #     summariser = Summarizer(keys, is_detailed=True)
+    #     logger.warning(f"--- process_text --- Calling Summarizer on single result with single result len = {len(results.split())}")
+    #     results = summariser(results)
+    #     logger.warning(
+    #         f"--- process_text --- Called Summarizer and final result len = {len(results.split())}")
     
     # if not tlc(results):
     #     logger.warning("--- process_text --- Calling ReduceRepeatTool")
@@ -680,8 +678,8 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide elaborate, informative and in-depth response. \n"
-        response_prompt = "Short, concise and informative" if provide_short_responses else "Elaborate, informative and in-depth response"
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise and informative response. \n"
+        response_prompt = "Short, concise and informative" if provide_short_responses else "Concise and informative response"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an AI expert assistant for scientific research and study.
@@ -1000,7 +998,11 @@ def get_page_content(link, playwright_cdp_link=None):
         playwright_enabled = True
         with sync_playwright() as p:
             if playwright_cdp_link is not None and isinstance(playwright_cdp_link, str):
-                browser = p.chromium.connect_over_cdp(playwright_cdp_link)
+                try:
+                    browser = p.chromium.connect_over_cdp(playwright_cdp_link)
+                except Exception as e:
+                    logger.error(f"Error connecting to cdp link {playwright_cdp_link} with error {e}")
+                    browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
             else:
                 browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
             page = browser.new_page()
@@ -1484,27 +1486,43 @@ from multiprocessing import Pool
 
 def process_link(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"{str([link, title, context, detailed])}"
+    key = f"process_link-{str([link, title, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
         return result
     st = time.time()
-    is_pdf = is_pdf_link(link)
-    if is_pdf:
-        result = process_pdf(link_title_context_apikeys)
-    else:
-        result = process_page_link(link_title_context_apikeys)
-    logger.debug(f"Processing {link} took {time.time() - st} seconds")
-    cache.set(key, result, expire=cache_timeout)
-    return result
+    link_data = download_link_data(link_title_context_apikeys)
+    title = link_data["title"]
+    text = link_data["full_text"]
+    link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+    summary = get_downloaded_data_summary(link_title_context_apikeys)["text"]
+    logger.debug(f"Time for processing PDF {link} = {(time.time() - st):.2f}")
+    cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
+              expire=cache_timeout)
+    return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
 
-# TODO: Add caching
-def process_pdf(link_title_context_apikeys):
+def download_link_data(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"{str([link, title, context])}"
+    key = f"download_link_data-{str([link, title, context, detailed])}"
+    key = str(mmh3.hash(key, signed=False))
+    result = cache.get(key)
+    if result is not None:
+        return result
+    is_pdf = is_pdf_link(link)
+    if is_pdf:
+        result = read_pdf(link_title_context_apikeys)
+    else:
+        result = get_page_text(link_title_context_apikeys)
+    cache.set(key, result, expire=cache_timeout)
+    return result
+
+
+def read_pdf(link_title_context_apikeys):
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    key = f"read_pdf-{str([link, title, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1517,35 +1535,50 @@ def process_pdf(link_title_context_apikeys):
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link)
-            # Chunking text
+    except Exception as e:
+        logger.error(f"Error reading PDF {link} with error {e}")
+        txt = ''
+    cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
+              expire=cache_timeout)
+    return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
+
+
+
+
+
+def get_downloaded_data_summary(link_title_context_apikeys):
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    txt = text
+    st = time.time()
+    extracted_info = ''
+    try:
+        if len(text.strip()) > 0:
             chunked_text = ChunkText(txt, 14336 if detailed else 2816, 0)[0]
+            logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
+                                                    api_keys, provide_short_responses=False,
+                                                    chunk_size=3072 if detailed else 3072)
+            tt = time.time() - st
+            logger.info(f"Called contextual reader for link: {link}, word length = {len(extracted_info.split())} with total time = {tt:.2f}")
         else:
             chunked_text = text
-
-        # Extracting info
-
-        logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
-                                                api_keys, provide_short_responses=False,
-                                                chunk_size=3072 if detailed else 3072)
-        tt = time.time() - st
-        logger.info(f"Called contextual reader for link: {link} with total time = {tt:.2f}")
+            return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
     except Exception as e:
         logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
-        return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
-    cache.set(key, {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": txt}, expire=cache_timeout)
-    return {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": txt}
+        return {"link": link, "title": title, "text": extracted_info, "detailed": detailed, "context": context, "exception": True, "full_text": txt}
+    return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 
-def process_page_link(link_title_context_apikeys):
+def get_page_text(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"{str([link, title, context])}"
+    key = f"get_page_text-{str([link, title, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
         return result
     st = time.time()
-    scraping_browser_url = api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys["scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None
+    scraping_browser_url = api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys[
+        "scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None
     pgc = get_page_content(link, scraping_browser_url)
     if len(pgc["text"].strip()) == 0:
         pgc = get_page_content(link, scraping_browser_url)
@@ -1556,20 +1589,12 @@ def process_page_link(link_title_context_apikeys):
         return {"link": link, "title": title, "text": '', "exception": True, "full_text": ''}
     title = pgc["title"]
     text = pgc["text"]
-    extracted_info = ''
+    cache.set(key, {"link": link, "title": title, "detailed": detailed, "exception": False, "full_text": text},
+              expire=cache_timeout)
+    return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
-    if len(text.strip()) > 0:
-        chunked_text = ChunkText(text, 14336 if detailed else 2816, 0)[0]
-        logger.info(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-        extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0], api_keys, provide_short_responses=False,
-                                                chunk_size=3072 if detailed else 3072)
-    else:
-        chunked_text = text
-        return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": text}
-    tt = time.time() - st
-    logger.info(f"Web page read and contextual reader for link: {link} with total time = {tt:.2f}")
-    cache.set(key, {"link": link, "title": title, "text": extracted_info, "exception": False, "full_text": text}, expire=cache_timeout)
-    return {"link": link, "title": normalize_whitespace(title), "text": extracted_info, "exception": False, "full_text": text}
+
+
 
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
@@ -1583,18 +1608,45 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
     link_title_context_apikeys = [[l] for l in link_title_context_apikeys]
 
     def call_back(result, *args, **kwargs):
+        try:
+            link = args[0][0][0]
+        except:
+            link = ''
         full_result = None
         text = ''
+
         if result is not None:
+            assert isinstance(result, dict)
+            result.pop("exception", None)
+            result.pop("detailed", None)
             full_result = deepcopy(result)
-            del result["full_text"]
-            del result["exception"]
+            result.pop("full_text", None)
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
-        return {"text": text, "full_info": full_result}
+        return {"text": text, "full_info": full_result, "link": link}
 
-    task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, min(4, os.cpu_count()), 90)
+    threads = min(8 if provide_detailed_answers else 4, os.cpu_count()*2)
+    # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
+    def fn1(link_title_context_apikeys, *args, **kwargs):
+        link = link_title_context_apikeys[0]
+        title = link_title_context_apikeys[1]
+        context = link_title_context_apikeys[2]
+        api_keys = link_title_context_apikeys[3]
+        text = link_title_context_apikeys[4]
+        detailed = link_title_context_apikeys[5]
+        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+        return [download_link_data(link_title_context_apikeys), {}]
+    def fn2(*args, **kwargs):
+        link_data = args[0]
+        link = link_data["link"]
+        title = link_data["title"]
+        text = link_data["full_text"]
+        context = link_data["context"]
+        detailed = link_data["detailed"]
+        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+        summary = get_downloaded_data_summary(link_title_context_apikeys)
+        return summary
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     return task_queue
-
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
         texts = [''] * len(links)
@@ -1611,56 +1663,14 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
         logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_links")
     full_processed_texts = deepcopy(processed_texts)
     for p in processed_texts:
-        del p["exception"]
-        del p["full_text"]
+        p.pop("exception", None)
+        p.pop("detailed", None)
+        p.pop("full_text", None)
     # Concatenate all the texts
 
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
-    return result, full_processed_texts
-
-def read_over_multiple_pdf(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
-    if texts is None:
-        texts = [''] * len(links)
-    # Combine links, titles, contexts and api_keys into tuples for processing
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts, [provide_detailed_answers] * len(links)))
-    # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_pdf, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
-    # Collect the results as they become available
-    processed_texts = [future.result() for future in futures]
-    processed_texts = [p for p in processed_texts if not p["exception"]]
-    # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
-    # assert len(processed_texts) > 0
-    if len(processed_texts) == 0:
-        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_pdf")
-    full_processed_texts = deepcopy(processed_texts)
-    for p in processed_texts:
-        del p["exception"]
-        del p["full_text"]
-    # Concatenate all the texts
-    
-    # Cohere rerank here
-    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
-    # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    return result, full_processed_texts
-
-def read_over_multiple_webpages(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
-    if texts is None:
-        texts = [''] * len(links)
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys]*len(links), texts, [provide_detailed_answers] * len(links)))
-    futures = [pdf_process_executor.submit(process_page_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
-    processed_texts = [future.result() for future in futures]
-    processed_texts = [p for p in processed_texts if not p["exception"]]
-    # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
-    if len(processed_texts) == 0:
-        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_webpages")
-    full_processed_texts = deepcopy(processed_texts)
-    for p in processed_texts:
-        del p["exception"]
-        del p["full_text"]
-    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
-    # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     return result, full_processed_texts
 
 
