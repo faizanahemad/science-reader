@@ -290,9 +290,43 @@ class Conversation:
             else:
                 with open(os.path.join(filepath), "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
-    
+
     @timer
-    def retrieve_prior_context(self, query, links=None, requery=False):
+    def retrieve_prior_context_with_requery(self, query, links=None, prior_context=None):
+        if prior_context is None:
+            prior_context = self.retrieve_prior_context(query, links=links)
+        summary_nodes = prior_context["summary_nodes"]
+        previous_messages = prior_context["previous_messages"]
+        all_messages = self.get_message_list()
+        if len(all_messages) < 6 and prior_context is not None:
+            return prior_context
+        requery_summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 1000)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=False)
+        prompt = f"""You are given conversation details between a human and an AI. 
+Based on the given conversation details and human's last response or query we want to search our database of responses.
+You will generate a contextualised query based on the given conversation details and human's last response or query.
+The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
+Ensure that the rephrased and contextualised version is different from the original query.
+The summary of the conversation is as follows:
+{requery_summary_text}
+
+The last few messages of the conversation are as follows:
+{get_first_last_parts(previous_messages, 0, 1000)}
+
+The last message of the conversation sent by the human is as follows:
+{query}
+
+Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
+Rephrased and contextualised human's last message:
+        """
+        rephrase = llm(prompt, temperature=0.7, stream=False)
+        logger.info(f"Rephrased and contextualised human's last message: {rephrase}")
+        prior_context = self.retrieve_prior_context(rephrase, links=links)
+        prior_context["rephrased_query"] = rephrase
+        return prior_context
+
+    @timer
+    def retrieve_prior_context(self, query, links=None):
         encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
         # Lets get the previous 2 messages, upto 1000 tokens
         # TODO: contextualizing the query maybe important since user queries are not well specified
@@ -324,43 +358,11 @@ class Conversation:
         document_nodes = [n.page_content for n in document_nodes]
         document_nodes = [n for n in document_nodes if len(n.strip()) > 0]
 
-        rephrase = ''
-        if requery:
-            requery_summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
-            llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-            prompt = f"""You are given conversation details between a human and an AI. 
-Based on the given conversation details and human's last response or query we want to search our database of responses.
-You will generate a contextualised query based on the given conversation details and human's last response or query.
-The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
-Ensure that the rephrased and contextualised version is different from the original query.
-The summary of the conversation is as follows:
-{requery_summary_text}
-
-The last few messages of the conversation are as follows:
-{get_first_last_parts(previous_messages, 0, 1000)}
-
-The last message of the conversation sent by the human is as follows:
-{query}
-
-Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
-Rephrased and contextualised human's last message:
-"""
-            rephrase = llm(prompt, temperature=0.7, stream=False)
-            logger.info(f"Rephrased and contextualised human's last message: {rephrase}")
-            prior_context = self.retrieve_prior_context(rephrase, links=links, requery=False)
-            del prior_context["previous_messages"]
-            summary_nodes = [s for s in prior_context["summary_nodes"] if s not in summary_nodes] + summary_nodes
-            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
-            message_nodes = [s for s in prior_context["message_nodes"] if s not in message_nodes] + message_nodes
-            message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
-            document_nodes = [s for s in prior_context["document_nodes"] if s not in document_nodes] + document_nodes
-
         # We return a dict
         return dict(previous_messages=previous_messages, 
                     summary_nodes=summary_nodes + running_summary,
                     message_nodes=message_nodes,
-                    document_nodes=document_nodes,
-                    rephrase=rephrase)
+                    document_nodes=document_nodes)
 
     
     @timer
@@ -474,10 +476,15 @@ Now lets write a title of the conversation.
         google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
-        prior_context = self.retrieve_prior_context(query["messageText"],
-                                                    requery=True if provide_detailed_answers else False)
+        links = [l.strip() for l in query["links"] if
+                 l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
+        prior_context = self.retrieve_prior_context(query["messageText"], links=links if len(links) > 0 else None)
+        if provide_detailed_answers:
+            prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
+                                                             query["messageText"],
+                                                             links=links if len(links) > 0 else None,
+                                                             prior_context=prior_context)
         # raw_documents_index = self.get_field("raw_documents_index")
-        links = [l.strip() for l in query["links"] if l is not None and len(l.strip()) > 0] # and l.strip() not in raw_documents_index
         link_result_text = ''
         full_doc_texts = {}
         link_context = f"""Summary of the conversation between a human and an AI assisant is given below.
@@ -584,7 +591,7 @@ The most recent query by the human is as follows:
             yield {"text": '', "status": "starting answer generation"}
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_text_for_gpt3(
                 link_result_text, web_text, doc_answer, summary_text, previous_messages,
-                other_relevant_messages, permanent_instructions, document_nodes)
+                other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = format_llm_inputs(
                 link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3,
                 other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3)
@@ -643,11 +650,17 @@ Response to the user's query:
             yield {"text": read_links, "status": "further links read"}
 
         new_line = "\n"
+        if provide_detailed_answers:
+            prior_context = prior_detailed_context_future.result()
+            previous_messages = prior_context["previous_messages"]
+            summary_text = "\n".join(prior_context["summary_nodes"])
+            other_relevant_messages = "\n".join(prior_context["message_nodes"])
+            document_nodes = "\n".join(prior_context["document_nodes"])
         # Set limit on how many documents can be selected
         llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
         link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_text_for_gpt4(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
-            other_relevant_messages, permanent_instructions, document_nodes)
+            other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
         web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes = format_llm_inputs(
             web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
             other_relevant_messages, document_nodes)
@@ -778,30 +791,30 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instruct
     '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
     return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes
 
-def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes):
+def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
     link_result_text = get_first_last_parts(link_result_text, 0, 1500)
     web_text = get_first_last_parts(web_text, 0, 1500)
     doc_answer = get_first_last_parts(doc_answer, 0, 1500)
     summary_text = get_first_last_parts(summary_text, 0, 500)
-    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-    previous_messages = get_first_last_parts(previous_messages, 0, 2750 - used_len)
+    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
+    previous_messages = get_first_last_parts(previous_messages, 0, 2750 - used_len) if 2750 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
 
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250)
-    document_nodes = get_first_last_parts(document_nodes, 0, 3500 - used_len)
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 3250 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, 3500 - used_len) if 3500 - used_len > 0 else ""
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
-def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes):
+def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
     link_result_text = get_first_last_parts(link_result_text, 0, 3000)
     web_text = get_first_last_parts(web_text, 0, 3000)
     doc_answer = get_first_last_parts(doc_answer, 0, 3000)
     summary_text = get_first_last_parts(summary_text, 0, 500)
-    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer))
-    previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len)
+    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
+    previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len) if 4500 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
-    other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, 5500 - used_len)
+    other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, 5500 - used_len) if 5500 - used_len > 0 else ""
     used_len = len(enc.encode(other_relevant_messages)) + used_len
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250)
-    document_nodes = get_first_last_parts(document_nodes, 0, 7000 - used_len)
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 6000 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, 7000 - used_len) if 7000 - used_len > 0 else ""
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes

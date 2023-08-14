@@ -180,13 +180,6 @@ def call_cohere(text, temperature=0.7, api_key=None):
     return response.generations[0].text
 
 
-
-
-
-# search = BingSearchAPIWrapper(k=1)
-
-
-
 easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
 def call_chat_model(model, text, temperature, system, api_key):
@@ -1288,9 +1281,12 @@ Output only a valid python list of web search query strings:
         serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
         logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
     else:
+        serps = []
+        serps_web = []
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
+        assert len(serps) > 1 or len(serps_web) > 1
         serps = [s.result() for s in serps]
         serps_web = [s.result() for s in serps_web]
     except Exception as e:

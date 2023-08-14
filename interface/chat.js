@@ -303,6 +303,15 @@ function loadConversations(autoselect=true) {
 
 function sendMessageCallback() {
     var messageText = $('#messageText').val();
+    if (messageText.trim().length == 0) {
+        return;
+    }
+    // Lets split the messageText and get word count and then check if word count > 1000 then raise alert
+    var wordCount = messageText.split(' ').length;
+    if (wordCount > 1000) {
+        alert('Please enter a message with less than 1000 words');
+        return;
+    }
     $('#messageText').val('');  // Clear the messageText field
     $('#messageText').prop('disabled', true);
     var links = $('#linkInput').val().split('\n');
@@ -323,8 +332,14 @@ function sendMessageCallback() {
 }
 
 $(document).ready(function() {
+    
     $('#chat-assistant-view').hide();
-    loadConversations();
+    $("#loader").show();
+
+    // Hide the loader after 10 seconds
+    setTimeout(function() {
+        $("#loader").hide();
+    }, 2000 * 1);  // 10000 milliseconds = 10 seconds
     
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();

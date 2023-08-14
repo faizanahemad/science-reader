@@ -280,20 +280,20 @@ def removeUserFromConversation(user_email, conversation_id):
 
 def keyParser(session):
     keyStore = {
-        "openAIKey": '',
-        "mathpixId": '',
-        "mathpixKey": '',
-        "cohereKey": '',
-        "ai21Key": '',
-        "bingKey": '',
-        "serpApiKey": '',
-        "googleSearchApiKey":'',
-        "googleSearchCxId":'',
-        "openai_models_list": '',
-        "scrapingBrowserUrl": '',
+        "openAIKey": os.getenv('', "openAIKey"),
+        "mathpixId": os.getenv('', "mathpixId"),
+        "mathpixKey": os.getenv('', "mathpixKey"),
+        "cohereKey": os.getenv('', "cohereKey"),
+        "ai21Key": os.getenv('', "ai21Key"),
+        "bingKey": os.getenv('', "bingKey"),
+        "serpApiKey": os.getenv('', "serpApiKey"),
+        "googleSearchApiKey":os.getenv('', "googleSearchApiKey"),
+        "googleSearchCxId":os.getenv('', "googleSearchCxId"),
+        "openai_models_list": os.getenv('', "openai_models_list"),
+        "scrapingBrowserUrl": os.getenv('', "scrapingBrowserUrl"),
     }
-    for k, _ in keyStore.items():
-        key = session.get(k)
+    for k, v in keyStore.items():
+        key = session.get(k, v)
         keyStore[k] = key
         if key is not None and ((isinstance(key, str) and len(key.strip())>0) or (isinstance(key, list) and len(key)>0)):
             keyStore[k] = key
@@ -891,6 +891,11 @@ from flask import send_from_directory
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    
+@app.route('/loader.gif')
+def loader():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'gradient-loader.gif', mimetype='image/gif')
 
 @app.route('/interface/<path:path>')
 def send_static(path):

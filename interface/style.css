@@ -349,3 +349,16 @@ textarea.form-control.dynamic-textarea {
     /* background-color: #f1f1f1; Light grey background */
     box-shadow: 0 0 2px rgba(0,0,0,0.5);
 }
+
+#loader {
+    position: fixed;
+    left: 0%;
+    top: 0% !important;
+    width: 100%;
+    height: 100% !important;
+    z-index: 9999;
+    background-color: #fff !important;
+    align-items: center;
+    justify-content: center;
+    /* background: url('loader.gif') 50% 50% no-repeat white; replace 'loader.gif' with your loader image */
+}
