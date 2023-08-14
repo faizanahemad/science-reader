@@ -280,17 +280,19 @@ def removeUserFromConversation(user_email, conversation_id):
 
 def keyParser(session):
     keyStore = {
-        "openAIKey": os.getenv('', "openAIKey"),
-        "mathpixId": os.getenv('', "mathpixId"),
-        "mathpixKey": os.getenv('', "mathpixKey"),
-        "cohereKey": os.getenv('', "cohereKey"),
-        "ai21Key": os.getenv('', "ai21Key"),
-        "bingKey": os.getenv('', "bingKey"),
-        "serpApiKey": os.getenv('', "serpApiKey"),
-        "googleSearchApiKey":os.getenv('', "googleSearchApiKey"),
-        "googleSearchCxId":os.getenv('', "googleSearchCxId"),
-        "openai_models_list": os.getenv('', "openai_models_list"),
-        "scrapingBrowserUrl": os.getenv('', "scrapingBrowserUrl"),
+        "openAIKey": os.getenv("openAIKey", ''),
+        "mathpixId": os.getenv("mathpixId", ''),
+        "mathpixKey": os.getenv("mathpixKey", ''),
+        "cohereKey": os.getenv("cohereKey", ''),
+        "ai21Key": os.getenv("ai21Key", ''),
+        "bingKey": os.getenv("bingKey", ''),
+        "serpApiKey": os.getenv("serpApiKey", ''),
+        "googleSearchApiKey":os.getenv("googleSearchApiKey", ''),
+        "googleSearchCxId":os.getenv("googleSearchCxId", ''),
+        "openai_models_list": os.getenv("openai_models_list", ''),
+        "scrapingBrowserUrl": os.getenv("scrapingBrowserUrl", ''),
+        "vllmUrl": os.getenv("vllmUrl", ''),
+        "embeddingsUrl": os.getenv("embeddingsUrl", ''),
     }
     for k, v in keyStore.items():
         key = session.get(k, v)
