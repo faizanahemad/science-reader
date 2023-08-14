@@ -335,7 +335,7 @@ $(document).ready(function() {
     
     $('#chat-assistant-view').hide();
     $("#loader").show();
-
+    loadConversations();
     // Hide the loader after 10 seconds
     setTimeout(function() {
         $("#loader").hide();

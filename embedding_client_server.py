@@ -1,0 +1,74 @@
+import os
+import argparse
+from flask import Flask, request, jsonify
+from flask_caching import Cache
+from sentence_transformers import SentenceTransformer
+
+app = Flask(__name__)
+
+
+@app.route('/embed_query', methods=['POST'])
+def embed_query():
+    sentence = request.json['sentence']
+    key = f"query_{sentence}"
+
+    # Check if the embeddings are in the cache
+    embeddings = cache.get(key)
+    if embeddings is None:
+        # Compute the embeddings and store them in the cache
+        embeddings = model.encode(sentence).tolist()
+        cache.set(key, embeddings)
+
+    return jsonify(embeddings)
+
+
+@app.route('/embed_documents', methods=['POST'])
+def embed_documents():
+    sentences = request.json['sentences']
+    key = f"documents_{'_'.join(sentences)}"
+
+    # Check if the embeddings are in the cache
+    embeddings = cache.get(key)
+    if embeddings is None:
+        # Compute the embeddings and store them in the cache
+        embeddings = model.encode(sentences).tolist()
+        cache.set(key, embeddings)
+
+    return jsonify(embeddings)
+
+import requests
+from typing import List
+from abc import ABC, abstractmethod
+from langchain.embeddings.base import Embeddings
+
+
+class EmbeddingClient(Embeddings):
+    def __init__(self, server_url):
+        self.server_url = server_url
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        response = requests.post(f"{self.server_url}/embed_documents", json={'sentences': texts})
+        return response.json()
+
+    def embed_query(self, text: str) -> List[float]:
+        response = requests.post(f"{self.server_url}/embed_query", json={'sentence': text})
+        return response.json()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--device', type=str, default='cuda')
+    parser.add_argument('--model_name', type=str, default='BAAI/bge-base-en')
+    parser.add_argument('--port', type=int, default=5000)
+    parser.add_argument('--folder', type=str, required=True)
+    args = parser.parse_args()
+
+    # Initialize the model
+    model = SentenceTransformer(args.model_name, device=args.device)
+
+    # Initialize the cache
+    cache_dir = os.path.join(os.getcwd(), args.folder, "cache")
+    cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir,
+                               'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
+
+    app.run(port=args.port, threaded=True, processes=1)

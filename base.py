@@ -143,6 +143,7 @@ import time
 def get_embedding_model(keys):
     openai_key = keys["openAIKey"]
     assert openai_key
+    # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
     openai_embed = OpenAIEmbeddings(openai_api_key=openai_key, model='text-embedding-ada-002')
     return openai_embed
 
@@ -182,7 +183,8 @@ def call_cohere(text, temperature=0.7, api_key=None):
 
 easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-def call_chat_model(model, text, temperature, system, api_key):
+def call_chat_model(model, text, temperature, system, keys):
+    api_key = keys["openAIKey"]
     response = openai.ChatCompletion.create(
         model=model,
         api_key=api_key,
@@ -201,7 +203,8 @@ def call_chat_model(model, text, temperature, system, api_key):
         yield "\n Output truncated due to lack of context Length."
     
 
-def call_non_chat_model(model, text, temperature, system, api_key):
+def call_non_chat_model(model, text, temperature, system, keys):
+    api_key = keys["openAIKey"]
     input_len = len(davinci_enc.encode(text))
     assert 4000 - input_len > 0
     completions = openai.Completion.create(
@@ -255,7 +258,7 @@ class CallLLm:
             models = round_robin(self.openai_gpt4_models)
             try:
                 model = next(models)
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
@@ -265,14 +268,14 @@ class CallLLm:
                     model = self.openai_16k_models[0]
                 else:
                     raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
         elif self.keys["openAIKey"] is not None and not self.use_16k and ((not self.use_small_models) or (self.use_small_models and self.keys["cohereKey"] is None and self.keys["ai21Key"] is None)):
             models = round_robin(self.openai_turbo_models)
             assert len(self.turbo_enc.encode(text)) < 4000
             try:
                 model = next(models)
 #                 logger.info(f"Try turbo model with stream = {stream}")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
@@ -284,7 +287,7 @@ class CallLLm:
                     model = next(models)
                     fn = call_non_chat_model
                 try:  
-                    return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                    return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys)
                 except Exception as e:
                     if type(e).__name__ == 'AssertionError':
                         raise e
@@ -300,7 +303,7 @@ class CallLLm:
             try:
                 model = next(models)
 #                 logger.info(f"Try 16k model with stream = {stream}")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
