@@ -40,6 +40,7 @@ from collections import defaultdict, Counter
 
 import openai
 import tiktoken
+from vllm_client import get_streaming_vllm_response
 
 
 from langchain.agents import Tool
@@ -141,6 +142,9 @@ import time
 
 
 def get_embedding_model(keys):
+    if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
+        from embedding_client_server import EmbeddingClient
+        return EmbeddingClient(keys["embeddingsUrl"])
     openai_key = keys["openAIKey"]
     assert openai_key
     # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
@@ -149,6 +153,8 @@ def get_embedding_model(keys):
 
 @retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_ai21(text, temperature=0.7, api_key=None):
+    if "vllmUrl" in api_key and not checkNoneOrEmpty(api_key["vllmUrl"]):
+        return get_streaming_vllm_response(text, api_key["vllmUrl"], temperature=temperature, max_tokens=3800 - get_gpt4_word_count(text))
     if get_gpt4_word_count(text) > 3600:
         logger.warning(f"Text too long, taking only first 3600 tokens")
         text = get_first_last_parts(text, 3600, 0)
@@ -167,6 +173,8 @@ def call_ai21(text, temperature=0.7, api_key=None):
     return result
 @retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_cohere(text, temperature=0.7, api_key=None):
+    if "vllmUrl" in api_key and not checkNoneOrEmpty(api_key["vllmUrl"]):
+        return get_streaming_vllm_response(text, api_key["vllmUrl"], temperature=temperature, max_tokens=3800 - get_gpt4_word_count(text))
     import cohere
     co = cohere.Client(api_key["cohereKey"])
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
@@ -183,7 +191,11 @@ def call_cohere(text, temperature=0.7, api_key=None):
 
 easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
+gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 def call_chat_model(model, text, temperature, system, keys):
+    if "vllmUrl" in keys and not checkNoneOrEmpty(keys["vllmUrl"]):
+        for s in get_streaming_vllm_response(text, keys["vllmUrl"], temperature=temperature, max_tokens=8000-len(easy_enc.encode(system+text))):
+            yield s
     api_key = keys["openAIKey"]
     response = openai.ChatCompletion.create(
         model=model,
@@ -204,6 +216,8 @@ def call_chat_model(model, text, temperature, system, keys):
     
 
 def call_non_chat_model(model, text, temperature, system, keys):
+    if "vllmUrl" in keys and not checkNoneOrEmpty(keys["vllmUrl"]):
+        return get_streaming_vllm_response(text, keys["vllmUrl"], temperature=temperature, max_tokens=4000 - len(davinci_enc.encode(system+text)))
     api_key = keys["openAIKey"]
     input_len = len(davinci_enc.encode(text))
     assert 4000 - input_len > 0
@@ -228,7 +242,7 @@ class CallLLm:
         self.keys = keys
         self.system = "You are a helpful assistant. Please follow the instructions and respond to the user request."
         available_openai_models = self.keys["openai_models_list"]
-        self.self_hosted_model_url = self_hosted_model_url
+        self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m]
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models
         self.use_small_models = use_small_models
@@ -250,8 +264,10 @@ class CallLLm:
 
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
-    def __call__(self, text, temperature=0.7, stream=False,):
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
+        if self.self_hosted_model_url is not None:
+            return call_with_stream(get_streaming_vllm_response, stream, text, self.self_hosted_model_url, temperature=temperature, max_tokens=max_tokens)
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert len(self.gpt4_enc.encode(text)) < 8000
@@ -1217,33 +1233,45 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    prompt = f"""You are given a query or question or conversation context as below:
-'{context}' 
-{"We want to answer it in context of the following research document: '''{doc_context}'''" if len(doc_context)>0 else ""} 
-We want to generate web search queries to search the web for more information about the query/question.
+    prompt = f"""You are given a query or question or conversation context as below.
+'''{context}''' 
+{"You are also given the research document: '''{doc_context}'''" if len(doc_context)>0 else ""} 
+We want to generate web search queries to search the web for more information about the query.
 {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
 {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''}
 
 Generate {n_query} well specified and diverse web search queries as a valid python list. 
 Instructions for how to generate the queries are given below.
-Generated web search queries can break down the actual question into smaller parts. 
-Each generated query must be different from others and diverse from each other. 
-Search query strings must be diverse and cover various topics about the original query ('{context}').
-Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
-When generating a search query prepend the name of the study area to the query (like one final output query is "<area of research> <query>", example: "machine learning self attention vs cross attention" where 'machine learning' is domain and 'self attention vs cross attention' is the web search query without domain.). 
-Determine the subject domain from the research document and the query and make sure to mention the domain in your queries.
-Convert abbreviations to full forms and correct typos in the query using the research document as context.
-
-Your output will look like:
-
+1. Generate diverse web search queries which break down the actual question into smaller parts. 
+2. Each generated query must be different from others and diverse from each other. 
+3. Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
+4. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
+5. Convert abbreviations to full forms and correct typos in the query using the given context.
+6. Your output will look like a python list of strings like below.
 ["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
     
-Output only a valid python list of web search query strings: 
+Output only a valid python list of web search query strings.
 """
+    n_query = "one"
+    prompt = f"""You are given a query or question or conversation context as below.
+'''{context}''' 
+{"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""} 
+We want to generate web search queries to search the web for more information about the query.
+{f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip()) > 10 else ''}
+{f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs) > 0 else ''}
+Instructions for how to generate the web search queries are given below.
+1. Generate {n_query} well specified and diverse web search queries. 
+2. Write one search query per line for a total of {n_query} queries.
+3. Only write the search queries. Don't write anything else.
+
+Google Search Queries are written below.
+    """
     if len(extra_queries) < 1:
-        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt)
+        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, max_tokens=100)
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = parse_array_string(query_strings.strip())
+        query_strings = parse_array_string(query_strings.strip())[:3]
+        # if len(query_strings) == 0:
+        #     query_strings = [context]
         query_strings = query_strings + extra_queries
     else:
         query_strings = extra_queries

@@ -133,7 +133,8 @@ function verifyOpenAIKeyAndFetchModels(apiKey) {
 
         // if the function was called due to an input event, we need to disable the main functionality until a valid key is provided
         if (apiKey !== keyStore['openAIKey']) {
-            disableMainFunctionality();
+            // disableMainFunctionality();
+            pass
         }
     });
 }
@@ -290,8 +291,8 @@ marked.setOptions({
     breaks: false,
     sanitize: false,
     smartLists: true,
-    smartypants: false,
-    xhtml: false
+    smartypants: true,
+    xhtml: true
 });
 markdownParser.codespan = function(text) {
   return '<code>' + text + '</code>';
@@ -748,7 +749,7 @@ function initialiseKeyStore() {
 
                 // If OpenAI key is provided, verify it and fetch the list of models
                 if (key === 'openAIKey' && keyString) {
-                    disableMainFunctionality();
+                    // disableMainFunctionality();
                     verifyOpenAIKeyAndFetchModels(keyString);
                 } else {
                     setKeysOnServer();

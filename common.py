@@ -295,15 +295,13 @@ def check_if_stream_and_raise_exception(iterable_or_str):
         try:
             peeked = peekable(iterable_or_str)
             peeked.peek()  # This will raise StopIteration if the generator is empty.
+            return peeked
         except StopIteration:
             # Here you could handle the empty generator case.
             raise
         except Exception as e:
             # Here you could handle other exceptions.
             raise
-        else:
-            # If no exception was raised, return the peekable generator.
-            return peeked
     else:
         # If it's not a string or a generator, raise an exception.
         raise ValueError("Unexpected input type.")
@@ -328,12 +326,40 @@ def get_first_last_parts(my_string, first_n=250, last_n=750):
     return first_part + "\n" + last_part
 
 
+def extract_array_string(s):
+    # Try to find text inside square brackets
+    match = re.search(r'\[.*?\]', s)
+    if match:
+        return match.group(0)
+
+    # Check for queries separated by one or two newlines
+    newline_separated = re.split(r'\n\n|\n', s.strip())
+    if newline_separated and all(len(query.strip().split()) >= 3 for query in newline_separated):
+        return newline_separated
+    # Try to find markdown list
+    markdown_list = re.findall(r'^[-*] (.+)$', s, flags=re.M)
+    if markdown_list:
+        return markdown_list
+
+
+
+    # If a single string, return it in an array
+    if s.strip() and ' ' in s.strip() and len(s.strip().split()) <=10:
+        return [s.strip()]
+
+    # If all else fails, return an empty list
+    return [s.strip().split('\n')[0]]
+
 def parse_array_string(s):
-    import re
-    s = re.sub(r"(?<=[a-zA-Z0-9])'(?!(, ?|]))", "@@", s)
-    parsed_list = eval(s)
-    parsed_list = [i.replace("@@", "'") for i in parsed_list]
-    return parsed_list
+    result = extract_array_string(s)
+    if result and isinstance(result, str) and result.startswith('['):
+        result = re.sub(r"(?<=[a-zA-Z0-9])'(?!(, ?|]))", "@@", result)
+        parsed_list = eval(result)
+        return [i.replace("@@", "'") for i in parsed_list]
+    elif result and isinstance(result, list):
+        return result
+    else:
+        return []
 
 
 

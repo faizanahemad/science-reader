@@ -1110,7 +1110,7 @@ class ImmediateDocIndex(DocIndex):
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     doc_text = PDFReaderTool(keys)(pdf_url)
-    chunks = ChunkText(doc_text, 1024, 96)
+    chunks = ChunkText(doc_text, 512, 64)
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
@@ -1124,7 +1124,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             "limitations_and_future_work" : {"id":"", "text":""},
         }
     }
-    nested_dict["small_chunks"] = ChunkText(doc_text, 256, 50)
+    nested_dict["small_chunks"] = ChunkText(doc_text, 128, 32)
     openai_embed = get_embedding_model(keys)
     try:
         doc_index = ImmediateDocIndex(pdf_url, 

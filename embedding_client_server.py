@@ -3,6 +3,18 @@ import argparse
 from flask import Flask, request, jsonify
 from flask_caching import Cache
 from sentence_transformers import SentenceTransformer
+import logging
+import sys
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
+    ]
+)
 
 app = Flask(__name__)
 
@@ -67,7 +79,9 @@ if __name__ == '__main__':
     model = SentenceTransformer(args.model_name, device=args.device)
 
     # Initialize the cache
+    os.makedirs(os.path.join(os.getcwd(), args.folder), exist_ok=True)
     cache_dir = os.path.join(os.getcwd(), args.folder, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
     cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir,
                                'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 

@@ -1,8 +1,23 @@
 import argparse
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 from typing import Iterable, List
-
+import logging
+import sys
+import os
 import requests
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
+    ]
+)
 
 # https://vllm.readthedocs.io/en/latest/getting_started/quickstart.html
 # https://github.com/vllm-project/vllm/blob/main/examples/api_client.py
@@ -10,9 +25,18 @@ import requests
 # https://huggingface.co/lmsys/vicuna-13b-v1.5-16k
 # https://huggingface.co/Open-Orca/LlongOrca-7B-16k
 # https://huggingface.co/conceptofmind/Hermes-LLongMA-2-13b-8k
+# https://huggingface.co/Panchovix/WizardLM-33B-V1.0-Uncensored-SuperHOT-8k
+# https://huggingface.co/TheBloke/Platypus-30B-SuperHOT-8K-fp16
+# https://huggingface.co/kingbri/airo-llongma-2-13b-16k
 
-def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=16) -> requests.Response:
-    headers = {"User-Agent": "Test Client"}
+# https://huggingface.co/garage-bAInd/Platypus2-70B-instruct
+# https://huggingface.co/upstage/Llama-2-70b-instruct-v2
+# https://huggingface.co/TheBloke/Llama-2-70B-Chat-fp16
+
+def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=None) -> requests.Response:
+    if max_tokens is None:
+        max_tokens = 8000 - (1.25 * len(prompt.split()))
+    headers = {"User-Agent": "Science Reader"}
     pload = {
         "prompt": prompt,
         "n": 1,
@@ -25,7 +49,10 @@ def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=16
     return response
 
 def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_tokens=16) -> Iterable[str]:
-    response = _post_http_request(prompt, api_url, temperature, max_tokens)
+    if isinstance(max_tokens, int):
+        response = _post_http_request(prompt, api_url, temperature, max_tokens)
+    else:
+        response = _post_http_request(prompt, api_url, temperature)
     prior = "" + prompt
     for chunk in response.iter_lines(chunk_size=8192,
                                      decode_unicode=False,
@@ -40,5 +67,5 @@ def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_
 
 
 if __name__ == "__main__":
-    for s in get_streaming_vllm_response('Who is the president ', 'http://localhost:8000/generate'):
+    for s in get_streaming_vllm_response('Who is the president of the United States?\n', 'http://localhost:8000/generate'):
         print(s, end='')
