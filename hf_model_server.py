@@ -113,7 +113,6 @@ class LLMAClient:
 
 
 if __name__ == "__main__":
-    app = Flask(__name__)
 
     # Load model on app startup
     parser = argparse.ArgumentParser()
