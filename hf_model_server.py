@@ -60,7 +60,7 @@ def generate():
     model = pipe["model"]
     tokenizer = pipe["tokenizer"]
     pipeline = pipe["pipeline"]
-    inputs = tokenizer([prompt], return_tensors="pt")
+    inputs = tokenizer([prompt], return_tensors="pt").to("cuda:0")
     streamer = TextIteratorStreamer(tokenizer)
     thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
     thread.start()
@@ -83,7 +83,8 @@ def generate_one_shot():
     model = pipe["model"]
     tokenizer = pipe["tokenizer"]
     pipeline = pipe["pipeline"]
-    inputs = tokenizer([prompt], return_tensors="pt")
+    inputs = tokenizer([prompt], return_tensors="pt").to("cuda:0")
+
     model_output = model.generate(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs)
     generated_text = tokenizer.decode(model_output[0], skip_special_tokens=True)
     return jsonify({'generated_text': generated_text})
