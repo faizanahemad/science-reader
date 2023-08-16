@@ -1,3 +1,5 @@
+import time
+
 from flask import Flask, request, Response, jsonify, stream_with_context
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, pipeline, TextStreamer, TextIteratorStreamer
 import torch
@@ -62,6 +64,7 @@ def generate():
     streamer = TextIteratorStreamer(tokenizer)
     thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
     thread.start()
+    logger.info(f"Generating for prompt: {prompt}")
     def streaming_builder():
         for chunk in streamer:
             yield chunk
@@ -103,10 +106,7 @@ class LLMAClient:
 
 
 # Example usage
-server_url = 'http://localhost:8003'
-client = LLMAClient(server_url)
-for generated_text in client('How are you?', temperature=0.9):
-    print(generated_text)
+
 
 if __name__ == "__main__":
     app = Flask(__name__)
@@ -119,3 +119,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     pipe = load_model(args.dtype, args.model)
     app.run(port=args.port, threaded=True, processes=1)
+    time.sleep(30)
+    server_url = 'http://localhost:8003'
+    client = LLMAClient(server_url)
+    for generated_text in client('How are you?', temperature=0.9):
+        print(generated_text)
