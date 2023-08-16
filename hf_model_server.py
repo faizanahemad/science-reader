@@ -62,8 +62,51 @@ def generate():
     streamer = TextIteratorStreamer(tokenizer)
     thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
     thread.start()
-    return Response(stream_with_context(streamer), content_type='text/plain')
+    def streaming_builder():
+        for chunk in streamer:
+            yield chunk
+        thread.join()
+    return Response(stream_with_context(streaming_builder()), content_type='text/plain')
 
+
+import requests
+
+
+class LLMAClient:
+    def __init__(self, server_url):
+        self.server_url = server_url
+
+    def __call__(self, text, temperature=0.7, max_tokens=None):
+        # Form the JSON payload
+        payload = {
+            'text': text,
+            'generate_kwargs': {
+                'temperature': temperature
+            }
+        }
+        if max_tokens is not None:
+            payload['generate_kwargs']['max_new_tokens'] = max_tokens
+
+        # Make the request to the server
+        response = requests.post(f'{self.server_url}/generate', json=payload, stream=True)
+
+        # Buffer the response until we reach the end of the input prompt
+        buffer = ''
+        for chunk in response.iter_content(chunk_size=1, decode_unicode=True):
+            buffer += chunk
+            if buffer.endswith(text):  # End of prompt reached
+                break
+
+        # Stream the remaining response
+        for chunk in response.iter_content(chunk_size=1024, decode_unicode=True):
+            yield chunk
+
+
+# Example usage
+server_url = 'http://localhost:8003'
+client = LLMAClient(server_url)
+for generated_text in client('How are you?', temperature=0.9):
+    print(generated_text)
 
 if __name__ == "__main__":
     app = Flask(__name__)
