@@ -76,7 +76,7 @@ def generate():
     # return jsonify({'generated_text': generated_text})
 
 @app.route('/generate_one_shot', methods=['POST'])
-def generate():
+def generate_one_shot():
     data = request.json
     prompt = data['text']
     generate_kwargs = data.get('generate_kwargs', {"max_new_tokens": 200, "do_sample": False})
