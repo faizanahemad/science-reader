@@ -61,16 +61,29 @@ def generate():
     tokenizer = pipe["tokenizer"]
     pipeline = pipe["pipeline"]
     inputs = tokenizer([prompt], return_tensors="pt")
-    # streamer = TextIteratorStreamer(tokenizer)
-    # thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
-    # thread.start()
+    streamer = TextIteratorStreamer(tokenizer)
+    thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
+    thread.start()
     logger.info(f"Generating for prompt: {prompt}")
-    # def streaming_builder():
-    #     for chunk in streamer:
-    #         yield chunk
-    #     thread.join()
-    # return Response(stream_with_context(streaming_builder()), content_type='text/plain')
+    def streaming_builder():
+        for chunk in streamer:
+            yield chunk
+        thread.join()
+    return Response(stream_with_context(streaming_builder()), content_type='text/plain')
 
+    # model_output = model.generate(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs)
+    # generated_text = tokenizer.decode(model_output[0], skip_special_tokens=True)
+    # return jsonify({'generated_text': generated_text})
+
+@app.route('/generate_one_shot', methods=['POST'])
+def generate():
+    data = request.json
+    prompt = data['text']
+    generate_kwargs = data.get('generate_kwargs', {"max_new_tokens": 200, "do_sample": False})
+    model = pipe["model"]
+    tokenizer = pipe["tokenizer"]
+    pipeline = pipe["pipeline"]
+    inputs = tokenizer([prompt], return_tensors="pt")
     model_output = model.generate(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs)
     generated_text = tokenizer.decode(model_output[0], skip_special_tokens=True)
     return jsonify({'generated_text': generated_text})
@@ -122,8 +135,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     pipe = load_model(args.dtype, args.model)
     app.run(port=args.port, threaded=True, processes=1)
-    time.sleep(30)
-    server_url = 'http://localhost:8003'
-    client = LLMAClient(server_url)
-    for generated_text in client('How are you?', temperature=0.9):
-        print(generated_text)
+
+    #
+    # time.sleep(30)
+    # server_url = 'http://localhost:8003'
+    # client = LLMAClient(server_url)
+    # for generated_text in client('How are you?', temperature=0.9):
+    #     print(generated_text)
