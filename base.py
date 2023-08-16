@@ -1252,7 +1252,7 @@ Instructions for how to generate the queries are given below.
     
 Output only a valid python list of web search query strings.
 """
-    n_query = "one"
+    n_query = "three"
     prompt = f"""You are given a query or question or conversation context as below.
 '''{context}''' 
 {"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""} 
@@ -1263,15 +1263,24 @@ Instructions for how to generate the web search queries are given below.
 1. Generate {n_query} well specified and diverse web search queries. 
 2. Write one search query per line for a total of {n_query} queries.
 3. Only write the search queries. Don't write anything else.
+4. After writing the google web search queries write ###END### on a new line. 
+5. End your response for queries with ###END###.
 
 Google Search Queries are written below.
     """
     if len(extra_queries) < 1:
-        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, max_tokens=100)
+        # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
+        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
+        query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = parse_array_string(query_strings.strip())[:3]
-        # if len(query_strings) == 0:
-        #     query_strings = [context]
+        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:3]]
+
+        if len(query_strings) == 0:
+            query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
+            query_strings.split("###END###")[0].strip()
+            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:3]]
+        if len(query_strings) <= 1:
+            query_strings = query_strings + [context]
         query_strings = query_strings + extra_queries
     else:
         query_strings = extra_queries

@@ -334,7 +334,7 @@ def extract_array_string(s):
 
     # Check for queries separated by one or two newlines
     newline_separated = re.split(r'\n\n|\n', s.strip())
-    if newline_separated and all(len(query.strip().split()) >= 3 for query in newline_separated):
+    if newline_separated and all(len(query.strip().split()) >= 3 for query in newline_separated) and len(newline_separated) >= 3:
         return newline_separated
     # Try to find markdown list
     markdown_list = re.findall(r'^[-*] (.+)$', s, flags=re.M)
