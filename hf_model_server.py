@@ -67,13 +67,8 @@ def generate():
     thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], streamer=streamer, **generate_kwargs))
     thread.start()
     logger.info(f"Generating for prompt: {prompt}")
-    def streaming_builder():
-        for chunk in streamer:
-            logger.info(f"Yielding chunk: {chunk}")
-            yield chunk
-        thread.join()
-        logger.info("Finished generating")
-    return Response(stream_with_context(streaming_builder()), content_type='text/plain')
+
+    return Response(stream_with_context(streamer), content_type='text/plain')
 
     # model_output = model.generate(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs)
     # generated_text = tokenizer.decode(model_output[0], skip_special_tokens=True)
