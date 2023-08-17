@@ -72,6 +72,7 @@ def generate():
             logger.info(f"Yielding chunk: {chunk}")
             yield chunk
         thread.join()
+        logger.info("Finished generating")
     return Response(stream_with_context(streaming_builder()), content_type='text/plain')
 
     # model_output = model.generate(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs)
