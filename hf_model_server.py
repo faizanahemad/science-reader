@@ -57,12 +57,14 @@ def generate():
     data = request.json
     prompt = data['text']
     generate_kwargs = data.get('generate_kwargs', {"max_new_tokens": 200, "do_sample": False})
+    if "max_new_tokens" not in generate_kwargs:
+        generate_kwargs["max_new_tokens"] = 200
     model = pipe["model"]
     tokenizer = pipe["tokenizer"]
     pipeline = pipe["pipeline"]
     inputs = tokenizer([prompt], return_tensors="pt").to("cuda:0")
     streamer = TextIteratorStreamer(tokenizer)
-    thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], **generate_kwargs))
+    thread = Thread(target=model.generate, kwargs=dict(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"], streamer=streamer, **generate_kwargs))
     thread.start()
     logger.info(f"Generating for prompt: {prompt}")
     def streaming_builder():
