@@ -114,6 +114,7 @@ class LLMAClient:
         buffer = ''
         for chunk in response.iter_content(chunk_size=1, decode_unicode=True):
             buffer += chunk
+            logger.info(buffer)
             if buffer.endswith(text):  # End of prompt reached
                 break
 
