@@ -67,6 +67,7 @@ def generate():
     logger.info(f"Generating for prompt: {prompt}")
     def streaming_builder():
         for chunk in streamer:
+            logger.info(f"Yielding chunk: {chunk}")
             yield chunk
         thread.join()
     return Response(stream_with_context(streaming_builder()), content_type='text/plain')
