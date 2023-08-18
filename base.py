@@ -1001,8 +1001,8 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     
 # TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
-def get_page_content(link, playwright_cdp_link=None):
-    # TODO: try local browser based extraction first, if blocked then use cdplink
+def get_page_content(link, playwright_cdp_link=None, timeout=10):
+    # TODO: try local browser based extraction first, if blocked by ddos protection then use cdplink
     text = ''
     title = ''
     try:
@@ -1017,33 +1017,37 @@ def get_page_content(link, playwright_cdp_link=None):
                     browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
             else:
                 browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
-            page = browser.new_page()
+            page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
             url = link
             page.goto(url)
-            page.wait_for_selector('body', timeout=20000)
-            while page.evaluate('document.readyState') != 'complete':
-                pass
+            # example_page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            # example_page.goto("https://www.example.com/")
             
             try:
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                page.wait_for_selector('body', timeout=timeout * 1000)
+                while page.evaluate('document.readyState') != 'complete':
+                    pass
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             except Exception as e:
                 # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
-                logger.debug(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
+                logger.warning(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
                 # traceback.print_exc()
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
-                init_title = page.evaluate("""(function e(){return document.title})()""")
-                page.goto("https://www.example.com/")
+                page.wait_for_selector('body', timeout=timeout * 1000)
                 while page.evaluate('document.readyState') != 'complete':
                     pass
+                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
+                init_title = page.evaluate("""(function e(){return document.title})()""")
+                # page = example_page
+                page.goto("https://www.example.com/")
                 page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
                 page.evaluate(f"""text=>document.title=text""", init_title)
                 logger.debug(f"Loaded html and title into page with example.com as url")
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                page.wait_for_selector('body', timeout=20000)
+                # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+                page.wait_for_selector('body', timeout=timeout*1000)
                 while page.evaluate('document.readyState') != 'complete':
                     pass
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
@@ -1075,9 +1079,9 @@ def get_page_content(link, playwright_cdp_link=None):
                             script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
                             document.head.appendChild(script);
 
-                            var script = document.createElement('script');
-                            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
-                            document.head.appendChild(script);
+                            // var script = document.createElement('script');
+                            // script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js';
+                            // document.head.appendChild(script);
                         } else {
                             setTimeout(myFunction, 1000);
                         }
@@ -1086,14 +1090,12 @@ def get_page_content(link, playwright_cdp_link=None):
                     myFunction();
                 '''
             try:
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
                 driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
                     pass
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=20).until(document_initialised)
+                WebDriverWait(driver, timeout=timeout).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
             except Exception as e:
                 traceback.print_exc()
@@ -1102,14 +1104,14 @@ def get_page_content(link, playwright_cdp_link=None):
                 init_html = driver.execute_script("""return document.body.innerHTML;""")
                 driver.get("https://www.example.com/")
                 logger.debug(f"Loaded html and title into page with example.com as url")
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
                 driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
                 driver.execute_script("""document.title=arguments[0]""", init_title)
                 driver.execute_script(add_readability_to_selenium)
+                while driver.execute_script('return document.readyState;') != 'complete':
+                    pass
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
-                WebDriverWait(driver, timeout=20).until(document_initialised)
+                WebDriverWait(driver, timeout=timeout).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
                 
             title = normalize_whitespace(result['title'])
@@ -1252,22 +1254,22 @@ Instructions for how to generate the queries are given below.
     
 Output only a valid python list of web search query strings.
 """
-    n_query = "three"
-    prompt = f"""You are given a query or question or conversation context as below.
-'''{context}''' 
-{"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""} 
-We want to generate web search queries to search the web for more information about the query.
-{f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip()) > 10 else ''}
-{f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs) > 0 else ''}
-Instructions for how to generate the web search queries are given below.
-1. Generate {n_query} well specified and diverse web search queries. 
-2. Write one search query per line for a total of {n_query} queries.
-3. Only write the search queries. Don't write anything else.
-4. After writing the google web search queries write ###END### on a new line. 
-5. End your response for queries with ###END###.
-
-Google Search Queries are written below.
-    """
+#     n_query = "three"
+#     prompt = f"""You are given a query or question or conversation context as below.
+# '''{context}'''
+# {"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""}
+# We want to generate web search queries to search the web for more information about the query.
+# {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip()) > 10 else ''}
+# {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs) > 0 else ''}
+# Instructions for how to generate the web search queries are given below.
+# 1. Generate {n_query} well specified and diverse web search queries.
+# 2. Write one search query per line for a total of {n_query} queries.
+# 3. Only write the search queries. Don't write anything else.
+# 4. After writing the google web search queries write ###END### on a new line.
+# 5. End your response for queries with ###END###.
+#
+# Google Search Queries are written below.
+#     """
     if len(extra_queries) < 1:
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
@@ -1362,7 +1364,7 @@ Google Search Queries are written below.
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         link_counter.update([link])
         title_counter.update([link])
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link:
             continue
         dedup_results.append(r)
         seen_titles.add(title)
@@ -1372,7 +1374,7 @@ Google Search Queries are written below.
     for r in qres_web:
         title = r.get("title", "").lower()
         link = r.get("link", "")
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "arxiv.org" in link:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "arxiv.org" in link or "twitter.com" in link:
             continue
         dedup_results_web.append(r)
         seen_titles.add(title)
@@ -1449,8 +1451,10 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
     variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
 
-    cut_off = 4 if provide_detailed_answers else 2
+    cut_off = 6 if provide_detailed_answers else 4
     if len(links) == 0:
+        cut_off = cut_off * 2
+    if len(web_links) == 0:
         cut_off = cut_off * 2
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
@@ -1617,8 +1621,6 @@ def get_page_text(link_title_context_apikeys):
         "scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None
     pgc = get_page_content(link, scraping_browser_url)
     if len(pgc["text"].strip()) == 0:
-        pgc = get_page_content(link, scraping_browser_url)
-    if len(pgc["text"].strip()) == 0:
         pgc = get_page_content(link)
     if len(pgc["text"].strip()) == 0:
         logger.error(f"[process_page_link] Empty text for link: {link}")
@@ -1660,7 +1662,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(8 if provide_detailed_answers else 4, os.cpu_count()*2)
+    threads = min(16 if provide_detailed_answers else 8, os.cpu_count()*4)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]
@@ -1681,7 +1683,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 30)
     return task_queue
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:

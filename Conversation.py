@@ -332,22 +332,26 @@ Rephrased and contextualised human's last message:
         # TODO: contextualizing the query maybe important since user queries are not well specified
         message_lookback = 6
         summary_lookback = 3
+        memory = self.get_field("memory")
         previous_messages = self.get_field("messages")[-message_lookback:]
         previous_messages = '\n\n'.join([f"Sender: {m['sender']}\n'''{m['text']}'''\n" for m in previous_messages])
-        running_summary = self.get_field("memory")["running_summary"][-1:]
-        summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=2)
-        summary_nodes = [n.page_content for n in summary_nodes]
-        not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-summary_lookback:]
-        summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
-        summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
-        # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
+        running_summary = memory["running_summary"][-1:]
+        if len(memory["running_summary"]) > 4:
+            summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=2)
+            summary_nodes = [n.page_content for n in summary_nodes]
+            not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-summary_lookback:]
+            summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
+            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
+            # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
 
-        message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=2)
-        message_nodes = [n.page_content for n in message_nodes]
-        not_taken_messages = self.get_field("messages")[-message_lookback:]
-        message_nodes = [n for n in message_nodes if n not in not_taken_messages]
-        message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
-
+            message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=2)
+            message_nodes = [n.page_content for n in message_nodes]
+            not_taken_messages = self.get_field("messages")[-message_lookback:]
+            message_nodes = [n for n in message_nodes if n not in not_taken_messages]
+            message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
+        else:
+            summary_nodes = []
+            message_nodes = []
         document_nodes = self.get_field("indices")["raw_documents_index"].similarity_search(query, k=4)
         raw_documents_index = self.get_field("raw_documents_index")
         if links is not None and len(links) > 0:
@@ -445,7 +449,9 @@ Now lets write a title of the conversation.
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
-    
+    @property
+    def max_time_to_wait_for_web_results(self):
+        return 30
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -510,19 +516,38 @@ The most recent query by the human is as follows:
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
         if len(links) > 0:
-            link_result_text, all_docs_info = link_future.result()
+            link_read_st = time.time()
+            link_result_text = "We could not read the links you provided. Please try again later."
+            all_docs_info = []
+            while True and (time.time() - link_read_st < self.max_time_to_wait_for_web_results):
+                if link_future.done():
+                    link_result_text, all_docs_info = link_future.result()
+                    break
+
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             read_links = re.findall(pattern, link_result_text)
-            read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
-
-            yield {"text": read_links, "status": "Finished reading your provided links."}
+            if len(all_docs_info) > 0:
+                read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
+                yield {"text": read_links, "status": "Finished reading your provided links."}
+            else:
+                read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+                yield {"text": read_links, "status": "Finished reading your provided links."}
 
         logger.info(f"Time taken to read links: {time.time() - st}")
         logger.info(f"Link result text:\n```\n{link_result_text}\n```")
+        qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
-            doc_answers = doc_future.result()
-            doc_answer = doc_answers[1].result()["text"]
-            yield {"text": '', "status": "document reading completed"}
+            doc_answer = ''
+            while True and (time.time() - qu_dst < self.max_time_to_wait_for_web_results):
+                if doc_future.done():
+                    doc_answers = doc_future.result()
+                    doc_answer = doc_answers[1].result()["text"]
+                    break
+            if len(doc_answer) > 0:
+                yield {"text": '', "status": "document reading completed"}
+            else:
+                yield {"text": '', "status": "document reading failed"}
+
 
         if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
@@ -534,7 +559,7 @@ The most recent query by the human is as follows:
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results'][0]
                 query_results_part2 = web_results.result()[0].result()['search_results'][1]
-                cut_off = 4 if provide_detailed_answers else 2
+                cut_off = 6 if provide_detailed_answers else 4
                 seen_query_results = query_results_part1[:cut_off] + query_results_part2[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:] + query_results_part2[cut_off:]
                 answer += "\n#### Search Results: \n"
@@ -558,7 +583,8 @@ The most recent query by the human is as follows:
             full_info = []
             qu_st = time.time()
             while True:
-                if len(web_text_accumulator) >= 2:
+                qu_wait = time.time()
+                if len(web_text_accumulator) >= 2 or (qu_wait - qu_st) > self.max_time_to_wait_for_web_results:
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -575,8 +601,12 @@ The most recent query by the human is as follows:
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
-            read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
-            yield {"text": read_links, "status": "web search completed"}
+            if len(read_links) > 0:
+                read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
+                yield {"text": read_links, "status": "web search completed"}
+            else:
+                read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+                yield {"text": read_links, "status": "web search completed"}
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
@@ -587,6 +617,7 @@ The most recent query by the human is as follows:
         document_nodes = "\n".join(prior_context["document_nodes"])
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
+        new_accumulator = []
         if perform_web_search or google_scholar:
             yield {"text": '', "status": "starting answer generation"}
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_text_for_gpt3(
@@ -600,9 +631,6 @@ Remember that as an AI expert assistant for scientific research and study, you m
 Use markdown formatting to typeset and format your answer better. 
 Provide a short and concise reply now, we will expand and enhance your answer later.
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: '''{query["messageText"]}'''
-
 {summary_text_gpt3}
 {previous_messages_gpt3}
 {document_nodes_gpt3}
@@ -610,6 +638,8 @@ user's query: '''{query["messageText"]}'''
 {doc_answer_gpt3}
 {web_text_gpt3}
 {link_result_text_gpt3}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: '''{query["messageText"]}'''
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
             """
@@ -627,9 +657,12 @@ Response to the user's query:
                 answer += txt
                 partial_answer += txt
             full_info = []
-            new_accumulator = []
+            qu_cst = time.time()
             while True:
                 one_web_result = result_queue.get()
+                qu_wait = time.time()
+                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results:
+                    break
                 qu_et = time.time()
                 if one_web_result is None:
                     continue
@@ -646,8 +679,12 @@ Response to the user's query:
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
             read_links = re.findall(pattern, "\n\n".join(new_accumulator))
             read_links = "\n".join(read_links)
-            read_links = ("\nFurther, We read the below additional links:\n" + read_links + "\n") if len(read_links.strip()) > 0 else ''
-            yield {"text": read_links, "status": "further links read"}
+            if len(read_links) > 0:
+                read_links = ("\nFurther, We read the below additional links:\n" + read_links + "\n") if len(read_links.strip()) > 0 else ''
+                yield {"text": read_links, "status": "further links read"}
+            else:
+                read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+                yield {"text": read_links, "status": "web search completed"}
 
         new_line = "\n"
         if provide_detailed_answers:
@@ -657,7 +694,12 @@ Response to the user's query:
             other_relevant_messages = "\n".join(prior_context["message_nodes"])
             document_nodes = "\n".join(prior_context["document_nodes"])
         # Set limit on how many documents can be selected
+
         llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
+        if not (llm.use_gpt4 or provide_detailed_answers or len(new_accumulator) > 0):
+            yield {"text": '', "status": "saving answer ..."}
+            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            return
         link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_text_for_gpt4(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
@@ -744,6 +786,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
         indices = self.get_field("indices")
         for k, j in indices.items():
             if isinstance(j, (FAISS, VectorStore)):
+                j.embedding_function = get_embedding_model(api_keys).embed_query
                 j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
                 setattr(j.embedding_function.__self__,
                         "openai_api_key", api_keys["openAIKey"])

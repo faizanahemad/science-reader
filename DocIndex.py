@@ -1081,6 +1081,7 @@ Don't give final remarks or conclusions unless asked in reviewer instructions.
         indices = self.get_doc_data("indices")
         for k, j in indices.items():
             if isinstance(j, (FAISS, VectorStore)):
+                j.embedding_function = get_embedding_model(api_keys).embed_query
                 j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
                 setattr(j.embedding_function.__self__, "openai_api_key", api_keys["openAIKey"])
         setattr(self, "api_keys", api_keys)

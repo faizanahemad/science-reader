@@ -620,7 +620,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
     def task_worker(args, kwargs):
         try:
             result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
-            if callback:
+            if callback and result is not None:
                 result = callback(result, args, kwargs)
             task_queue.put(result)
         except Exception as e:
@@ -633,7 +633,12 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
     def run_tasks():
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = [pool.submit(task_worker, args, kwargs) for args, kwargs in args_list]
+                futures = []
+                for task in args_list:
+                    if task is None:
+                        continue
+                    args, kwargs = task
+                    futures.append(pool.submit(task_worker, args, kwargs))
                 for future in futures:
                     future.result()
         except Exception as e:
@@ -662,7 +667,7 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
         try:
             if result is not TERMINATION_SIGNAL:
                 new_result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
-                if callback:
+                if callback and new_result is not None:
                     new_result = callback(new_result, args, kwargs)
                 task_queue.put(new_result)
         except Exception as e:
@@ -681,6 +686,8 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                     result = input_queue.get()
                     if result is TERMINATION_SIGNAL or result is FINISHED_TASK or result == FINISHED_TASK:  # End of results
                         break
+                    if result is None:
+                        continue
                     args, kwargs = result
                     future = pool.submit(task_worker, result, [args], kwargs)
                     futures.append(future)

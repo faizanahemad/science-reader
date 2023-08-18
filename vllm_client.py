@@ -28,10 +28,13 @@ logging.basicConfig(
 # https://huggingface.co/Panchovix/WizardLM-33B-V1.0-Uncensored-SuperHOT-8k
 # https://huggingface.co/TheBloke/Platypus-30B-SuperHOT-8K-fp16
 # https://huggingface.co/kingbri/airo-llongma-2-13b-16k
+# https://huggingface.co/emozilla/LLongMA-2-13b-storysummarizer
 
 # https://huggingface.co/garage-bAInd/Platypus2-70B-instruct
 # https://huggingface.co/upstage/Llama-2-70b-instruct-v2
 # https://huggingface.co/TheBloke/Llama-2-70B-Chat-fp16
+# https://huggingface.co/WizardLM/WizardLM-70B-V1.0
+# https://huggingface.co/WizardLM/WizardCoder-15B-V1.0
 
 def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=None) -> requests.Response:
     if max_tokens is None:
