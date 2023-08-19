@@ -709,8 +709,8 @@ def index_document():
     email, name, loggedin = check_login(session)
     
     pdf_url = request.json.get('pdf_url')
-    if "arxiv.org" not in pdf_url:
-        return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
+    # if "arxiv.org" not in pdf_url:
+    #     return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
     if pdf_url:
         try:
             doc_index = immediate_create_and_save_index(pdf_url, keys)

@@ -627,7 +627,7 @@ class DocIndex:
         
     @property
     def paper_details(self)->dict:
-        if hasattr(self, "is_local") and self.is_local:
+        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             return dict()
         elif self.get_doc_data("_paper_details") is not None:
             pd = deepcopy(self.get_doc_data("_paper_details"))
@@ -642,6 +642,8 @@ class DocIndex:
             return self.paper_details
     
     def refetch_paper_details(self)->dict:
+        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+            return dict()
         url = self.doc_source
         paper = get_paper_details_from_semantic_scholar(url)
         self.set_doc_data("_paper_details", None, paper)
