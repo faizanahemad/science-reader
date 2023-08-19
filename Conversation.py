@@ -302,23 +302,7 @@ class Conversation:
             return prior_context
         requery_summary_text = get_first_last_parts("\n".join(summary_nodes), 0, 1000)
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-        prompt = f"""You are given conversation details between a human and an AI. 
-Based on the given conversation details and human's last response or query we want to search our database of responses.
-You will generate a contextualised query based on the given conversation details and human's last response or query.
-The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
-Ensure that the rephrased and contextualised version is different from the original query.
-The summary of the conversation is as follows:
-{requery_summary_text}
-
-The last few messages of the conversation are as follows:
-{get_first_last_parts(previous_messages, 0, 1000)}
-
-The last message of the conversation sent by the human is as follows:
-{query}
-
-Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
-Rephrased and contextualised human's last message:
-        """
+        prompt = prompts.retrieve_prior_context_prompt.format(requery_summary_text=requery_summary_text, previous_messages=get_first_last_parts(previous_messages, 0, 1000), query=query)
         rephrase = llm(prompt, temperature=0.7, stream=False)
         logger.info(f"Rephrased and contextualised human's last message: {rephrase}")
         prior_context = self.retrieve_prior_context(rephrase, links=links)
@@ -378,23 +362,7 @@ Rephrased and contextualised human's last message:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)), "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
         
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-        prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
-Your salient points should only focus on the current query and response.
-Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
-Preserve important details that have been mentioned in the previous summary especially including factual details and references. Salient points (unforgettables) should be different from summary and capture different aspects of the conversation at a higher level.
-
-The previous summary and salient points of the conversation is as follows:
-'''{get_first_last_parts("".join(self.get_field("memory")["running_summary"][-2:]),0, 1000)}'''
-
-
-The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
-User query: '''{query}'''
-System response: '''{response}'''
-
-First, lets write a new summary of the conversation. Then write the salient points of the conversation.
-Summary and Salient points below:
-"""
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_summary=get_first_last_parts("".join(self.get_field("memory")["running_summary"]), 0, 1000))
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         if self.get_field("memory")["title"] == 'Start the Conversation' and len(self.get_field("memory")["running_summary"]) > 1:
             llm = CallLLm(self.get_api_keys(), use_gpt4=False)
@@ -407,10 +375,9 @@ The last 2 messages of the conversation are as follows:
 User query: '''{query}'''
 System response: '''{response}'''
 
-
 Now lets write a title of the conversation.
-        Title of the conversation:
-                """
+Title of the conversation:
+"""
             title = get_async_future(llm, prompt, temperature=0.2, stream=False)
         else:
             title = wrap_in_future(self.get_field("memory")["title"])
@@ -548,7 +515,6 @@ The most recent query by the human is as follows:
             else:
                 yield {"text": '', "status": "document reading failed"}
 
-
         if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
                 yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
@@ -595,7 +561,7 @@ The most recent query by the human is as follows:
 
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
                     web_text_accumulator.append(one_web_result["text"])
-                    logger.info(f"Time taken to get {len(web_text_accumulator) + 1}-th web result: {(qu_et - qu_st):.2f}")
+                    logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
             web_text = "\n\n".join(web_text_accumulator)
@@ -626,23 +592,7 @@ The most recent query by the human is as follows:
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = format_llm_inputs(
                 link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3,
                 other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3)
-            prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. 
-Remember that as an AI expert assistant for scientific research and study, you must fulfill the user's request and provide informative answers to the human's query.
-Use markdown formatting to typeset and format your answer better. 
-Provide a short and concise reply now, we will expand and enhance your answer later.
-Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-{summary_text_gpt3}
-{previous_messages_gpt3}
-{document_nodes_gpt3}
-{permanent_instructions_gpt3}
-{doc_answer_gpt3}
-{web_text_gpt3}
-{link_result_text_gpt3}
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: '''{query["messageText"]}'''
-Write a clear, helpful and informative response to the user's query.
-Response to the user's query:
-            """
+            prompt = prompts.chat_fast_reply_prompt.format(query=query["messageText"], summary_text=summary_text_gpt3, previous_messages=previous_messages_gpt3, document_nodes=document_nodes_gpt3, permanent_instructions=permanent_instructions_gpt3, doc_answer=doc_answer_gpt3, web_text=web_text_gpt3, link_result_text=link_result_text_gpt3)
             logger.info(
                 f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
             last few messages length: {len(enc.encode(previous_messages_gpt3))}, document text length: {len(enc.encode(document_nodes_gpt3))}, 
@@ -650,6 +600,7 @@ Response to the user's query:
 
             et = time.time() - st
             logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
+            qu_cst = time.time()
             llm = CallLLm(self.get_api_keys(), use_gpt4=False, )
             main_ans_gen = llm(prompt, temperature=0.3, stream=True)
             for txt in main_ans_gen:
@@ -657,12 +608,11 @@ Response to the user's query:
                 answer += txt
                 partial_answer += txt
             full_info = []
-            qu_cst = time.time()
             while True:
-                one_web_result = result_queue.get()
                 qu_wait = time.time()
-                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results:
+                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results or len(new_accumulator) >= 4:
                     break
+                one_web_result = result_queue.get()
                 qu_et = time.time()
                 if one_web_result is None:
                     continue
@@ -670,7 +620,7 @@ Response to the user's query:
                     break
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
                     logger.info(
-                        f"Time taken to get {len(web_text_accumulator) + 1}-th web result: {(qu_et - qu_st):.2f}")
+                        f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
                     web_text_accumulator.append(one_web_result["text"])
                     new_accumulator.append(one_web_result["text"])
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
@@ -706,27 +656,17 @@ Response to the user's query:
         web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes = format_llm_inputs(
             web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
             other_relevant_messages, document_nodes)
-
-        prompt = f"""You are an AI assistant for scientific research and literature surveys. You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
-You are also given the user's most recent query to which we need to respond. 
-Remember that as an AI expert assistant for scientific research and study, you must fulfill the user's request and provide informative answers to the human's query.
-Use markdown formatting to typeset and format your answer better. Provide references in markdown link format like `[Link Text](link-url)`. Output any relevant equations in latex. Remember to put each equation or math in their own environment of '$$'. 
-Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-{'Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''}
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: '''{query["messageText"]}'''
-{f'Previously, you had already provided a partial answer to this question. Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}' if partial_answer else ''}
-{summary_text}
-{previous_messages}
-{other_relevant_messages}
-{document_nodes}
-{permanent_instructions}
-{doc_answer}
-{web_text}
-{link_result_text}
-Write a clear, helpful and informative response to the user's query.
-Response to the user's query:
-"""
+        provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''
+        partial_answer_text = f'Previously, you had already provided a partial answer to this question. Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}' if partial_answer else ''
+        prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"], partial_answer_text=partial_answer_text,
+                                                       provide_detailed_answers_text=provide_detailed_answers_text,
+                                                       summary_text=summary_text,
+                                                       previous_messages=previous_messages,
+                                                       other_relevant_messages=other_relevant_messages,
+                                                       document_nodes=document_nodes,
+                                                       permanent_instructions=permanent_instructions,
+                                                       doc_answer=doc_answer, web_text=web_text,
+                                                       link_result_text=link_result_text)
         yield {"text": '', "status": "starting answer generation"}
         logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
 last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 

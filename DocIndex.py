@@ -378,15 +378,15 @@ class DocIndex:
     
     @property
     def streaming_followup(self):
-        return prompts["DocIndex"]["streaming_followup"]
+        return prompts.streaming_followup
 
     @property
     def short_streaming_answer_prompt(self):
-        return prompts["DocIndex"]["short_streaming_answer_prompt"]
+        return prompts.short_streaming_answer_prompt
     
     @property
     def running_summary_prompt(self):
-        return prompts["DocIndex"]["running_summary_prompt"]
+        return prompts.running_summary_prompt
     
     
     
@@ -534,53 +534,7 @@ class DocIndex:
                         "limitations_and_future_work"
                     ]
         assert key in keys
-        key_to_query_map = {
-            "methodology": """
-- Motivation and Methodology
-    - What do the authors do in this overall work (i.e. their methodology) with details.
-    - Detailed methodology and approach described in this work.
-    - what problem do they address ?
-    - how do they solve the problem, provide details?
-    - Why do they solve this particular problem?
-    - what is their justification in using this method? Why do they use this method? 
-    - Any insights from their methods
-    - Any drawbacks in their method or process
-            """,
-            "previous_literature_and_differentiation": """
-- Previous Literature and Background work
-    - What is this work's unique contribution over previous works?
-    - what previous literature or works are referred to?
-    - How are the previous works relevant to the problem this method is solving?
-    - how their work is different from previous literature?
-    - What improvements does their work bring over previous methods.
-            """,
-            "experiments_and_evaluation":"""
-- Experiments and Evaluation
-    - How is the proposed method/idea evaluated?
-    - What metrics are used to quantify their results?
-    - what datasets do they evaluate on?
-    - What experiments are performed?
-    - Are there any experiments with surprising insights?
-    - Any other surprising experiments or insights
-    - Any drawbacks in their evaluation or experiments
-    
-            """,
-            "results_and_comparison": """
-- Results
-    - What results do they get from their experiments 
-    - how does this method perform compared to other methods?
-    - Make markdown tables to highlight most important results.
-    - Any Insights or surprising details from their results and their tables
-            """,
-            "limitations_and_future_work":"""
-- Limitations and possible future research directions
-    - What are the limitations of this method, 
-    - Where and when can this method or approach fail? 
-    - What are some further future research opportunities for this domain as a follow up to this method?
-    - What are some tangential interesting research questions or problems that a reader may want to follow upon?
-    - What are some overlooked experiments which could have provided more insights into this approach or work.
-            """,
-        }
+        key_to_query_map = prompts.paper_details_map
         full_text = ''
         for txt in self.streaming_get_short_answer(key_to_query_map[key], defaultdict(lambda: False, {"provide_detailed_answers": True}), save_answer=False):
             full_text += txt

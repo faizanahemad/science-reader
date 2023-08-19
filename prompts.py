@@ -1,93 +1,94 @@
+import os
+from copy import deepcopy
+
 from langchain.prompts import PromptTemplate
-prompts = {
 
-    "DocIndex": dict(
-        streaming_followup = PromptTemplate(
-            input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary", "questions_answers"],
-            template="""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
+class CustomPrompts:
+    def __init__(self, llm, role):
+        self.llm = llm
+        self.role = role
+        # TODO: decide on role prefixes needed or not.
+        # 4. Provide code in python if asked for code or implementation.
+        # Use markdown formatting to typeset and format your answer better.
+        self.complex_output_instructions = """Use the below rules while providing response.
+1. Use markdown formatting to typeset and format your answer better.
+2. Output any relevant equations in latex format. Remember to put each equation or math in their own environment of '$$'.
+3. No use of quotes.
+4. If the given context can't be used to provide a good and complete answer then provide information which can help in answering the question partly.
+5. Provide references in markdown link format like `[Link Text](link-url)`."""
+        self.simple_output_instructions = """Use the below rules while providing response.
+1. Use markdown formatting to typeset and format your answer better.
+2. Provide code only if asked for. """
+        self.gpt4_prompts = dict(
+            streaming_followup=PromptTemplate(
+                input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
+                                 "questions_answers"],
+                template=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
+Followup question or information request is given below.
+"{{followup}}"
 
-Followup question or information request is given below:
+Summary of the document is given below.
+"{{full_summary}}"
 
-"{followup}"
+Few text chunks from within the document to answer this follow up question as below.
+"{{fragment}}"
 
-Summary of the document:
-
-"{full_summary}"
-
-Few text chunks from within the document to answer this follow up question as below:
-
-"{fragment}"
-
-Few question and answer pairs from the document are given below:
-
-"{questions_answers}"
+Few question and answer pairs from the document are given below.
+"{{questions_answers}}"
 
 Summaries of certain parts of document below:
-
-"{summary}"
+"{{summary}}"
 
 Previous question or earlier question and its answer is provided below:
 
-Earlier Question:
-"{query}"
+Earlier Question: "{{query}}"
 
 Earlier Answer:
-"{answer}"
+"{{answer}}"
 
-Answer elaborately providing as much detail as possible. Keep the earlier question in consideration while answering.
-Use markdown formatting to typeset/format your answer better.
-Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
+Keep the earlier question in consideration while answering.
+{self.complex_output_instructions}
 
-Question: {followup}
+Current Question: {{followup}}
 Answer: 
-
 """,
-        ),
-        short_streaming_answer_prompt = PromptTemplate(
-            input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
-            template="""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
-Question or Query is given below:
-{query}
+            ),
+            short_streaming_answer_prompt=PromptTemplate(
+                input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
+                template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
+Question or Query is given below.
+{{query}}
 
-Short summary of the document is given below:
-'''{full_summary}'''
+Short summary of the document is given below.
+'''{{full_summary}}'''
 
 Few text chunks from the document to answer the question below:
-'''{fragment}'''
+'''{{fragment}}'''
 
 Next, You are given few question and answer pairs from the document below:
-'''{questions_answers}'''
+'''{{questions_answers}}'''
 
 You are also given summaries of certain parts of document below:
-'''{summary}'''
-
-If the given context can't be used to provide a good and complete answer then provide detailed information which can help in answering the question partly.
-Use markdown syntax and markdown formatting to typeset and format your answer better.
-Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
-Helpful, detailed and informative answer:
-""",
-        ),
-        
-        running_summary_prompt = PromptTemplate(
+'''{{summary}}'''
+{self.complex_output_instructions}
+Informative answer:
+        """,
+            ),
+            running_summary_prompt=PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
-                template="""We are reading a large document in fragments sequentially to write a continous summary.
-
+                template=f"""We are reading a large document in fragments sequentially to write a continuous summary.
 Current chunk/fragment we are looking at:
-
-"{document}"
+"{{document}}"
 
 Summary of previous chunk/fragment:
-
-"{previous_chunk_summary}"
+"{{previous_chunk_summary}}"
 
 The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
+"{{summary}}"
 
-"{summary}"
+{self.complex_output_instructions}
 
 Instructions for this task as below:
-- No use of quotes.
-- Use markdown formatting to typeset/format your answer better.
-- Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
 - Ignore irrelevant details not relevant to the overall document.
 - Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing from the "summary we have written till now", don't repeat information we already have. 
 - Add html header '<h4>topic/header text of current chunk</h4>' and header text (inside <h4> tags) at appropriate places when the current chunk/fragment moves to a new topic. In case the topic discussed is still the same as last topic of 'summary written till now' then don't add header <h4> tags and header text.
@@ -101,31 +102,431 @@ details of this part
 <h4>Title or Topic of next part</h4>
 Details of next part
 </br>
-
 "
 
-Very Short Summary:
-
-    """,
+Short Summary:
+""",
             ),
-        
-        running_methodology_prompt = PromptTemplate(
-                input_variables=["summary", "document"],
-                template="""We are reading a large document in small chunks/fragments sequentially and creating an extended and detailed summary. This large document is a scientific document and hence it is important to preserve all details and nuances in our summary along with scientific content.
+            retrieve_prior_context_prompt=PromptTemplate(
+                input_variables=["requery_summary_text", "previous_messages", "query"],
+                template="""You are given conversation details between a human and an AI. 
+Based on the given conversation details and human's last response or query we want to search our database of responses.
+You will generate a contextualised query based on the given conversation details and human's last response or query.
+The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
+Ensure that the rephrased and contextualised version is different from the original query.
+The summary of the conversation is as follows:
+{requery_summary_text}
 
-Given below is the current chunk/fragment we are looking at:
+The last few messages of the conversation are as follows:
+{previous_messages}
 
-"{document}"
+The last message of the conversation sent by the human is as follows:
+{query}
 
-The extended and detailed summary generated till now will be empty if this is the first chunk/fragment of the larger document. The extended and detailed summary we have generated till now looks as below:
-
-"{summary}"
-
-Now continue and extend the above summary (this is a continuation of writing task) by using the current chunk/fragment and adding details from the current chunk/fragment. Remember that you are to continue writing from the "extended and detailed summary we have generated till now" and keep writing further, don't repeat the summary we have till now. Just output the continuation.
-
-    """,
+Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
+Rephrased and contextualised human's last message:
+"""
             ),
-        
-        
-    )
-}
+            persist_current_turn_prompt=PromptTemplate(
+                input_variables=["query", "response", "previous_summary",],
+                template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
+Your salient points should only focus on the current query and response.
+Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
+Preserve important details that have been mentioned in the previous summary especially including factual details and references. Salient points (unforgettables) should be different from summary and capture different aspects of the conversation at a higher level.
+
+The previous summary and salient points of the conversation is as follows:
+'''{previous_summary}'''
+
+
+The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
+User query: '''{query}'''
+System response: '''{response}'''
+
+First, lets write a new summary of the conversation. Then write the salient points of the conversation.
+Summary and Salient points below:
+""",
+            ),
+
+            # Translate the above prompt string to PromptTemplate object
+            chat_fast_reply_prompt=PromptTemplate(
+                input_variables=["query", "summary_text", "previous_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text"],
+                template=f"""You are given conversation details between human and AI. Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query. 
+Provide a short and concise reply now, we will expand and enhance your answer later.
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
+{self.complex_output_instructions}
+{{summary_text}}
+{{previous_messages}}
+{{document_nodes}}
+{{permanent_instructions}}
+{{doc_answer}}
+{{web_text}}
+{{link_result_text}}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: "{{query}}"
+Write a clear, helpful and informative response to the user's query.
+Response to the user's query:
+""",
+            ),
+            chat_slow_reply_prompt=PromptTemplate(
+                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "partial_answer_text", "provide_detailed_answers_text"],
+                template=f"""You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now.
+Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query.
+{self.complex_output_instructions} 
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
+{{provide_detailed_answers_text}}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: "{{query}}"
+{{partial_answer_text}}
+{{summary_text}}
+{{previous_messages}}
+{{other_relevant_messages}}
+{{document_nodes}}
+{{permanent_instructions}}
+{{doc_answer}}
+{{web_text}}
+{{link_result_text}}
+Write a clear, helpful and informative response to the user's query.
+Response to the user's query:
+""",
+            ),
+            web_search_prompt=PromptTemplate(
+                input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
+                template="""You are given a query or question or conversation context as below.
+'''{context}'''
+{doc_context}
+We want to generate web search queries to search the web for more information about the query.
+{previous_answer}
+{pqs}
+
+Generate {n_query} well specified and diverse web search queries as a valid python list. 
+Instructions for how to generate the queries are given below.
+1. Generate diverse web search queries which break down the actual question into smaller parts. 
+2. Each generated query must be different from others and diverse from each other. 
+3. Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
+4. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
+5. Convert abbreviations to full forms and correct typos in the query using the given context.
+6. Your output will look like a python list of strings like below.
+["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
+
+Output only a valid python list of web search query strings.
+""",
+            ),
+            paper_details_map = {
+            "methodology": """
+Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
+    - What do the authors do in this overall work (i.e. their methodology) with details.
+    - Detailed methodology and approach described in this work.
+    - what problem do they address ?
+    - how do they solve the problem, provide details?
+    - Why do they solve this particular problem?
+    - what is their justification in using this method? Why do they use this method? 
+    - Any insights from their methods
+    - Any drawbacks in their method or process
+""",
+            "previous_literature_and_differentiation": """
+Read the document and provide information about "Previous Literature and Background work" of the work. Specifically, answer the following:
+    - What is this work's unique contribution over previous works?
+    - what previous literature or works are referred to?
+    - How are the previous works relevant to the problem this method is solving?
+    - how their work is different from previous literature?
+    - What improvements does their work bring over previous methods.
+""",
+            "experiments_and_evaluation":"""
+Read the document and provide information about "Experiments and Evaluation" of the work. Specifically, answer the following:
+    - How is the proposed method/idea evaluated?
+    - What metrics are used to quantify their results?
+    - what datasets do they evaluate on?
+    - What experiments are performed?
+    - Are there any experiments with surprising insights?
+    - Any other surprising experiments or insights
+    - Any drawbacks in their evaluation or experiments
+""",
+            "results_and_comparison": """
+Read the document and provide information about "Results" of the work. Specifically, answer the following:
+    - What results do they get from their experiments 
+    - how does this method perform compared to other methods?
+    - Make markdown tables to highlight most important results.
+    - Any Insights or surprising details from their results and their tables
+""",
+            "limitations_and_future_work":"""
+Read the document and provide information about "Limitations and Future Work" of the work. Specifically, answer the following:
+    - What are the limitations of this method, 
+    - Where and when can this method or approach fail? 
+    - What are some further future research opportunities for this domain as a follow up to this method?
+    - What are some tangential interesting research questions or problems that a reader may want to follow upon?
+    - What are some overlooked experiments which could have provided more insights into this approach or work.
+""",
+            }
+        )
+        self.llama_prompts  = dict(
+            streaming_followup=PromptTemplate(
+                input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
+                                 "questions_answers"],
+                template=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
+Followup question or information request is given below.
+"{{followup}}"
+
+Summary of the document is given below.
+"{{full_summary}}"
+
+Few text chunks from within the document to answer this follow up question as below.
+"{{fragment}}"
+
+Few question and answer pairs from the document are given below.
+"{{questions_answers}}"
+
+Summaries of certain parts of document below:
+"{{summary}}"
+
+Previous question or earlier question and its answer is provided below:
+
+Earlier Question: "{{query}}"
+
+Earlier Answer:
+"{{answer}}"
+
+Keep the earlier question in consideration while answering.
+{self.simple_output_instructions}
+
+Current Question: {{followup}}
+Answer: 
+""",
+            ),
+            short_streaming_answer_prompt=PromptTemplate(
+                input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
+                template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
+Question or Query is given below.
+{{query}}
+
+Short summary of the document is given below.
+'''{{full_summary}}'''
+
+Few text chunks from the document to answer the question below:
+'''{{fragment}}'''
+
+Next, You are given few question and answer pairs from the document below:
+'''{{questions_answers}}'''
+
+You are also given summaries of certain parts of document below:
+'''{{summary}}'''
+{self.simple_output_instructions}
+Informative answer:
+        """,
+            ),
+            running_summary_prompt=PromptTemplate(
+                input_variables=["summary", "document", "previous_chunk_summary"],
+                template=f"""We are reading a large document in fragments sequentially to write a continuous summary. 
+Current chunk/fragment we are looking at:
+"{{document}}"
+
+Summary of previous chunk/fragment:
+"{{previous_chunk_summary}}"
+
+Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing from the "summary we have written till now", don't repeat information we already have.
+The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
+"{{summary}}"
+
+{self.simple_output_instructions}
+Short Summary:
+""",
+            ),
+            retrieve_prior_context_prompt=PromptTemplate(
+                input_variables=["requery_summary_text", "previous_messages", "query"],
+                template="""You are given conversation details between a human and an AI. 
+Based on the given conversation details and human's last response or query we want to search our database of responses.
+You will generate a contextualised query based on the given conversation details and human's last response or query.
+The summary of the conversation is as follows:
+{requery_summary_text}
+
+The last few messages of the conversation are as follows:
+{previous_messages}
+
+The last message of the conversation sent by the human is as follows:
+{query}
+
+Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
+Rephrased and contextualised human's last message:
+"""
+            ),
+            persist_current_turn_prompt=PromptTemplate(
+                input_variables=["query", "response", "previous_summary", ],
+                template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. 
+Your salient points should only focus on the current query and response.
+Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
+
+The previous summary and salient points of the conversation is as follows:
+'''{previous_summary}'''
+
+The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
+User query: '''{query}'''
+System response: '''{response}'''
+
+First, lets write a new summary of the conversation. Then write the salient points of the conversation.
+Summary and Salient points below:
+""",
+            ),
+            chat_fast_reply_prompt=PromptTemplate(
+                input_variables=["query", "summary_text", "previous_messages", "document_nodes",
+                                 "permanent_instructions", "doc_answer", "web_text", "link_result_text"],
+                template=f"""You are given conversation details between human and AI. Provide informative answer to the human's query. 
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
+{self.simple_output_instructions}
+{{summary_text}}
+{{previous_messages}}
+{{document_nodes}}
+{{permanent_instructions}}
+{{doc_answer}}
+{{web_text}}
+{{link_result_text}}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: "{{query}}"
+Write a clear, helpful and informative response to the user's query.
+Response to the user's query:
+""",
+            ),
+            chat_slow_reply_prompt=PromptTemplate(
+                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages",
+                                 "document_nodes", "permanent_instructions", "doc_answer", "web_text",
+                                 "link_result_text", "partial_answer_text", "provide_detailed_answers_text"],
+                template=f"""You are given conversation details between human and AI.
+As an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query.
+{self.simple_output_instructions}
+Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
+{{provide_detailed_answers_text}}
+
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: "{{query}}"
+
+{{partial_answer_text}}
+{{summary_text}}
+{{previous_messages}}
+{{other_relevant_messages}}
+{{document_nodes}}
+{{permanent_instructions}}
+{{doc_answer}}
+{{web_text}}
+{{link_result_text}}
+Write a clear, helpful and informative response to the user's query.
+Response to the user's query:
+""",
+            ),
+            web_search_prompt=PromptTemplate(
+                input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
+                template="""You are given a query or question or conversation context as below.
+'''{context}'''
+{doc_context}
+We want to generate {n_query} web search queries to search the web for more information about the query.
+{previous_answer}
+{pqs}
+Instructions for how to generate the web search queries are given below.
+1. Generate {n_query} well specified and diverse web search queries.
+2. Write one search query per line for a total of {n_query} queries.
+3. Only write the search queries. Don't write anything else.
+4. After writing the google web search queries write ###END### on a new line.
+5. End your response for queries with ###END###.
+
+Google Search Queries are written below.
+""",
+            ),
+            paper_details_map = {
+            "methodology": """
+Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
+    - What do the authors do in this overall work (i.e. their methodology) with details.
+    - what problem do they address ?
+    - how do they solve the problem, provide details?
+    - what is their justification in using this method? Why do they use this method? 
+    - Any insights from their methods
+""",
+            "previous_literature_and_differentiation": """
+Read the document and provide information about "Previous Literature and Background work" of the work. Specifically, answer the following:
+    - What is this work's unique contribution over previous works?
+    - what previous literature or works are referred to?
+    - How are the previous works relevant to the problem this method is solving?
+""",
+            "experiments_and_evaluation":"""
+Read the document and provide information about "Experiments and Evaluation" of the work. Specifically, answer the following:
+    - How is the proposed method/idea evaluated?
+    - What metrics are used to quantify their results?
+    - what datasets do they evaluate on?
+    - What experiments are performed?
+    - Any surprising experiments or insights
+""",
+            "results_and_comparison": """
+Read the document and provide information about "Results" of the work. Specifically, answer the following:
+    - What results do they get from their experiments 
+    - how does this method perform compared to other methods?
+""",
+            "limitations_and_future_work":"""
+Read the document and provide information about "Limitations and Future Work" of the work. Specifically, answer the following:
+    - What are the limitations of this method, 
+    - What are some further future research opportunities for this domain as a follow up to this method?
+    - What are some overlooked experiments which could have provided more insights into this approach or work.
+""",
+            }
+        )
+
+
+    @property
+    def prompts(self):
+        if self.llm == "gpt4":
+            prompts = self.gpt4_prompts
+        elif self.llm == "gpt3":
+            prompts = self.gpt4_prompts
+        elif self.llm == "llama":
+            prompts = self.llama_prompts
+        else:
+            raise ValueError(f"Invalid llm {self.llm}")
+        return prompts
+
+    @property
+    def paper_details_map(self):
+        prompts = self.prompts
+        return prompts["paper_details_map"]
+
+    @property
+    def streaming_followup(self):
+        prompts = self.prompts
+        return prompts["streaming_followup"]
+
+    @property
+    def short_streaming_answer_prompt(self):
+        prompts = self.prompts
+        return prompts["short_streaming_answer_prompt"]
+
+    @property
+    def running_summary_prompt(self):
+        prompts = self.prompts
+        return prompts["running_summary_prompt"]
+
+    @property
+    def retrieve_prior_context_prompt(self):
+        prompts = self.prompts
+        return prompts["retrieve_prior_context_prompt"]
+
+    @property
+    def persist_current_turn_prompt(self):
+        prompts = self.prompts
+        return prompts["persist_current_turn_prompt"]
+
+    @property
+    def chat_fast_reply_prompt(self):
+        prompts = self.prompts
+        return prompts["chat_fast_reply_prompt"]
+
+    @property
+    def chat_slow_reply_prompt(self):
+        prompts = self.prompts
+        return prompts["chat_slow_reply_prompt"]
+
+    @property
+    def web_search_prompt(self):
+        prompts = self.prompts
+        return prompts["web_search_prompt"]
+
+
+prompts = CustomPrompts(os.environ.get("LLM_FAMILY", "gpt4"), os.environ.get("ROLE", "science"))
+
+
+

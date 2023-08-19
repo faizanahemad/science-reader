@@ -1235,41 +1235,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    prompt = f"""You are given a query or question or conversation context as below.
-'''{context}''' 
-{"You are also given the research document: '''{doc_context}'''" if len(doc_context)>0 else ""} 
-We want to generate web search queries to search the web for more information about the query.
-{f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip())>10 else ''}
-{f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''}
+    doc_context = "You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
+    previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(
+            previous_answer.strip()) > 10 else ''
+    pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
+    prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, previous_answer=previous_answer, pqs=pqs, n_query=n_query)
 
-Generate {n_query} well specified and diverse web search queries as a valid python list. 
-Instructions for how to generate the queries are given below.
-1. Generate diverse web search queries which break down the actual question into smaller parts. 
-2. Each generated query must be different from others and diverse from each other. 
-3. Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
-4. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
-5. Convert abbreviations to full forms and correct typos in the query using the given context.
-6. Your output will look like a python list of strings like below.
-["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
-    
-Output only a valid python list of web search query strings.
-"""
-#     n_query = "three"
-#     prompt = f"""You are given a query or question or conversation context as below.
-# '''{context}'''
-# {"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""}
-# We want to generate web search queries to search the web for more information about the query.
-# {f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(previous_answer.strip()) > 10 else ''}
-# {f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs) > 0 else ''}
-# Instructions for how to generate the web search queries are given below.
-# 1. Generate {n_query} well specified and diverse web search queries.
-# 2. Write one search query per line for a total of {n_query} queries.
-# 3. Only write the search queries. Don't write anything else.
-# 4. After writing the google web search queries write ###END### on a new line.
-# 5. End your response for queries with ###END###.
-#
-# Google Search Queries are written below.
-#     """
+
+
     if len(extra_queries) < 1:
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
@@ -1683,7 +1656,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 30)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 45)
     return task_queue
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
