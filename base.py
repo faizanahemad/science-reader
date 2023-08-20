@@ -782,7 +782,45 @@ def get_year(dres):
     # If no match is found, return None
     return None
 
-# TODO: Add caching
+def search_post_processing(query, results, only_science_sites=False, only_pdf=False):
+    seen_titles = set()
+    seen_links = set()
+    dedup_results = []
+    for r in results:
+        title = r.get("title", "").lower()
+        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3",
+                                                                                                         '').replace(
+            "v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        if title in seen_titles or len(title) == 0 or link in seen_links:
+            continue
+        if only_science_sites is not None and only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
+            continue
+        if only_science_sites is not None and not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
+            continue
+        if only_pdf is not None and not only_pdf and "pdf" in link:
+            continue
+
+        try:
+            r["citations"] = get_citation_count(r)
+        except:
+            try:
+                r["citations"] = int(r.get("inline_links", {}).get("cited_by", {}).get("total", "-1"))
+            except:
+                r["citations"] = None
+        try:
+            r["year"] = get_year(r)
+        except:
+            try:
+                r["year"] = re.search(r'(\d{4})', r.get("publication_info", {}).get("summary", ""))
+            except:
+                r["year"] = None
+        r['query'] = query
+        _ = r.pop("rich_snippet", None)
+        dedup_results.append(r)
+        seen_titles.add(title)
+        seen_links.add(link)
+    return dedup_results
+
 @typed_memoize(cache, str, int, tuple, bool)
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
@@ -800,26 +838,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites and not only_pdf else " "
     query = f"{query}{site_string}{after_string}{search_pdf}"
     results = search.results(query, num)
-    seen_titles = set()
-    seen_links = set()
-    dedup_results = []
-    for r in results:
-        title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
-        if title in seen_titles or len(title) == 0 or link in seen_links:
-            continue
-        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
-            continue
-        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
-            continue
-        if not only_pdf and "pdf" in link:
-            continue
-        r["citations"] = None
-        r["year"] = None
-        r['query'] = pre_query
-        dedup_results.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
+    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
@@ -851,26 +870,7 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     results = search.results(query, min(num, 10), search_params={"filter":"1", "start": "1"})
     if num > 10:
         results.extend(search.results(query, min(num, 10), search_params={"filter":"1", "start": "11"}))
-    seen_titles = set()
-    seen_links = set()
-    dedup_results = []
-    for r in results:
-        title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
-        if title in seen_titles or len(title) == 0 or link in seen_links:
-            continue
-        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
-            continue
-        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
-            continue
-        if not only_pdf and "pdf" in link:
-            continue
-        r["citations"] = None
-        r["year"] = None
-        r['query'] = pre_query
-        dedup_results.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
+    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
@@ -915,27 +915,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         return []
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    seen_titles = set()
-    seen_links = set()
-    dedup_results = []
-    for r in results:
-        title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
-        if title in seen_titles or len(title) == 0 or link in seen_links:
-            continue
-        if only_science_sites and "arxiv.org" not in link and "openreview.net" not in link:
-            continue
-        if not only_science_sites and ("arxiv.org" in link or "openreview.net" in link):
-            continue
-        if not only_pdf and "pdf" in link:
-            continue
-        r["citations"] = get_citation_count(r)
-        r["year"] = get_year(r)
-        _ = r.pop("rich_snippet", None)
-        r['query'] = pre_query
-        dedup_results.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
+    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
@@ -974,25 +954,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
         return []
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    seen_titles = set()
-    seen_links = set()
-    dedup_results = []
-    for r in results:
-        title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3",
-                                                                                                         '').replace(
-            "v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
-        if title in seen_titles or len(title) == 0 or link in seen_links:
-            continue
-        if not only_pdf and "pdf" in link:
-            continue
-        r["citations"] = int(r.get("inline_links", {}).get("cited_by", {}).get("total", "-1"))
-        r["year"] = re.search(r'(\d{4})', r.get("publication_info", {}).get("summary", ""))
-        _ = r.pop("rich_snippet", None)
-        r['query'] = pre_query
-        dedup_results.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
+    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(
         f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     return dedup_results
@@ -1238,9 +1200,6 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
             previous_answer.strip()) > 10 else ''
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, previous_answer=previous_answer, pqs=pqs, n_query=n_query)
-
-
-
     if len(extra_queries) < 1:
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
@@ -1274,53 +1233,39 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     
     if gscholar and serp_available:
-        serps = [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in
+        serps = [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                  query_strings]
-        serps_web = [
-            get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False,
-                             only_science_sites=False) for query in query_strings]
-        logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
     elif google_available:
         num_res = 10
-        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=None) for query in query_strings]
-        serps_web = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
-        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
-        serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.debug(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
     elif bing_available:
-        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
-        serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-        logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+        logger.debug(f"Using BING for web search, serps len = {len(serps)}")
     else:
         serps = []
-        serps_web = []
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
-        assert len(serps) > 1 or len(serps_web) > 1
         serps = [s.result() for s in serps]
-        serps_web = [s.result() for s in serps_web]
     except Exception as e:
         logger.error(f"Error in getting results from web search engines, error = {e}")
-        
         if serp_available:
-            serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month) for query in query_strings]
-            serps_web = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-            logger.debug(f"Using SERP for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+            serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+            logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
         elif bing_available:
-            serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None) for query in query_strings]
-            serps_web = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=year_month, only_pdf=False, only_science_sites=False) for query in query_strings]
-            logger.debug(f"Using BING for web search, serps len = {len(serps)}, serps web len = {len(serps_web)}")
+            serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+            logger.debug(f"Using BING for web search, serps len = {len(serps)}")
         else:
             return {"text":'', "search_results": [], "queries": query_strings}
         serps = [s.result() for s in serps]
-        serps_web = [s.result() for s in serps_web]
     
-    qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" in r["link"]]
-    qres_web = [r for serp in serps_web for r in serp if r["link"] not in doc_source and doc_source not in r["link"] and "pdf" not in r["link"]]
-    logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])}, serps web len = {len([r for s in serps_web for r in s])}, Qres len = {len(qres)} and Qres web len = {len(qres_web)}")
+    qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
+    logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])} Qres len = {len(qres)}")
     dedup_results = []
     seen_titles = set()
     seen_links = set()
@@ -1341,16 +1286,6 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         seen_titles.add(title)
         seen_links.add(link)
         
-    dedup_results_web = []
-    for r in qres_web:
-        title = r.get("title", "").lower()
-        link = r.get("link", "")
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "arxiv.org" in link or "twitter.com" in link:
-            continue
-        dedup_results_web.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
-
     len_after_dedup = len(dedup_results)
     logger.debug(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
 #     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
@@ -1389,11 +1324,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     #     pre_rerank = dedup_results_web
     #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
-    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:8]
-    dedup_results_web = list(round_robin_by_group(dedup_results_web, "query"))[:8]
-    web_links = [r["link"] for r in dedup_results_web]
-    web_titles = [r["title"] for r in dedup_results_web]
-    web_contexts = [context +"? \n" + r["query"] for r in dedup_results_web]
+    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:16]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1401,7 +1332,10 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
     contexts = [context +"? \n" + r["query"] for r in dedup_results]
-    all_results_doc = [dedup_results, dedup_results_web]
+    all_results_doc = dedup_results
+    web_links = None
+    web_titles = None
+    web_contexts = None
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
@@ -1422,10 +1356,10 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
     variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
 
-    cut_off = 6 if provide_detailed_answers else 4
+    cut_off = 12 if provide_detailed_answers else 8
     if len(links) == 0:
         cut_off = cut_off * 2
-    if len(web_links) == 0:
+    if web_links is not None and len(web_links) == 0:
         cut_off = cut_off * 2
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
@@ -1435,8 +1369,10 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
             variables[i] = var[:cut_off]
 
     web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    web_links = [] if web_links is None else web_links
+    web_titles = [] if web_titles is None else web_titles
+    web_contexts = [] if web_contexts is None else web_contexts
     links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
-
     read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
     return read_queue
 
@@ -1462,6 +1398,9 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
             variables[i] = var[:cut_off]
 
     web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    web_links = [] if web_links is None else web_links
+    web_titles = [] if web_titles is None else web_titles
+    web_contexts = [] if web_contexts is None else web_contexts
     links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
 
     pdf_future = get_async_future(read_over_multiple_links, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
@@ -1522,6 +1461,18 @@ def download_link_data(link_title_context_apikeys):
     result = cache.get(key)
     if result is not None:
         return result
+    if "arxiv.org" in link and "pdf" not in link:
+        link = link.replace("abs", "pdf")
+        # convert arxiv link to pdf
+    if "openreview.net" in link and "pdf" not in link:
+        link = link.replace("forum", "pdf")
+        # convert openreview link to pdf
+    if "aclanthology.org" in link and "pdf" not in link:
+        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
+    if "aclweb.org" in link and "anthology" in link and "pdf" not in link:
+        # https://www.aclweb.org/anthology/P19-1028/
+        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
+        # convert aclweb link to pdf
     is_pdf = is_pdf_link(link)
     if is_pdf:
         result = read_pdf(link_title_context_apikeys)
@@ -1568,7 +1519,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
             extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
                                                     api_keys, provide_short_responses=False,
-                                                    chunk_size=3072 if detailed else 3072)
+                                                    chunk_size=3200 if detailed else 3200)
             tt = time.time() - st
             logger.info(f"Called contextual reader for link: {link}, word length = {len(extracted_info.split())} with total time = {tt:.2f}")
         else:

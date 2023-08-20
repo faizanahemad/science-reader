@@ -24,7 +24,9 @@ from functools import partial
 
 from tenacity import RetryError
 FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
-
+SMALL_CHUNK_LEN = 160
+LARGE_CHUNK_LEN = 512
+TOKEN_LIMIT_FOR_DETAILED = 12000
 
 def is_int(s):
     try:
@@ -312,6 +314,12 @@ def get_first_n_words(my_string, n=700):
 def get_gpt4_word_count(my_string):
     import tiktoken
     enc = tiktoken.encoding_for_model('gpt-4')
+    str_encoded = enc.encode(my_string)
+    return len(str_encoded)
+
+def get_gpt3_word_count(my_string):
+    import tiktoken
+    enc = tiktoken.encoding_for_model('gpt-3.5-turbo')
     str_encoded = enc.encode(my_string)
     return len(str_encoded)
 def get_first_last_parts(my_string, first_n=250, last_n=750):

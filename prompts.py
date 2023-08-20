@@ -212,6 +212,43 @@ Instructions for how to generate the queries are given below.
 Output only a valid python list of web search query strings.
 """,
             ),
+            web_search_question_answering_prompt=PromptTemplate(
+                input_variables=["query", "answer", "additional_info"],
+                template=f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
+Question is given below:
+"{{query}}"
+
+Relevant additional information from other documents with url links, titles and document context are mentioned below:
+"{{additional_info}}"
+
+
+Continue the answer ('Answer till now') by incorporating additional information from other documents. 
+Answer by thinking of Multiple different angles that 'the original question or request' can be answered with. Focus mainly on additional information from other documents. Provide the link and title before using their information in markdown format (like `[title](link) information from document`) for the documents you use in your answer.
+
+{self.complex_output_instructions}
+Question: '''{{query}}'''
+Answer till now (partial answer): '''{{answer}}'''
+Write continued answer using additional information below.
+""",
+            ),
+
+            get_more_details_prompt=PromptTemplate(
+                input_variables=["query", "answer", "additional_info"],
+                template=f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
+Question is given below:
+"{{query}}"
+
+Relevant additional information from the same document context are mentioned below:
+'''{{additional_info}}'''
+
+Continue the answer ('Answer till now') by incorporating additional information from this relevant additional context. 
+{self.complex_output_instructions}
+
+Question: '''{{query}}'''
+Answer till now (partial answer): '''{{answer}}'''
+Continued Answer using additional information from the documents: 
+"""
+            ),
             paper_details_map = {
             "methodology": """
 Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
@@ -430,6 +467,40 @@ Instructions for how to generate the web search queries are given below.
 Google Search Queries are written below.
 """,
             ),
+            web_search_question_answering_prompt=PromptTemplate(
+                input_variables=["query", "answer", "additional_info"],
+                template=f"""Continue writing answer to a question which is partially answered. Provide new details from the additional information provided.
+Question is given below:
+"{{query}}"
+
+Relevant additional information from other documents with url links, titles and document context are mentioned below:
+"{{additional_info}}"
+
+Continue the answer ('Answer till now') by incorporating additional information from other documents. 
+
+{self.simple_output_instructions}
+Question: '''{{query}}'''
+Answer till now (partial answer): '''{{answer}}'''
+Write continued answer using additional information below.
+""",
+            ),
+            get_more_details_prompt=PromptTemplate(
+                input_variables=["query", "answer", "additional_info"],
+                template=f"""Continue writing answer to a question which is partially answered. Provide new details from the additional information provided.
+Question is given below:
+"{{query}}"
+
+Relevant additional information from the same document context are mentioned below:
+'''{{additional_info}}'''
+
+Continue the answer ('Answer till now') by incorporating additional information from this relevant additional context. 
+{self.simple_output_instructions}
+
+Question: '''{{query}}'''
+Answer till now (partial answer): '''{{answer}}'''
+Continued Answer using additional information from the documents: 
+"""
+            ),
             paper_details_map = {
             "methodology": """
 Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
@@ -524,6 +595,16 @@ Read the document and provide information about "Limitations and Future Work" of
     def web_search_prompt(self):
         prompts = self.prompts
         return prompts["web_search_prompt"]
+
+    @property
+    def web_search_question_answering_prompt(self):
+        prompts = self.prompts
+        return prompts["web_search_question_answering_prompt"]
+
+    @property
+    def get_more_details_prompt(self):
+        prompts = self.prompts
+        return prompts["get_more_details_prompt"]
 
 
 prompts = CustomPrompts(os.environ.get("LLM_FAMILY", "gpt4"), os.environ.get("ROLE", "science"))

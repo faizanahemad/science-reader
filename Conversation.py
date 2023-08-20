@@ -352,7 +352,28 @@ class Conversation:
                     message_nodes=message_nodes,
                     document_nodes=document_nodes)
 
-    
+    def create_title(self, query, response):
+        llm = CallLLm(self.get_api_keys(), use_gpt4=False)
+        memory = self.get_field("memory")
+        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) > 0) or (len(memory["running_summary"]) > 5 and len(memory["running_summary"]) % 5 == 1):
+            llm = CallLLm(self.get_api_keys(), use_gpt4=False)
+            prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
+        Using these you will write a new title for this conversation. 
+        The summary of the conversation is as follows:
+        '''{"".join(self.get_field("memory")["running_summary"][-1:])}'''
+
+        The last 2 messages of the conversation are as follows:
+        User query: '''{query}'''
+        System response: '''{response}'''
+
+        Now lets write a title of the conversation.
+        Title of the conversation:
+        """
+            title = get_async_future(llm, prompt, temperature=0.2, stream=False)
+        else:
+            title = wrap_in_future(self.get_field("memory")["title"])
+        return title
+
     @timer
     def persist_current_turn(self, query, response, new_docs):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
@@ -364,23 +385,7 @@ class Conversation:
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_summary=get_first_last_parts("".join(self.get_field("memory")["running_summary"]), 0, 1000))
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
-        if self.get_field("memory")["title"] == 'Start the Conversation' and len(self.get_field("memory")["running_summary"]) > 1:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-            prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
-Using these you will write a new title for this conversation. 
-The summary of the conversation is as follows:
-'''{"".join(self.get_field("memory")["running_summary"][-1:])}'''
-
-The last 2 messages of the conversation are as follows:
-User query: '''{query}'''
-System response: '''{response}'''
-
-Now lets write a title of the conversation.
-Title of the conversation:
-"""
-            title = get_async_future(llm, prompt, temperature=0.2, stream=False)
-        else:
-            title = wrap_in_future(self.get_field("memory")["title"])
+        title = self.create_title(query, response)
         summary = summary.result()
         title = title.result()
 
@@ -523,11 +528,10 @@ The most recent query by the human is as follows:
                 answer += (queries + "\n")
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
-                query_results_part1 = web_results.result()[0].result()['search_results'][0]
-                query_results_part2 = web_results.result()[0].result()['search_results'][1]
-                cut_off = 6 if provide_detailed_answers else 4
-                seen_query_results = query_results_part1[:cut_off] + query_results_part2[:cut_off]
-                unseen_query_results = query_results_part1[cut_off:] + query_results_part2[cut_off:]
+                query_results_part1 = web_results.result()[0].result()['search_results']
+                cut_off = 12 if provide_detailed_answers else 8
+                seen_query_results = query_results_part1[:cut_off]
+                unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
                 answer += "\n###### Results used in answering: \n"
                 yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}

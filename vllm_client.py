@@ -68,6 +68,8 @@ def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_
             prior += output
             yield output
 
+def vllm_tgi_streaming_response_wrapper(prompt: str, api_urls: List[str], use_small_models, temperature=0.7, max_tokens=16) -> Iterable[str]:
+    pass
 
 if __name__ == "__main__":
     for s in get_streaming_vllm_response('Who is the president of the United States?\n', 'http://localhost:8000/generate'):

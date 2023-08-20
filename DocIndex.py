@@ -427,34 +427,41 @@ class DocIndex:
         tldr = (self.paper_details["tldr"]+"\n\n") if "tldr" in self.paper_details and self.paper_details["tldr"] is not None and len(self.paper_details["tldr"].strip())>0 else ""
         title = (self.paper_details["title"]+"\n\n") if "title" in self.paper_details and self.paper_details["title"] is not None and len(self.paper_details["title"].strip()) > 0 else ""
         brief_summary = title+tldr+self.short_summary
+        brief_summary = (brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
         if mode == "web_search" or mode == "review":
             web_results = get_async_future(web_search, query, self.doc_source, "\n".join([brief_summary] + self.get_doc_data("raw_data", "chunks")[:1]), self.get_api_keys(), self.get_date())
             
         if mode == "use_multiple_docs":
             web_results = get_async_future(get_multiple_answers, query, additional_docs, brief_summary)
             mode = "web_search"
-            
+
+        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
+            rem_init_len = 512 * 3 + 1
+        else:
+            rem_init_len = 512 * 6 + 1
         dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff*2)
         summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
         qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
-        raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=self.result_cutoff)
+        rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary)
+        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+        raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
         raw_text = "\n".join([n.page_content for n in raw_nodes])
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         if llm.use_gpt4:
-            raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=self.result_cutoff+1)
-            raw_text = "\n".join([n.page_content for n in raw_nodes])
-            small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=self.result_cutoff)
+            rem_word_len = (rem_init_len * 2 + 1000) - get_gpt4_word_count(summary_text + qna_text + brief_summary + raw_text)
+            rem_tokens = rem_word_len // SMALL_CHUNK_LEN
+            small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
             small_chunk_text = "\n".join([n.page_content for n in small_chunk_nodes])
             raw_text = raw_text + " \n\n " + small_chunk_text
-            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+"\n\n"+raw_text, summary=summary_text, 
+            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
                                             questions_answers=qna_text, full_summary=self.get_doc_data("qna_data", "running_summary"))
         else:
-            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+"\n\n"+raw_text, summary="", 
+            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary="",
                                             questions_answers="", full_summary=self.get_doc_data("qna_data", "running_summary"))
         if mode == "detailed" or mode == "review":
             st = time.time()
-            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")), self.get_api_keys(), chunk_size=3200)
+            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), chunk_size=3200)
             et = time.time()
             logger.debug(f"Blocking on ContextualReader for {(et-st):4f}s")
         main_ans_gen = llm(prompt, temperature=0.7, stream=True)
@@ -490,7 +497,7 @@ class DocIndex:
                 answer += "\n\n### Search Results: \n"
                 yield "\n\n### Search Results: \n"
                 yield '</br>'
-                search_results = web_results.result()[0].result()['search_results'][0] + web_results.result()[0].result()['search_results'][1]
+                search_results = web_results.result()[0].result()['search_results']
                 for ix, r in enumerate(search_results):
                     answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
                     yield str(ix+1) + f". [{r['title']}]({r['link']})"
@@ -679,10 +686,25 @@ Detailed and comprehensive summary:
             mode = "review"
         else:
             mode = None
-        raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=self.result_cutoff)
-        small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=self.result_cutoff*2)
+        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
+            rem_init_len = 512 * 3 + 1
+        else:
+            rem_init_len = 512 * 6 + 1
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff)
+        summary_text = "\n".join([n.page_content for n in summary_nodes])
+        answer = previous_answer["answer"] + "\n" + (
+            previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
         dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)[:1]
-        
+        qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
+        rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(qna_text + summary_text + answer)
+        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+        raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+        raw_text = "\n".join([n.page_content for n in raw_nodes])
+        rem_word_len = ((rem_init_len * 2 + 1000) if llm.use_gpt4 else (rem_init_len + 500)) - get_gpt4_word_count(qna_text + summary_text + answer + raw_text)
+        rem_tokens = rem_word_len // SMALL_CHUNK_LEN
+        small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff * 2, rem_tokens))
+
         # Get those nodes that don't come up in last query.
         small_chunk_nodes_ids = [n.metadata["order"] for n in small_chunk_nodes]
         small_chunk_nodes_old = self.get_doc_data("indices", "small_chunk_index").similarity_search(previous_answer["query"], k=self.result_cutoff*8)
@@ -691,17 +713,10 @@ Detailed and comprehensive summary:
         additional_small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=self.result_cutoff*8)
         additional_small_chunk_nodes = [n for n in additional_small_chunk_nodes if n.metadata["order"] not in small_chunk_nodes_ids]
         
-        small_chunk_nodes = small_chunk_nodes + additional_small_chunk_nodes[:4]
+        small_chunk_nodes = small_chunk_nodes + additional_small_chunk_nodes[:2]
         
-        summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff)
-        summary_text = "\n".join([n.page_content for n in summary_nodes])
-        qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
-        raw_text = "\n".join([n.page_content for n in raw_nodes] + [n.page_content for n in small_chunk_nodes])
+        raw_text = raw_text + "\n".join([n.page_content for n in small_chunk_nodes])
         small_text = "\n".join([n.page_content for n in small_chunk_nodes])
-        answer=previous_answer["answer"] + "\n" + (previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        
-            
         if llm.use_gpt4 and mode != "web_search":
             prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
                                           answer=answer, summary=summary_text, 
@@ -710,12 +725,12 @@ Detailed and comprehensive summary:
         else:
             prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
                                           answer=answer, summary="", 
-                                          fragment=get_first_n_words(raw_text, 250) + " \n " + small_text,
+                                          fragment=get_first_n_words(raw_text, LARGE_CHUNK_LEN) + " \n " + small_text,
                                           full_summary=self.get_doc_data("qna_data", "running_summary"), questions_answers="")
         if mode == "web_search":
             # answer = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Given the question: {previous_answer['query']}, Summarise this answer: '''{answer}''' \n ")
             answer = get_first_last_parts(answer, 300, 500)
-            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.get_doc_data("raw_data", "chunks")[:1]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
+            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.get_doc_data("raw_data", "chunks")[:2]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
             prev_answer = answer
             additional_info = web_results.result()[0].result()
             answer = ''
@@ -730,7 +745,7 @@ Detailed and comprehensive summary:
             answer += "\n\n### Search Results: \n"
             yield "\n\n### Search Results: \n"
             yield '</br>'
-            search_results = additional_info['search_results'][0] + additional_info['search_results'][1]
+            search_results = additional_info['search_results']
             for ix, r in enumerate(search_results):
                 answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
                 yield str(ix+1) + f". [{r['title']}]({r['link']})"
@@ -751,30 +766,7 @@ Detailed and comprehensive summary:
 
     def streaming_web_search_answering(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        prompt = f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
-
-Question is given below:
-
-"{query}"
-
-Relevant additional information from other documents with url links, titles and document context are mentioned below:
-
-"{additional_info}"
-
-
-Continue the answer ('Answer till now') by incorporating additional information from other documents. 
-Answer by thinking of Multiple different angles that 'the original question or request' can be answered with. Focus mainly on additional information from other documents. Provide the link and title before using their information in markdown format (like `[title](link) information from document`) for the documents you use in your answer.
-
-Use all of the documents given under 'additional information' and provide relevant information from them for our question. Remember to refer to all the documents in 'Relevant additional information' in markdown format (like `[title](link) information from document`).
-
-Use markdown formatting to typeset/format your answer better.
-Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
-
-Question: {query}
-Answer till now (partial answer): {answer}
-Continued Answer using additional information from other documents with url links, titles and document context: 
-
-        """
+        prompt = prompts.web_search_question_answering_prompt.format(query=query, answer=answer, additional_info=additional_info)
         answer=answer + "\n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             yield txt
@@ -782,26 +774,7 @@ Continued Answer using additional information from other documents with url link
 
     def streaming_get_more_details(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        prompt = f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
-
-Question is given below:
-
-"{query}"
-
-Relevant additional information from the same document context are mentioned below:
-
-"{additional_info}"
-
-
-Continue the answer ('Answer till now') by incorporating additional information this relevant additional context. 
-Use markdown formatting to typeset/format your answer better.
-Output any relevant equations in latex/markdown format. Remember to put each equation or math in their own environment of '$$', our screen is not wide hence we need to show math equations in less width.
-
-Question: {query}
-Answer till now (partial answer): {answer}
-Continued Answer using additional information from the documents: 
-
-        """
+        prompt = prompts.get_more_details_prompt.format(query=query, answer=answer, additional_info=additional_info)
         answer = answer + "\n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             yield txt
@@ -1067,7 +1040,7 @@ class ImmediateDocIndex(DocIndex):
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     doc_text = PDFReaderTool(keys)(pdf_url)
-    chunks = ChunkText(doc_text, 512, 64)
+    chunks = ChunkText(doc_text, LARGE_CHUNK_LEN, 64)
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
@@ -1081,7 +1054,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             "limitations_and_future_work" : {"id":"", "text":""},
         }
     }
-    nested_dict["small_chunks"] = ChunkText(doc_text, 128, 32)
+    nested_dict["small_chunks"] = ChunkText(doc_text, SMALL_CHUNK_LEN, 32)
     openai_embed = get_embedding_model(keys)
     try:
         doc_index = ImmediateDocIndex(pdf_url, 
