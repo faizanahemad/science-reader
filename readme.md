@@ -39,6 +39,13 @@ server {
 
 `python embedding_client_server.py --device cuda:7 --port 8001 --folder storage`
 
+```
+python download-model.py conceptofmind/Hermes-LLongMA-2-13b-8k
+python server.py --multi-user --model-menu --bf16 --xformers --sdp-attention --trust-remote-code --share --extensions gallery FPreloader long_replies long_term_memory openai Playground webui-autonomics superbooga
+```
+
+[Chrome Driver](https://chromedriver.chromium.org/getting-started) , [Downloads](https://chromedriver.chromium.org/downloads)
+
 
 
 

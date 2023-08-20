@@ -15,7 +15,31 @@
 - Temporary chat like bing search (or just a don't save option or scratch pad chat or like chatgpt always open with a new chat) [Done]
 - Add loader initially before full page loads [Done]
 - If multiple search backend are available then use all of them and show results from all of them. [Nope]
+- Show only successful reads in the chat. [Done]
+- word doc and html pages as well. [Nope] Print to pdf and then upload.
+- If arxiv pdf url then only get citations from semantic scholar. [Done]
 
+- If link is PDF, or link is arxiv or openreview then invoke pdf reading, don't invoke web search with pdf search.
+- Pay all bills on time.
+- BufferMemory for chat history and summary history.
+- Temperature, Top-P, Samplers like Muse/Microstat and Response length control.
+- Parallel Rejection sampling?
+- Collections/Folders and Tags.
+  - User, Doc, Tags, Folders
+  - Sort by date added, date modified, alphabetically, arxiv date
+- Increase pages read but decrease timeout.
+- You are an AI expert in "XYZ task".
+
+- lite local version without web page search
+  - What all do we need to do for Local version?
+  - Can we do full doc read always?
+  - Prompt lib which separates various prompts for llm during server init based on an env variable. Prompt also by persona -> programmer, researcher, marketer, machine learning expert, configurable. etc.
+  - Disable web search and other features like key store via a environment flag, Fetch the flag using api from flask into JS.
+  - Local mode with no google login.
+  - Don't call semantic scholar if it is not arxiv.
+- support seeing raw text from the model.
+- Other account See via Root dev account.
+- Browser pool.
 - HTML code rendering bug in streaming.
 - Retrieve more chunks if you have space.
 - Use a bigger LLM for search query generation.
@@ -25,7 +49,7 @@
 - Make a set of block list domains which are separate for pdf search and website search.
 - Enumerate instructions in your prompts with numbered list.
 - Code mode (prior code is stored using a separate call to LLM to describe its functionality and then retrieved later.)
-
+- Integrate pdfjs viewr.html into our own page so that we can track events from it and use UI events on it.
 
 - Intro.js for first time users
 - Local model for both embedding and LLM. In local mode call wizardcoder or starcoder for code additional to normal model. 
