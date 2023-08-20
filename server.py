@@ -292,6 +292,11 @@ def keyParser(session):
         "openai_models_list": os.getenv("openai_models_list", ''),
         "scrapingBrowserUrl": os.getenv("scrapingBrowserUrl", ''),
         "vllmUrl": os.getenv("vllmUrl", ''),
+        "vllmLargeModelUrl": os.getenv("vllmLargeModelUrl", ''),
+        "vllmSmallModelUrl": os.getenv("vllmSmallModelUrl", ''),
+        "tgiUrl": os.getenv("tgiUrl", ''),
+        "tgiLargeModelUrl": os.getenv("tgiLargeModelUrl", ''),
+        "tgiSmallModelUrl": os.getenv("tgiSmallModelUrl", ''),
         "embeddingsUrl": os.getenv("embeddingsUrl", ''),
     }
     for k, v in keyStore.items():

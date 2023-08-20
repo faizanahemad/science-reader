@@ -524,10 +524,11 @@ ReduceRepeatTool:
         self.prompt = PromptTemplate(
             input_variables=["document"],
             template=""" 
-Reduce repeated content in the document given. Some ideas or phrases or points are repeated with no variation, remove them, output non-repeated parts verbatim without any modification, do not miss any important details.
-Document is given below:
+Reduce repeated content in the document given. Remove redundant information. Some ideas or phrases or points are repeated with no variation, remove them, output non-repeated parts verbatim without any modification, do not miss any important details.
+Document is given below.
+'''{document}'''
 
-{document}
+Write reduced document after removing duplicate or redundant information below.
 """,
         )
     def __call__(self, text_document):
@@ -691,21 +692,21 @@ ContextualReader:
     """
         # Use markdown formatting to typeset or format your answer better.
         long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise and informative response. \n"
-        response_prompt = "Short, concise and informative" if provide_short_responses else "Concise and informative response"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write concise and informative"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=f"""You are an AI expert assistant for scientific research and study.
-{long_or_short}Provide relevant and helpful information from the given document for the given question or conversation context below:
+            template=f"""You are an AI expert in document summarization and information extraction. {long_or_short}
+Provide relevant and helpful information from the given document for the given question or conversation context below:
 '''{{context}}'''
 
-Document to read and extract information from:
+Document to read and extract information from is given below.
 '''
 {{document}}
 '''
 
 If you find nothing useful at all then say 'No relevant information found.'.
-Output any relevant equations in latex or markdown format.
-{response_prompt} Response:
+Output any relevant equations if found in latex format.
+{response_prompt} response below.
 """,
         )
         
@@ -747,9 +748,6 @@ def call_contextual_reader(query, document, keys, provide_short_responses=False,
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses)
     return cr(query, document, chunk_size=chunk_size+512)
-
-
-
 
 
 import json
@@ -1139,7 +1137,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             except:
                 pass
     return {"text": text, "title": title}
-
+@typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
     from langchain.document_loaders import PyPDFLoader
     loader = PyPDFLoader(url)
@@ -1200,7 +1198,7 @@ class PDFReaderTool:
         else:
             return freePDFReader(url, page_ranges)
 
-
+@typed_memoize(cache, str, int, tuple, bool)
 def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
     import requests
     arxiv_id = arxiv_url.split("/")[-1].split(".")[0]
@@ -1212,7 +1210,7 @@ def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
         return semantic_url
     raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
 
-
+@typed_memoize(cache, str, int, tuple, bool)
 def get_paper_details_from_semantic_scholar(arxiv_url):
     print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
     arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
@@ -1605,9 +1603,6 @@ def get_page_text(link_title_context_apikeys):
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
-
-
-
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
@@ -1700,38 +1695,6 @@ Answer or information for the given question:
     read_text = "\n\n".join([json.dumps(p, indent=2) for p in answers])
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
-def two_column_list(items):
-    half = (len(items) + 1) // 2   # adjust for odd lengths
-    column1 = items[:half]
-    column2 = items[half:]
-
-    output = '<table><tr><td><ul>'
-    for item in column1:
-        output += f'<li>{item}</li>'
-    output += '</ul></td><td><ul>'
-    for item in column2:
-        output += f'<li>{item}</li>'
-    output += '</ul></td></tr></table>'
-
-    return output
-
-def two_column_list_md(items):
-    half = (len(items) + 1) // 2   # adjust for odd lengths
-    column1 = items[:half]
-    column2 = items[half:]
-
-    # Create a Markdown table with two columns
-    output = '| Column 1 | Column 2 |\n| --- | --- |\n'
-    for item1, item2 in zip(column1, column2 + [None]):
-        # Check if item2 is None (in case of odd number of items)
-        second_column_item = item2 if item2 is not None else ""
-        output += f'| {item1} | {second_column_item} |\n'
-
-    # If there are an odd number of items, we'll add the last item
-    if len(items) % 2 != 0:
-        output += f'| {items[-1]} | |\n'
-
-    return output
 
 
 
