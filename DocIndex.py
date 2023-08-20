@@ -498,11 +498,10 @@ class DocIndex:
                 yield "\n\n### Search Results: \n"
                 yield '</br>'
                 search_results = web_results.result()[0].result()['search_results']
-                for ix, r in enumerate(search_results):
-                    answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
-                    yield str(ix+1) + f". [{r['title']}]({r['link']})"
-                    yield '</br>'
-                answer += '\n'
+                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in search_results]
+                query_results = two_column_list(query_results)
+                answer += (query_results + "\n")
+                yield (query_results + "\n")
                 yield '</br> '
             if mode == "review":
                 additional_info = additional_info.result()
@@ -746,11 +745,10 @@ Detailed and comprehensive summary:
             yield "\n\n### Search Results: \n"
             yield '</br>'
             search_results = additional_info['search_results']
-            for ix, r in enumerate(search_results):
-                answer += (str(ix+1) + f". [{r['title']}]({r['link']})")
-                yield str(ix+1) + f". [{r['title']}]({r['link']})"
-                yield '</br>'
-            answer += '\n'
+            query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in search_results]
+            query_results = two_column_list(query_results)
+            answer += (query_results + "\n")
+            yield (query_results + "\n")
             yield '</br>'
             
             generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()[1].result()['text'] + "\n\n " + f" Answer the followup question: {query} \n\n Additional Instructions: '''{prompt}'''")

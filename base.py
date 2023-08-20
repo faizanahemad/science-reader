@@ -1184,7 +1184,9 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 
 
 # TODO: Add caching
-def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False):
+def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None,
+                     previous_answer=None, previous_search_results=None, extra_queries=None,
+                     gscholar=False, provide_detailed_answers=False):
 
     if extra_queries is None:
         extra_queries = []
@@ -1336,26 +1338,8 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_links = None
     web_titles = None
     web_contexts = None
-    return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
-
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar)
-    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
-    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
-
-def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar)
-    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
-    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
-
-def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
-    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-
-    variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
-    variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-
+    variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
+    variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
     cut_off = 12 if provide_detailed_answers else 8
     if len(links) == 0:
         cut_off = cut_off * 2
@@ -1364,11 +1348,25 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
-            # print(f"{name} is not a list or a string, but a {type(var)}")
         else:
             variables[i] = var[:cut_off]
+    all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
-    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
+    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+    part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
+
+def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
+    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
+    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
+    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
+
+def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
+    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     web_links = [] if web_links is None else web_links
     web_titles = [] if web_titles is None else web_titles
     web_contexts = [] if web_contexts is None else web_contexts
@@ -1382,53 +1380,29 @@ def get_part_1_results(part1_res):
 
 
 def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
+    result_queue = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+    web_text_accumulator = []
+    full_info = []
+    qu_st = time.time()
+    while True:
+        qu_wait = time.time()
+        if len(web_text_accumulator) >= 4 or (qu_wait - qu_st) > 30:
+            break
+        one_web_result = result_queue.get()
+        qu_et = time.time()
+        if one_web_result is None:
+            continue
+        if one_web_result == FINISHED_TASK:
+            break
+
+        if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
+            web_text_accumulator.append(one_web_result["text"])
+            logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
+        if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
+            full_info.append(one_web_result["full_info"])
+    web_text = "\n\n".join(web_text_accumulator)
     all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-
-    variables = [web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
-    variable_names = ["web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-
-    cut_off = 4 if provide_detailed_answers else 2
-    if len(links) == 0:
-        cut_off = cut_off * 2
-    for i, (var, name) in enumerate(zip(variables, variable_names)):
-        if not isinstance(var, (list, str)):
-            pass
-            # print(f"{name} is not a list or a string, but a {type(var)}")
-        else:
-            variables[i] = var[:cut_off]
-
-    web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
-    web_links = [] if web_links is None else web_links
-    web_titles = [] if web_titles is None else web_titles
-    web_contexts = [] if web_contexts is None else web_contexts
-    links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
-
-    pdf_future = get_async_future(read_over_multiple_links, links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
-    read_text, per_pdf_texts = pdf_future.result()
-
-    crawl_text = per_pdf_texts
-    all_text = read_text
-    # if rerank_available and len(crawl_text) > 10:
-    #     import cohere
-    #     co = cohere.Client(api_keys["cohereKey"])
-    #     docs = [r["text"] for r in crawl_text]
-    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=max(8, len(docs) // 2),
-    #                                model='rerank-english-v2.0')
-    #     crawl_text = [crawl_text[r.index] for r in rerank_results]
-    #     pre_rerank = all_results_doc
-    #     all_results_doc = [all_results_doc[r.index] for r in rerank_results]
-    #     crawl_copy = deepcopy(crawl_text)
-    #     for i, r in enumerate(crawl_copy):
-    #         _ = r.pop("full_text", None)
-    #     all_text = "\n\n".join([json.dumps(p, indent=2) for p in crawl_copy])
-    #     all_text = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in crawl_copy])
-    #     logger.debug(
-    #         f"--- Cohere Second Reranked (All) ---\nBefore Rerank = {len(pre_rerank)}, ```\n{pre_rerank}\n```, After Rerank = {len(all_results_doc)}, ```\n{all_results_doc}\n```")
-
-    logger.debug(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results = ```\n{all_text}\n```")
-    logger.info(f"Queries = ```\n{query_strings}\n``` \n SERP All Text results len = {len(all_text.split())}, {len(enc.encode(all_text))}")
-    return {"text": all_text, "full_info": crawl_text, "search_results": all_results_doc, "queries": query_strings}
-
+    return {"text": web_text, "full_info": full_info, "search_results": all_results_doc, "queries": query_strings}
 
 
 import multiprocessing
