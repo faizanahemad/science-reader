@@ -52,6 +52,7 @@ import requests
 from typing import List
 from abc import ABC, abstractmethod
 from langchain.embeddings.base import Embeddings
+import torch
 
 
 class EmbeddingClient(Embeddings):
@@ -76,7 +77,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Initialize the model
-    model = SentenceTransformer(args.model_name, device=args.device)
+    model = SentenceTransformer(args.model_name, device=args.device).to(torch.device(args.device))
 
     # Initialize the cache
     os.makedirs(os.path.join(os.getcwd(), args.folder), exist_ok=True)
