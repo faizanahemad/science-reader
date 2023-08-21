@@ -435,12 +435,13 @@ class DocIndex:
             web_results = get_async_future(get_multiple_answers, query, additional_docs, brief_summary)
             mode = "web_search"
 
-        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
-            rem_init_len = 512 * 3 + 1
-        else:
-            rem_init_len = 512 * 6 + 1
-        dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        self_hosted = llm.self_hosted_model_url is not None
+        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
+            rem_init_len = 512 * (2 if self_hosted else 3) + 1
+        else:
+            rem_init_len = 512 * (4 if self_hosted else 6) + 1
+        dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
         summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff*2)
         summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
         qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
@@ -685,11 +686,12 @@ Detailed and comprehensive summary:
             mode = "review"
         else:
             mode = None
-        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
-            rem_init_len = 512 * 3 + 1
-        else:
-            rem_init_len = 512 * 6 + 1
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        self_hosted = llm.self_hosted_model_url is not None
+        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
+            rem_init_len = 512 * (2 if self_hosted else 3) + 1
+        else:
+            rem_init_len = 512 * (4 if self_hosted else 6) + 1
         summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff)
         summary_text = "\n".join([n.page_content for n in summary_nodes])
         answer = previous_answer["answer"] + "\n" + (

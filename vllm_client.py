@@ -1,4 +1,7 @@
 import argparse
+
+from common import get_first_last_parts
+
 try:
     import ujson as json
 except ImportError:
@@ -51,7 +54,8 @@ def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=No
     response = requests.post(api_url, headers=headers, json=pload, stream=True)
     return response
 
-def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_tokens=16) -> Iterable[str]:
+def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_tokens=16, max_allowed_tokens=3000) -> Iterable[str]:
+    prompt = get_first_last_parts(prompt, 500, 2600)
     if isinstance(max_tokens, int):
         response = _post_http_request(prompt, api_url, temperature, max_tokens)
     else:
