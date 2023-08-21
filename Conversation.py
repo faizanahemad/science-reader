@@ -318,7 +318,7 @@ class Conversation:
         summary_lookback = 3
         memory = self.get_field("memory")
         previous_messages = self.get_field("messages")[-message_lookback:]
-        previous_messages = '\n\n'.join([f"Sender: {m['sender']}\n'''{m['text']}'''\n" for m in previous_messages])
+        previous_messages = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n\n" for m in previous_messages])
         running_summary = memory["running_summary"][-1:]
         if len(memory["running_summary"]) > 4:
             summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=2)
@@ -590,7 +590,12 @@ The most recent query by the human is as follows:
         new_accumulator = []
         if perform_web_search or google_scholar:
             yield {"text": '', "status": "starting answer generation"}
-            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_text_for_gpt3(
+            llm = CallLLm(self.get_api_keys(), use_gpt4=False, )
+            if llm.self_hosted_model_url is not None:
+                truncate_method = truncate_text_for_others
+            else:
+                truncate_method = truncate_text_for_gpt3
+            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_method(
                 link_result_text, web_text, doc_answer, summary_text, previous_messages,
                 other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = format_llm_inputs(
@@ -601,11 +606,10 @@ The most recent query by the human is as follows:
                 f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
             last few messages length: {len(enc.encode(previous_messages_gpt3))}, document text length: {len(enc.encode(document_nodes_gpt3))}, 
             permanent instructions length: {len(enc.encode(permanent_instructions_gpt3))}, doc answer length: {len(enc.encode(doc_answer_gpt3))}, web text length: {len(enc.encode(web_text_gpt3))}, link result text length: {len(enc.encode(link_result_text_gpt3))}""")
-
             et = time.time() - st
             logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
             qu_cst = time.time()
-            llm = CallLLm(self.get_api_keys(), use_gpt4=False, )
+            llm2 = CallLLm(self.get_api_keys(), use_gpt4=True, )
             main_ans_gen = llm(prompt, temperature=0.3, stream=True)
             for txt in main_ans_gen:
                 yield {"text": txt, "status": "answering in progress"}
@@ -614,7 +618,7 @@ The most recent query by the human is as follows:
             full_info = []
             while True:
                 qu_wait = time.time()
-                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results or len(new_accumulator) >= 4:
+                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results or ((len(new_accumulator) >= 4 and llm2.use_gpt4) or (len(new_accumulator) >= 2 and not llm2.use_gpt4)):
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -649,19 +653,35 @@ The most recent query by the human is as follows:
             document_nodes = "\n".join(prior_context["document_nodes"])
         # Set limit on how many documents can be selected
 
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
+        llm = llm2
         if not (llm.use_gpt4 or provide_detailed_answers or len(new_accumulator) > 0):
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
+        truncate_method = truncate_text_for_gpt4
+
         link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_text_for_gpt4(
+            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
+        partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
+Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}""" if partial_answer else ''
+        if llm.self_hosted_model_url is not None:
+            truncate_method = truncate_text_for_others
+            partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
+Please add more details that are not covered in the partial answer already given. Previous partial answer is given below.{new_line}'''{partial_answer}'''""" if partial_answer else ''
+        elif not llm.use_gpt4:
+            truncate_method = truncate_text_for_gpt3
+            partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
+Please add more details that are not covered in the partial answer already given. Previous partial answer is given below.{new_line}'''{partial_answer}'''""" if partial_answer else ''
+
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_method(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
         web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes = format_llm_inputs(
             web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
             other_relevant_messages, document_nodes)
-        provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers else ''
-        partial_answer_text = f'Previously, you had already provided a partial answer to this question. Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}' if partial_answer else ''
+        provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers and llm.use_gpt4 else ''
+        other_relevant_messages = other_relevant_messages if llm2.use_gpt4 else ''
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"], partial_answer_text=partial_answer_text,
                                                        provide_detailed_answers_text=provide_detailed_answers_text,
                                                        summary_text=summary_text,
@@ -777,6 +797,20 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instruct
     document_nodes = f"""The documents that were read are as follows:
     '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
     return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes
+
+def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
+    enc = tiktoken.encoding_for_model("gpt-2")
+    link_result_text = get_first_last_parts(link_result_text, 0, 1200)
+    web_text = get_first_last_parts(web_text, 0, 1200)
+    doc_answer = get_first_last_parts(doc_answer, 0, 1200)
+    summary_text = get_first_last_parts(summary_text, 0, 500)
+    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
+    previous_messages = get_first_last_parts(previous_messages, 0, 2250 - used_len) if 2250 - used_len > 0 else ""
+    used_len = len(enc.encode(previous_messages)) + used_len
+
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 2500 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, 3500 - used_len) if 3000 - used_len > 0 else ""
+    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 
 def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")

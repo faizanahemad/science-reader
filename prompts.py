@@ -177,7 +177,6 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{provide_detailed_answers_text}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
-{{partial_answer_text}}
 {{summary_text}}
 {{previous_messages}}
 {{other_relevant_messages}}
@@ -186,6 +185,7 @@ user's query: "{{query}}"
 {{doc_answer}}
 {{web_text}}
 {{link_result_text}}
+{{partial_answer_text}}
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,
@@ -436,7 +436,6 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
 
-{{partial_answer_text}}
 {{summary_text}}
 {{previous_messages}}
 {{other_relevant_messages}}
@@ -445,6 +444,7 @@ user's query: "{{query}}"
 {{doc_answer}}
 {{web_text}}
 {{link_result_text}}
+{{partial_answer_text}}
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,

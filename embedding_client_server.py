@@ -22,7 +22,7 @@ app = Flask(__name__)
 @app.route('/embed_query', methods=['POST'])
 def embed_query():
     sentence = request.json['sentence']
-    key = f"query_{sentence}"
+    key = f"{args.model_name}_query_{sentence}"
 
     # Check if the embeddings are in the cache
     embeddings = cache.get(key)
@@ -37,7 +37,7 @@ def embed_query():
 @app.route('/embed_documents', methods=['POST'])
 def embed_documents():
     sentences = request.json['sentences']
-    key = f"documents_{'_'.join(sentences)}"
+    key = f"{args.model_name}_documents_{'_'.join(sentences)}"
 
     # Check if the embeddings are in the cache
     embeddings = cache.get(key)
@@ -70,7 +70,7 @@ class EmbeddingClient(Embeddings):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--model_name', type=str, default='BAAI/bge-base-en')
+    parser.add_argument('--model_name', type=str, default='BAAI/bge-small-en')
     parser.add_argument('--port', type=int, default=8002)
     parser.add_argument('--folder', type=str, required=True)
     args = parser.parse_args()

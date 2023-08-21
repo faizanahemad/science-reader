@@ -244,7 +244,7 @@ class CallLLm:
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m]
-        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models
+        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
         openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m and "16k" not in m]
@@ -1253,6 +1253,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
+        assert len(serps) > 0
         serps = [s.result() for s in serps]
     except Exception as e:
         logger.error(f"Error in getting results from web search engines, error = {e}")
