@@ -679,7 +679,14 @@ function setKeysOnServer() {
 function createAndInitPseudoUserId() {
     pseudoUserId = localStorage.getItem('pseudoUserId') || '';
     if (pseudoUserId.length === 0) {
-        pseudoUserId = crypto.randomUUID();
+        try {
+            pseudoUserId = crypto.randomUUID();
+        } catch (error) {
+            console.log('Failed to generate pseudo user id using crypto.randomUUID()');
+            // use uuid library as fallback
+            pseudoUserId = uuidv4();
+        }
+
         localStorage.setItem('pseudoUserId', pseudoUserId);
     }
     keyStore['pseudoUserId'] = pseudoUserId
