@@ -54,16 +54,22 @@ from abc import ABC, abstractmethod
 from langchain.embeddings.base import Embeddings
 import torch
 
+EMPTY_STRING = "EMPTY DOCUMENT STRING PLACEHOLDER"
 
 class EmbeddingClient(Embeddings):
     def __init__(self, server_url):
         self.server_url = server_url
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        # PATCH CODE for some models which have dimensionaility errors for empty strings
+        texts = [text if text else EMPTY_STRING for text in texts]
+
         response = requests.post(f"{self.server_url}/embed_documents", json={'sentences': texts})
         return response.json()
 
     def embed_query(self, text: str) -> List[float]:
+        # PATCH CODE for some models which have dimensionaility errors for empty strings
+        text = text if text else EMPTY_STRING
         response = requests.post(f"{self.server_url}/embed_query", json={'sentence': text})
         return response.json()
 
