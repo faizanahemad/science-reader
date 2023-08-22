@@ -312,7 +312,7 @@ markdownParser.code = function(code, language) {
 };
 
 
-function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
+function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false, html=null){
     parent = jqelem.parent()
     elem_id = jqelem.attr('id');
     elem_to_render_in = jqelem
@@ -335,10 +335,12 @@ function renderInnerContentAsMarkdown(jqelem, callback=null, continuous=false){
         }
     }
     
-    try {
-        html = jqelem.html()
-    } catch(error) {
-        try{html = jqelem[0].innerHTML} catch (error) {html = jqelem.innerHTML}
+    if (html==null){
+        try {
+            html = jqelem.html()
+        } catch(error) {
+            try{html = jqelem[0].innerHTML} catch (error) {html = jqelem.innerHTML}
+        }
     }
     var htmlChunk = marked.marked(html, { renderer: markdownParser });
     htmlChunk = removeEmTags(htmlChunk);
@@ -1248,6 +1250,7 @@ $(document).ready(function() {
                         const reader = response.body.getReader();
                         const decoder = new TextDecoder();
                         accumulator = ''
+                        final_text = ''
                         var content_length = 0
                         while (true) {
                             // Read a chunk of data from the stream
@@ -1266,10 +1269,11 @@ $(document).ready(function() {
                             let opening_regex = /<h[1-6][^>]*>/gi
                             if (!accumulator.includes('<h') || (opening_regex.test(accumulator) && close_regex.test(accumulator))){
                                 paragraph.append(accumulator);
+                                final_text = final_text + accumulator
                                 accumulator = ''
                                 if (paragraph.html().length > content_length + 40){
                                     renderInnerContentAsMarkdown(paragraph, 
-                                                                 callback=null, continuous=true)
+                                                                 callback=null, continuous=true, html=final_text);
                                     content_length = paragraph.html().length
                                 }
                             }
@@ -1282,14 +1286,14 @@ $(document).ready(function() {
                         
                         renderInnerContentAsMarkdown(paragraph, function(){
                             showMore(null, text=null, textElem=paragraph, as_html=true, show_at_start=true);
-                        });
+                        }, continuous=false, html=final_text);
                     });
 
                 } else {
                     $('#summary-column').append('<p id="summary-text">' + data.summary.replace(/\n/g, '  \n') + '</p>');
                     renderInnerContentAsMarkdown($('#summary-text'), function(){
                         showMore(null, text=null, textElem=$('#summary-text'), as_html=true);
-                    });
+                    }, continuous=false, html=data.summary.replace(/\n/g, '  \n'));
                     
                 }
 
@@ -1305,7 +1309,7 @@ $(document).ready(function() {
                     $('#summary-column').append(chunkContainer)
                     renderInnerContentAsMarkdown(chunkContainer, function(){
                         showMore(null, text=null, textElem=chunkContainer, as_html=true);
-                    });
+                    }, continuous=false, html=chunked_summary.join('\n\n').replace(/\n/g, '  \n'));
                 }
                 
                 // Populate the QnA column if exists
@@ -1325,7 +1329,7 @@ $(document).ready(function() {
                         initialiseVoteBank(card, one_qa[1], one_qa[0], activeDocId=activeDocId);
                         renderInnerContentAsMarkdown(ansContainer, function(){
                             showMore(null, text=null, textElem=ansContainer, as_html=true);
-                        });
+                        }, continuous=false, html=one_qa[2].replace(/\n/g, '  \n'));
                         
                     });
                     
@@ -1357,7 +1361,7 @@ $(document).ready(function() {
                                 if (data.details.deep_reader_details[key]["text"].trim().length > 0){
                                     showMore(null, text=null, textElem=$(`#${key}-text`), as_html=true);
                                 }
-                            });
+                            }, continuous=false, html=data.details.deep_reader_details[key]["text"]);
                             
                             if (data.details.deep_reader_details[key]["text"] === '') {
                                 cardBody.append('<button id="get-details-' + key + '-button" type="button" class="btn btn-primary">Get Details</button>');
@@ -1374,6 +1378,7 @@ $(document).ready(function() {
                                     var content_length = 0
                                     let reader = response.body.getReader();
                                     let decoder = new TextDecoder();
+                                    final_text = ''
                                     while (true) {
                                         let { value, done } = await reader.read();
                                         if (done) {
@@ -1381,16 +1386,17 @@ $(document).ready(function() {
                                         }
                                         let part = decoder.decode(value).replace(/\n/g, '  \n');
                                         $('#' + key + '-text').append(part);
+                                        final_text += part
                                         if ($('#' + key + '-text').html().length > content_length + 40){
                                             renderInnerContentAsMarkdown($('#' + key + '-text'), 
-                                                                         callback=null, continuous=true)
+                                                                         callback=null, continuous=true, html=final_text)
                                             content_length = $('#' + key + '-text').html().length
                                         }
                                     }
                                     renderInnerContentAsMarkdown($('#' + key + '-text'), function(){
                                         showMore(null, text=null, textElem=$('#' + key + '-text'), 
                                                  as_html=true, show_at_start=true);
-                                    });
+                                    }, continuous=false, html=final_text);
                                     $('#get-details-' + key + '-button').remove(); // Remove the button
                                 });
                             }
@@ -1576,13 +1582,13 @@ $(document).ready(function() {
                     answer = answer + part;
                     if (answerParagraph.html().length > content_length + 40){
                         renderInnerContentAsMarkdown(answerParagraph, 
-                                                     callback=null, continuous=true)
+                                                     callback=null, continuous=true, html=answer);
                         content_length = answerParagraph.html().length
                     }
                 }
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
-                });
+                }, continuous=false, html=answer);
                 initialiseVoteBank(card, query, activeDocId=activeDocId);
 
                 answerParagraph.append('</br>');
@@ -1667,13 +1673,13 @@ $(document).ready(function() {
                     answer = answer + part
                     if (answerParagraph.html().length > content_length + 40){
                         renderInnerContentAsMarkdown(answerParagraph, 
-                                                     callback=null, continuous=true)
+                                                     callback=null, continuous=true, html=answer);
                         content_length = answerParagraph.html().length
                     }
                 }
                 renderInnerContentAsMarkdown(answerParagraph, function(){
                     showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
-                });
+                }, continuous=false, html=answer);
                 initialiseVoteBank(card, previousAnswer["query"]+ ". followup:" +query, activeDocId=activeDocId);
 
                 answerParagraph.append('</br>');
@@ -1884,7 +1890,7 @@ $(document).ready(function() {
                 $('#show_reviews').append(card);
                 renderInnerContentAsMarkdown(reviewParagraph, function(){
                     showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
-                });
+                }, continuous=false, html=review.review);
                 initialiseVoteBank(card, [review.tone,review.review_topic, review.instructions, review.is_meta_review].join(","), review.id), activeDocId=activeDocId;
 
             });
@@ -2017,13 +2023,13 @@ $(document).ready(function() {
                 review = review + part;
                 if (reviewParagraph.html().length > content_length + 40){
                     renderInnerContentAsMarkdown(reviewParagraph, 
-                                                    callback=null, continuous=true)
+                                                    callback=null, continuous=true, html=review);
                     content_length = reviewParagraph.html().length
                 }
             }
             renderInnerContentAsMarkdown(reviewParagraph, function(){
                 showMore(null, text=null, textElem=reviewParagraph, as_html=true, show_at_start=true);
-            });
+            }, continuous=false, html=review);
             initialiseVoteBank(card, [tone,review_topic, additional_instructions, is_meta_review].join(","), activeDocId=activeDocId);
         });
 

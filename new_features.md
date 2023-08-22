@@ -18,12 +18,18 @@
 - Show only successful reads in the chat. [Done]
 - word doc and html pages as well. [Nope] Print to pdf and then upload.
 - If arxiv pdf url then only get citations from semantic scholar. [Done]
+- If link is PDF, or link is arxiv or openreview then invoke pdf reading, don't invoke web search with pdf search. [Done]
+- Parallel Rejection sampling? [Nope]
+- Temperature, Top-P, Samplers like Muse/Microstat and Response length control. [Nope]
+- 
+- Convert Chat rendered of javascript to a generic renderer and then use it in DocIndex QnA.
 
-- If link is PDF, or link is arxiv or openreview then invoke pdf reading, don't invoke web search with pdf search.
-- Pay all bills on time.
+- First load doesn't show chats in correct order.
+- Don't show Cites and References tab if there are no cites and references or if the doc source is not arxiv.
 - BufferMemory for chat history and summary history.
-- Temperature, Top-P, Samplers like Muse/Microstat and Response length control.
-- Parallel Rejection sampling?
+- Pay all bills on time.
+
+
 - Collections/Folders and Tags.
   - User, Doc, Tags, Folders
   - Sort by date added, date modified, alphabetically, arxiv date
@@ -72,6 +78,7 @@
 - https://github.com/RayVentura/ShortGPT
 - Auto-complete based notepad that does both in fill and forward generation using LLM. It can also use Doc you have, use web search results, and use previous chat messages. It needs multiple boxes, 1) overall topic, 2) Any background and side info. 3) current writing box.
   - Template it using guidance library.
+  - Write Tab.
 
 
 # High Priority

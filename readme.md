@@ -34,6 +34,7 @@ server {
 `CTRL+A+D`
 
 `CUDA_VISIBLE_DEVICES=2,3,4,5 python -m vllm.entrypoints.api_server --model conceptofmind/Hermes-LLongMA-2-13b-8k --tensor-parallel-size 4 --max-num-batched-tokens 8100`
+`CUDA_VISIBLE_DEVICES=0,1,2,3 python -m vllm.entrypoints.api_server --model conceptofmind/Hermes-LLongMA-2-13b-8k --tensor-parallel-size 4 --max-num-batched-tokens 8100`
 
 `curl http://localhost:8000/generate -d '{"prompt": "San Francisco is a ", "use_beam_search": true, "n": 2, "temperature": 0, "max_tokens": 100}'`
 

@@ -94,7 +94,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             answer_pre_text = answerParagraph.text()
             if (answerParagraph.html().length > content_length + 40){
                 renderInnerContentAsMarkdown(answerParagraph, 
-                                                callback=null, continuous=true)
+                                                callback=null, continuous=true, html=answer)
                 content_length = answerParagraph.html().length
             }
             answer_post_text = answerParagraph.text()
@@ -117,7 +117,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     if (answerParagraph.text().length > 300) {
                         showMore(null, text=null, textElem=answerParagraph, as_html=true, show_at_start=true);
                     }
-                });
+                }, continuous=false, html=answer);
                 initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId=null, activeDocId=ConversationManager.activeConversationId);
             }
             $('#messageText').focus();
@@ -190,7 +190,7 @@ var ChatManager = {
                   if ((textElem.text().length > 300)){ // && (index < array.length - 2)
                     showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=index >= array.length - 2);
                   }
-              });
+              }, continuous=false, html=message.text.replace(/\n/g, '  \n'));
           }
           
           var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
@@ -339,7 +339,7 @@ $(document).ready(function() {
     // Hide the loader after 10 seconds
     setTimeout(function() {
         $("#loader").hide();
-    }, 2000 * 1);  // 10000 milliseconds = 10 seconds
+    }, 5000 * 1);  // 1000 milliseconds = 1 seconds
     
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();

@@ -37,6 +37,7 @@ google-api-python-client==2.93.0
 selenium==4.10.0
 spacy==3.6.0
 spacy-lookups-data==1.0.3
+text-generation==0.6.0
 tokenizers>=0.13.3
 transformers>=4.31.0
 ujson==5.8.0

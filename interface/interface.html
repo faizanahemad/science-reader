@@ -120,7 +120,7 @@
                       <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Cites & Refs </a>
                   </li>
                   <li class="nav-item">
-                      <a class="nav-link" id="assistant-tab" href="#assistant-view" data-toggle="tab" role="tab">Assistant</a>
+                      <a class="nav-link" id="assistant-tab" href="#assistant-view" data-toggle="tab" role="tab">Chat Assistant</a>
                   </li>
                   <li class="nav-item">
                     <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Review</a>
@@ -329,11 +329,11 @@
                 <div class="modal-body">
                     <form id="add-document-form">
                       <div class="form-group">
-                        <label for="pdf-url">Arxiv PDF URL (Note: Indexing takes long time (~2 minute).)</label>
+                        <label for="pdf-url">PDF URL (Note: Indexing takes long time (~2 minute).)</label>
                         <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
-                        <label>Or drop a PDF file here or <button type="button" id="file-upload-button" class="btn btn-link">browse</button></label>
+                        <label>Or drop a PDF file here or<button type="button" id="file-upload-button" style="padding-left: 4px; padding-top:2px;" class="btn btn-link">browse</button></label>
                         <div id="drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center;">
-                          Drop a PDF file here
+                          Drop a PDF file here. To upload MS Word or html, first convert them to PDF.
                         </div>
                         <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf" style="display: none;">
                       </div>
