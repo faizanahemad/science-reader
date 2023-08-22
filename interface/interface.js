@@ -684,7 +684,7 @@ function createAndInitPseudoUserId() {
         } catch (error) {
             console.log('Failed to generate pseudo user id using crypto.randomUUID()');
             // use uuid library as fallback
-            pseudoUserId = uuidv4();
+            pseudoUserId = uuid.v4();
         }
 
         localStorage.setItem('pseudoUserId', pseudoUserId);
