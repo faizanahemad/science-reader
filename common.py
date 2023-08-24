@@ -333,7 +333,20 @@ def get_first_last_parts(my_string, first_n=250, last_n=750):
     last_part = enc.decode(str_encoded[str_len-last_n:])
     return first_part + "\n" + last_part
 
-
+def convert_to_pdf_link_if_needed(link):
+    if "arxiv.org" in link and "pdf" not in link:
+        link = link.replace("abs", "pdf")
+        # convert arxiv link to pdf
+    if "openreview.net" in link and "pdf" not in link:
+        link = link.replace("forum", "pdf")
+        # convert openreview link to pdf
+    if "aclanthology.org" in link and "pdf" not in link:
+        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
+    if "aclweb.org" in link and "anthology" in link and "pdf" not in link:
+        # https://www.aclweb.org/anthology/P19-1028/
+        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
+        # convert aclweb link to pdf
+    return link
 def extract_array_string(s):
     # Try to find text inside square brackets
     match = re.search(r'\[.*?\]', s)

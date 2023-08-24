@@ -1436,18 +1436,7 @@ def download_link_data(link_title_context_apikeys):
     result = cache.get(key)
     if result is not None:
         return result
-    if "arxiv.org" in link and "pdf" not in link:
-        link = link.replace("abs", "pdf")
-        # convert arxiv link to pdf
-    if "openreview.net" in link and "pdf" not in link:
-        link = link.replace("forum", "pdf")
-        # convert openreview link to pdf
-    if "aclanthology.org" in link and "pdf" not in link:
-        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
-    if "aclweb.org" in link and "anthology" in link and "pdf" not in link:
-        # https://www.aclweb.org/anthology/P19-1028/
-        link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
-        # convert aclweb link to pdf
+    link = convert_to_pdf_link_if_needed(link)
     is_pdf = is_pdf_link(link)
     if is_pdf:
         result = read_pdf(link_title_context_apikeys)

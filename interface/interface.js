@@ -2099,6 +2099,7 @@ $(document).ready(function() {
 
     $('#assistant-tab').on('shown.bs.tab', function (e) {
         // Clear the details viewer
+        loadConversations();
         $('#review-assistant-view').hide();
         $('#references-view').hide();
         $('#pdf-view').hide();

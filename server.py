@@ -36,7 +36,7 @@ import argparse
 from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
-from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue
+from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -716,6 +716,7 @@ def index_document():
     pdf_url = request.json.get('pdf_url')
     # if "arxiv.org" not in pdf_url:
     #     return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
+    pdf_url = convert_to_pdf_link_if_needed(pdf_url)
     if pdf_url:
         try:
             doc_index = immediate_create_and_save_index(pdf_url, keys)
