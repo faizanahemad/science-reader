@@ -817,14 +817,25 @@ Detailed and comprehensive summary:
         
         
         if llm.use_gpt4:
-            running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+            rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+            if get_gpt4_word_count(" ".join(rs)) < 7000:
+                running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+            else:
+                rs = [running_summaries[i] for i in range(0, len(running_summaries), 4)]
+                if get_gpt4_word_count(" ".join(rs)) < 7000:
+                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 4)]
+                else:
+                    mid = max(len(running_summaries) // 2 - 1, 0)
+                    running_summaries = running_summaries[mid:mid + 1]
         else:
             mid = max(len(running_summaries)//2 - 1, 0)
             running_summaries = running_summaries[mid:mid+1]
         yield '\n\n</br></br>'
         new_summary_prompt = "Create an overall summary (elaborate and detailed summary) of a scientific paper from given sectional summary of parts of the paper.\n Sectional Summaries: \n '{}' \n Overall Summary: \n"
         rsum = ''
-        for txt in llm(new_summary_prompt.format(" \n".join(running_summaries+[running_summary])), temperature=0.7, stream=True):
+        prompt = new_summary_prompt.format(" \n".join(running_summaries+[running_summary]))
+        prompt = get_first_last_parts(prompt, 1000, 6000)
+        for txt in llm(prompt, temperature=0.7, stream=True):
             rsum = rsum + txt
             yield txt
         
