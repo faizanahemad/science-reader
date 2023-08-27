@@ -301,7 +301,8 @@ def keyParser(session):
     }
     for k, v in keyStore.items():
         key = session.get(k, v)
-        keyStore[k] = key
+        if key is None or key.strip() == "":
+            key = v
         if key is not None and ((isinstance(key, str) and len(key.strip())>0) or (isinstance(key, list) and len(key)>0)):
             keyStore[k] = key
         else:
