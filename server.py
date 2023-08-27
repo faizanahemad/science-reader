@@ -36,7 +36,8 @@ import argparse
 from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
-from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed
+from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed, \
+    verify_openai_key_and_fetch_models
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -289,7 +290,7 @@ def keyParser(session):
         "serpApiKey": os.getenv("serpApiKey", ''),
         "googleSearchApiKey":os.getenv("googleSearchApiKey", ''),
         "googleSearchCxId":os.getenv("googleSearchCxId", ''),
-        "openai_models_list": os.getenv("openai_models_list", ''),
+        "openai_models_list": os.getenv("openai_models_list", '[]'),
         "scrapingBrowserUrl": os.getenv("scrapingBrowserUrl", ''),
         "vllmUrl": os.getenv("vllmUrl", ''),
         "vllmLargeModelUrl": os.getenv("vllmLargeModelUrl", ''),
@@ -299,9 +300,18 @@ def keyParser(session):
         "tgiSmallModelUrl": os.getenv("tgiSmallModelUrl", ''),
         "embeddingsUrl": os.getenv("embeddingsUrl", ''),
     }
+    if keyStore["vllmUrl"].strip() != "" or keyStore["vllmLargeModelUrl"].strip() != "" or keyStore["vllmSmallModelUrl"].strip() != "":
+        keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
+    else:
+        openai_api_key = session.get("openAIKey", keyStore["openAIKey"])
+        openai_api_key = openai_api_key if openai_api_key is not None and len(openai_api_key.strip()) > 0 else keyStore["openAIKey"]
+        keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
+        if keyStore["openai_models_list"] is None or not isinstance(keyStore["openai_models_list"], list) or len(keyStore["openai_models_list"]) == 0:
+            keyStore["openai_models_list"] = verify_openai_key_and_fetch_models(openai_api_key)
+            os.environ["openai_models_list"] = str(keyStore["openai_models_list"])
     for k, v in keyStore.items():
         key = session.get(k, v)
-        if key is None or key.strip() == "":
+        if key is None or (isinstance(key, str) and key.strip() == "") or (isinstance(key, list) and len(key) == 0):
             key = v
         if key is not None and ((isinstance(key, str) and len(key.strip())>0) or (isinstance(key, list) and len(key)>0)):
             keyStore[k] = key

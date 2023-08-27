@@ -18,6 +18,7 @@ import pickle
 import dill
 import collections
 import threading
+import requests
 
 from multiprocessing import Process, Queue
 from functools import partial
@@ -383,9 +384,25 @@ def parse_array_string(s):
         return []
 
 
-
 def normalize_whitespace(s):
     return re.sub(r'\s+', ' ', s).strip()
+
+
+def verify_openai_key_and_fetch_models(api_key):
+    logger.warning("Verifying OpenAI API key...")
+    # Make a GET request to OpenAI API
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = requests.get("https://api.openai.com/v1/models", headers=headers)
+
+    if response.status_code == 200:
+        # Extract model ids and return as a list
+        models = response.json()["data"]
+        model_ids = [model["id"] for model in models]
+        return model_ids
+    else:
+        # Handle error response
+        print(f"Error fetching OpenAI models: {response.status_code} {response.reason}")
+        return []
 
 def two_column_list(items):
     half = (len(items) + 1) // 2   # adjust for odd lengths
