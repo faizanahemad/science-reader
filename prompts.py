@@ -234,9 +234,12 @@ Write continued answer using additional information below.
 
             get_more_details_prompt=PromptTemplate(
                 input_variables=["query", "answer", "additional_info"],
-                template=f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
+                template=f"""Continue writing answer to a question or instruction which is partially answered. 
+Provide new details from the additional information provided if it is not mentioned in the partial answer already given. 
+Don't repeat information from the partial answer already given.
 Question is given below:
 "{{query}}"
+Answer till now (partial answer already given): '''{{answer}}'''
 
 Relevant additional information from the same document context are mentioned below:
 '''{{additional_info}}'''
@@ -244,9 +247,7 @@ Relevant additional information from the same document context are mentioned bel
 Continue the answer ('Answer till now') by incorporating additional information from this relevant additional context. 
 {self.complex_output_instructions}
 
-Question: '''{{query}}'''
-Answer till now (partial answer): '''{{answer}}'''
-Continued Answer using additional information from the documents: 
+Continue the answer using additional information from the documents.
 """
             ),
             paper_details_map = {
@@ -486,9 +487,11 @@ Write continued answer using additional information below.
             ),
             get_more_details_prompt=PromptTemplate(
                 input_variables=["query", "answer", "additional_info"],
-                template=f"""Continue writing answer to a question which is partially answered. Provide new details from the additional information provided.
+                template=f"""Continue writing answer to a question which is partially answered. 
+Provide new details from the additional information provided. Don't repeat information from the partial answer already given.
 Question is given below:
 "{{query}}"
+Answer till now (partial answer already given): '''{{answer}}'''
 
 Relevant additional information from the same document context are mentioned below:
 '''{{additional_info}}'''
@@ -496,9 +499,8 @@ Relevant additional information from the same document context are mentioned bel
 Continue the answer ('Answer till now') by incorporating additional information from this relevant additional context. 
 {self.simple_output_instructions}
 
-Question: '''{{query}}'''
-Answer till now (partial answer): '''{{answer}}'''
-Continued Answer using additional information from the documents: 
+
+Continue answer using additional information from the documents.
 """
             ),
             paper_details_map = {
