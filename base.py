@@ -548,7 +548,6 @@ def process_text(text, chunk_size, my_function, keys):
     chunks = [c.strip() for c in list(ChunkText(text, chunk_size)) if len(c.strip()) > 0]
     if len(chunks) == 0:
         return 'No relevant information found.'
-    assert len(chunks) == 1
     if len(chunks) > 1:
         futures = [process_text_executor.submit(my_function, chunk) for chunk in chunks]
         # Get the results from the futures
@@ -556,7 +555,7 @@ def process_text(text, chunk_size, my_function, keys):
     else:
         results = [my_function(chunk) for chunk in chunks]
 
-    threshold = 512*4
+    threshold = 512*3
     tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
@@ -1479,7 +1478,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
     extracted_info = ''
     try:
         if len(text.strip()) > 0:
-            chunked_text = ChunkText(txt, 14336 if detailed else 2816, 0)[0]
+            chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else 2816, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
             extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
                                                     api_keys, provide_short_responses=False,
