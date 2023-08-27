@@ -252,7 +252,8 @@ Continue the answer using additional information from the documents.
             ),
             paper_details_map = {
             "methodology": """
-Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
+Read the document and provide information about "Motivation and Methodology" of the work.
+Cover the below points while answering and also add other necessary points as needed.
     - What do the authors do in this overall work (i.e. their methodology) with details.
     - Detailed methodology and approach described in this work.
     - what problem do they address ?
@@ -263,7 +264,8 @@ Read the document and provide information about "Motivation and Methodology" of 
     - Any drawbacks in their method or process
 """,
             "previous_literature_and_differentiation": """
-Read the document and provide information about "Previous Literature and Background work" of the work. Specifically, answer the following:
+Read the document and provide information about "Previous Literature and Background work" of the work.
+Cover the below points while answering and also add other necessary points as needed.
     - What is this work's unique contribution over previous works?
     - what previous literature or works are referred to?
     - How are the previous works relevant to the problem this method is solving?
@@ -271,7 +273,8 @@ Read the document and provide information about "Previous Literature and Backgro
     - What improvements does their work bring over previous methods.
 """,
             "experiments_and_evaluation":"""
-Read the document and provide information about "Experiments and Evaluation" of the work. Specifically, answer the following:
+Read the document and provide information about "Experiments and Evaluation" of the work.
+Cover the below points while answering and also add other necessary points as needed.
     - How is the proposed method/idea evaluated?
     - What metrics are used to quantify their results?
     - what datasets do they evaluate on?
@@ -281,14 +284,16 @@ Read the document and provide information about "Experiments and Evaluation" of 
     - Any drawbacks in their evaluation or experiments
 """,
             "results_and_comparison": """
-Read the document and provide information about "Results" of the work. Specifically, answer the following:
+Read the document and provide information about "Results" of the work.
+Cover the below points while answering and also add other necessary points as needed.
     - What results do they get from their experiments 
     - how does this method perform compared to other methods?
     - Make markdown tables to highlight most important results.
     - Any Insights or surprising details from their results and their tables
 """,
             "limitations_and_future_work":"""
-Read the document and provide information about "Limitations and Future Work" of the work. Specifically, answer the following:
+Read the document and provide information about "Limitations and Future Work" of the work. 
+Cover the below points while answering and also add other necessary points as needed.
     - What are the limitations of this method, 
     - Where and when can this method or approach fail? 
     - What are some further future research opportunities for this domain as a follow up to this method?
@@ -505,7 +510,7 @@ Continue answer using additional information from the documents.
             ),
             paper_details_map = {
             "methodology": """
-Read the document and provide information about "Motivation and Methodology" of the work. Specifically, answer the following:
+Read the document and provide information about "Motivation and Methodology" of the work. Answer the following:
     - What do the authors do in this overall work (i.e. their methodology) with details.
     - what problem do they address ?
     - how do they solve the problem, provide details?
@@ -513,13 +518,13 @@ Read the document and provide information about "Motivation and Methodology" of 
     - Any insights from their methods
 """,
             "previous_literature_and_differentiation": """
-Read the document and provide information about "Previous Literature and Background work" of the work. Specifically, answer the following:
+Read the document and provide information about "Previous Literature and Background work" of the work. Answer the following:
     - What is this work's unique contribution over previous works?
     - what previous literature or works are referred to?
     - How are the previous works relevant to the problem this method is solving?
 """,
             "experiments_and_evaluation":"""
-Read the document and provide information about "Experiments and Evaluation" of the work. Specifically, answer the following:
+Read the document and provide information about "Experiments and Evaluation" of the work. Answer the following:
     - How is the proposed method/idea evaluated?
     - What metrics are used to quantify their results?
     - what datasets do they evaluate on?
@@ -527,12 +532,12 @@ Read the document and provide information about "Experiments and Evaluation" of 
     - Any surprising experiments or insights
 """,
             "results_and_comparison": """
-Read the document and provide information about "Results" of the work. Specifically, answer the following:
+Read the document and provide information about "Results" of the work. Answer the following:
     - What results do they get from their experiments 
     - how does this method perform compared to other methods?
 """,
             "limitations_and_future_work":"""
-Read the document and provide information about "Limitations and Future Work" of the work. Specifically, answer the following:
+Read the document and provide information about "Limitations and Future Work" of the work. Answer the following:
     - What are the limitations of this method, 
     - What are some further future research opportunities for this domain as a follow up to this method?
     - What are some overlooked experiments which could have provided more insights into this approach or work.
