@@ -465,6 +465,7 @@ class DocIndex:
             additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), chunk_size=3200)
             et = time.time()
             logger.debug(f"Blocking on ContextualReader for {(et-st):4f}s")
+        prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)
         main_ans_gen = llm(prompt, temperature=0.7, stream=True)
         answer = ''
         ans_begin_time = time.time()
@@ -756,6 +757,8 @@ Detailed and comprehensive summary:
             generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()[1].result()['text'] + "\n\n " + f" Answer the followup question: {query} \n\n Additional Instructions: '''{prompt}'''")
             
         else:
+            prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000,
+                                                                                                        2500)
             generator = llm(prompt, temperature=0.7, stream=True)
             answer = ''
         
@@ -767,6 +770,7 @@ Detailed and comprehensive summary:
     def streaming_web_search_answering(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         prompt = prompts.web_search_question_answering_prompt.format(query=query, answer=answer, additional_info=additional_info)
+        prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)
         answer=answer + "\n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             yield txt
@@ -775,6 +779,7 @@ Detailed and comprehensive summary:
     def streaming_get_more_details(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         prompt = prompts.get_more_details_prompt.format(query=query, answer=answer, additional_info=additional_info)
+        prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)
         answer = answer + "\n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             yield txt
