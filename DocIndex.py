@@ -462,7 +462,7 @@ class DocIndex:
                                             questions_answers="", full_summary=self.get_doc_data("qna_data", "running_summary"))
         if mode == "detailed" or mode == "review":
             st = time.time()
-            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), chunk_size=3200)
+            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), chunk_size=TOKEN_LIMIT_FOR_DETAILED)
             et = time.time()
             logger.debug(f"Blocking on ContextualReader for {(et-st):4f}s")
         prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)

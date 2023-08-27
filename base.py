@@ -156,7 +156,7 @@ def call_ai21(text, temperature=0.7, api_key=None):
     if "vllmUrl" in api_key and not checkNoneOrEmpty(api_key["vllmUrl"]):
         return get_streaming_vllm_response(text, api_key["vllmUrl"], temperature=temperature, max_tokens=3800 - get_gpt4_word_count(text))
     if get_gpt4_word_count(text) > 3600:
-        logger.warning(f"Text too long, taking only first 3600 tokens")
+        logger.warning(f"call_ai21 Text too long, taking only first 3600 tokens")
         text = get_first_last_parts(text, 3600, 0)
     response_grande = ai21.Completion.execute(
           model="j2-jumbo-instruct",
@@ -179,7 +179,7 @@ def call_cohere(text, temperature=0.7, api_key=None):
     co = cohere.Client(api_key["cohereKey"])
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
     if get_gpt4_word_count(text) > 3400:
-        logger.warning(f"Text too long, taking only first 3600 tokens")
+        logger.warning(f"call_cohere Text too long, taking only first 3400 tokens")
         text = get_first_last_parts(text, 3400, 0)
     response = co.generate(
         model='command-nightly',
@@ -712,7 +712,7 @@ Output any relevant equations if found in latex format.
     def get_one(self, context, chunk_size, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>4000, use_small_models=True)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>4000, use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -737,7 +737,7 @@ Output any relevant equations if found in latex format.
         part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         short = self.provide_short_responses and chunk_size < 4000
-        result = get_first_last_parts(result, 256, 0) if short else get_first_last_parts(result, 384, 0)
+        result = get_first_last_parts(result, 384, 128) if short else get_first_last_parts(result, 1024, 512)
         assert isinstance(result, str)
         return result
 
@@ -1478,9 +1478,10 @@ def get_downloaded_data_summary(link_title_context_apikeys):
     extracted_info = ''
     try:
         if len(text.strip()) > 0:
-            chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else 2816, 0)[0]
+            chunked_text = ChunkText(
+                txt, TOKEN_LIMIT_FOR_DETAILED if detailed else 3200, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 2816 if detailed else 1536, 0)[0],
+            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 3200 if detailed else 1536, 0)[0],
                                                     api_keys, provide_short_responses=False,
                                                     chunk_size=3200 if detailed else 3200)
             tt = time.time() - st
