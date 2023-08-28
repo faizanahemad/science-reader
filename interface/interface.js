@@ -1612,10 +1612,21 @@ $(document).ready(function() {
         $('#submit-question-button').click(askQuestion);
 
         $('#question-input').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13 && !e.shiftKey) {
+            if (e.which == 13 && !e.shiftKey && !e.altKey) {
                 askQuestion();
                 return false; // Prevents the default action
             }
+            if (e.keyCode == 13 && e.altKey) {
+                var messageText = $('#question-input');
+                messageText.val(messageText.val() + '\n');
+                return false; // Prevents the default action
+            }
+            if (e.keyCode == 13 && e.shiftKey) {
+                var messageText = $('#question-input');
+                messageText.val(messageText.val() + '\n');
+                return false; // Prevents the default action
+            }
+
         });
     }
 
@@ -1702,8 +1713,18 @@ $(document).ready(function() {
         $('#submit-follow-up-question-button').click(askFollowUpQuestion);
 
         $('#follow-up-question-input').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13) {
+            if (e.which == 13 && !e.shiftKey && !e.altKey) {
                 askFollowUpQuestion();
+                return false; // Prevents the default action
+            }
+            if (e.keyCode == 13 && e.altKey) {
+                var messageText = $('#follow-up-question-input');
+                messageText.val(messageText.val() + '\n');
+                return false; // Prevents the default action
+            }
+            if (e.keyCode == 13 && e.shiftKey) {
+                var messageText = $('#follow-up-question-input');
+                messageText.val(messageText.val() + '\n');
                 return false; // Prevents the default action
             }
         });

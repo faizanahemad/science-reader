@@ -345,8 +345,19 @@ $(document).ready(function() {
         ConversationManager.createConversation();
     });
     $('#messageText').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13 && !e.shiftKey) {
+            if (e.which == 13 && !e.shiftKey && !e.altKey) {
                 sendMessageCallback();
+                return false; // Prevents the default action
+            }
+            if (e.keyCode == 13 && e.altKey) {
+                var messageText = $('#messageText');
+                messageText.val(messageText.val() + '\n');
+                return false; // Prevents the default action
+            }
+
+            if (e.keyCode == 13 && e.shiftKey) {
+                var messageText = $('#messageText');
+                messageText.val(messageText.val() + '\n');
                 return false; // Prevents the default action
             }
         });
