@@ -1497,7 +1497,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
 
 def get_page_text(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"get_page_text-{str([link, title, context, detailed])}"
+    key = f"get_page_text-{str([link, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:

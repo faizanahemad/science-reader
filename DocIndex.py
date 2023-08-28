@@ -1055,7 +1055,7 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
-    doc_text = PDFReaderTool(keys)(pdf_url)
+    doc_text = PDFReaderTool(keys)(pdf_url.strip())
     chunks = ChunkText(doc_text, LARGE_CHUNK_LEN, 64)
     nested_dict = {
         'chunked_summary': [''],
