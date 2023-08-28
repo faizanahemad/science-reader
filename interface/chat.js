@@ -353,6 +353,8 @@ $(document).ready(function() {
                 var messageText = $('#messageText');
                 messageText.val(messageText.val() + '\n');
                 messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
+                var scrollHeight = messageText.prop('scrollHeight');
+                messageText.scrollTop(scrollHeight);
                 return false; // Prevents the default action
             }
 
@@ -360,6 +362,8 @@ $(document).ready(function() {
                 var messageText = $('#messageText');
                 messageText.val(messageText.val() + '\n');
                 messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
+                var scrollHeight = messageText.prop('scrollHeight');
+                messageText.scrollTop(scrollHeight);
                 return false; // Prevents the default action
             }
         });
