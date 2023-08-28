@@ -1612,7 +1612,7 @@ $(document).ready(function() {
         $('#submit-question-button').click(askQuestion);
 
         $('#question-input').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13) {
+            if (e.which == 13 && !e.shiftKey) {
                 askQuestion();
                 return false; // Prevents the default action
             }

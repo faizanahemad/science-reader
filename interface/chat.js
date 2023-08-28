@@ -345,7 +345,7 @@ $(document).ready(function() {
         ConversationManager.createConversation();
     });
     $('#messageText').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13) {
+            if (e.which == 13 && !e.shiftKey) {
                 sendMessageCallback();
                 return false; // Prevents the default action
             }
