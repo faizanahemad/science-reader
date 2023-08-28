@@ -352,12 +352,14 @@ $(document).ready(function() {
             if (e.keyCode == 13 && e.altKey) {
                 var messageText = $('#messageText');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
 
             if (e.keyCode == 13 && e.shiftKey) {
                 var messageText = $('#messageText');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
         });

@@ -1619,11 +1619,13 @@ $(document).ready(function() {
             if (e.keyCode == 13 && e.altKey) {
                 var messageText = $('#question-input');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
             if (e.keyCode == 13 && e.shiftKey) {
                 var messageText = $('#question-input');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
 
@@ -1720,11 +1722,13 @@ $(document).ready(function() {
             if (e.keyCode == 13 && e.altKey) {
                 var messageText = $('#follow-up-question-input');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
             if (e.keyCode == 13 && e.shiftKey) {
                 var messageText = $('#follow-up-question-input');
                 messageText.val(messageText.val() + '\n');
+                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
                 return false; // Prevents the default action
             }
         });
