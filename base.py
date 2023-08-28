@@ -1112,8 +1112,45 @@ def freePDFReader(url, page_ranges=None):
         
 
 class CustomPDFLoader(MathpixPDFLoader):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, file_path, processed_file_format: str = "mmd",
+        max_wait_time_seconds: int = 500,
+        should_clean_pdf: bool = False,
+        **kwargs):
+        from langchain.utils import get_from_dict_or_env
+        from pathlib import Path
+        self.file_path = file_path
+        self.web_path = None
+        if "~" in self.file_path:
+            self.file_path = os.path.expanduser(self.file_path)
+
+        # If the file is a web path, download it to a temporary file, and use that
+        if not os.path.isfile(self.file_path) and self._is_valid_url(self.file_path):
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+            r = requests.get(self.file_path, verify=False, headers=headers)
+
+            if r.status_code != 200:
+                raise ValueError(
+                    "Check the url of your file; returned status code %s"
+                    % r.status_code
+                )
+
+            self.web_path = self.file_path
+            self.temp_dir = tempfile.TemporaryDirectory()
+            temp_pdf = Path(self.temp_dir.name) / "tmp.pdf"
+            with open(temp_pdf, mode="wb") as f:
+                f.write(r.content)
+            self.file_path = str(temp_pdf)
+        self.mathpix_api_key = get_from_dict_or_env(
+            kwargs, "mathpix_api_key", "MATHPIX_API_KEY"
+        )
+        self.mathpix_api_id = get_from_dict_or_env(
+            kwargs, "mathpix_api_id", "MATHPIX_API_ID"
+        )
+        self.processed_file_format = processed_file_format
+        self.max_wait_time_seconds = max_wait_time_seconds
+        self.should_clean_pdf = should_clean_pdf
+        
         self.options = {"rm_fonts": True, 
                    "enable_tables_fallback":True}
         if self.processed_file_format != "mmd":
