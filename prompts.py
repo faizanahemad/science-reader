@@ -70,9 +70,14 @@ Next, You are given few question and answer pairs from the document below:
 
 You are also given summaries of certain parts of document below:
 '''{{summary}}'''
+
 {self.complex_output_instructions}
-Informative answer:
-        """,
+
+Question or Query is given below.
+{{query}}
+
+Write informative answer below.
+""",
             ),
             running_summary_prompt=PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
@@ -354,8 +359,12 @@ Next, You are given few question and answer pairs from the document below:
 You are also given summaries of certain parts of document below:
 '''{{summary}}'''
 {self.simple_output_instructions}
-Informative answer:
-        """,
+
+Question or Query is given below.
+{{query}}
+
+Write informative answer below.
+""",
             ),
             running_summary_prompt=PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
