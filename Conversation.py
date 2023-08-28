@@ -494,7 +494,7 @@ The most recent query by the human is as follows:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
             all_docs_info = []
-            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 2):
+            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 3):
                 if (time.time() - link_read_st) > self.max_time_to_wait_for_web_results:
                     yield {"text": '', "status": "Link reading taking long time ... "}
                 if link_future.done():

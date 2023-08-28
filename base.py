@@ -1410,7 +1410,7 @@ from multiprocessing import Pool
 
 def process_link(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"process_link-{str([link, title, context, detailed])}"
+    key = f"process_link-{str([link, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1430,7 +1430,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 def download_link_data(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"download_link_data-{str([link, title, context, detailed])}"
+    key = f"download_link_data-{str([link, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1447,7 +1447,7 @@ def download_link_data(link_title_context_apikeys):
 
 def read_pdf(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"read_pdf-{str([link, title, context, detailed])}"
+    key = f"read_pdf-{str([link, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1568,6 +1568,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         return summary
     task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 45)
     return task_queue
+
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:
         texts = [''] * len(links)
