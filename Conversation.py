@@ -567,7 +567,7 @@ The most recent query by the human is as follows:
             qu_st = time.time()
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= 2 or (qu_wait - qu_st) > self.max_time_to_wait_for_web_results:
+                if len(web_text_accumulator) >= 3 or (qu_wait - qu_st) > self.max_time_to_wait_for_web_results:
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -595,15 +595,15 @@ The most recent query by the human is as follows:
 
         yield {"text": '', "status": "getting previous context"}
         previous_messages = prior_context["previous_messages"]
-        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else (prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
-        other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
+        summary_text = "\n".join(prior_context["summary_nodes"][-1:] if enablePreviousMessages in ["infinite", "1", "2"] else [])
+        other_relevant_messages = ''
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0", "1"] else ''
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
         new_accumulator = []
         if perform_web_search or google_scholar:
             yield {"text": '', "status": "starting answer generation"}
-            llm = CallLLm(self.get_api_keys(), use_gpt4=False, )
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
             if llm.self_hosted_model_url is not None:
                 truncate_method = truncate_text_for_others
             else:
@@ -657,6 +657,11 @@ The most recent query by the human is as follows:
                 yield {"text": read_links, "status": "web search completed"}
 
         new_line = "\n"
+        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else (
+        prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
+        other_relevant_messages = "\n".join(
+            prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
+
         if provide_detailed_answers:
             prior_context = prior_detailed_context_future.result()
             previous_messages = prior_context["previous_messages"]
@@ -831,8 +836,8 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     previous_messages = get_first_last_parts(previous_messages, 0, 2750 - used_len) if 2750 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
 
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 3250 - used_len > 0 else ""
-    document_nodes = get_first_last_parts(document_nodes, 0, 3500 - used_len) if 3500 - used_len > 0 else ""
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 3000 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, 3250 - used_len) if 3250 - used_len > 0 else ""
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
