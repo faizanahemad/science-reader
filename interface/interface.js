@@ -532,6 +532,8 @@ function addOptions(parentElementId, type, activeDocId=null) {
     var checkboxOneText = type==="assistant"?"Use Google Scholar":"Use References and Citations";
     var disabled = type==="assistant"?"":"disabled";
 
+    
+
     $(`#${parentElementId}`).append(
         `<div style="display: flex; margin-bottom: 10px;">` +
 
@@ -542,6 +544,10 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
 
         `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
+        (type==="assistant"?`<div class="form-check form-switch" id="enablePreviousMessagesContainer">
+        <input class="form-check-input" type="checkbox" id="enablePreviousMessages" checked>
+        <label class="form-check-label" for="enablePreviousMessages">Chat History</label>
+        </div>`:'') + 
         (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 20px;">Delete Last Turn</button>`:'') + 
         (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 20px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
@@ -611,6 +617,10 @@ function getOptions(parentElementId, type) {
         provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
     };
     values[checkBoxOptionOne] = optionOneChecked;
+    if (type==="assistant") {
+        enablePreviousMessages = $('#enablePreviousMessages').is(':checked');
+        values['enable_previous_messages'] = enablePreviousMessages;
+    }
     var documentIds = [];
     $(`#${parentElementId}`).find('.document-tag').each(function() {
         documentIds.push($(this).attr('data-doc-id'));
@@ -624,6 +634,10 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
+
+    if (type==="assistant") {
+        $('#enablePreviousMessages').prop('checked', true);
+    }
     
     var searchBox = $(`#${parentElementId}-${type}-search-box`);
     var searchResultsArea = $(`#${parentElementId}-${type}-search-results`);
@@ -647,7 +661,11 @@ function removeOptions(parentElementId, type) {
     $(`[id$="${type}-search-box"]`).remove();
     $(`[id$="${type}-document-tags"]`).remove();
     $(`[id$="${type}-search-results"]`).remove();
-
+    if (type === "assistant") {
+        $('#enablePreviousMessagesContainer').remove();
+        $('#deleteLastTurn').remove();
+        $('#sendMessageButton').remove();
+    }
 }
 
 

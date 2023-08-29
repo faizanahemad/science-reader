@@ -442,9 +442,7 @@ class Conversation:
             pass
         enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         query["messageText"] = query["messageText"].strip()
-        """
-        {"additional_docs_to_read": [], "messageText":"Hey there","permanentMessageText":"Some custom instructions","checkboxes":{"perform_web_search":false,"use_multiple_docs":false,"provide_detailed_answers":false,"googleScholar":false,"additional_docs_to_read":[]},"links":["www.example.com"],"search":["what is self attention?"]}
-        """
+        
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
         yield {"text": '', "status": "Getting prior chat context ..."}
@@ -452,6 +450,7 @@ class Conversation:
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         checkboxes = query["checkboxes"]
         google_scholar = checkboxes["googleScholar"]
+        enablePreviousMessages = checkboxes.get("enablePreviousMessages", True)
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         llm2 = CallLLm(self.get_api_keys(), use_gpt4=True, )
         if llm2.self_hosted_model_url is not None:
@@ -459,12 +458,7 @@ class Conversation:
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
-        prior_context = self.retrieve_prior_context(query["messageText"], links=links if len(links) > 0 else None)
-        if provide_detailed_answers:
-            prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
-                                                             query["messageText"],
-                                                             links=links if len(links) > 0 else None,
-                                                             prior_context=prior_context)
+        
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
@@ -490,6 +484,14 @@ The most recent query by the human is as follows:
                                            '',
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
+        prior_context = self.retrieve_prior_context(
+            query["messageText"], links=links if len(links) > 0 else None)
+        if provide_detailed_answers:
+            prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
+                                                             query["messageText"],
+                                                             links=links if len(
+                                                                 links) > 0 else None,
+                                                             prior_context=prior_context)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -586,9 +588,9 @@ The most recent query by the human is as follows:
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
         yield {"text": '', "status": "getting previous context"}
-        previous_messages = prior_context["previous_messages"]
-        summary_text = "\n".join(prior_context["summary_nodes"])
-        other_relevant_messages = "\n".join(prior_context["message_nodes"])
+        previous_messages = prior_context["previous_messages"] if enablePreviousMessages else ''
+        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages else prior_context["summary_nodes"][-1:])
+        other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages else ''
         document_nodes = "\n".join(prior_context["document_nodes"])
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
@@ -651,9 +653,9 @@ The most recent query by the human is as follows:
         new_line = "\n"
         if provide_detailed_answers:
             prior_context = prior_detailed_context_future.result()
-            previous_messages = prior_context["previous_messages"]
+            previous_messages = prior_context["previous_messages"] if enablePreviousMessages else ''
             summary_text = "\n".join(prior_context["summary_nodes"])
-            other_relevant_messages = "\n".join(prior_context["message_nodes"])
+            other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages else ''
             document_nodes = "\n".join(prior_context["document_nodes"])
         # Set limit on how many documents can be selected
 
