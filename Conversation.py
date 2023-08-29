@@ -595,7 +595,7 @@ The most recent query by the human is as follows:
 
         yield {"text": '', "status": "getting previous context"}
         previous_messages = prior_context["previous_messages"]
-        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else prior_context["summary_nodes"][-1:])
+        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else (prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
         other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0", "1"] else ''
         permanent_instructions = query["permanentMessageText"]
