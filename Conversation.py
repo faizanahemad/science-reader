@@ -292,7 +292,7 @@ class Conversation:
                     dill.dump(getattr(self, top_key, None), f)
 
     @timer
-    def retrieve_prior_context_with_requery(self, query, links=None, prior_context=None):
+    def retrieve_prior_context_with_requery(self, query, links=None, prior_context=None, message_lookback=6):
         if prior_context is None:
             prior_context = self.retrieve_prior_context(query, links=links)
         summary_nodes = prior_context["summary_nodes"]
@@ -305,19 +305,20 @@ class Conversation:
         prompt = prompts.retrieve_prior_context_prompt.format(requery_summary_text=requery_summary_text, previous_messages=get_first_last_parts(previous_messages, 0, 1000), query=query)
         rephrase = llm(prompt, temperature=0.7, stream=False)
         logger.info(f"Rephrased and contextualised human's last message: {rephrase}")
-        prior_context = self.retrieve_prior_context(rephrase, links=links)
+        prior_context = self.retrieve_prior_context(
+            rephrase, links=links, message_lookback=message_lookback)
         prior_context["rephrased_query"] = rephrase
         return prior_context
 
     @timer
-    def retrieve_prior_context(self, query, links=None):
+    def retrieve_prior_context(self, query, links=None, message_lookback=6):
         encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
         # Lets get the previous 2 messages, upto 1000 tokens
         # TODO: contextualizing the query maybe important since user queries are not well specified
-        message_lookback = 6
         summary_lookback = 3
         memory = self.get_field("memory")
-        previous_messages = self.get_field("messages")[-message_lookback:]
+        messages = self.get_field("messages")
+        previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
         previous_messages = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n\n" for m in previous_messages])
         running_summary = memory["running_summary"][-1:]
         if len(memory["running_summary"]) > 4:
@@ -450,7 +451,12 @@ class Conversation:
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         checkboxes = query["checkboxes"]
         google_scholar = checkboxes["googleScholar"]
-        enablePreviousMessages = checkboxes.get('enable_previous_messages', True)
+        enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
+        message_lookback = 6
+        if enablePreviousMessages == "infinite":
+            message_lookback = 6
+        else:
+            message_lookback = int(enablePreviousMessages) * 2
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         llm2 = CallLLm(self.get_api_keys(), use_gpt4=True, )
         if llm2.self_hosted_model_url is not None:
@@ -485,13 +491,13 @@ The most recent query by the human is as follows:
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
         prior_context = self.retrieve_prior_context(
-            query["messageText"], links=links if len(links) > 0 else None)
+            query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
         if provide_detailed_answers:
             prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
                                                              query["messageText"],
                                                              links=links if len(
                                                                  links) > 0 else None,
-                                                             prior_context=prior_context)
+                                                             prior_context=prior_context, message_lookback=message_lookback)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -588,10 +594,10 @@ The most recent query by the human is as follows:
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
         yield {"text": '', "status": "getting previous context"}
-        previous_messages = prior_context["previous_messages"] if enablePreviousMessages else ''
-        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages else prior_context["summary_nodes"][-1:])
-        other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages else ''
-        document_nodes = "\n".join(prior_context["document_nodes"])
+        previous_messages = prior_context["previous_messages"]
+        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else prior_context["summary_nodes"][-1:])
+        other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
+        document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0", "1"] else ''
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
         new_accumulator = []
@@ -653,7 +659,7 @@ The most recent query by the human is as follows:
         new_line = "\n"
         if provide_detailed_answers:
             prior_context = prior_detailed_context_future.result()
-            previous_messages = prior_context["previous_messages"] if enablePreviousMessages else ''
+            previous_messages = prior_context["previous_messages"]
             summary_text = "\n".join(prior_context["summary_nodes"])
             other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages else ''
             document_nodes = "\n".join(prior_context["document_nodes"])

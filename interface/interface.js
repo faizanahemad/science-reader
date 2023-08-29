@@ -544,21 +544,37 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
-        (type==="assistant"?`<div class="form-check form-check-inline" id="enablePreviousMessagesContainer">
-        <input class="form-check-input" type="checkbox" id="enablePreviousMessages" checked data-toggle="toggle" data-width="100" data-onstyle="success" data-offstyle="danger">
+        (type === "assistant" ? `
         
-        </div>`:'') + 
-        (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 20px;">Delete Last Turn</button>`:'') + 
-        (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 20px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
+    <div class="form-check form-check-inline" id="enablePreviousMessagesContainer" style="line-height: 0.9;">
+    <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+        <div style="margin-left: auto; margin-right: 5px;">History</div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="history0" value="0" autocomplete="off">
+            <label for="history0"><small>0</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="history1" value="1" autocomplete="off">
+            <label for="history1"><small>1</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="history2" value="2" autocomplete="off">
+            <label for="history2"><small>2</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="historyInfinite" value="infinite" autocomplete="off" checked>
+            <label for="historyInfinite"><small>∞</small></label>
+        </div>
+        
+    </div>
+    </div>
+
+` : '') +
+        (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 10px;">Del Last Turn</button>`:'') + 
+        (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 10px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
 
-    if (type==="assistant") {
-        $('#enablePreviousMessages').bootstrapToggle({
-            on: 'History',
-            off: 'Forget'
-        });
-    }
 
     // Elements for Multiple Documents option
     var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);
@@ -624,9 +640,9 @@ function getOptions(parentElementId, type) {
         provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
     };
     values[checkBoxOptionOne] = optionOneChecked;
-    if (type==="assistant") {
-        enablePreviousMessages = $('#enablePreviousMessages').is(':checked');
-        values['enable_previous_messages'] = enablePreviousMessages;
+    if (type === "assistant") {
+        let historyValue = $("input[name='historyOptions']:checked").val();
+        values['enable_previous_messages'] = historyValue;
     }
     var documentIds = [];
     $(`#${parentElementId}`).find('.document-tag').each(function() {
