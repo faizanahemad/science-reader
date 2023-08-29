@@ -362,3 +362,9 @@ textarea.form-control.dynamic-textarea {
     justify-content: center;
     /* background: url('loader.gif') 50% 50% no-repeat white; replace 'loader.gif' with your loader image */
 }
+
+.toggle-handle { 
+    border-radius: 0px; 
+    background-color: #fff;
+    border-color: #ccc;
+}

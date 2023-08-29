@@ -537,21 +537,28 @@ function addOptions(parentElementId, type, activeDocId=null) {
     $(`#${parentElementId}`).append(
         `<div style="display: flex; margin-bottom: 10px;">` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 20px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
 
-        `<div class="form-check form-check-inline"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
-        (type==="assistant"?`<div class="form-check form-switch" id="enablePreviousMessagesContainer">
-        <input class="form-check-input" type="checkbox" id="enablePreviousMessages" checked>
-        <label class="form-check-label" for="enablePreviousMessages">Chat History</label>
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
+        (type==="assistant"?`<div class="form-check form-check-inline" id="enablePreviousMessagesContainer">
+        <input class="form-check-input" type="checkbox" id="enablePreviousMessages" checked data-toggle="toggle" data-width="100" data-onstyle="success" data-offstyle="danger">
+        
         </div>`:'') + 
         (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 20px;">Delete Last Turn</button>`:'') + 
         (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 20px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
+
+    if (type==="assistant") {
+        $('#enablePreviousMessages').bootstrapToggle({
+            on: 'History',
+            off: 'Forget'
+        });
+    }
 
     // Elements for Multiple Documents option
     var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);

@@ -450,7 +450,7 @@ class Conversation:
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         checkboxes = query["checkboxes"]
         google_scholar = checkboxes["googleScholar"]
-        enablePreviousMessages = checkboxes.get("enablePreviousMessages", True)
+        enablePreviousMessages = checkboxes.get('enable_previous_messages', True)
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         llm2 = CallLLm(self.get_api_keys(), use_gpt4=True, )
         if llm2.self_hosted_model_url is not None:
