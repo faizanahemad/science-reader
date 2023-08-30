@@ -294,7 +294,7 @@ class Conversation:
     @timer
     def retrieve_prior_context_with_requery(self, query, links=None, prior_context=None, message_lookback=6):
         if prior_context is None:
-            prior_context = self.retrieve_prior_context(query, links=links)
+            prior_context = self.retrieve_prior_context(query, links=links, message_lookback=message_lookback)
         summary_nodes = prior_context["summary_nodes"]
         previous_messages = prior_context["previous_messages"]
         all_messages = self.get_message_list()
@@ -523,7 +523,7 @@ The most recent query by the human is as follows:
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < self.max_time_to_wait_for_web_results):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
@@ -567,7 +567,7 @@ The most recent query by the human is as follows:
             qu_st = time.time()
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= 3 or (qu_wait - qu_st) > self.max_time_to_wait_for_web_results:
+                if len(web_text_accumulator) >= (8 if provide_detailed_answers else 3) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1)):
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -601,9 +601,9 @@ The most recent query by the human is as follows:
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
         new_accumulator = []
-        if perform_web_search or google_scholar:
+        if (perform_web_search or google_scholar) and not provide_detailed_answers:
             yield {"text": '', "status": "starting answer generation"}
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, )
+            llm = CallLLm(self.get_api_keys(), use_gpt4=False,)
             if llm.self_hosted_model_url is not None:
                 truncate_method = truncate_text_for_others
             else:
@@ -621,16 +621,16 @@ The most recent query by the human is as follows:
             permanent instructions length: {len(enc.encode(permanent_instructions_gpt3))}, doc answer length: {len(enc.encode(doc_answer_gpt3))}, web text length: {len(enc.encode(web_text_gpt3))}, link result text length: {len(enc.encode(link_result_text_gpt3))}""")
             et = time.time() - st
             logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
-            qu_cst = time.time()
             main_ans_gen = llm(prompt, temperature=0.3, stream=True)
             for txt in main_ans_gen:
                 yield {"text": txt, "status": "answering in progress"}
                 answer += txt
                 partial_answer += txt
             full_info = []
+            qu_cst = time.time()
             while True:
                 qu_wait = time.time()
-                if (qu_wait - qu_cst) > self.max_time_to_wait_for_web_results or ((len(new_accumulator) >= 4 and llm2.use_gpt4) or (len(new_accumulator) >= 2 and not llm2.use_gpt4)):
+                if (qu_wait - qu_cst) > 3:
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -647,37 +647,32 @@ The most recent query by the human is as follows:
                     full_info.append(one_web_result["full_info"])
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
-            read_links = re.findall(pattern, "\n\n".join(new_accumulator))
-            read_links = "\n".join(read_links)
-            if len(read_links) > 0:
-                read_links = ("\nFurther, We read the below additional links:\n" + read_links + "\n") if len(read_links.strip()) > 0 else ''
-                yield {"text": read_links, "status": "further links read"}
-            else:
-                read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
-                yield {"text": read_links, "status": "web search completed"}
 
         new_line = "\n"
-        summary_text = "\n".join(prior_context["summary_nodes"] if enablePreviousMessages == "infinite" else (
+        summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
         prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
         other_relevant_messages = "\n".join(
             prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
+        document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
 
         if provide_detailed_answers:
             prior_context = prior_detailed_context_future.result()
             previous_messages = prior_context["previous_messages"]
-            summary_text = "\n".join(prior_context["summary_nodes"])
-            other_relevant_messages = "\n".join(prior_context["message_nodes"]) if enablePreviousMessages else ''
-            document_nodes = "\n".join(prior_context["document_nodes"])
+            summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
+                prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
+            other_relevant_messages = "\n".join(
+                prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
+            document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
         # Set limit on how many documents can be selected
 
         llm = llm2
-        if (perform_web_search or google_scholar) and not (llm.use_gpt4 or provide_detailed_answers or len(new_accumulator) > 0):
+        if (perform_web_search or google_scholar) and not provide_detailed_answers:
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
         truncate_method = truncate_text_for_gpt4
         partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
-Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}""" if partial_answer else ''
+Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}""" if len(partial_answer.strip())>0 else ''
         if llm.self_hosted_model_url is not None:
             truncate_method = truncate_text_for_others
             partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 

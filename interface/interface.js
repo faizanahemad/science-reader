@@ -527,9 +527,9 @@ function addOptions(parentElementId, type, activeDocId=null) {
         type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`,
         `${parentElementId}-${type}-perform-web-search-checkbox`,
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
-        `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     ];
-    var checkboxOneText = type==="assistant"?"Use Google Scholar":"Use References and Citations";
+    slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
+    var checkboxOneText = type==="assistant"?"Google Scholar":"References and Citations";
     var disabled = type==="assistant"?"":"disabled";
 
     
@@ -541,9 +541,10 @@ function addOptions(parentElementId, type, activeDocId=null) {
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Multiple Docs</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Your Docs</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">Detailed Answers</label></div>` +
+        `<div class="form-check form-check-inline" id="${slow_fast}-container"><input class="form-check-input" type="checkbox" id="${slow_fast}" data-toggle="toggle" data-width="90" data-onstyle="success" data-offstyle="danger"></div>` + 
+
         (type === "assistant" ? `
         
     <div class="form-check form-check-inline" id="enablePreviousMessagesContainer" style="line-height: 0.9;">
@@ -574,6 +575,12 @@ function addOptions(parentElementId, type, activeDocId=null) {
         (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 10px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
+
+    $(`#${slow_fast}`).bootstrapToggle({
+        on: 'Detailed',
+        off: 'Fast',
+        height: 20,
+    });
 
 
     // Elements for Multiple Documents option
@@ -658,9 +665,6 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
 
-    if (type==="assistant") {
-        $('#enablePreviousMessages').prop('checked', true);
-    }
     
     var searchBox = $(`#${parentElementId}-${type}-search-box`);
     var searchResultsArea = $(`#${parentElementId}-${type}-search-results`);
