@@ -308,15 +308,17 @@ function sendMessageCallback() {
     }
     // Lets split the messageText and get word count and then check if word count > 1000 then raise alert
     var wordCount = messageText.split(' ').length;
-    if (wordCount > 1000) {
-        alert('Please enter a message with less than 1000 words');
-        return;
-    }
     $('#messageText').val('');  // Clear the messageText field
     $('#messageText').prop('disabled', true);
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
     let options = getOptions('chat-options', 'assistant');
+    const booleanKeys = Object.keys(options).filter(key => typeof myDict[key] === 'boolean');
+    const allFalse = booleanKeys.every(key => myDict[key] === false);
+    if ((wordCount > 1000 && !allFalse) || (wordCount > 3000)) {
+        alert('Please enter a message with less words');
+        return;
+    }
 
     ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search).then(function(response) {
         if (!response.ok) {
