@@ -314,7 +314,7 @@ function sendMessageCallback() {
     var search = $('#searchInput').val().split('\n');
     let options = getOptions('chat-options', 'assistant');
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
-    const allFalse = booleanKeys.every(key => myDict[key] === false);
+    const allFalse = booleanKeys.every(key => options[key] === false);
     if ((wordCount > 1000 && !allFalse) || (wordCount > 3000)) {
         alert('Please enter a message with less words');
         return;
