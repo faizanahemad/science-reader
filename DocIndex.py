@@ -589,19 +589,29 @@ class DocIndex:
         
     @property
     def paper_details(self)->dict:
-        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
-            return dict()
-        elif self.get_doc_data("_paper_details") is not None:
-            pd = deepcopy(self.get_doc_data("_paper_details"))
-            if self.get_doc_data("qna_data", "extended_abstract") is None:
-                self.set_doc_data("qna_data", "extended_abstract", dict())
-            extended_abstract = self.get_doc_data("qna_data", "extended_abstract").get(pd["paperId"], None)
-            return DocIndex.process_one_paper(pd, extended_abstract)
-        else:
-            arxiv_url = self.doc_source
-            paper = get_paper_details_from_semantic_scholar(arxiv_url)
-            self.set_doc_data("_paper_details", None, paper)
-            return self.paper_details
+        try:
+            if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+                return dict()
+            elif self.get_doc_data("_paper_details") is not None:
+                pd = deepcopy(self.get_doc_data("_paper_details"))
+                if self.get_doc_data("qna_data", "extended_abstract") is None:
+                    self.set_doc_data("qna_data", "extended_abstract", dict())
+                extended_abstract = self.get_doc_data("qna_data", "extended_abstract").get(pd["paperId"], None)
+                return DocIndex.process_one_paper(pd, extended_abstract)
+            else:
+                arxiv_url = self.doc_source
+                paper = get_paper_details_from_semantic_scholar(arxiv_url)
+                self.set_doc_data("_paper_details", None, paper)
+                return self.paper_details
+        except Exception as e:
+            try:
+                arxiv_url = self.doc_source
+                paper = get_paper_details_from_semantic_scholar(arxiv_url)
+                self.set_doc_data("_paper_details", None, paper)
+                return self.paper_details
+            except Exception as e:
+                logger.error(f"Error in fetching paper details for {self.doc_source}")
+                return dict()
     
     def refetch_paper_details(self)->dict:
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
