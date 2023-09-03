@@ -959,6 +959,20 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
+from web_scraping import send_request_zenrows, send_local_browser
+
+
+@typed_memoize(cache, str, int, tuple, bool)
+def web_scrape_page(link, apikeys):
+    try:
+        result = send_local_browser(link)
+        if len(result["text"].strip()) < 100:
+            raise Exception("Text too short")
+        return result
+    except Exception as e:
+        result = send_request_zenrows(link, apikeys['zenrows'])
+        return result
+
 @typed_memoize(cache, str, int, tuple, bool)
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
     # TODO: try local browser based extraction first, if blocked by ddos protection then use cdplink
@@ -973,9 +987,9 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                     browser = p.chromium.connect_over_cdp(playwright_cdp_link)
                 except Exception as e:
                     logger.error(f"Error connecting to cdp link {playwright_cdp_link} with error {e}")
-                    browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
+                    browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
             else:
-                browser = p.chromium.launch(args=['--disable-web-security', "--disable-site-isolation-trials"])
+                browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
             page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
             url = link
             page.goto(url)
@@ -986,6 +1000,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 page.wait_for_selector('body', timeout=timeout * 1000)
+                page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
                 while page.evaluate('document.readyState') != 'complete':
                     pass
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
@@ -1005,6 +1020,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 page.evaluate(f"""text=>document.title=text""", init_title)
                 logger.debug(f"Loaded html and title into page with example.com as url")
                 page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 page.wait_for_selector('body', timeout=timeout*1000)
                 while page.evaluate('document.readyState') != 'complete':
@@ -1053,7 +1069,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 while driver.execute_script('return document.readyState;') != 'complete':
                     pass
                 def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
             except Exception as e:
@@ -1069,7 +1085,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 while driver.execute_script('return document.readyState;') != 'complete':
                     pass
                 def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined';""")
+                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
                 result = driver.execute_script("""var article = new Readability(document).parse();return article""")
                 
@@ -1540,11 +1556,7 @@ def get_page_text(link_title_context_apikeys):
     if result is not None:
         return result
     st = time.time()
-    scraping_browser_url = api_keys["scrapingBrowserUrl"] if "scrapingBrowserUrl" in api_keys and api_keys[
-        "scrapingBrowserUrl"] is not None and len(api_keys["scrapingBrowserUrl"].strip()) > 0 else None
-    pgc = get_page_content(link, scraping_browser_url)
-    if len(pgc["text"].strip()) == 0:
-        pgc = get_page_content(link)
+    pgc = web_scrape_page(link, api_keys)
     if len(pgc["text"].strip()) == 0:
         logger.error(f"[process_page_link] Empty text for link: {link}")
         return {"link": link, "title": title, "text": '', "exception": True, "full_text": ''}
@@ -1603,7 +1615,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 45)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{"timeout": 30} if is_pdf_link(l) else {"timeout": 15} for l in links])), call_back, threads, 15, 30)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

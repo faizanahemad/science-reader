@@ -646,6 +646,7 @@ class ProcessFnWithTimeout:
         self.result_queue = result_queue
 
     def __call__(self, fn, timeout, *args, **kwargs):
+        timeout = kwargs.pop('timeout', timeout)
         result = None
         exception_event = threading.Event()
 
@@ -778,12 +779,12 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
     return task_queue
 
 
-def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeout=60):
+def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeout1=60, timeout2=60):
     if not isinstance(args_list, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in args_list):
         raise ValueError("args_list must be a list of tuples containing (*args, **kwargs)")
 
-    task_queue1 = orchestrator(fn1, args_list, max_workers=max_workers, timeout=timeout)
-    task_queue2 = orchestrator_with_queue(task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout)
+    task_queue1 = orchestrator(fn1, args_list, max_workers=max_workers, timeout=timeout1)
+    task_queue2 = orchestrator_with_queue(task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout2)
 
     return task_queue2
 
