@@ -164,9 +164,17 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{previous_messages}}
 {{document_nodes}}
 {{permanent_instructions}}
+
+Answers from user's stored documents:
 {{doc_answer}}
+
+Answers from web search documents:
 {{web_text}}
+
+Answers from web links provided by the user:
 {{link_result_text}}
+
+User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
 Write a clear, helpful and informative response to the user's query.
@@ -187,10 +195,19 @@ user's query: "{{query}}"
 {{other_relevant_messages}}
 {{document_nodes}}
 {{permanent_instructions}}
+
+Answers from user's stored documents:
 {{doc_answer}}
+
+Answers from web search documents:
 {{web_text}}
+
+Answers from web links provided by the user:
 {{link_result_text}}
+
 {{partial_answer_text}}
+
+User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,
@@ -429,9 +446,17 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{previous_messages}}
 {{document_nodes}}
 {{permanent_instructions}}
+
+Answers from user's stored documents:
 {{doc_answer}}
+
+Answers from web search documents:
 {{web_text}}
+
+Answers from web links provided by the user:
 {{link_result_text}}
+
+User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
 Write a clear, helpful and informative response to the user's query.
@@ -456,10 +481,19 @@ user's query: "{{query}}"
 {{other_relevant_messages}}
 {{document_nodes}}
 {{permanent_instructions}}
+
+Answers from user's stored documents:
 {{doc_answer}}
+
+Answers from web search documents:
 {{web_text}}
+
+Answers from web links provided by the user:
 {{link_result_text}}
+
 {{partial_answer_text}}
+
+User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,

@@ -260,12 +260,56 @@ user_agents = [
 ]
 page_pool = Queue()
 playwright_obj = None
+
+# Thread-local storage for Playwright resources
+thread_local = threading.local()
+def init_thread_local_playwright():
+    global thread_local
+    if not hasattr(thread_local, "playwright_obj"):
+        thread_local.playwright_obj = create_page_pool_thread(pool_size=1)
+        atexit.register(close_playwright_thread)
+        
+def close_playwright_thread():
+    if hasattr(thread_local, "playwright_obj"):
+        thread_local.playwright_obj.stop()
+        
+        
+
 def close_playwright():
     global playwright_obj
     if playwright_obj:
         playwright_obj.stop()
 
 atexit.register(close_playwright)
+
+page_pool = None
+playwright_obj = None
+pool_size = 16
+playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
+
+def init_playwright_resources():
+    global page_pool, playwright_obj
+    page_pool = Queue()
+    if not playwright_obj:
+        create_page_pool(pool_size=1)
+        atexit.register(close_playwright)
+        
+def playwright_worker(link):
+    # Initialize Playwright resources, if not already initialized
+    init_playwright_resources()
+    
+    # Here, page_pool and playwright_obj are available and initialized
+    result = get_page_content(link)
+    
+    return result
+
+def playwright_thread_worker(link):
+    init_thread_local_playwright()
+    result = get_page_content(link)
+    return result
+
+playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
+        
 
 def create_page_pool(pool_size=16):
     from playwright.sync_api import sync_playwright
@@ -282,31 +326,30 @@ def create_page_pool(pool_size=16):
         example_page.add_script_tag(
             url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
         page_pool.put([browser, page, example_page])  # Store the page in the pool
-            
-driver_pool = Queue()
-def create_driver_pool(pool_size=8):
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.wait import WebDriverWait
-    from selenium.webdriver.common.action_chains import ActionChains
-    from selenium.webdriver.support import expected_conditions as EC
-    options = webdriver.ChromeOptions()
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--headless')
-    options.add_argument("--disable-web-security")
-    options.add_argument("--disable-site-isolation-trials")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-first-run")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--no-zygote")
-    options.add_argument("--single-process")
-    
+        
+        
+def create_page_pool_thread(pool_size=1):
+    from playwright.sync_api import sync_playwright
+    global thread_local  # Declare it as global so we can modify it
+
+    if not hasattr(thread_local, 'page_pool'):
+        thread_local.page_pool = Queue()
+
+    if not hasattr(thread_local, 'playwright_obj'):
+        thread_local.playwright_obj = sync_playwright().start()
+
+    p = thread_local.playwright_obj
     for _ in range(pool_size):
-        chosen_user_agent = random.choice(user_agents)
-        actual_options = copy.deepcopy(options)
-        actual_options.add_argument(f"user-agent={chosen_user_agent}")
-        driver = webdriver.Chrome(options=actual_options)
-        driver_pool.put(driver)
+        browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+        context = browser.new_context(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+        page = context.new_page()
+        example_page = context.new_page()
+        example_page.goto("https://www.example.com/")
+        example_page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+        thread_local.page_pool.put([browser, page, example_page])  # Store the page in the thread-local pool
+    return thread_local.playwright_obj
+
+            
         
 readability_script_content_response = requests.get("https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
 assert readability_script_content_response.status_code == 200
@@ -314,47 +357,50 @@ readability_script_content = readability_script_content_response.text
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
-    # TODO: try local browser based extraction first, if blocked by ddos protection then use cdplink
     text = ''
     title = ''
+    global thread_local
+    if hasattr(thread_local, 'page_pool'):
+        page_pool = thread_local.page_pool
+    st = time.time()
     browser_resources = page_pool.get()
     browser = browser_resources[0]
     for context in browser.contexts:
         context.clear_cookies()
-    driver = driver_pool.get()
-    driver.delete_all_cookies()
     try:
-        
-        
         _, page, example_page = browser_resources
         url = link
         response = page.goto(url)
         if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
-            raise Exception("Blocked by ddos protection")
+            text = DDOS_PROTECTION_STR
+            raise Exception(DDOS_PROTECTION_STR)
         initial_base_url = urlparse(link).netloc
         final_base_url = urlparse(response.url).netloc
         if initial_base_url != final_base_url:
-            raise Exception("Blocked by ddos protection")
-        # example_page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-        # example_page.goto("https://www.example.com/")
+            text = DDOS_PROTECTION_STR
+            raise Exception(DDOS_PROTECTION_STR)
 
         try:
             page.add_script_tag(content=readability_script_content)
             page.wait_for_selector('body', timeout=timeout * 1000)
             page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
-            while page.evaluate('document.readyState') != 'complete':
+                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
+            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
                 pass
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
         except Exception as e:
+
+            exc = traceback.format_exc()
             # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
             logger.warning(
-                f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
+                f"Trying playwright for link {link} after playwright failed with exception = {str(e)}\n{exc}")
             # traceback.print_exc()
             # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
             page.wait_for_selector('body', timeout=timeout * 1000)
-            while page.evaluate('document.readyState') != 'complete':
+            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
                 pass
             init_html = page.evaluate(
                 """(function e(){return document.body.innerHTML})()""")
@@ -369,10 +415,10 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 f"Loaded html and title into page with example.com as url")
             page.add_script_tag(content=readability_script_content)
             page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
+                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
             # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
             page.wait_for_selector('body', timeout=timeout*1000)
-            while page.evaluate('document.readyState') != 'complete':
+            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
                 pass
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
@@ -380,77 +426,21 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             text = normalize_whitespace(result['textContent'])
 
     except Exception as e:
-        from selenium.webdriver.support.wait import WebDriverWait
         traceback.print_exc()
-        try:
-            logger.debug(
-                f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
-            
-            driver.get(link)
-            initial_base_url = urlparse(link).netloc
-            final_base_url = urlparse(driver.current_url).netloc
-            if initial_base_url != final_base_url:
-                raise Exception("Blocked by ddos protection")
-            driver.execute_script("var meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = 'script-src * \'unsafe-inline\';'; document.getElementsByTagName('head')[0].appendChild(meta);")
-            add_readability_script = f'''
-            var script = document.createElement("script");
-            script.type = "text/javascript";
-            script.innerHTML = `{readability_script_content}`;
-            document.head.appendChild(script);
-            '''
-            try:
-                driver.execute_script(add_readability_script)
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
-
-                def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
-                WebDriverWait(driver, timeout=timeout).until(
-                    document_initialised)
-                result = driver.execute_script(
-                    """var article = new Readability(document).parse();return article""")
-            except Exception as e:
-                traceback.print_exc()
-                # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-                init_title = driver.execute_script(
-                    """return document.title;""")
-                init_html = driver.execute_script(
-                    """return document.body.innerHTML;""")
-                driver.get("https://www.example.com/")
-                logger.debug(
-                    f"Loaded html and title into page with example.com as url")
-                driver.execute_script(
-                    """document.body.innerHTML=arguments[0]""", init_html)
-                driver.execute_script(
-                    """document.title=arguments[0]""", init_title)
-                driver.execute_script(add_readability_script)
-                while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
-
-                def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
-                WebDriverWait(driver, timeout=timeout).until(
-                    document_initialised)
-                result = driver.execute_script(
-                    """var article = new Readability(document).parse();return article""")
-
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-        except Exception as e:
-            pass
-        finally:
-            pass
+        exc = traceback.format_exc()
+        logger.error(
+            f"Error in get_page_content with exception = {str(e)}\n{exc}")
     finally:
         page_pool.put(browser_resources)
-        driver_pool.put(driver)
+    logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
     return {"text": text, "title": title}
 
+for i in range(pool_size):
+    _ = playwright_thread_executor.submit(playwright_thread_worker, "https://www.example.com/").result()
 
 def send_local_browser(link):
     st = time.time()
-    result = get_page_content(link)
+    result = playwright_thread_executor.submit(playwright_thread_worker, link).result()
     et = time.time() - st
     logger.info(" ".join(['send_local_browser ', str(et), "\n", result['text'][-100:]]))
-
-create_page_pool()
-create_driver_pool()
+    return result

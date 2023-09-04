@@ -962,16 +962,49 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
 from web_scraping import send_request_zenrows, send_local_browser
 
 
-@typed_memoize(cache, str, int, tuple, bool)
 def web_scrape_page(link, apikeys):
+    result = dict(text="", title="", link=link, error="")
     try:
-        result = send_local_browser(link)
+        local_result = get_async_future(send_local_browser, link)
+        zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+        st = time.time()
+        while time.time() - st < 30:
+            if local_result.done():
+                try:
+                    result = local_result.result()
+                except:
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: Trying zenrows for link {link} after local browser failed with exception = {str(e)}, \n {exc}")
+                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    break
+            if zenrows_service_result.done():
+                try:
+                    result = zenrows_service_result.result()
+                except:
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: Trying local browser for link {link} after zenrows failed with exception = {str(e)}, \n {exc}")
+                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    break
+            time.sleep(0.1)
+        logger.info(
+            f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, result sample = {result['text'][:100]}")
         if len(result["text"].strip()) < 100:
             raise Exception("Text too short")
-        return result
+        if result["text"].strip() == DDOS_PROTECTION_STR:
+            raise Exception(DDOS_PROTECTION_STR)
+
     except Exception as e:
-        result = send_request_zenrows(link, apikeys['zenrows'])
-        return result
+        exc = traceback.format_exc()
+        logger.info(f"web_scrape_page:: Trying zenrows for link {link} after local browser failed with exception = {str(e)}, \n {exc}")
+        traceback.print_exc()
+        result = {"text": "", "title": "", "link": link, "error": str(e)}
+        # result = send_request_zenrows(link, apikeys['zenrows'])
+
+    return result
 
 @typed_memoize(cache, str, int, tuple, bool)
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
@@ -1393,7 +1426,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_contexts = None
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-    cut_off = 12 if provide_detailed_answers else 8
+    cut_off = 16 if provide_detailed_answers else 12
     if len(links) == 0:
         cut_off = cut_off * 2
     if web_links is not None and len(web_links) == 0:
@@ -1466,7 +1499,7 @@ def process_link(link_title_context_apikeys):
     key = f"process_link-{str([link, context, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
-    if result is not None:
+    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
         return result
     st = time.time()
     link_data = download_link_data(link_title_context_apikeys)
@@ -1474,7 +1507,7 @@ def process_link(link_title_context_apikeys):
     text = link_data["full_text"]
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     summary = get_downloaded_data_summary(link_title_context_apikeys)["text"]
-    logger.debug(f"Time for processing PDF {link} = {(time.time() - st):.2f}")
+    logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
               expire=cache_timeout)
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
@@ -1486,7 +1519,7 @@ def download_link_data(link_title_context_apikeys):
     key = f"download_link_data-{str([link, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
-    if result is not None:
+    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
         return result
     link = convert_to_pdf_link_if_needed(link)
     is_pdf = is_pdf_link(link)
@@ -1494,7 +1527,8 @@ def download_link_data(link_title_context_apikeys):
         result = read_pdf(link_title_context_apikeys)
     else:
         result = get_page_text(link_title_context_apikeys)
-    cache.set(key, result, expire=cache_timeout)
+    if "full_text" in result and len(result["full_text"].strip()) > 0:
+        cache.set(key, result, expire=cache_timeout)
     return result
 
 
@@ -1516,6 +1550,7 @@ def read_pdf(link_title_context_apikeys):
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
+        return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": True, "full_text": txt}
     cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
               expire=cache_timeout)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
@@ -1553,13 +1588,13 @@ def get_page_text(link_title_context_apikeys):
     key = f"get_page_text-{str([link, detailed])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
-    if result is not None:
+    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
         return result
     st = time.time()
     pgc = web_scrape_page(link, api_keys)
     if len(pgc["text"].strip()) == 0:
         logger.error(f"[process_page_link] Empty text for link: {link}")
-        return {"link": link, "title": title, "text": '', "exception": True, "full_text": ''}
+        return {"link": link, "title": title, "exception": True, "full_text": '', "detailed": detailed, "context": context}
     title = pgc["title"]
     text = pgc["text"]
     cache.set(key, {"link": link, "title": title, "detailed": detailed, "exception": False, "full_text": text},
@@ -1570,6 +1605,7 @@ def get_page_text(link_title_context_apikeys):
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
+    basic_context = contexts[0]
     if texts is None:
         texts = [''] * len(links)
 
@@ -1610,12 +1646,19 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link = link_data["link"]
         title = link_data["title"]
         text = link_data["full_text"]
-        context = link_data["context"]
-        detailed = link_data["detailed"]
+        exception = link_data["exception"]
+        context = link_data["context"] if "context" in link_data else basic_context
+        detailed = link_data["detailed"] if "detailed" in link_data else False
+        if exception:
+            link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
+            raise Exception(f"Exception raised for link: {link}")
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, [{"timeout": 30} if is_pdf_link(l) else {"timeout": 15} for l in links])), call_back, threads, 15, 30)
+    def compute_timeout(link):
+        return {"timeout": 30} if is_pdf_link(link) else {"timeout": 25}
+    timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 20, 30)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

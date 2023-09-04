@@ -424,7 +424,7 @@ class Conversation:
 
     @property
     def max_time_to_wait_for_web_results(self):
-        return 30
+        return 15
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -471,12 +471,13 @@ class Conversation:
         link_context = f"""Summary of the conversation between a human and an AI assisant is given below.
 '''{summary}'''
 
+Treat the most recent query by the human as a information request from the given context.
 The most recent query by the human is as follows:
 {query["messageText"]}
         """
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
-            link_future = get_async_future(read_over_multiple_links, links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers)
+            link_future = get_async_future(read_over_multiple_links, links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
 
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
@@ -502,12 +503,13 @@ The most recent query by the human is as follows:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
             all_docs_info = []
-            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 3):
+            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 4):
                 if (time.time() - link_read_st) > self.max_time_to_wait_for_web_results:
                     yield {"text": '', "status": "Link reading taking long time ... "}
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
                     break
+                time.sleep(0.1)
 
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             read_links = re.findall(pattern, link_result_text)
@@ -523,11 +525,12 @@ The most recent query by the human is as follows:
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (4 if provide_detailed_answers else 2))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
                     break
+                time.sleep(0.1)
             if len(doc_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
@@ -542,7 +545,7 @@ The most recent query by the human is as follows:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = 12 if provide_detailed_answers else 8
+                cut_off = 16 if provide_detailed_answers else 12
                 seen_query_results = query_results_part1[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
@@ -567,7 +570,7 @@ The most recent query by the human is as follows:
             qu_st = time.time()
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= (8 if provide_detailed_answers else 3) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1)):
+                if len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1)):
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -581,6 +584,7 @@ The most recent query by the human is as follows:
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
+                time.sleep(0.1)
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
@@ -645,6 +649,7 @@ The most recent query by the human is as follows:
                     new_accumulator.append(one_web_result["text"])
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
+                time.sleep(0.1)
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
 

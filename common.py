@@ -1,3 +1,4 @@
+import tempfile
 import asyncio
 import threading
 import traceback
@@ -28,6 +29,7 @@ FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
 SMALL_CHUNK_LEN = 160
 LARGE_CHUNK_LEN = 512
 TOKEN_LIMIT_FOR_DETAILED = 12000
+DDOS_PROTECTION_STR = "Blocked by ddos protection"
 
 def is_int(s):
     try:
@@ -631,11 +633,22 @@ def typed_memoize(cache, *types):
     return decorator
 
 import requests
+temp_dir = tempfile.gettempdir()
+cache = dc.Cache(temp_dir)
+cache_timeout = 7 * 24 * 60 * 60
 
+@typed_memoize(cache, str, int, tuple, bool)
 def is_pdf_link(link):
-    response = requests.head(link)
-    content_type = response.headers.get('Content-Type')
-    return ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+    st = time.time()
+    try:
+        response = requests.head(link)
+        content_type = response.headers.get('Content-Type')
+        et = time.time() - st
+        logger.info(f"Time taken to check if link is pdf: {et:.2f} sec")
+        return ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+    except Exception as e:
+        print(f"Exception in is_pdf_link: {e}")
+        return False
 
 
 import threading
@@ -656,8 +669,9 @@ class ProcessFnWithTimeout:
                 result = fn(*args, **kwargs)  # Call the original function with its args and kwargs
             except Exception as e:
                 traceback.print_exc()
+                exc = traceback.format_exc()
                 # Handle exceptions if needed
-                print(f"Exception processing function {fn.__name__}: {e}")
+                print(f"Exception processing function {fn.__name__}: {e}\n{exc}")
             finally:
                 exception_event.set()
 
@@ -690,7 +704,8 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
 
     def task_worker(args, kwargs):
         try:
-            result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
+            wait_time = kwargs.pop('timeout', timeout)
+            result = process_fn_with_timeout(fn, wait_time, *args, **kwargs)
             if callback and result is not None:
                 result = callback(result, args, kwargs)
             task_queue.put(result)
@@ -736,8 +751,9 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
 
     def task_worker(result, args, kwargs):
         try:
+            wait_time = kwargs.pop('timeout', timeout)
             if result is not TERMINATION_SIGNAL:
-                new_result = process_fn_with_timeout(fn, timeout, *args, **kwargs)
+                new_result = process_fn_with_timeout(fn, wait_time, *args, **kwargs)
                 if callback and new_result is not None:
                     new_result = callback(new_result, args, kwargs)
                 task_queue.put(new_result)
