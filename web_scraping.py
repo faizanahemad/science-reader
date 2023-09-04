@@ -65,7 +65,7 @@ def soup_parser(html):
 
 remove_script_tags = """
 const scriptElements = document.querySelectorAll('body script');scriptElements.forEach(scriptElement => scriptElement.remove());const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
-""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,2e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,1e3)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,2e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
+""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,1e3)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,1e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
 js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
     remove_script_tags + '"}]}'
 
@@ -355,8 +355,11 @@ readability_script_content_response = requests.get("https://cdnjs.cloudflare.com
 assert readability_script_content_response.status_code == 200
 readability_script_content = readability_script_content_response.text
 
+# https://github.com/alan-turing-institute/ReadabiliPy
+# https://trafilatura.readthedocs.io/en/latest/
+# https://github.com/goose3/goose3
 
-def get_page_content(link, playwright_cdp_link=None, timeout=10):
+def get_page_content(link, playwright_cdp_link=None, timeout=2):
     text = ''
     title = ''
     global thread_local
@@ -382,11 +385,8 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
 
         try:
             page.add_script_tag(content=readability_script_content)
-            page.wait_for_selector('body', timeout=timeout * 1000)
             page.wait_for_function(
                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
-            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
-                pass
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
             title = normalize_whitespace(result['title'])
@@ -399,9 +399,6 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 f"Trying playwright for link {link} after playwright failed with exception = {str(e)}\n{exc}")
             # traceback.print_exc()
             # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-            page.wait_for_selector('body', timeout=timeout * 1000)
-            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
-                pass
             init_html = page.evaluate(
                 """(function e(){return document.body.innerHTML})()""")
             init_title = page.evaluate(
@@ -417,9 +414,6 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             page.wait_for_function(
                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
             # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-            page.wait_for_selector('body', timeout=timeout*1000)
-            while page.evaluate('document.readyState') != 'complete' and page.evaluate('document.readyState') != 'interactive':
-                pass
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
             title = normalize_whitespace(result['title'])
@@ -444,3 +438,40 @@ def send_local_browser(link):
     et = time.time() - st
     logger.info(" ".join(['send_local_browser ', str(et), "\n", result['text'][-100:]]))
     return result
+
+# pip install readabilipy from this git repo https://github.com/alan-turing-institute/ReadabiliPy below.
+# pip install
+
+def send_request_readabilipy(link):
+    from readabilipy import simple_json_from_html_string
+    st = time.time()
+    response = requests.get(link)
+    if response.status_code != 200:
+        logger.error(
+            f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
+        return {"text": '', "title": ''}
+
+    et = time.time() - st
+    logger.info(" ".join(['send_request_readabilipy ', str(et), "\n", response.text[-100:]]))
+    article = simple_json_from_html_string(response.text)
+    return {"text": article['plain_text'], "title": article['title']}
+
+def send_request_goose3(link):
+    from goose3 import Goose
+    st = time.time()
+    g = Goose()
+    article = g.extract(url=link)
+    et = time.time() - st
+    logger.info(" ".join(['send_request_goose3 ', str(et), "\n", article.cleaned_text[:100]]))
+    return {"text": article.cleaned_text, "title": article.title}
+
+
+def send_request_trafilatura(link):
+    import trafilatura
+    st = time.time()
+    downloaded = trafilatura.fetch_url(link)
+    et = time.time() - st
+    logger.info(" ".join(['send_request_trafilatura ', str(et), "\n", downloaded[:100]]))
+    result = trafilatura.extract(downloaded)
+    title = result.split('\n')[0]
+    return {"text": result, "title": title}

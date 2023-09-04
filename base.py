@@ -959,7 +959,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import send_request_zenrows, send_local_browser
+from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser
 
 
 def web_scrape_page(link, apikeys):
@@ -967,6 +967,9 @@ def web_scrape_page(link, apikeys):
     try:
         local_result = get_async_future(send_local_browser, link)
         zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+        readabilipy_result = None
+        goose3_result = None
+        trafilatura_result = None
         st = time.time()
         while time.time() - st < 30:
             if local_result.done():
@@ -986,6 +989,40 @@ def web_scrape_page(link, apikeys):
                     exc = traceback.format_exc()
                     logger.info(
                         f"web_scrape_page:: Trying local browser for link {link} after zenrows failed with exception = {str(e)}, \n {exc}")
+                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    break
+            if time.time() - st > 4 and readabilipy_result is None and goose3_result is None and trafilatura_result is None:
+                readabilipy_result = get_async_future(send_request_readabilipy, link)
+                goose3_result = get_async_future(send_request_goose3, link)
+                trafilatura_result = get_async_future(send_request_trafilatura, link)
+            if readabilipy_result is not None and readabilipy_result.done():
+                try:
+                    result = readabilipy_result.result()
+                except:
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: Trying local browser for link {link} after readabilipy failed with exception = {str(e)}, \n {exc}")
+                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    break
+            if goose3_result is not None and goose3_result.done():
+                try:
+                    result = goose3_result.result()
+                except:
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: Trying local browser for link {link} after goose3 failed with exception = {str(e)}, \n {exc}")
+                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    break
+            if trafilatura_result is not None and trafilatura_result.done():
+                try:
+                    result = trafilatura_result.result()
+                except:
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: Trying local browser for link {link} after trafilatura failed with exception = {str(e)}, \n {exc}")
                     result = {"text": "", "title": "", "link": link, "error": str(e)}
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
                     break

@@ -121,7 +121,7 @@ def run_async_process(func, *args, **kwargs):
     else:
         return asyncio.run(func(*args, **kwargs))
 
-executor = ThreadPoolExecutor(max_workers=32)
+executor = ThreadPoolExecutor(max_workers=64)
 
 def make_async(fn):
     def async_fn(*args, **kwargs):
