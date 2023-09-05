@@ -309,6 +309,7 @@ function sendMessageCallback() {
     // Lets split the messageText and get word count and then check if word count > 1000 then raise alert
     var wordCount = messageText.split(' ').length;
     $('#messageText').val('');  // Clear the messageText field
+    $('#messageText').trigger('change');
     $('#messageText').prop('disabled', true);
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
@@ -371,7 +372,7 @@ $(document).ready(function() {
         });
     addOptions('chat-options', 'assistant', null);
     $('#sendMessageButton').on('click', sendMessageCallback);
-    $('.dynamic-textarea').on('input', function() {
+    $('.dynamic-textarea').on('input change', function() {
       if ($(this).val().length === 0) {
           // If the textarea is empty, reset to the default height of 30px
           this.style.height = '35px';
@@ -379,7 +380,7 @@ $(document).ready(function() {
           this.style.height = 'auto'; // Reset height to auto to recalculate
           this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
       }
-  });
+    });
   $('#show-chat-sidebar').hide(); // Hide the "show-chat-sidebar" button
   $('#hide-chat-sidebar').click(function() {
         $('#chat-assistant-sidebar').hide(); // Hide the sidebar
