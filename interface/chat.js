@@ -97,6 +97,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                                                 callback=null, continuous=true, html=answer)
                 content_length = answerParagraph.html().length
             }
+            if (content_length < 300) {
+                var chatView = $('#chatView');
+                chatView.scrollTop(chatView.prop('scrollHeight'));
+            }
             answer_post_text = answerParagraph.text()
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').text(part['status']);
@@ -332,6 +336,8 @@ function sendMessageCallback() {
         $('#searchInput').val('')
         $('#messageText').focus();
     });
+    var chatView = $('#chatView');
+    chatView.scrollTop(chatView.prop('scrollHeight'));
 }
 
 $(document).ready(function() {
