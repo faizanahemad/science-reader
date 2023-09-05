@@ -1456,7 +1456,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
 
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
-    contexts = [context +"? \n" + r["query"] for r in dedup_results]
+    contexts = [context +"? \n" + r["query"] for r in dedup_results] if len(dedup_results) > 0 else None
     all_results_doc = dedup_results
     web_links = None
     web_titles = None
@@ -1642,7 +1642,7 @@ def get_page_text(link_title_context_apikeys):
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
-    basic_context = contexts[0]
+    basic_context = contexts[0] if len(contexts) > 0 else ""
     if texts is None:
         texts = [''] * len(links)
 
