@@ -445,7 +445,7 @@ def send_local_browser(link):
 def send_request_readabilipy(link):
     from readabilipy import simple_json_from_html_string
     st = time.time()
-    response = requests.get(link)
+    response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
     if response.status_code != 200:
         logger.error(
             f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
