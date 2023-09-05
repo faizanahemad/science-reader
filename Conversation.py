@@ -545,13 +545,11 @@ The most recent query by the human is as follows:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = 16 if provide_detailed_answers else 12
+                cut_off = 10 if provide_detailed_answers else 8
                 seen_query_results = query_results_part1[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
-                answer += "\n###### Results used in answering: \n"
                 yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
-                yield {"text": "\n###### Trying to read below links: \n", "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
@@ -570,7 +568,7 @@ The most recent query by the human is as follows:
             qu_st = time.time()
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1)):
+                if len(web_text_accumulator) >= (10 if provide_detailed_answers else 5) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (1 if provide_detailed_answers else 1)):
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -585,6 +583,9 @@ The most recent query by the human is as follows:
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.1)
+            word_count = lambda s: len(s.split())
+            # Sort the array in reverse order based on the word count
+            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:(6 if provide_detailed_answers else 3)]
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)

@@ -1313,7 +1313,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     num_res = 10
-    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "three"
+    n_query = "three" if previous_search_results or len(extra_queries) > 0 else "four"
 
     pqs = []
     if previous_search_results:
@@ -1449,7 +1449,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     #     pre_rerank = dedup_results_web
     #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
-    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:16]
+    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:30]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1463,7 +1463,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_contexts = None
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-    cut_off = 16 if provide_detailed_answers else 12
+    cut_off = 30 if provide_detailed_answers else 20
     if len(links) == 0:
         cut_off = cut_off * 2
     if web_links is not None and len(web_links) == 0:
