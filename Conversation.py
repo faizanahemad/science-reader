@@ -566,6 +566,7 @@ The most recent query by the human is as follows:
             web_text_accumulator = []
             full_info = []
             qu_st = time.time()
+            logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
                 if len(web_text_accumulator) >= (10 if provide_detailed_answers else 5) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (1 if provide_detailed_answers else 1)):
@@ -595,6 +596,7 @@ The most recent query by the human is as follows:
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "web search completed"}
+            logger.info(f"Time to get web search results: {(time.time() - st):.2f}")
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 

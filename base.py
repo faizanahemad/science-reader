@@ -22,7 +22,10 @@ from copy import deepcopy, copy
 import requests
 import tempfile
 from tqdm import tqdm
-import json
+try:
+    import ujson as json
+except ImportError:
+    import json
 import requests
 import dill
 import os
