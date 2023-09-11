@@ -302,6 +302,7 @@ def keyParser(session):
         "tgiSmallModelUrl": os.getenv("tgiSmallModelUrl", ''),
         "embeddingsUrl": os.getenv("embeddingsUrl", ''),
         "zenrows": os.getenv("zenrows", ''),
+        "brightdataUrl": os.getenv("brightdataUrl", ''),
     }
     if keyStore["vllmUrl"].strip() != "" or keyStore["vllmLargeModelUrl"].strip() != "" or keyStore["vllmSmallModelUrl"].strip() != "":
         keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])

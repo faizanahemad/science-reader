@@ -308,6 +308,11 @@ def playwright_thread_worker(link):
     result = get_page_content(link)
     return result
 
+def playwright_thread_reader(html):
+    init_thread_local_playwright()
+    result = parse_page_content(html)
+    return result
+
 playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
         
 
@@ -359,6 +364,41 @@ readability_script_content = readability_script_content_response.text
 # https://trafilatura.readthedocs.io/en/latest/
 # https://github.com/goose3/goose3
 
+
+def parse_page_content(html):
+    text = ''
+    title = ''
+    global thread_local
+    if hasattr(thread_local, 'page_pool'):
+        page_pool = thread_local.page_pool
+    st = time.time()
+    browser_resources = page_pool.get()
+    browser = browser_resources[0]
+    for context in browser.contexts:
+        context.clear_cookies()
+    try:
+        _, page, example_page = browser_resources
+        page.set_content(html)
+        page.add_script_tag(content=readability_script_content)
+        page.wait_for_function(
+            "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')",
+            timeout=10000)
+        result = page.evaluate(
+            """(function execute(){var article = new Readability(document).parse();return article})()""")
+        title = normalize_whitespace(result['title'])
+        text = normalize_whitespace(result['textContent'])
+    except Exception as e:
+        traceback.print_exc()
+        exc = traceback.format_exc()
+        logger.error(
+            f"Error in parse_page_content with exception = {str(e)}\n{exc}")
+    finally:
+        page_pool.put(browser_resources)
+    logger.info(" ".join(['parse_page_content ', str(time.time() - st), "\n", text[-100:]]))
+    return {"text": text, "title": title}
+
+
+
 def get_page_content(link, playwright_cdp_link=None, timeout=2):
     text = ''
     title = ''
@@ -373,7 +413,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
     try:
         _, page, example_page = browser_resources
         url = link
-        response = page.goto(url)
+        response = page.goto(url,  timeout = 60000)
         if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
             text = DDOS_PROTECTION_STR
             raise Exception(DDOS_PROTECTION_STR)
@@ -442,36 +482,92 @@ def send_local_browser(link):
 # pip install readabilipy from this git repo https://github.com/alan-turing-institute/ReadabiliPy below.
 # pip install
 
-def send_request_readabilipy(link):
+import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+
+def fetch_content_brightdata(url, brightdata_proxy):
+    """
+    Fetch the content of the webpage at the specified URL using a proxy.
+
+    Parameters:
+    url (str): The URL of the webpage to fetch.
+
+    Returns:
+    str: The content of the webpage.
+    """
+
+    # Define the proxies
+    proxies = {"http": brightdata_proxy, "https": brightdata_proxy}
+
+    # Create a session
+    session = requests.Session()
+
+    # Set up retries
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[502, 503, 504])
+    session.mount('http://', HTTPAdapter(max_retries=retries))
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+
+    # Make the request
+    response = session.get(url, proxies=proxies, verify=False)
+    html = response.content.decode('utf-8')
+    result = local_browser_reader(html)
+    readabilipy_result = send_request_readabilipy(link=url, html=html)
+    goose3_result = send_request_goose3(link=url, html=html)
+    trafilatura_result = send_request_trafilatura(link=url, html=html)
+
+    if len(result['text']) < len(readabilipy_result['text'])//2:
+        result = readabilipy_result
+    if len(result['text']) < len(goose3_result['text'])//2:
+        result = goose3_result
+    if len(result['text']) < len(trafilatura_result['text'])//2:
+        result = trafilatura_result
+
+    # Return the response content
+    return result
+
+
+def local_browser_reader(html):
+    st = time.time()
+    result = playwright_thread_executor.submit(playwright_thread_reader, html).result()
+    et = time.time() - st
+    logger.info(" ".join(['local_browser_reader ', str(et), "\n", result['text'][-100:]]))
+    return result
+
+def send_request_readabilipy(link, html=None):
     from readabilipy import simple_json_from_html_string
     st = time.time()
-    response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
-    if response.status_code != 200:
-        logger.error(
-            f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
-        return {"text": '', "title": ''}
+    if html is None:
+        response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
+        if response.status_code not in [200, 201, 202, 303, 302, 301]:
+            logger.error(
+                f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
+            return {"text": '', "title": ''}
+        html = response.text
 
     et = time.time() - st
-    logger.info(" ".join(['send_request_readabilipy ', str(et), "\n", response.text[-100:]]))
-    article = simple_json_from_html_string(response.text)
+    logger.info(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
+    article = simple_json_from_html_string(html)
     return {"text": article['plain_text'], "title": article['title']}
 
-def send_request_goose3(link):
+def send_request_goose3(link, html=None):
     from goose3 import Goose
     st = time.time()
     g = Goose()
-    article = g.extract(url=link)
+    article = g.extract(url=link, raw_html=html)
     et = time.time() - st
     logger.info(" ".join(['send_request_goose3 ', str(et), "\n", article.cleaned_text[:100]]))
     return {"text": article.cleaned_text, "title": article.title}
 
 
-def send_request_trafilatura(link):
+def send_request_trafilatura(link, html=None):
     import trafilatura
     st = time.time()
-    downloaded = trafilatura.fetch_url(link)
-    et = time.time() - st
+    if html is None:
+        html = trafilatura.fetch_url(link)
     logger.info(" ".join(['send_request_trafilatura ', str(et), "\n", downloaded[:100]]))
-    result = trafilatura.extract(downloaded)
+    result = trafilatura.extract(html)
+    et = time.time() - st
     title = result.split('\n')[0]
     return {"text": result, "title": title}

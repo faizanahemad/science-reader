@@ -641,13 +641,14 @@ cache_timeout = 7 * 24 * 60 * 60
 def is_pdf_link(link):
     st = time.time()
     try:
-        response = requests.head(link)
+        response = ProcessFnWithTimeout(Queue())(requests.head, 5, link)
         content_type = response.headers.get('Content-Type')
         et = time.time() - st
         logger.info(f"Time taken to check if link is pdf: {et:.2f} sec")
-        return ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+        result = ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+        return result
     except Exception as e:
-        print(f"Exception in is_pdf_link: {e}")
+        print(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
         return False
 
 

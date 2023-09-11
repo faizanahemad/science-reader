@@ -208,8 +208,8 @@ var ChatManager = {
           statusDiv.hide();
           statusDiv.find('.spinner-border').hide();
         });
-        var chatView = $('#chatView');
-        chatView.scrollTop(chatView.prop('scrollHeight'));
+        // var chatView = $('#chatView');
+        // chatView.scrollTop(chatView.prop('scrollHeight'));
         return $('#chatView').find('.card').last();
     },
 

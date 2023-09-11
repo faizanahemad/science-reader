@@ -962,74 +962,47 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser
+from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata
 
 
 def web_scrape_page(link, apikeys):
     result = dict(text="", title="", link=link, error="")
     try:
-        local_result = get_async_future(send_local_browser, link)
+        # local_result = get_async_future(send_local_browser, link)
+
+        bright_data_result = None
+        # local_result = get_async_future(get_page_content, link, apikeys['scrapingBrowserUrl'])
         zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
-        readabilipy_result = None
-        goose3_result = None
-        trafilatura_result = None
         st = time.time()
-        while time.time() - st < 30:
-            if local_result.done():
-                try:
-                    result = local_result.result()
-                except:
-                    exc = traceback.format_exc()
-                    logger.info(
-                        f"web_scrape_page:: Trying zenrows for link {link} after local browser failed with exception = {str(e)}, \n {exc}")
-                    result = {"text": "", "title": "", "link": link, "error": str(e)}
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                    break
+        while time.time() - st < 45:
             if zenrows_service_result.done():
                 try:
                     result = zenrows_service_result.result()
+                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        break
                 except:
                     exc = traceback.format_exc()
                     logger.info(
-                        f"web_scrape_page:: Trying local browser for link {link} after zenrows failed with exception = {str(e)}, \n {exc}")
-                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                        f"web_scrape_page:: Trying zenrows for link {link} after zenrows_service_result failed with exception = {str(e)}, \n {exc}")
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
                     break
-            if time.time() - st > 4 and readabilipy_result is None and goose3_result is None and trafilatura_result is None:
-                readabilipy_result = get_async_future(send_request_readabilipy, link)
-                goose3_result = get_async_future(send_request_goose3, link)
-                trafilatura_result = get_async_future(send_request_trafilatura, link)
-            if readabilipy_result is not None and readabilipy_result.done():
+            if time.time() - st > 6 and bright_data_result is None:
+                bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+            if bright_data_result is not None and bright_data_result.done():
                 try:
-                    result = readabilipy_result.result()
+                    result = bright_data_result.result()
+                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        break
                 except:
                     exc = traceback.format_exc()
                     logger.info(
-                        f"web_scrape_page:: Trying local browser for link {link} after readabilipy failed with exception = {str(e)}, \n {exc}")
-                    result = {"text": "", "title": "", "link": link, "error": str(e)}
+                        f"web_scrape_page:: Trying bright_data for link {link} after bright_data_result failed with exception = {str(e)}, \n {exc}")
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
                     break
-            if goose3_result is not None and goose3_result.done():
-                try:
-                    result = goose3_result.result()
-                except:
-                    exc = traceback.format_exc()
-                    logger.info(
-                        f"web_scrape_page:: Trying local browser for link {link} after goose3 failed with exception = {str(e)}, \n {exc}")
-                    result = {"text": "", "title": "", "link": link, "error": str(e)}
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                    break
-            if trafilatura_result is not None and trafilatura_result.done():
-                try:
-                    result = trafilatura_result.result()
-                except:
-                    exc = traceback.format_exc()
-                    logger.info(
-                        f"web_scrape_page:: Trying local browser for link {link} after trafilatura failed with exception = {str(e)}, \n {exc}")
-                    result = {"text": "", "title": "", "link": link, "error": str(e)}
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                    break
+
             time.sleep(0.1)
+
+
         logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, result sample = {result['text'][:100]}")
         if len(result["text"].strip()) < 100:
@@ -1039,16 +1012,15 @@ def web_scrape_page(link, apikeys):
 
     except Exception as e:
         exc = traceback.format_exc()
-        logger.info(f"web_scrape_page:: Trying zenrows for link {link} after local browser failed with exception = {str(e)}, \n {exc}")
-        traceback.print_exc()
+        logger.info(f"web_scrape_page:: failed with exception = {str(e)}, \n {exc}")
+        # traceback.print_exc()
         result = {"text": "", "title": "", "link": link, "error": str(e)}
         # result = send_request_zenrows(link, apikeys['zenrows'])
 
     return result
 
-@typed_memoize(cache, str, int, tuple, bool)
+
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
-    # TODO: try local browser based extraction first, if blocked by ddos protection then use cdplink
     text = ''
     title = ''
     try:
@@ -1316,7 +1288,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     num_res = 10
-    n_query = "three" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query = "four" if previous_search_results or len(extra_queries) > 0 else "four"
 
     pqs = []
     if previous_search_results:
@@ -1332,12 +1304,12 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:3]]
+        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
 
         if len(query_strings) == 0:
             query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
             query_strings.split("###END###")[0].strip()
-            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:3]]
+            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
         query_strings = query_strings + extra_queries
@@ -1380,6 +1352,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     try:
         assert len(serps) > 0
         serps = [s.result() for s in serps]
+        assert len(serps[0]) > 0
     except Exception as e:
         logger.error(f"Error in getting results from web search engines, error = {e}")
         if serp_available:
@@ -1670,7 +1643,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(16 if provide_detailed_answers else 8, os.cpu_count()*4)
+    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*4)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]
@@ -1696,9 +1669,9 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
     def compute_timeout(link):
-        return {"timeout": 30} if is_pdf_link(link) else {"timeout": 25}
+        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 60}
     timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 20, 30)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 60, 60)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

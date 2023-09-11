@@ -424,7 +424,7 @@ class Conversation:
 
     @property
     def max_time_to_wait_for_web_results(self):
-        return 15
+        return 60
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -623,7 +623,7 @@ The most recent query by the human is as follows:
                 other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3)
             prompt = prompts.chat_fast_reply_prompt.format(query=query["messageText"], summary_text=summary_text_gpt3, previous_messages=previous_messages_gpt3, document_nodes=document_nodes_gpt3, permanent_instructions=permanent_instructions_gpt3, doc_answer=doc_answer_gpt3, web_text=web_text_gpt3, link_result_text=link_result_text_gpt3)
             logger.info(
-                f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
+                f"""Time to reply / Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
             last few messages length: {len(enc.encode(previous_messages_gpt3))}, document text length: {len(enc.encode(document_nodes_gpt3))}, 
             permanent instructions length: {len(enc.encode(permanent_instructions_gpt3))}, doc answer length: {len(enc.encode(doc_answer_gpt3))}, web text length: {len(enc.encode(web_text_gpt3))}, link result text length: {len(enc.encode(link_result_text_gpt3))}""")
             et = time.time() - st
@@ -844,7 +844,7 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
-    link_result_text = get_first_last_parts(link_result_text, 0, 3000)
+    link_result_text = get_first_last_parts(link_result_text, 0, 1500)
     web_text = get_first_last_parts(web_text, 0, 3000)
     doc_answer = get_first_last_parts(doc_answer, 0, 3000)
     summary_text = get_first_last_parts(summary_text, 0, 500)
