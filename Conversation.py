@@ -424,7 +424,7 @@ class Conversation:
 
     @property
     def max_time_to_wait_for_web_results(self):
-        return 60
+        return 15
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -569,7 +569,7 @@ The most recent query by the human is as follows:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= (10 if provide_detailed_answers else 5) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (1 if provide_detailed_answers else 1)):
+                if len(web_text_accumulator) >= (10 if provide_detailed_answers else 5) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1)):
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()

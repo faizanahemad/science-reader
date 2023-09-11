@@ -986,7 +986,7 @@ def web_scrape_page(link, apikeys):
                         f"web_scrape_page:: Trying zenrows for link {link} after zenrows_service_result failed with exception = {str(e)}, \n {exc}")
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
                     break
-            if time.time() - st > 6 and bright_data_result is None:
+            if time.time() - st > 4 and bright_data_result is None:
                 bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
             if bright_data_result is not None and bright_data_result.done():
                 try:
