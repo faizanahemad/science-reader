@@ -18,6 +18,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 
+import urllib3
+urllib3.disable_warnings()
+import requests
+
+
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(
@@ -130,6 +135,12 @@ def send_request_scrapeit(url, apikey):
     return soup_parser(data)
 
 
+def send_request_zenrows_shim(url, apikey):
+    return {
+        'title': "",
+        'text': ""
+    }
+
 
 
 def send_request_zenrows(url, apikey):
@@ -149,6 +160,15 @@ def send_request_zenrows(url, apikey):
     if response.status_code != 200:
         raise Exception(
             f"Error in zenrows with status code {response.status_code}")
+        return {
+            'title': "",
+            'text': ""
+        }
+    if response is None or response.text is None:
+        return {
+            'title': "",
+            'text': ""
+        }
     et = time.time() - st
     logger.info(" ".join(['send_request_zenrows ', str(et), "\n", response.text[-100:]]))
     return soup_parser(response.text)
@@ -323,14 +343,9 @@ def create_page_pool(pool_size=16):
     p = playwright_obj
     for _ in range(pool_size):
         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials", ])
-        context = browser.new_context(user_agent=random.choice(
+        page = browser.new_page(user_agent=random.choice(
             user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-        page = context.new_page()
-        example_page = context.new_page()
-        example_page.goto("https://www.example.com/")
-        example_page.add_script_tag(
-            url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-        page_pool.put([browser, page, example_page])  # Store the page in the pool
+        page_pool.put([browser, page, 0])  # Store the page in the pool
         
         
 def create_page_pool_thread(pool_size=1):
@@ -346,12 +361,9 @@ def create_page_pool_thread(pool_size=1):
     p = thread_local.playwright_obj
     for _ in range(pool_size):
         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-        context = browser.new_context(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-        page = context.new_page()
-        example_page = context.new_page()
-        example_page.goto("https://www.example.com/")
-        example_page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-        thread_local.page_pool.put([browser, page, example_page])  # Store the page in the thread-local pool
+        page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+        page.set_content('<html><body></body></html>')
+        thread_local.page_pool.put([browser, page, 0])  # Store the page in the thread-local pool
     return thread_local.playwright_obj
 
             
@@ -377,7 +389,7 @@ def parse_page_content(html):
     for context in browser.contexts:
         context.clear_cookies()
     try:
-        _, page, example_page = browser_resources
+        _, page, _ = browser_resources
         page.set_content(html)
         page.add_script_tag(content=readability_script_content)
         page.wait_for_function(
@@ -393,6 +405,10 @@ def parse_page_content(html):
         logger.error(
             f"Error in parse_page_content with exception = {str(e)}\n{exc}")
     finally:
+        # Set empty html context
+        browser_resources[2] += 1
+        page.goto('about:blank')
+        page.set_content('<html><body></body></html>')
         page_pool.put(browser_resources)
     logger.info(" ".join(['parse_page_content ', str(time.time() - st), "\n", text[-100:]]))
     return {"text": text, "title": title}
@@ -411,7 +427,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
     for context in browser.contexts:
         context.clear_cookies()
     try:
-        _, page, example_page = browser_resources
+        _, page, _ = browser_resources
         url = link
         response = page.goto(url,  timeout = 60000)
         if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
@@ -443,11 +459,12 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
                 """(function e(){return document.body.innerHTML})()""")
             init_title = page.evaluate(
                 """(function e(){return document.title})()""")
-            # page = example_page
-            page = example_page
+            page.goto('about:blank')
+            page.set_content('<html><body></body></html>')
             page.evaluate(
                 f"""text=>document.body.innerHTML=text""", init_html)
             page.evaluate(f"""text=>document.title=text""", init_title)
+            page.add_script_tag(content=readability_script_content)
             logger.debug(
                 f"Loaded html and title into page with example.com as url")
             page.add_script_tag(content=readability_script_content)
@@ -465,6 +482,9 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
         logger.error(
             f"Error in get_page_content with exception = {str(e)}\n{exc}")
     finally:
+        browser_resources[2] += 1
+        page.goto('about:blank')
+        page.set_content('<html><body></body></html>')
         page_pool.put(browser_resources)
     logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
     return {"text": text, "title": title}
@@ -484,7 +504,13 @@ def send_local_browser(link):
 
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
+
+def fetch_content_brightdata_shim(url, brightdata_proxy):
+    return {
+        'title': "",
+        'text': ""
+    }
 
 
 def fetch_content_brightdata(url, brightdata_proxy):
@@ -498,6 +524,8 @@ def fetch_content_brightdata(url, brightdata_proxy):
     str: The content of the webpage.
     """
 
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
     # Define the proxies
     proxies = {"http": brightdata_proxy, "https": brightdata_proxy}
 
@@ -505,23 +533,29 @@ def fetch_content_brightdata(url, brightdata_proxy):
     session = requests.Session()
 
     # Set up retries
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[502, 503, 504])
+    retries = Retry(total=1, backoff_factor=2, status_forcelist=[400, 404, 500, 501, 502, 503, 504])
     session.mount('http://', HTTPAdapter(max_retries=retries))
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
     # Make the request
     response = session.get(url, proxies=proxies, verify=False)
-    html = response.content.decode('utf-8')
+    try:
+        html = response.content.decode('utf-8')
+    except:
+        html = response.text
     result = local_browser_reader(html)
-    readabilipy_result = send_request_readabilipy(link=url, html=html)
-    goose3_result = send_request_goose3(link=url, html=html)
-    trafilatura_result = send_request_trafilatura(link=url, html=html)
+    goose3_result = None
+    trafilatura_result = None
+    try:
+        goose3_result = send_request_goose3(link=url, html=html)
+        trafilatura_result = send_request_trafilatura(link=url, html=html)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
-    if len(result['text']) < len(readabilipy_result['text'])//2:
-        result = readabilipy_result
-    if len(result['text']) < len(goose3_result['text'])//2:
+    if goose3_result is not None and len(result['text']) < len(goose3_result['text'])//2:
         result = goose3_result
-    if len(result['text']) < len(trafilatura_result['text'])//2:
+    if trafilatura_result is not None and len(result['text']) < len(trafilatura_result['text'])//2:
         result = trafilatura_result
 
     # Return the response content
@@ -563,11 +597,13 @@ def send_request_goose3(link, html=None):
 
 def send_request_trafilatura(link, html=None):
     import trafilatura
+    from trafilatura.settings import DEFAULT_CONFIG
+    DEFAULT_CONFIG.set('DEFAULT', 'EXTRACTION_TIMEOUT', '0')
     st = time.time()
     if html is None:
         html = trafilatura.fetch_url(link)
-    logger.info(" ".join(['send_request_trafilatura ', str(et), "\n", downloaded[:100]]))
-    result = trafilatura.extract(html)
     et = time.time() - st
+    result = trafilatura.extract(html)
     title = result.split('\n')[0]
+    logger.info(" ".join(['send_request_trafilatura ', str(et), "\n", title[:100]]))
     return {"text": result, "title": title}

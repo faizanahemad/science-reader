@@ -11,15 +11,15 @@ class CustomPrompts:
         # 4. Provide code in python if asked for code or implementation.
         # Use markdown formatting to typeset and format your answer better.
         self.complex_output_instructions = """Use the below rules while providing response.
-1. Use markdown for formatting. Use lists and paragraphs. No use of quotes.
-2. Output any relevant equations in latex format. Remember to put each equation or math in their own environment of '$$'.
-3. Do not repeat information from previous answers. Do not provide references at the end of answer.
-4. If the given context can't be used to provide a good and complete answer then answer the question as well as you can with existing knowledge..
-5. Provide references in markdown link format like `[Link Text](link-url)`, citing them at the end of sentences when needed."""
+1. Use markdown for formatting. Use lists and paragraphs.
+2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
+3. Do not repeat information from previous answers. Provide references or links within the answer itself closest to the point of mention using markdown link format.
+4. Answer the question as well as you can with your own knowledge if no context is provided.
+5. Provide references in markdown link format like `[Link Title](link-url)`, citing them within the answer text wherever needed."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting.
-2. Provide code only if asked for. """
+2. Provide references within the answer itself using markdown link format."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
                 input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",

@@ -693,8 +693,8 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise and informative response. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write concise and informative"
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide informative response. \n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write informative"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an AI expert in document summarization and information extraction. {long_or_short}
@@ -962,53 +962,66 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata
+from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata, send_request_zenrows_shim, fetch_content_brightdata_shim
 
 
 def web_scrape_page(link, apikeys):
     result = dict(text="", title="", link=link, error="")
     try:
         # local_result = get_async_future(send_local_browser, link)
-
         bright_data_result = None
-        # local_result = get_async_future(get_page_content, link, apikeys['scrapingBrowserUrl'])
-        zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+        zenrows_service_result = None
+        if random.random() < 0.5:
+            bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+            # local_result = get_async_future(get_page_content, link, apikeys['scrapingBrowserUrl'])
+        else:
+            zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
         st = time.time()
+        result_from = "None"
+        brightdata_exception = False
+        zenrows_exception = False
         while time.time() - st < 45:
-            if zenrows_service_result.done():
+            if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:
                     result = zenrows_service_result.result()
                     if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "zenrows"
                         break
-                except:
+                except Exception as e:
+                    zenrows_exception = True
                     exc = traceback.format_exc()
                     logger.info(
-                        f"web_scrape_page:: Trying zenrows for link {link} after zenrows_service_result failed with exception = {str(e)}, \n {exc}")
+                        f"web_scrape_page:: {link} zenrows_service_result failed with exception = {str(e)}, \n {exc}")
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "zenrows"
                     break
             if time.time() - st > 4 and bright_data_result is None:
                 bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-            if bright_data_result is not None and bright_data_result.done():
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
                 try:
                     result = bright_data_result.result()
                     if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "brightdata"
                         break
-                except:
+                except Exception as e:
+                    brightdata_exception = True
                     exc = traceback.format_exc()
                     logger.info(
-                        f"web_scrape_page:: Trying bright_data for link {link} after bright_data_result failed with exception = {str(e)}, \n {exc}")
+                        f"web_scrape_page:: {link} bright_data_result failed with exception = {str(e)}, \n {exc}")
                 if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "brightdata"
                     break
-
             time.sleep(0.1)
 
 
         logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, result sample = {result['text'][:100]}")
         if len(result["text"].strip()) < 100:
-            raise Exception("Text too short")
+            result = {"text": "", "title": "", "link": link, "error": "Text too short"}
+            logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         if result["text"].strip() == DDOS_PROTECTION_STR:
-            raise Exception(DDOS_PROTECTION_STR)
+            result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR}
+            logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     except Exception as e:
         exc = traceback.format_exc()
@@ -1439,11 +1452,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_contexts = None
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-    cut_off = 30 if provide_detailed_answers else 20
-    if len(links) == 0:
-        cut_off = cut_off * 2
-    if web_links is not None and len(web_links) == 0:
-        cut_off = cut_off * 2
+    cut_off = 16 if provide_detailed_answers else 10
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
@@ -1529,7 +1538,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 def download_link_data(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"download_link_data-{str([link, detailed])}"
+    key = f"download_link_data-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
@@ -1547,7 +1556,7 @@ def download_link_data(link_title_context_apikeys):
 
 def read_pdf(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"read_pdf-{str([link, detailed])}"
+    key = f"read_pdf-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None:
@@ -1582,7 +1591,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
             chunked_text = ChunkText(
                 txt, TOKEN_LIMIT_FOR_DETAILED if detailed else 3200, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 3200 if detailed else 1536, 0)[0],
+            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 3200 if detailed else 2800, 0)[0],
                                                     api_keys, provide_short_responses=False,
                                                     chunk_size=3200 if detailed else 3200)
             tt = time.time() - st
@@ -1598,7 +1607,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
 
 def get_page_text(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"get_page_text-{str([link, detailed])}"
+    key = f"get_page_text-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
@@ -1643,7 +1652,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*4)
+    threads = min(16 if provide_detailed_answers else 8, os.cpu_count()*4)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]
@@ -1669,9 +1678,9 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
     def compute_timeout(link):
-        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 60}
+        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 45}
     timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 60, 60)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 45, 45)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
