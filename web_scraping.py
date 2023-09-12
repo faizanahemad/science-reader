@@ -407,6 +407,15 @@ def parse_page_content(html):
     finally:
         # Set empty html context
         browser_resources[2] += 1
+        if browser_resources[2] % 1000 == 0:
+            browser.close()
+            browser = playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            browser_resources = [browser, page, 0]
+        if browser_resources[2] % 100 == 0:
+            page.close()
+            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            browser_resources = [browser, page, 0]
         page.goto('about:blank')
         page.set_content('<html><body></body></html>')
         page_pool.put(browser_resources)
@@ -483,6 +492,15 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
             f"Error in get_page_content with exception = {str(e)}\n{exc}")
     finally:
         browser_resources[2] += 1
+        if browser_resources[2] % 1000 == 0:
+            browser.close()
+            browser = playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            browser_resources = [browser, page, 0]
+        if browser_resources[2] % 100 == 0:
+            page.close()
+            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            browser_resources = [browser, page, 0]
         page.goto('about:blank')
         page.set_content('<html><body></body></html>')
         page_pool.put(browser_resources)
