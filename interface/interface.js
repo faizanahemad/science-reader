@@ -2172,6 +2172,10 @@ $(document).ready(function() {
         $('#pdf-view').show();
         $('#chat-assistant-view').hide();
         pdfTabIsActive();
+        var sidebar = $('.sidebar');
+        if (!sidebar.is(':visible')) {
+            toggleSidebar();
+        }
         
     });
 
@@ -2186,6 +2190,11 @@ $(document).ready(function() {
         chatView.scrollTop(chatView.prop('scrollHeight'));
         $('#messageText').focus();
         pdfTabIsActive();
+        var sidebar = $('.sidebar');
+        if (sidebar.is(':visible')) {
+            toggleSidebar();
+        }
+
     });
     
     $('#hide-sidebar').on('click', toggleSidebar);
@@ -2357,5 +2366,10 @@ $(document).ready(function() {
         }
     }
     pdfTabIsActive();
+    $('#assistant-tab').trigger('shown.bs.tab');
+    $("a#assistant-tab.nav-link").addClass('active');
+    $("a#pdf-tab.nav-link").removeClass('active');
+    // $("#assistant-tab").tigger('click');
+    // $("a#assistant-tab.nav-link").trigger('click');
 
 });

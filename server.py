@@ -362,9 +362,17 @@ app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
 app.config["RATELIMIT_STRATEGY"] = "moving-window"
 app.config["RATELIMIT_STORAGE_URL"] = "memory://"
+
+def limiter_key_func():
+    # logger.info(f"limiter_key_func called with {session.get('email')}")
+    email = session.get('email')
+    if email:
+        return email
+    # Here, you might want to use a different fallback or even raise an error
+    return get_remote_address()
 limiter = Limiter(
     app=app,
-    key_func=get_remote_address,
+    key_func=limiter_key_func,
     default_limits=["200 per hour", "10 per minute"]
 )
 # app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
@@ -1112,7 +1120,7 @@ def list_messages_by_conversation(conversation_id):
     return jsonify(conversation.get_message_list())
 
 @app.route('/send_message/<conversation_id>', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("3 per minute")
 @login_required
 def send_message(conversation_id):
     keys = keyParser(session)

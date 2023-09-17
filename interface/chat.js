@@ -107,7 +107,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
         }
 
         if (done) {
-            $('#messageText').prop('disabled', false);
+            $('#messageText').prop('working', false);
             var statusDiv = card.find('.status-div');
             statusDiv.hide();
             statusDiv.find('.status-text').text('');
@@ -306,6 +306,30 @@ function loadConversations(autoselect=true) {
 }
 
 function sendMessageCallback() {
+    already_rendering = $('#messageText').prop('working')
+    if (already_rendering) {
+        // also display a small modal for 5 seconds in the UI and automatically close the modal or close the modal on any keypress.
+        $('#prevent-chat-rendering').modal('show');
+
+        const closeModal = function () {
+            $('#prevent-chat-rendering').modal('hide');
+            $(document).off('keydown.prevent-chat-rendering click.prevent-chat-rendering');
+        };
+        
+        setTimeout(function () {
+            closeModal();
+        }, 5000);
+
+        setTimeout(function () {
+            $(document).on('keydown.prevent-chat-rendering click.prevent-chat-rendering', function (e) {
+                if (e.key === "Escape" || e.key === "Enter" || e.type === "click") {
+                    closeModal();
+                }
+            });
+        }, 200);
+
+        return;
+    }
     var messageText = $('#messageText').val();
     if (messageText.trim().length == 0) {
         return;
@@ -314,7 +338,7 @@ function sendMessageCallback() {
     var wordCount = messageText.split(' ').length;
     $('#messageText').val('');  // Clear the messageText field
     $('#messageText').trigger('change');
-    $('#messageText').prop('disabled', true);
+    $('#messageText').prop('working', true);
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
     let options = getOptions('chat-options', 'assistant');
@@ -342,7 +366,7 @@ function sendMessageCallback() {
 
 $(document).ready(function() {
     
-    $('#chat-assistant-view').hide();
+    // $('#chat-assistant-view').hide();
     $("#loader").show();
     loadConversations();
     // Hide the loader after 10 seconds
