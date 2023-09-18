@@ -805,6 +805,12 @@ def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeou
 
     return task_queue2
 
+def yield_with_condition(yield_value, condition_function, failure_call_back):
+    if condition_function():
+        return yield_value
+    else:
+        return failure_call_back()
+
 
 
 

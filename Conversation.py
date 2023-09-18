@@ -467,15 +467,14 @@ class Conversation:
         link_result_text = ''
         full_doc_texts = {}
         link_context = f"""Summary of the conversation between a human and an AI assisant is given below.
-'''{summary}'''
+'{summary}'
 
-Treat the most recent query by the human as a information request from the given context.
-The most recent query by the human is as follows:
-{query["messageText"]}
+Use the most recent query by the human to understand what to do and then perform the action using the given context. The most recent query by the human is given below.
+'{query["messageText"]}'
 """
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
-            link_future = get_async_future(read_over_multiple_links, links, links, [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
+            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
 
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
@@ -501,7 +500,7 @@ The most recent query by the human is as follows:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
             all_docs_info = []
-            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 3):
+            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 4):
                 if (time.time() - link_read_st) > self.max_time_to_wait_for_web_results:
                     yield {"text": '', "status": "Link reading taking long time ... "}
                 if link_future.done():
@@ -843,9 +842,9 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
-    link_result_text = get_first_last_parts(link_result_text, 0, 1500)
-    web_text = get_first_last_parts(web_text, 0, 3000)
-    doc_answer = get_first_last_parts(doc_answer, 0, 3000)
+    link_result_text = get_first_last_parts(link_result_text, 0, 3000)
+    doc_answer = get_first_last_parts(doc_answer, 0, 3000 - len(enc.encode(link_result_text + user_message)))
+    web_text = get_first_last_parts(web_text, 0, 3000 - len(enc.encode(link_result_text + doc_answer + user_message)))
     summary_text = get_first_last_parts(summary_text, 0, 500)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
     previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len) if 4500 - used_len > 0 else ""

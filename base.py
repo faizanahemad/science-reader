@@ -698,7 +698,7 @@ ContextualReader:
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an AI expert in document summarization and information extraction. {long_or_short}
-Provide relevant and helpful information from the given document for the given question or conversation context below:
+Provide relevant and helpful information from the given document for the given user question and conversation context given below.
 '''{{context}}'''
 
 Document to read and extract information from is given below.
@@ -1516,9 +1516,9 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
 import multiprocessing
 from multiprocessing import Pool
 
-def process_link(link_title_context_apikeys):
+def process_link(link_title_context_apikeys, return_without_summary=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"process_link-{str([link, context, detailed])}"
+    key = f"process_link-{str([link, context, detailed, return_without_summary])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
@@ -1528,6 +1528,8 @@ def process_link(link_title_context_apikeys):
     title = link_data["title"]
     text = link_data["full_text"]
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+    if return_without_summary:
+        return {"link": link, "title": title, "text": text, "exception": False, "full_text": text, "detailed": detailed}
     summary = get_downloaded_data_summary(link_title_context_apikeys)["text"]
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
@@ -1593,7 +1595,7 @@ def get_downloaded_data_summary(link_title_context_apikeys):
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
             extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 3200 if detailed else 2800, 0)[0],
                                                     api_keys, provide_short_responses=False,
-                                                    chunk_size=3200 if detailed else 3200)
+                                                    chunk_size=3200 if detailed else 2800)
             tt = time.time() - st
             logger.info(f"Called contextual reader for link: {link}, word length = {len(extracted_info.split())} with total time = {tt:.2f}")
         else:
@@ -1689,7 +1691,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a) for l_t_c_a in link_title_context_apikeys]
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a, False) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
@@ -1706,7 +1708,21 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
 
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
+    enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    if len(links) == 1:
+        raw_texts = [ChunkText(p['full_text'],
+                               2800 - len(enc.encode(p['text'])) if provide_detailed_answers else 1400 - len(
+                                   enc.encode(p['text'])), 0)[0] for p in full_processed_texts]
+        result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+                              zip(raw_texts, processed_texts)])
+    elif len(links) == 2 and provide_detailed_answers:
+        raw_texts = [ChunkText(p['full_text'],
+                               2800 - len(enc.encode(p['text'])) if provide_detailed_answers else 1400 - len(
+                                   enc.encode(p['text'])), 0)[0] for p in full_processed_texts]
+        result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+                              zip(raw_texts, processed_texts)])
+    else:
+        result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
     return result, full_processed_texts
 
 
