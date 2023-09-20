@@ -1587,7 +1587,7 @@ def read_pdf(link_title_context_apikeys):
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')t
+    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
     extracted_info = ''
     try:
