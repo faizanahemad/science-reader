@@ -1711,12 +1711,12 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     if len(links) == 1:
-        raw_texts = [ChunkText(p['full_text'],
+        raw_texts = [ChunkText(p['full_text'].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
                                2800 - get_gpt4_word_count(p['text']) if provide_detailed_answers else 1400 - get_gpt3_word_count(p['text']), 0)[0] for p in full_processed_texts]
         result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     elif len(links) == 2 and provide_detailed_answers:
-        raw_texts = [ChunkText(p['full_text'],
+        raw_texts = [ChunkText(p['full_text'].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
                                1400 - get_gpt4_word_count(
                                    p['text']) if provide_detailed_answers else 700 - get_gpt3_word_count(p['text']),
                                0)[0] for p in full_processed_texts]
