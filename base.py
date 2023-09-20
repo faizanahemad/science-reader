@@ -1541,6 +1541,7 @@ def download_link_data(link_title_context_apikeys):
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
+        result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
         return result
     link = convert_to_pdf_link_if_needed(link)
     is_pdf = is_pdf_link(link)
@@ -1550,6 +1551,9 @@ def download_link_data(link_title_context_apikeys):
     else:
         result = get_page_text(link_title_context_apikeys)
     if "full_text" in result and len(result["full_text"].strip()) > 0:
+        result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
+                                                                                         'end_of_text').replace(
+            '<|endoftext|>', '')
         cache.set(key, result, expire=cache_timeout)
     return result
 
@@ -1565,7 +1569,7 @@ def read_pdf(link_title_context_apikeys):
     # Reading PDF
     extracted_info = ''
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    txt = text
+    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
@@ -1583,7 +1587,7 @@ def read_pdf(link_title_context_apikeys):
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    txt = text
+    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')t
     st = time.time()
     extracted_info = ''
     try:
