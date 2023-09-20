@@ -541,7 +541,7 @@ class DocIndex:
                 additional_info = additional_info.result()
                 txc1 = additional_info
                 txc2 = web_results.result()[1].result()['text']
-                txc = f"Contextual text based on query from rest of document: {txc1} \n\n Web search response based on query: {txc2} \n\n"
+                txc = f"Text from rest of document: {txc1} \n\n Web search response based on query: {txc2} \n\n"
             elif mode == "web_search":
                 txc = web_results.result()[1].result()['text']
             elif mode == "detailed":
@@ -1094,8 +1094,8 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
-    doc_text = PDFReaderTool(keys)(pdf_url.strip())
-    chunks = ChunkText(doc_text, LARGE_CHUNK_LEN, 64)
+    doc_text = PDFReaderTool(keys)(pdf_url.strip()).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    chunks = ChunkText(doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''), LARGE_CHUNK_LEN, 64)
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
@@ -1109,7 +1109,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             "limitations_and_future_work" : {"id":"", "text":""},
         }
     }
-    nested_dict["small_chunks"] = ChunkText(doc_text, SMALL_CHUNK_LEN, 32)
+    nested_dict["small_chunks"] = ChunkText(doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''), SMALL_CHUNK_LEN, 32)
     openai_embed = get_embedding_model(keys)
     try:
         doc_index = ImmediateDocIndex(pdf_url, 

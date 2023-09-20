@@ -1568,7 +1568,7 @@ def read_pdf(link_title_context_apikeys):
     txt = text
     try:
         if len(text.strip()) == 0:
-            txt = pdfReader(link)
+            txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
