@@ -402,12 +402,33 @@ class DocIndex:
                 return yr
             return None
         return None
-        
+
+    def semantic_search_document(self, query):
+        # tldr = (self.paper_details["tldr"] + "\n\n") if "tldr" in self.paper_details and self.paper_details[
+        #     "tldr"] is not None and len(self.paper_details["tldr"].strip()) > 0 else ""
+        # title = (self.paper_details["title"] + "\n\n") if "title" in self.paper_details and self.paper_details[
+        #     "title"] is not None and len(self.paper_details["title"].strip()) > 0 else ""
+        # brief_summary = title + tldr + self.short_summary
+        # brief_summary = (brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+        brief_summary = ""
+        summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff * 2)
+        summary_text = "\n".join([n.page_content for n in summary_nodes])  # + "\n" + additional_text_qna
+        summary_text = (summary_text + "\n\n") if len(summary_text.strip()) > 0 else ""
+        rem_init_len = 512 * 4
+        rem_word_len = rem_init_len - get_gpt3_word_count(
+            summary_text + brief_summary)
+        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+        raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query,
+                                                                                k=max(self.result_cutoff, rem_tokens))
+        raw_text = "\n".join([n.page_content for n in raw_nodes])
+        return brief_summary + summary_text + "\n\n" + raw_text
+
     
     @streaming_timer
     def streaming_get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
         ent_time = time.time()
-        
+
+        scan = False
         if mode["perform_web_search"]:
             mode = "web_search"
         elif mode["provide_detailed_answers"]:
@@ -419,15 +440,21 @@ class DocIndex:
             additional_docs = mode["additional_docs_to_read"]
             mode = "use_multiple_docs"
         elif mode["review"]:
-            query = f"{query}\n\nProvide detailed review with justification using the document context.\n\n"
             mode = "review"
+        elif mode["scan"]:
+            mode = "detailed"
+            scan = True
+            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer.\n\n"
         else:
             mode = None
 
-        tldr = (self.paper_details["tldr"]+"\n\n") if "tldr" in self.paper_details and self.paper_details["tldr"] is not None and len(self.paper_details["tldr"].strip())>0 else ""
-        title = (self.paper_details["title"]+"\n\n") if "title" in self.paper_details and self.paper_details["title"] is not None and len(self.paper_details["title"].strip()) > 0 else ""
-        brief_summary = title+tldr+self.short_summary
-        brief_summary = (brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
+        if not scan and (mode == "detailed" or mode == "review"):
+            tldr = (self.paper_details["tldr"]+"\n\n") if "tldr" in self.paper_details and self.paper_details["tldr"] is not None and len(self.paper_details["tldr"].strip())>0 else ""
+            title = (self.paper_details["title"]+"\n\n") if "title" in self.paper_details and self.paper_details["title"] is not None and len(self.paper_details["title"].strip()) > 0 else ""
+            brief_summary = title+tldr+self.short_summary
+            brief_summary = (brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
+        else:
+            brief_summary = ""
         if mode == "web_search" or mode == "review":
             web_results = get_async_future(web_search, query, self.doc_source, "\n".join([brief_summary] + self.get_doc_data("raw_data", "chunks")[:1]), self.get_api_keys(), self.get_date())
             
@@ -435,10 +462,14 @@ class DocIndex:
             web_results = get_async_future(get_multiple_answers, query, additional_docs, brief_summary)
             mode = "web_search"
 
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        if (mode == "detailed" or mode == "review"):
+            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=scan)
         self_hosted = llm.self_hosted_model_url is not None
         if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
             rem_init_len = 512 * (2 if self_hosted else 3) + 1
+        elif scan:
+            rem_init_len = 512 * (8 if self_hosted else 32) + 1
         else:
             rem_init_len = 512 * (4 if self_hosted else 6) + 1
         dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
@@ -448,24 +479,25 @@ class DocIndex:
         rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary)
         rem_tokens = rem_word_len // LARGE_CHUNK_LEN
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-        raw_text = "\n".join([n.page_content for n in raw_nodes])
-        if llm.use_gpt4:
+        raw_text = "\n\n".join([n.page_content for n in raw_nodes])
+        if llm.use_gpt4 or scan:
             rem_word_len = (rem_init_len * 2 + 1000) - get_gpt4_word_count(summary_text + qna_text + brief_summary + raw_text)
             rem_tokens = rem_word_len // SMALL_CHUNK_LEN
             small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-            small_chunk_text = "\n".join([n.page_content for n in small_chunk_nodes])
+            small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
             raw_text = raw_text + " \n\n " + small_chunk_text
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
                                             questions_answers=qna_text, full_summary=self.get_doc_data("qna_data", "running_summary"))
         else:
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary="",
                                             questions_answers="", full_summary=self.get_doc_data("qna_data", "running_summary"))
-        if mode == "detailed" or mode == "review":
-            st = time.time()
-            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), chunk_size=TOKEN_LIMIT_FOR_DETAILED)
-            et = time.time()
-            logger.debug(f"Blocking on ContextualReader for {(et-st):4f}s")
-        prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)
+
+        if llm.use_gpt4:
+            prompt = get_first_last_parts(prompt, 1000, 6500)
+        elif scan:
+            prompt = get_first_last_parts(prompt, 2000, 10000)
+        else:
+            prompt = get_first_last_parts(prompt, 1000, 2500)
         main_ans_gen = llm(prompt, temperature=0.7, stream=True)
         answer = ''
         ans_begin_time = time.time()
@@ -516,19 +548,22 @@ class DocIndex:
                 additional_info = additional_info.result()
                 for t in additional_info:
                     txc += t
+                    yield t
+                    answer += t
             if mode == "web_search" or mode == "review":
                 if web_generator_1 is None:
                     web_generator_1 = self.streaming_web_search_answering(query, answer, txc)
                 else:
                     web_generator_1 = web_generator_1.result()
                 generator = web_generator_1
+                for txt in generator:
+                    yield txt
+                    answer += txt
             else:
-                generator = self.streaming_get_more_details(query, answer, txc,)
-            for txt in generator:
-                yield txt
-                answer += txt
+                pass
+
         if save_answer:
-            self.put_answer(query, answer, mode=mode)
+            get_async_future(self.put_answer, query, answer, mode=mode)
         
     def get_fixed_details(self, key):
         if self.get_doc_data("deep_reader_data") is not None and self.get_doc_data("deep_reader_data", key) is not None and len(self.get_doc_data("deep_reader_data", key)["text"].strip())>0:

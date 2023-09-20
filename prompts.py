@@ -215,9 +215,9 @@ Response to the user's query:
             ),
             web_search_prompt=PromptTemplate(
                 input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
-                template="""You are given a query or question or conversation context as below.
-'''{context}'''
-{doc_context}
+                template="""You are given a question and conversation context as below.
+'''{context}
+{doc_context}'''
 We want to generate web search queries to search the web for more information about the query.
 {previous_answer}
 {pqs}
@@ -231,6 +231,28 @@ Instructions for how to generate the queries are given below.
 5. Convert abbreviations to full forms and correct typos in the query using the given context.
 6. Your output will look like a python list of strings like below.
 ["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
+
+Output only a valid python list of web search query strings.
+""",
+            ),
+            document_search_prompt=PromptTemplate(
+                input_variables=["context", "doc_context"],
+                template="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
+The question which is given below needs to be answered by using a document context that will be provided later. 
+For now we need to rephrase this question better using the given conversation summary.
+
+Current Question: '''{context}'''
+
+Previous conversation summary: '''{doc_context}'''
+
+We want to rephrase the question to help us search our document store for more information about the query.
+
+Generate one well specified search query as a valid python list. 
+Instructions for how to generate the queries are given below.
+1. Output should be only a python list of strings (a valid python syntax code which is a list of strings). 
+2. Convert abbreviations to full forms and correct typos in the query using the given context.
+3. Your output will look like a python list of strings like below.
+["query_1"]
 
 Output only a valid python list of web search query strings.
 """,
@@ -517,6 +539,28 @@ Instructions for how to generate the web search queries are given below.
 Google Search Queries are written below.
 """,
             ),
+            document_search_prompt=PromptTemplate(
+                input_variables=["context", "doc_context"],
+                template="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
+The question which is given below needs to be answered by using a document context that will be provided later. 
+For now we need to rephrase this question better using the given conversation summary.
+
+Current Question: '''{context}'''
+
+Previous conversation summary: '''{doc_context}'''
+
+We want to rephrase the question to help us search our document store for more information about the query.
+
+Generate one well specified search query as a valid python list. 
+Instructions for how to generate the queries are given below.
+1. Output should be only a python list of strings (a valid python syntax code which is a list of strings). 
+2. Convert abbreviations to full forms and correct typos in the query using the given context.
+3. Your output will look like a python list of strings like below.
+["query_1"]
+
+Output only a valid python list of web search query strings.
+""",
+            ),
             web_search_question_answering_prompt=PromptTemplate(
                 input_variables=["query", "answer", "additional_info"],
                 template=f"""Continue writing answer to a question which is partially answered. Provide new details from the additional information provided.
@@ -656,6 +700,11 @@ Read the document and provide information about "Limitations and Future Work" of
     def get_more_details_prompt(self):
         prompts = self.prompts
         return prompts["get_more_details_prompt"]
+
+    @property
+    def document_search_prompt(self):
+        prompts = self.prompts
+        return prompts["document_search_prompt"]
 
 
 prompts = CustomPrompts(os.environ.get("LLM_FAMILY", "gpt4"), os.environ.get("ROLE", "science"))

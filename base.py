@@ -294,13 +294,13 @@ class CallLLm:
             try:
                 model = next(models)
 #                 logger.info(f"Try turbo model with stream = {stream}")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
                 if len(self.openai_turbo_models) > 1:
                     model = next(models)
-                    fn = call_chat_model
+                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
                 else:
                     models = round_robin(self.openai_basic_models)
                     model = next(models)
@@ -693,11 +693,11 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide informative response. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write informative"
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide detailed, comprehensive, informative and in-depth response covering the entire details. \n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write detailed, comprehensive, informative and in depth"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=f"""You are an AI expert in document summarization and information extraction. {long_or_short}
+            template=f"""You are an AI expert in question answering. {long_or_short}
 Provide relevant and helpful information from the given document for the given user question and conversation context given below.
 '''{{context}}'''
 
@@ -706,7 +706,6 @@ Document to read and extract information from is given below.
 {{document}}
 '''
 
-If you find nothing useful at all then say 'No relevant information found.'.
 Output any relevant equations if found in latex format.
 {response_prompt} response below.
 """,
@@ -740,7 +739,7 @@ Output any relevant equations if found in latex format.
         part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         short = self.provide_short_responses and chunk_size < 4000
-        result = get_first_last_parts(result, 384, 128) if short else get_first_last_parts(result, 1024, 512)
+        result = get_first_last_parts(result, 384, 256) if short else get_first_last_parts(result, 1024, 1024)
         assert isinstance(result, str)
         return result
 
@@ -1516,9 +1515,9 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
 import multiprocessing
 from multiprocessing import Pool
 
-def process_link(link_title_context_apikeys, return_without_summary=False):
+def process_link(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"process_link-{str([link, context, detailed, return_without_summary])}"
+    key = f"process_link-{str([link, context, detailed, use_large_context])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
@@ -1528,9 +1527,7 @@ def process_link(link_title_context_apikeys, return_without_summary=False):
     title = link_data["title"]
     text = link_data["full_text"]
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-    if return_without_summary:
-        return {"link": link, "title": title, "text": text, "exception": False, "full_text": text, "detailed": detailed}
-    summary = get_downloaded_data_summary(link_title_context_apikeys)["text"]
+    summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
               expire=cache_timeout)
@@ -1547,6 +1544,7 @@ def download_link_data(link_title_context_apikeys):
         return result
     link = convert_to_pdf_link_if_needed(link)
     is_pdf = is_pdf_link(link)
+    link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_pdf:
         result = read_pdf(link_title_context_apikeys)
     else:
@@ -1583,7 +1581,7 @@ def read_pdf(link_title_context_apikeys):
 
 
 
-def get_downloaded_data_summary(link_title_context_apikeys):
+def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text
     st = time.time()
@@ -1591,11 +1589,11 @@ def get_downloaded_data_summary(link_title_context_apikeys):
     try:
         if len(text.strip()) > 0:
             chunked_text = ChunkText(
-                txt, TOKEN_LIMIT_FOR_DETAILED if detailed else 3200, 0)[0]
+                txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-            extracted_info = call_contextual_reader(context, ChunkText(chunked_text, 3200 if detailed else 2800, 0)[0],
+            extracted_info = call_contextual_reader(context, chunked_text,
                                                     api_keys, provide_short_responses=False,
-                                                    chunk_size=3200 if detailed else 2800)
+                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)))
             tt = time.time() - st
             logger.info(f"Called contextual reader for link: {link}, word length = {len(extracted_info.split())} with total time = {tt:.2f}")
         else:
@@ -1691,7 +1689,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a, False) for l_t_c_a in link_title_context_apikeys]
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a, provide_detailed_answers and len(links) <= 2) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
@@ -1708,17 +1706,16 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
 
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
-    enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
     if len(links) == 1:
         raw_texts = [ChunkText(p['full_text'],
-                               2800 - len(enc.encode(p['text'])) if provide_detailed_answers else 1400 - len(
-                                   enc.encode(p['text'])), 0)[0] for p in full_processed_texts]
+                               2800 - get_gpt4_word_count(p['text']) if provide_detailed_answers else 1400 - get_gpt3_word_count(p['text']), 0)[0] for p in full_processed_texts]
         result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     elif len(links) == 2 and provide_detailed_answers:
         raw_texts = [ChunkText(p['full_text'],
-                               2800 - len(enc.encode(p['text'])) if provide_detailed_answers else 1400 - len(
-                                   enc.encode(p['text'])), 0)[0] for p in full_processed_texts]
+                               1400 - get_gpt4_word_count(
+                                   p['text']) if provide_detailed_answers else 700 - get_gpt3_word_count(p['text']),
+                               0)[0] for p in full_processed_texts]
         result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     else:
@@ -1727,18 +1724,41 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
 
 
 def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, provide_detailed_answers=False):
-    prompt = f"""Given question: '{query}'. A summary of prior conversation or documents that maybe related to this query is given below.\n
-'''{current_doc_summary}'''. 
-Collect evidence and relevant information from the document we are reading now to answer the given question.
-If it is possible to answer the question with the information in the document, please answer the question by carefully reading and analysing the information in the document.
-Answer or information for the given question:
-"""
-    
-    futures = [pdf_process_executor.submit(doc.get_short_answer, prompt, defaultdict(lambda:False, {"provide_detailed_answers": provide_detailed_answers}), False)  for doc in additional_docs]
+    # prompt = prompts.document_search_prompt.format(context=query, doc_context=current_doc_summary)
+    # api_keys = additional_docs[0].get_api_keys()
+    # query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
+    # query_strings.split("###END###")[0].strip()
+    # logger.debug(f"Query string for {query} = {query_strings}")  # prompt = \n```\n{prompt}\n```\n
+    # query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
+    # # select the longest string from the above array
+    #
+    # if len(query_strings) == 0:
+    #     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
+    #     query_strings.split("###END###")[0].strip()
+    #     query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
+    # query_strings = sorted(query_strings, key=lambda x: len(x), reverse=True)
+    # query_strings = query_strings[:1]
+    # if len(query_strings) <= 0:
+    #     query_strings = query_strings + [query]
+    # query_string = query_strings[0]
+
+    query_string = (f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(current_doc_summary.strip())>0 else '')+f"Provide answer for this current query: '''{query}'''"
+
+    futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:False, {"scan": provide_detailed_answers}), True)  for doc in additional_docs]
     answers = [future.result() for future in futures]
     answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
+    if len(additional_docs) == 1:
+        doc_search_results = [ChunkText(d.semantic_search_document(query), 2800 - get_gpt4_word_count(p['text']) if provide_detailed_answers else 1400 - get_gpt3_word_count(p['text']), 0)[0] for p, d in zip(answers, additional_docs)]
+
+        read_text = "\n\n".join([f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+                                 zip(doc_search_results, answers)])
+    elif len(additional_docs) == 2 and provide_detailed_answers:
+        doc_search_results = [ChunkText(d.semantic_search_document(query), 1400 - get_gpt4_word_count(p['text']) if provide_detailed_answers else 700 - get_gpt3_word_count(p['text']), 0)[0] for p, d in zip(answers, additional_docs)]
+        read_text = "\n\n".join([f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in zip(doc_search_results, answers)])
+    else:
+        read_text = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in answers])
     dedup_results = [{"link": doc.doc_source, "title": doc.title} for answer, doc in zip(answers, additional_docs)]
-    read_text = "\n\n".join([json.dumps(p, indent=2) for p in answers])
+    logger.info(f"Query = ```{query}```\nAnswers = {answers}")
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 

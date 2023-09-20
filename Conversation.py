@@ -424,7 +424,7 @@ class Conversation:
 
     @property
     def max_time_to_wait_for_web_results(self):
-        return 15
+        return 30
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -466,12 +466,9 @@ class Conversation:
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
-        link_context = f"""Summary of the conversation between a human and an AI assisant is given below.
-'{summary}'
-
-Use the most recent query by the human to understand what to do and then perform the action using the given context. The most recent query by the human is given below.
-'{query["messageText"]}'
-"""
+        link_context = (
+            f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
+                summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this current query: '''{query['messageText']}'''"
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
@@ -479,7 +476,7 @@ Use the most recent query by the human to understand what to do and then perform
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers, link_context + '\n\n' + "Provide elaborate, detailed and informative answer.", additional_docs_to_read, '', provide_detailed_answers)
+            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', provide_detailed_answers)
         web_text = ''
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
@@ -522,7 +519,7 @@ Use the most recent query by the human to understand what to do and then perform
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (3 if provide_detailed_answers else 2))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (5 if provide_detailed_answers else 3))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
@@ -710,6 +707,22 @@ Add more details that are not covered in the partial answer. Previous partial an
         logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
 last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 
 permanent instructions length: {len(enc.encode(permanent_instructions))}, doc answer length: {len(enc.encode(doc_answer))}, web text length: {len(enc.encode(web_text))}, link result text length: {len(enc.encode(link_result_text))}""")
+        if (len(links)==1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers):
+            text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
+            yield {"text": text, "status": "answering in progress"}
+            answer += text
+            yield {"text": '', "status": "saving answer ..."}
+            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            return
+
+        if (len(links)==0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers):
+            text = doc_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
+            yield {"text": text, "status": "answering in progress"}
+            answer += text
+            yield {"text": '', "status": "saving answer ..."}
+            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            return
+
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
         et = time.time() - st
         logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
