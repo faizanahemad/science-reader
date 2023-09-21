@@ -1986,7 +1986,8 @@ $(document).ready(function() {
                 if (!$.isArray(value)) {
                     new_opt.attr("description", value)
                 }
-            });
+            })
+            $('#review_params').trigger('change');
 
             // populate tone radio buttons
             $.each(tones, function(index, tone) {
@@ -2022,6 +2023,7 @@ $(document).ready(function() {
                 }
             });
         });
+        
 
         $('#review_form').submit(async function(e) {
             e.preventDefault();
@@ -2162,6 +2164,10 @@ $(document).ready(function() {
         $('#review-assistant-view').show();
         $('#chat-assistant-view').hide();
         pdfTabIsActive();
+        var sidebar = $('.sidebar');
+        if (!sidebar.is(':visible')) {
+            toggleSidebar();
+        }
         
     });
     
