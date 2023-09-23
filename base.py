@@ -961,75 +961,8 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata, send_request_zenrows_shim, fetch_content_brightdata_shim
+from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata, send_request_zenrows_shim, fetch_content_brightdata_shim, web_scrape_page
 
-
-def web_scrape_page(link, apikeys):
-    result = dict(text="", title="", link=link, error="")
-    try:
-        # local_result = get_async_future(send_local_browser, link)
-        bright_data_result = None
-        zenrows_service_result = None
-        if random.random() < 0.5:
-            bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-            # local_result = get_async_future(get_page_content, link, apikeys['scrapingBrowserUrl'])
-        else:
-            zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
-        st = time.time()
-        result_from = "None"
-        brightdata_exception = False
-        zenrows_exception = False
-        while time.time() - st < 45:
-            if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
-                try:
-                    result = zenrows_service_result.result()
-                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                        result_from = "zenrows"
-                        break
-                except Exception as e:
-                    zenrows_exception = True
-                    exc = traceback.format_exc()
-                    logger.info(
-                        f"web_scrape_page:: {link} zenrows_service_result failed with exception = {str(e)}, \n {exc}")
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                    result_from = "zenrows"
-                    break
-            if time.time() - st > 4 and bright_data_result is None:
-                bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
-                try:
-                    result = bright_data_result.result()
-                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                        result_from = "brightdata"
-                        break
-                except Exception as e:
-                    brightdata_exception = True
-                    exc = traceback.format_exc()
-                    logger.info(
-                        f"web_scrape_page:: {link} bright_data_result failed with exception = {str(e)}, \n {exc}")
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
-                    result_from = "brightdata"
-                    break
-            time.sleep(0.1)
-
-
-        logger.info(
-            f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, result sample = {result['text'][:100]}")
-        if len(result["text"].strip()) < 100:
-            result = {"text": "", "title": "", "link": link, "error": "Text too short"}
-            logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-        if result["text"].strip() == DDOS_PROTECTION_STR:
-            result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR}
-            logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-
-    except Exception as e:
-        exc = traceback.format_exc()
-        logger.info(f"web_scrape_page:: failed with exception = {str(e)}, \n {exc}")
-        # traceback.print_exc()
-        result = {"text": "", "title": "", "link": link, "error": str(e)}
-        # result = send_request_zenrows(link, apikeys['zenrows'])
-
-    return result
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):

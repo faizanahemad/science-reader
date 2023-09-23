@@ -21,7 +21,13 @@ from concurrent.futures import ProcessPoolExecutor
 import urllib3
 urllib3.disable_warnings()
 import requests
+import re
+import traceback
 
+def check_js_needed(html):
+    noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)
+    script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
+    return bool(noscript_pattern.search(html)) or bool(script_pattern.search(html))
 
 logger = logging.getLogger(__name__)
 
@@ -142,36 +148,6 @@ def send_request_zenrows_shim(url, apikey):
     }
 
 
-
-def send_request_zenrows(url, apikey):
-    js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
-    
-    params = {
-        'url': url,
-        'apikey': apikey,
-        'js_render': 'true',
-        'wait_for': 'body',
-        'block_resources': 'image,media',
-        'js_instructions': js,
-    }
-    import time
-    st = time.time()
-    response = requests.get('https://api.zenrows.com/v1/', params=params)
-    if response.status_code != 200:
-        raise Exception(
-            f"Error in zenrows with status code {response.status_code}")
-        return {
-            'title': "",
-            'text': ""
-        }
-    if response is None or response.text is None:
-        return {
-            'title': "",
-            'text': ""
-        }
-    et = time.time() - st
-    logger.info(" ".join(['send_request_zenrows ', str(et), "\n", response.text[-100:]]))
-    return soup_parser(response.text)
     
 
 
@@ -400,7 +376,6 @@ def parse_page_content(html):
         title = normalize_whitespace(result['title'])
         text = normalize_whitespace(result['textContent'])
     except Exception as e:
-        traceback.print_exc()
         exc = traceback.format_exc()
         logger.error(
             f"Error in parse_page_content with exception = {str(e)}\n{exc}")
@@ -561,31 +536,131 @@ def fetch_content_brightdata(url, brightdata_proxy):
         html = response.content.decode('utf-8')
     except:
         html = response.text
-    result = local_browser_reader(html)
+    js_need = check_js_needed(html)
+    result = None
     goose3_result = None
     trafilatura_result = None
+    soup_html_parser_result = None
+    try:
+        result = local_browser_reader(html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
     try:
         goose3_result = send_request_goose3(link=url, html=html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[fetch_content_brightdata] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
+    try:
         trafilatura_result = send_request_trafilatura(link=url, html=html)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        exc = traceback.format_exc()
+        logger.error(f"[fetch_content_brightdata] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
+    try:
+        soup_html_parser_result = soup_html_parser(html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[fetch_content_brightdata] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
 
-    if goose3_result is not None and len(result['text']) < len(goose3_result['text'])//2:
+
+    if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text'])//2):
         result = goose3_result
-    if trafilatura_result is not None and len(result['text']) < len(trafilatura_result['text'])//2:
+    if trafilatura_result is not None and (result is None or len(result['text']) < len(trafilatura_result['text'])//2):
         result = trafilatura_result
+    if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
+        result = soup_html_parser_result
 
     # Return the response content
     return result
 
 
+def send_request_zenrows(url, apikey):
+    js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
+
+    params = {
+        'url': url,
+        'apikey': apikey,
+        'js_render': 'true',
+        'wait_for': 'body',
+        'block_resources': 'image,media',
+        'js_instructions': js,
+    }
+    import time
+    st = time.time()
+    response = requests.get('https://api.zenrows.com/v1/', params=params)
+    if response.status_code != 200:
+        raise Exception(
+            f"Error in zenrows with status code {response.status_code}")
+        return {
+            'title': "",
+            'text': ""
+        }
+    if response is None or response.text is None:
+        return {
+            'title': "",
+            'text': ""
+        }
+    et = time.time() - st
+    logger.info(" ".join(['send_request_zenrows ', str(et), "\n", response.text[-100:]]))
+    html = response.text
+
+    result = None
+    goose3_result = None
+    trafilatura_result = None
+    soup_html_parser_result = None
+    try:
+        result = local_browser_reader(html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
+    try:
+        goose3_result = send_request_goose3(link=url, html=html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
+    try:
+        trafilatura_result = send_request_trafilatura(link=url, html=html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
+    try:
+        soup_html_parser_result = soup_html_parser(html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+
+    if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text']) // 2):
+        result = goose3_result
+    if trafilatura_result is not None and (result is None or len(result['text']) < len(trafilatura_result['text']) // 2):
+        result = trafilatura_result
+    if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
+        result = soup_html_parser_result
+
+    # Return the response content
+    return result
+
 def local_browser_reader(html):
     st = time.time()
     result = playwright_thread_executor.submit(playwright_thread_reader, html).result()
     et = time.time() - st
-    logger.info(" ".join(['local_browser_reader ', str(et), "\n", result['text'][-100:]]))
+    logger.debug(" ".join(['local_browser_reader ', str(et), "\n", result['text'][-100:]]))
     return result
+
+def soup_html_parser(html):
+    from bs4 import BeautifulSoup, SoupStrainer
+    soup = BeautifulSoup(html, 'html.parser')
+    # Extract the title
+    title = soup.title.string if soup.title else ''
+    # Remove links and other unwanted elements
+    for link in soup.find_all('a'):
+        link.decompose()
+
+    # Remove header and footer elements
+    for header in soup.find_all(['header', 'footer']):
+        header.decompose()
+    content_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+    content_text = '\n '.join(element.get_text() for element in content_elements)
+    return {"text": content_text, "title": title}
 
 def send_request_readabilipy(link, html=None):
     from readabilipy import simple_json_from_html_string
@@ -599,7 +674,7 @@ def send_request_readabilipy(link, html=None):
         html = response.text
 
     et = time.time() - st
-    logger.info(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
+    logger.debug(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
     article = simple_json_from_html_string(html)
     return {"text": article['plain_text'], "title": article['title']}
 
@@ -609,7 +684,7 @@ def send_request_goose3(link, html=None):
     g = Goose()
     article = g.extract(url=link, raw_html=html)
     et = time.time() - st
-    logger.info(" ".join(['send_request_goose3 ', str(et), "\n", article.cleaned_text[:100]]))
+    logger.debug(" ".join(['send_request_goose3 ', str(et), "\n", article.cleaned_text[:100]]))
     return {"text": article.cleaned_text, "title": article.title}
 
 
@@ -623,5 +698,89 @@ def send_request_trafilatura(link, html=None):
     et = time.time() - st
     result = trafilatura.extract(html)
     title = result.split('\n')[0]
-    logger.info(" ".join(['send_request_trafilatura ', str(et), "\n", title[:100]]))
+    logger.debug(" ".join(['send_request_trafilatura ', str(et), "\n", title[:100]]))
     return {"text": result, "title": title}
+
+
+def web_scrape_page(link, apikeys):
+    result = dict(text="", title="", link=link, error="")
+    try:
+        bright_data_result = None
+        zenrows_service_result = None
+        if random.random() < 0.7:
+            bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+        else:
+            zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+
+        # Also add bright data cdp fetch as a backup.
+        st = time.time()
+        result_from = "None"
+        brightdata_exception = False
+        zenrows_exception = False
+        while time.time() - st < 45:
+            if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
+                try:
+                    result = zenrows_service_result.result()
+                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "zenrows"
+                        break
+                    elif len(result["text"].strip()) <= 100 or result["text"].strip() == DDOS_PROTECTION_STR:
+                        zenrows_exception = True
+                except Exception as e:
+                    zenrows_exception = True
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: {link} zenrows_service_result failed with exception = {str(e)}, \n {exc}")
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "zenrows"
+                    break
+            if (time.time() - st > 8 or zenrows_exception) and bright_data_result is None:
+                bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+            elif (time.time() - st > 8 or brightdata_exception) and zenrows_service_result is None:
+                zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
+                try:
+                    result = bright_data_result.result()
+                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "brightdata"
+                        break
+                    elif len(result["text"].strip()) <= 100 or result["text"].strip() == DDOS_PROTECTION_STR:
+                        brightdata_exception = True
+                except Exception as e:
+                    brightdata_exception = True
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: {link} bright_data_result failed with exception = {str(e)}, \n {exc}")
+                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "brightdata"
+                    break
+            time.sleep(0.1)
+        logger.info(
+            f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, result sample = {result['text'][:100]}")
+        if len(result["text"].strip()) < 100:
+            result = {"text": "", "title": "", "link": link, "error": "Text too short"}
+            logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        if result["text"].strip() == DDOS_PROTECTION_STR:
+            result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR}
+            logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.info(f"web_scrape_page:: failed with exception = {str(e)}, \n {exc}")
+        # traceback.print_exc()
+        result = {"text": "", "title": "", "link": link, "error": str(e)}
+        # result = send_request_zenrows(link, apikeys['zenrows'])
+
+    return result
+
+
+
+if __name__=="__main__":
+    # result = send_request_zenrows("https://platform.openai.com/docs/guides/images/usage", "0e1c6def95eadc85bf9eff4798f311231caca6b3")
+    # print(result)
+    # result = fetch_content_brightdata("https://platform.openai.com/docs/guides/images/usage", "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225")
+    # print(result)
+    result = web_scrape_page("https://towardsdatascience.com/clothes-classification-with-the-deepfashion-dataset-and-fast-ai-1e174cbf0cdc",
+                             {"brightdataUrl": "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225",
+                              "zenrows": "0e1c6def95eadc85bf9eff4798f311231caca6b3"})
+    print(result)

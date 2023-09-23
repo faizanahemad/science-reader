@@ -424,7 +424,7 @@ class Conversation:
 
     @property
     def max_time_to_wait_for_web_results(self):
-        return 30
+        return 15
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -497,8 +497,8 @@ class Conversation:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
             all_docs_info = []
-            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 4):
-                if (time.time() - link_read_st) > self.max_time_to_wait_for_web_results:
+            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 6):
+                if (time.time() - link_read_st) > (self.max_time_to_wait_for_web_results * 2):
                     yield {"text": '', "status": "Link reading taking long time ... "}
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
@@ -519,7 +519,7 @@ class Conversation:
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (5 if provide_detailed_answers else 3))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (6 if provide_detailed_answers else 4))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
