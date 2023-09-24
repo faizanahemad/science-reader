@@ -563,7 +563,8 @@ class Conversation:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                if len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1.5)):
+                break_condition = len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1.5))
+                if break_condition and result_queue.empty():
                     break
                 one_web_result = result_queue.get()
                 qu_et = time.time()
@@ -855,9 +856,10 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
-    link_result_text = get_first_last_parts(link_result_text, 0, 3000)
-    doc_answer = get_first_last_parts(doc_answer, 0, 3000 - len(enc.encode(link_result_text + user_message)))
-    web_text = get_first_last_parts(web_text, 0, 3000 - len(enc.encode(link_result_text + doc_answer + user_message)))
+    ctx_len_allowed = 3000 if len(previous_messages.strip()) > 0 else 4500
+    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message)))
+    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + user_message)))
+    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + user_message)))
     summary_text = get_first_last_parts(summary_text, 0, 500)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
     previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len) if 4500 - used_len > 0 else ""
