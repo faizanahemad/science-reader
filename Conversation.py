@@ -843,12 +843,13 @@ def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_tex
 
 def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    link_result_text = get_first_last_parts(link_result_text, 0, 1500)
-    web_text = get_first_last_parts(web_text, 0, 1500)
-    doc_answer = get_first_last_parts(doc_answer, 0, 1500)
+    ctx_len_allowed = 2000 - len(enc.encode(get_first_last_parts(previous_messages, 0, 750)))
+    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed)
+    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed)
+    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed)
     summary_text = get_first_last_parts(summary_text, 0, 500)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
-    previous_messages = get_first_last_parts(previous_messages, 0, 2750 - used_len) if 2750 - used_len > 0 else ""
+    previous_messages = get_first_last_parts(previous_messages, 0, 750) if 2750 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
 
     permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 3000 - used_len > 0 else ""
@@ -856,13 +857,13 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("gpt-4")
-    ctx_len_allowed = 3000 if len(previous_messages.strip()) > 0 else 4500
+    ctx_len_allowed = 4500 - len(enc.encode(get_first_last_parts(previous_messages, 0, 1500)))
     link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message)))
     doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + user_message)))
     web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + user_message)))
     summary_text = get_first_last_parts(summary_text, 0, 500)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
-    previous_messages = get_first_last_parts(previous_messages, 0, 4500 - used_len) if 4500 - used_len > 0 else ""
+    previous_messages = get_first_last_parts(previous_messages, 0, 1500) if 4500 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
     other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, 5500 - used_len) if 5500 - used_len > 0 else ""
     used_len = len(enc.encode(other_relevant_messages)) + used_len
