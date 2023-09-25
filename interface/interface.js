@@ -1,3 +1,17 @@
+function addNewlineToTextbox(textboxId) {
+    var messageText = $('#' + textboxId);
+    var cursorPos = messageText.prop('selectionStart');
+    var v = messageText.val();
+    var textBefore = v.substring(0, cursorPos);
+    var textAfter = v.substring(cursorPos, v.length);
+    messageText.val(textBefore + '\n' + textAfter);
+    messageText.prop('selectionStart', cursorPos + 1);
+    messageText.prop('selectionEnd', cursorPos + 1);
+    var scrollHeight = messageText.prop('scrollHeight');
+    messageText.scrollTop(scrollHeight);
+    return false;  // Prevents the default action
+}
+
 function showMore(parentElem, text=null, textElem=null, as_html=false, show_at_start=false){
     
     if (textElem) {
@@ -1661,20 +1675,9 @@ $(document).ready(function() {
                 askQuestion();
                 return false; // Prevents the default action
             }
-            if (e.keyCode == 13 && e.altKey) {
-                var messageText = $('#question-input');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
-                return false; // Prevents the default action
-            }
-            if (e.keyCode == 13 && e.shiftKey) {
-                var messageText = $('#question-input');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
+            if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey)) {
+                addNewlineToTextbox('question-input');
+                
                 return false; // Prevents the default action
             }
 
@@ -1768,20 +1771,9 @@ $(document).ready(function() {
                 askFollowUpQuestion();
                 return false; // Prevents the default action
             }
-            if (e.keyCode == 13 && e.altKey) {
-                var messageText = $('#follow-up-question-input');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
-                return false; // Prevents the default action
-            }
-            if (e.keyCode == 13 && e.shiftKey) {
-                var messageText = $('#follow-up-question-input');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
+            if ((e.keyCode == 13 && e.altKey)||(e.keyCode == 13 && e.shiftKey)) {
+                addNewlineToTextbox('follow-up-question-input');
+                
                 return false; // Prevents the default action
             }
         });

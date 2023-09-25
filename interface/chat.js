@@ -382,21 +382,8 @@ $(document).ready(function() {
                 sendMessageCallback();
                 return false; // Prevents the default action
             }
-            if (e.keyCode == 13 && e.altKey) {
-                var messageText = $('#messageText');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
-                return false; // Prevents the default action
-            }
-
-            if (e.keyCode == 13 && e.shiftKey) {
-                var messageText = $('#messageText');
-                messageText.val(messageText.val() + '\n');
-                messageText[0].setSelectionRange(messageText.val().length, messageText.val().length); // Move cursor to end of textbox
-                var scrollHeight = messageText.prop('scrollHeight');
-                messageText.scrollTop(scrollHeight);
+            if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey)) {
+                addNewlineToTextbox('messageText');
                 return false; // Prevents the default action
             }
         });
