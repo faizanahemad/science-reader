@@ -237,8 +237,79 @@ def call_non_chat_model(model, text, temperature, system, keys):
         message = message + "\n Output truncated due to lack of context Length."
     return message
 
+class CallLLmClaude:
+    def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
+        assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
+        self.keys = keys
+        self.self_hosted_model_url = None
+        openai_basic_models = ["anthropic.claude-instant-v1"]
+        openai_gpt4_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
+        openai_turbo_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
+        openai_16k_models = ['anthropic.claude-v1-100k', 'anthropic.claude-v2-100k']
+        self.openai_basic_models = random.sample(openai_basic_models, len(openai_basic_models))
+        self.openai_turbo_models = random.sample(openai_turbo_models, len(openai_turbo_models))
+        self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
+        self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
+        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4",
+                                              True) and not use_small_models and self.self_hosted_model_url is None
+        self.use_small_models = use_small_models
+        self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
+        self.use_16k = use_16k and len(openai_16k_models) > 0
 
-class CallLLm:
+        self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
+        self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+        self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
+        self.system = "<role>You are a helpful assistant. Please follow the instructions and respond to the user request. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
+        import boto3
+        self.bedrock = boto3.client(service_name='bedrock',
+                               region_name=os.getenv("AWS_REGION"),
+                               aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                               aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                               endpoint_url=os.getenv("BEDROCK_ENDPOINT_URL"))
+
+
+    def call_claude(self, modelId, body):
+        response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
+        if response.get('modelStreamErrorException') is not None or response.get('internalServerException') is not None:
+            import boto3
+            self.bedrock = boto3.client(service_name='bedrock',
+                                        region_name=os.getenv("AWS_REGION"),
+                                        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+                                        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+                                        endpoint_url=os.getenv("BEDROCK_ENDPOINT_URL"))
+            response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
+        stream = response.get('body')
+        if stream:
+            for event in stream:
+                chunk = event.get('chunk')
+                if chunk:
+                    fragment = json.loads(chunk.get('bytes').decode())
+                    text = fragment.get('completion')
+                    stop_reason = fragment.get('stop_reason')
+                    if stop_reason == 'max_tokens':
+                        text = text + "\nOutput truncated due to lack of context Length."
+                    yield text
+
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
+
+        body = json.dumps({"prompt": self.system + text, "max_tokens_to_sample": 2000 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###"]})
+        accept = 'application/json'
+        contentType = 'application/json'
+        if self.use_gpt4:
+            assert len(self.gpt4_enc.encode(text)) < 8000
+            modelId = next(round_robin(self.openai_gpt4_models))
+        elif self.use_16k:
+            modelId = next(round_robin(self.openai_16k_models))
+        elif self.use_small_models:
+            assert len(self.gpt4_enc.encode(text)) < 4000
+            modelId = next(round_robin(self.openai_basic_models))
+        else:
+            assert len(self.gpt4_enc.encode(text)) < 8000
+            modelId = next(round_robin(self.openai_turbo_models))
+        return call_with_stream(self.call_claude, stream, modelId, body)
+
+
+class CallLLmGpt:
     def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
@@ -344,6 +415,8 @@ class CallLLm:
             raise ValueError("Self hosted models not yet supported")
         else:
             raise ValueError("No model use criteria met")
+
+CallLLm = CallLLmGpt if prompts.llm == "gpt4" else (CallLLmClaude if prompts.llm == "claude" else CallLLmGpt)
         
 def split_text(text):
     # Split the text by spaces, newlines, and HTML tags

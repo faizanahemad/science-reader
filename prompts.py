@@ -642,6 +642,8 @@ Read the document and provide information about "Limitations and Future Work" of
             prompts = self.gpt4_prompts
         elif self.llm == "llama":
             prompts = self.llama_prompts
+        elif self.llm == "claude":
+            prompts = self.gpt4_prompts
         else:
             raise ValueError(f"Invalid llm {self.llm}")
         return prompts

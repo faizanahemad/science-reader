@@ -1,3 +1,4 @@
+import random
 import tempfile
 import asyncio
 import threading
@@ -173,7 +174,8 @@ def call_api_parallel_multi_fn(api_calls, fns):
         results = [future.result() for future in futures]
     return results
 
-def round_robin(arr):
+def round_robin(arr, randomize=True):
+    random.shuffle(arr)
     while True:
         for item in arr:
             yield item
@@ -259,6 +261,17 @@ def concat_array_two_at_a_time(array):
     for i in range(0, len(array), 2):
         result.append([array[i],array[i+1]])
     return result
+
+def make_stream(res, do_stream):
+    is_generator = inspect.isgenerator(res)
+    if is_generator:
+        res = check_if_stream_and_raise_exception(res)
+    if do_stream and not is_generator:
+        assert isinstance(res, (str, list, tuple))
+        return convert_iterable_to_stream(res)
+    elif not do_stream and is_generator:
+        return convert_stream_to_iterable(res)
+    return res
 
 def call_with_stream(fn, do_stream, *args, **kwargs):
     backup = kwargs.pop('backup_function', None)
