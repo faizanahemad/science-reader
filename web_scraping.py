@@ -482,8 +482,8 @@ def get_page_content(link, playwright_cdp_link=None, timeout=2):
     logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
     return {"text": text, "title": title}
 
-for i in range(pool_size):
-    _ = playwright_thread_executor.submit(playwright_thread_worker, "https://www.example.com/").result()
+# for i in range(pool_size):
+#     _ = playwright_thread_executor.submit(playwright_thread_worker, "https://www.example.com/").result()
 
 def send_local_browser(link):
     st = time.time()
