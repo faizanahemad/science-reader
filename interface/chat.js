@@ -47,6 +47,10 @@ var ConversationManager = {
             $('#messageText').focus();
             
         });
+        ChatManager.listDocuments(conversationId).done(function(documents) {
+            ChatManager.renderDocuments(conversationId, documents);
+        });
+        ChatManager.setupAddDocumentForm(conversationId);
         highLightActiveConversation();
     }
 
@@ -142,6 +146,12 @@ function highLightActiveConversation(){
 }
 
 var ChatManager = {
+    listDocuments: function(conversationId) {
+        return $.ajax({
+            url: '/list_documents_by_conversation/' + conversationId,
+            type: 'GET'
+        });
+    },
     listMessages: function(conversationId) {
       return $.ajax({
           url: '/list_messages_by_conversation/' + conversationId,
@@ -160,7 +170,158 @@ var ChatManager = {
             }
         });
     },
-  
+    deleteDocument: function(conversationId, documentId) {
+        return $.ajax({
+            url: '/delete_document_from_conversation/' + conversationId + '/' + documentId,
+            type: 'DELETE',
+            success: function(response) {
+                // Reload the conversation
+                ChatManager.listDocuments(conversationId).done(function(documents) {
+                    ChatManager.renderDocuments(conversationId, documents);
+                });
+            }
+        });
+    },
+    setupAddDocumentForm: function(conversationId) {
+        doc_modal = $('#add-document-modal-chat')
+        $('#add-document-button-chat').off().click(function() {
+            doc_modal.modal('show');
+        });
+        function success(response) {
+            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
+            if (response.status) {
+                doc_modal.modal('hide');
+                ChatManager.listDocuments(conversationId)
+                    .done(function(documents){ChatManager.renderDocuments(conversationId, documents);})
+                    .fail(function(){alert(response.error);})
+                // set the new document as the current document
+                
+            } else {
+                alert(response.error);
+            }
+        }
+        function failure(response) {
+            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
+            alert('Error: ' + response.responseText);
+            doc_modal.modal('hide');
+        }
+    
+        function uploadFile(file) {
+            var formData = new FormData();
+            formData.append('pdf_file', file);
+            doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
+            doc_modal.find('#submit-spinner').show();  // Display the spinner
+            fetch('/upload_doc_to_conversation/' + conversationId, { 
+                method: 'POST', 
+                body: formData
+            })
+            .then(response => response.json())
+            .then(success)
+            .catch(failure);
+        }
+    
+        doc_modal.find('#file-upload-button').off().on('click', function() {
+            doc_modal.find('#pdf-file').click();
+        });
+        
+        // Handle file selection
+        doc_modal.find('#pdf-file').off().on('change', function(e) {
+            var file = $(this)[0].files[0];  // Get the selected file
+            if (file && file.type === 'application/pdf') {
+                uploadFile(file);  // Call the file upload function
+            }
+        });
+    
+        var dropArea = doc_modal.find('#drop-area').off();
+        dropArea.on('dragover', function(e) {
+            e.preventDefault();  // Prevent the default dragover behavior
+            $(this).css('background-color', '#eee');  // Change the color of the drop area
+        });
+        dropArea.on('dragleave', function(e) {
+            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
+        });
+        dropArea.on('drop', function(e) {
+            e.preventDefault();  // Prevent the default drop behavior
+            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
+
+            // Check if the dropped item is a file
+            if (e.originalEvent.dataTransfer.items) {
+                for (var i = 0; i < e.originalEvent.dataTransfer.items.length; i++) {
+                    // If the dropped item is a file and it's a PDF
+                    if (e.originalEvent.dataTransfer.items[i].kind === 'file' && e.originalEvent.dataTransfer.items[i].type === 'application/pdf') {
+                        var file = e.originalEvent.dataTransfer.items[i].getAsFile();
+                        uploadFile(file);  // Call the file upload function
+                    }
+                }
+            }
+        });
+        doc_modal.find('#add-document-form').off().on('submit', function(event) {
+            event.preventDefault();  // Prevents the default form submission action
+            var pdfUrl = doc_modal.find('#pdf-url').val();
+            if (pdfUrl) {
+                doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
+                doc_modal.find('#submit-spinner').show();  // Display the spinner
+                apiCall('/upload_doc_to_conversation/' + conversationId, 'POST', { pdf_url: pdfUrl }, useFetch = false)
+                    .done(success)
+                    .fail(failure);
+            } else {
+                alert('Please enter a PDF URL');
+            }
+        });
+    },
+    renderDocuments: function(conversation_id, documents) {
+        console.log(documents);
+        var chat_doc_view = $('#chat-doc-view');
+        
+        // Clear existing documents
+        chat_doc_view.children('div').remove();
+        
+        // Loop through documents
+        documents.forEach(function(doc, index) {
+            // Create buttons for each document
+            var docButton = $('<button></button>')
+                .addClass('btn btn-outline-primary btn-sm')
+                .text(`#doc_${index + 1}`)
+                .attr('data-doc-id', doc.doc_id)
+                .attr('title', doc.title); // Hover title
+                
+            // Create Delete 'x' Button
+            var deleteButton = $('<i></i>')
+                .addClass('fa fa-times')
+                .attr('aria-hidden', 'true')
+                .attr('aria-label', 'Delete document'); // Accessibility feature
+            
+            var deleteDiv = $('<div></div>')
+                .addClass('btn p-0 btn-sm btn-danger ml-1')
+                .append(deleteButton);
+            
+            // Attach download event to open in a new tab
+            docButton.click(function() {
+                window.open(`/download_doc_from_conversation/${conversation_id}/${doc.doc_id}`, '_blank');
+            });
+            
+            // Attach delete event
+            deleteDiv.click(function(event) {
+                event.stopPropagation(); // Prevents the click event from bubbling up to the docButton
+                ChatManager.deleteDocument(conversation_id, $(this).parent().data('doc-id'))
+                .catch(function() {
+                    alert("Error deleting the document.");
+                });
+            });
+            docButton.append(deleteDiv);
+            // Create a container for each pair of document and delete buttons
+            var container = $('<div></div>')
+                .addClass('d-inline-block')
+                .append(docButton)
+                
+                
+            // Append the container to the chat_doc_view
+            chat_doc_view.append(container);
+        });
+    }
+,
     renderMessages: function(messages, shouldClearChatView) {
         if (shouldClearChatView) {
           $('#chatView').empty();  // Clear the chat view first
@@ -368,7 +529,7 @@ $(document).ready(function() {
     
     // $('#chat-assistant-view').hide();
     $("#loader").show();
-    loadConversations();
+    // loadConversations();
     // Hide the loader after 10 seconds
     setTimeout(function() {
         $("#loader").hide();

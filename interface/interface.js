@@ -1796,16 +1796,17 @@ $(document).ready(function() {
     }
 
     function setupPDFModalSubmit() {
+        doc_modal = $('#add-document-modal');
         $('#add-document-button').click(function() {
-            $('#add-document-modal').modal('show');
+            doc_modal.modal('show');
         });
         function success(response) {
-            $('#submit-button').prop('disabled', false);  // Re-enable the submit button
-            $('#submit-spinner').hide();  // Hide the spinner
+            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
             if (response.status) {
                 alert(JSON.stringify(response));
                 var newDocId = response.doc_id;
-                $('#add-document-modal').modal('hide');
+                doc_modal.modal('hide');
                 // refresh the document list
                 loadDocuments(false)
                     .done(function(){setActiveDoc(newDocId);})
@@ -1817,17 +1818,17 @@ $(document).ready(function() {
             }
         }
         function failure(response) {
-            $('#submit-button').prop('disabled', false);  // Re-enable the submit button
-            $('#submit-spinner').hide();  // Hide the spinner
+            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
+            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
             alert('Error: ' + response.responseText);
-            $('#add-document-modal').modal('hide');
+            doc_modal.modal('hide');
         }
     
         function uploadFile(file) {
             var formData = new FormData();
             formData.append('pdf_file', file);
-            $('#submit-button').prop('disabled', true);  // Disable the submit button
-            $('#submit-spinner').show();  // Display the spinner
+            doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
+            doc_modal.find('#submit-spinner').show();  // Display the spinner
             fetch('/upload_pdf', { 
                 method: 'POST', 
                 body: formData
@@ -1837,49 +1838,47 @@ $(document).ready(function() {
             .catch(failure);
         }
     
-        document.getElementById('file-upload-button').addEventListener('click', function() {
-            document.getElementById('pdf-file').click();
+        doc_modal.find('#file-upload-button').on('click', function() {
+            doc_modal.find('#pdf-file').click();
         });
         
         // Handle file selection
-        document.getElementById('pdf-file').addEventListener('change', function(e) {
-            var file = e.target.files[0];  // Get the selected file
+        doc_modal.find('#pdf-file').on('change', function(e) {
+            var file = $(this)[0].files[0];  // Get the selected file
             if (file && file.type === 'application/pdf') {
                 uploadFile(file);  // Call the file upload function
             }
         });
     
-        var dropArea = document.getElementById('drop-area');
-        dropArea.addEventListener('dragover', function(e) {
+        var dropArea = doc_modal.find('#drop-area');
+        dropArea.on('dragover', function(e) {
             e.preventDefault();  // Prevent the default dragover behavior
-            this.style.backgroundColor = '#eee';  // Change the color of the drop area
-        }, false);
-    
-        dropArea.addEventListener('dragleave', function(e) {
-            this.style.backgroundColor = 'transparent';  // Change the color of the drop area back to its original color
-        }, false);
-    
-        dropArea.addEventListener('drop', function(e) {
+            $(this).css('background-color', '#eee');  // Change the color of the drop area
+        });
+        dropArea.on('dragleave', function(e) {
+            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
+        });
+        dropArea.on('drop', function(e) {
             e.preventDefault();  // Prevent the default drop behavior
-            this.style.backgroundColor = 'transparent';  // Change the color of the drop area back to its original color
-            
+            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
+
             // Check if the dropped item is a file
-            if (e.dataTransfer.items) {
-                for (var i = 0; i < e.dataTransfer.items.length; i++) {
+            if (e.originalEvent.dataTransfer.items) {
+                for (var i = 0; i < e.originalEvent.dataTransfer.items.length; i++) {
                     // If the dropped item is a file and it's a PDF
-                    if (e.dataTransfer.items[i].kind === 'file' && e.dataTransfer.items[i].type === 'application/pdf') {
-                        var file = e.dataTransfer.items[i].getAsFile();
+                    if (e.originalEvent.dataTransfer.items[i].kind === 'file' && e.originalEvent.dataTransfer.items[i].type === 'application/pdf') {
+                        var file = e.originalEvent.dataTransfer.items[i].getAsFile();
                         uploadFile(file);  // Call the file upload function
                     }
                 }
             }
-        }, false);
-        $('#add-document-form').on('submit', function(event) {
+        });
+        doc_modal.find('#add-document-form').on('submit', function(event) {
             event.preventDefault();  // Prevents the default form submission action
-            var pdfUrl = $('#pdf-url').val();
+            var pdfUrl = doc_modal.find('#pdf-url').val();
             if (pdfUrl) {
-                $('#submit-button').prop('disabled', true);  // Disable the submit button
-                $('#submit-spinner').show();  // Display the spinner
+                doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
+                doc_modal.find('#submit-spinner').show();  // Display the spinner
                 apiCall('/index_document', 'POST', { pdf_url: pdfUrl }, useFetch = false)
                     .done(success)
                     .fail(failure);
@@ -2343,7 +2342,8 @@ $(document).ready(function() {
     $('#references-view').hide();
     $('#pdf-view').show();
 
-    $("#hide-navbar").parent().hide();
+    $("#hide-navbar").parent().hide(); // Hide the Show only PDF button
+    $("#details-tab").parent().hide(); // Hide the Cites and Refs tab
     $("#toggle-tab-content").parent().hide();
 
     // Listen for click events on the tabs
@@ -2357,16 +2357,18 @@ $(document).ready(function() {
             // If it is, show the elements
             $("#hide-navbar").parent().show();
             $("#toggle-tab-content").parent().show();
+            $("#details-tab").parent().show();
         } else {
             // If it's not, hide the elements
             $("#hide-navbar").parent().hide();
             $("#toggle-tab-content").parent().hide();
+            $("#details-tab").parent().hide();
         }
     }
-    pdfTabIsActive();
     $('#assistant-tab').trigger('shown.bs.tab');
     $("a#assistant-tab.nav-link").addClass('active');
     $("a#pdf-tab.nav-link").removeClass('active');
+    pdfTabIsActive();
     // $("#assistant-tab").tigger('click');
     // $("a#assistant-tab.nav-link").trigger('click');
 

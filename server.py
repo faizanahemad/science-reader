@@ -691,7 +691,7 @@ def load_documents(folder):
     global indexed_docs, bm25_corpus, doc_id_to_bm25_index
     folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
     docs = [DocIndex.load_local(os.path.join(folder, filepath)) for filepath in folders]
-    docs = [doc for doc in docs if doc is not None]
+    docs = [doc for doc in docs if doc is not None and doc.visible]
     # filename = os.path.basename(filepath)
     for doc_index in docs:
         indexed_docs[doc_index.doc_id] = doc_index
@@ -733,7 +733,10 @@ def list_all():
     addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
     docs = getDocsForUser(email)
     doc_ids = set([d[1] for d in docs])
-    return jsonify([set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs])
+    docs = [set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs]
+    # docs = sorted(docs, key=lambda x: x['last_updated'], reverse=True)
+    docs = [d for d in docs if d["visible"]]
+    return jsonify(docs)
 
 
 @app.route('/get_document_detail', methods=['GET'])
@@ -1012,6 +1015,94 @@ def upload_pdf():
     else:
         return jsonify({'error': 'No pdf_file provided'}), 400
 
+@app.route('/upload_doc_to_conversation/<conversation_id>', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def upload_doc_to_conversation(conversation_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    pdf_file = request.files.get('pdf_file')
+    conversation: Conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    if pdf_file and conversation_id:
+        try:
+            # save file to disk at pdfs_dir.
+            pdf_file.save(os.path.join(pdfs_dir, pdf_file.filename))
+            full_pdf_path = os.path.join(pdfs_dir, pdf_file.filename)
+            conversation.add_uploaded_document(full_pdf_path)
+            conversation.save_local()
+            return jsonify({'status': 'Indexing started'})
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 400
+    # If it is not a pdf file then assume we have url
+    conversation: Conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    pdf_url = request.json.get('pdf_url')
+    pdf_url = convert_to_pdf_link_if_needed(pdf_url)
+    if pdf_url:
+        try:
+            conversation.add_uploaded_document(pdf_url)
+            conversation.save_local()
+            return jsonify({'status': 'Indexing started'})
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 400
+    else:
+        return jsonify({'error': 'No pdf_url or pdf_file provided'}), 400
+
+@app.route('/delete_document_from_conversation/<conversation_id>/<document_id>', methods=['DELETE'])
+@limiter.limit("10 per minute")
+@login_required
+def delete_document_from_conversation(conversation_id, document_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    conversation: Conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    doc_id = document_id
+    if doc_id:
+        try:
+            conversation.delete_uploaded_document(doc_id)
+            return jsonify({'status': 'Document deleted'})
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 400
+    else:
+        return jsonify({'error': 'No doc_id provided'}), 400
+
+@app.route('/list_documents_by_conversation/<conversation_id>', methods=['GET'])
+@limiter.limit("10 per minute")
+@login_required
+def list_documents_by_conversation(conversation_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    conversation: Conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    if conversation:
+        docs:List[DocIndex] = conversation.get_uploaded_documents()
+        docs = [d.get_short_info() for d in docs]
+        # sort by doc_id
+        # docs = sorted(docs, key=lambda x: x['doc_id'], reverse=True)
+        return jsonify(docs)
+    else:
+        return jsonify({'error': 'Conversation not found'}), 404
+
+@app.route('/download_doc_from_conversation/<conversation_id>/<doc_id>', methods=['GET'])
+@login_required
+def download_doc_from_conversation(conversation_id, doc_id):
+    keys = keyParser(session)
+    conversation: Conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    if conversation:
+        doc:DocIndex = conversation.get_uploaded_documents(doc_id)[0]
+        if doc and os.path.exists(doc.doc_source):
+            return send_from_directory(doc.doc_source, as_attachment=True)
+        elif doc:
+            return redirect(doc.doc_source)
+        else:
+            return jsonify({'error': 'Document not found'}), 404
+    else:
+        return jsonify({'error': 'Conversation not found'}), 404
 
 def cached_get_file(file_url):
     chunk_size = 1024  # Define your chunk size

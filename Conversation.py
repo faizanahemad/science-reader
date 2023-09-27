@@ -147,8 +147,6 @@ class Conversation:
         folder = os.path.join(storage, f"{self.conversation_id}")
         self._storage = folder
         os.makedirs(folder, exist_ok=True)
-        self.store_separate = ["indices", "raw_documents", "raw_documents_index", "memory", "messages"]
-        
         self.running_summary_length_limit = 1000
         self.last_message_length_limit = 1000
         memory = {  "title": 'Start the Conversation',
@@ -167,12 +165,51 @@ class Conversation:
         self.set_field("indices", indices)
         self.set_field("raw_documents", raw_documents)
         self.set_field("raw_documents_index", raw_documents_index)
+        self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self.save_local()
 
     
     # Make a method to get useful prior context and encapsulate all logic for getting prior context
     # Make a method to persist important details and encapsulate all logic for persisting important details in a function
-    
+
+    @property
+    def store_separate(self):
+        return ["indices", "raw_documents", "raw_documents_index", "memory", "messages", "uploaded_documents_list"]
+    def add_uploaded_document(self, pdf_url):
+        storage = os.path.join(self._storage, "uploaded_documents")
+        os.makedirs(storage, exist_ok=True)
+        keys = self.get_api_keys()
+        keys["mathpixKey"] = None
+        keys["mathpixId"] = None
+        doc_index: DocIndex = create_immediate_document_index(pdf_url, storage, keys)
+        doc_index._visible = False
+        doc_index.save_local()
+        doc_id = doc_index.doc_id
+        doc_storage = doc_index._storage
+        previous_docs = self.get_field("uploaded_documents_list")
+        previous_docs = previous_docs if previous_docs is not None else []
+        self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)])
+
+    def get_uploaded_documents(self, doc_id=None):
+        try:
+            doc_list = self.get_field("uploaded_documents_list")
+        except ValueError as e:
+            doc_list = None
+            self.set_field("uploaded_documents_list", [])
+        if doc_list is not None:
+            docs = [DocIndex.load_local(doc_storage) for doc_id, doc_storage in doc_list]
+        else:
+            docs = []
+        if doc_id is not None:
+            docs = [d for d in docs if d.doc_id == doc_id]
+        keys = self.get_api_keys()
+        for d in docs:
+            d.set_api_keys(keys)
+        return docs
+
+    def delete_uploaded_document(self, doc_id):
+        self.set_field("uploaded_documents_list", [d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id], overwrite=True)
+
     @staticmethod
     def load_local(folder):
         original_folder = folder
@@ -441,7 +478,16 @@ class Conversation:
             # Acquiring the lock so that we don't start another reply before previous is stored.
             pass
         query["messageText"] = query["messageText"].strip()
-        
+        # find all occurences which look as #doc_1 , #doc_2 and get the numbers at the end of the string from query["messageText"]
+        attached_docs = re.findall(r'#doc_\d+', query["messageText"])
+        attached_docs_names = attached_docs
+        attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
+        if len(attached_docs) > 0:
+            # assert that all elements of attached docs are greater than equal to 1.
+            uploaded_documents = self.get_uploaded_documents()
+            attached_docs = [d for d in attached_docs if d <= len(uploaded_documents) and d >= 1]
+            attached_docs = [uploaded_documents[d-1] for d in attached_docs]
+
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
         yield {"text": '', "status": "Getting prior chat context ..."}
@@ -462,21 +508,24 @@ class Conversation:
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
-        
+
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
         link_context = (
-            f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
-                summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this current query: '''{query['messageText']}'''"
+                           f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
+                               summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this current query: '''{query['messageText']}'''"
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
 
+        if len(attached_docs) > 0:
+            yield {"text": '', "status": "Reading your attached documents."}
+            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', provide_detailed_answers)
+            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', provide_detailed_answers, len(attached_docs)==0 and len(links)==0 and len(searches)==0)
         web_text = ''
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
@@ -526,6 +575,18 @@ class Conversation:
                     break
                 time.sleep(0.1)
             if len(doc_answer) > 0:
+                yield {"text": '', "status": "document reading completed"}
+            else:
+                yield {"text": '', "status": "document reading failed"}
+        conversation_docs_answer = ''
+        if len(attached_docs) > 0:
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (6 if provide_detailed_answers else 4))):
+                if conversation_docs_future.done():
+                    conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
+                    conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
+                    break
+                time.sleep(0.1)
+            if len(conversation_docs_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
                 yield {"text": '', "status": "document reading failed"}
@@ -611,13 +672,13 @@ class Conversation:
                 truncate_method = truncate_text_for_others
             else:
                 truncate_method = truncate_text_for_gpt3
-            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = truncate_method(
+            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3, conversation_docs_answer = truncate_method(
                 link_result_text, web_text, doc_answer, summary_text, previous_messages,
-                other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
-            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3 = format_llm_inputs(
+                other_relevant_messages, permanent_instructions, document_nodes, query["messageText"], conversation_docs_answer)
+            link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3, conversation_docs_answer = format_llm_inputs(
                 link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3,
-                other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3)
-            prompt = prompts.chat_fast_reply_prompt.format(query=query["messageText"], summary_text=summary_text_gpt3, previous_messages=previous_messages_gpt3, document_nodes=document_nodes_gpt3, permanent_instructions=permanent_instructions_gpt3, doc_answer=doc_answer_gpt3, web_text=web_text_gpt3, link_result_text=link_result_text_gpt3)
+                other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3, conversation_docs_answer)
+            prompt = prompts.chat_fast_reply_prompt.format(query=query["messageText"], summary_text=summary_text_gpt3, previous_messages=previous_messages_gpt3, document_nodes=document_nodes_gpt3, permanent_instructions=permanent_instructions_gpt3, doc_answer=doc_answer_gpt3, web_text=web_text_gpt3, link_result_text=link_result_text_gpt3, conversation_docs_answer=conversation_docs_answer)
             logger.info(
                 f"""Time to reply / Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
             last few messages length: {len(enc.encode(previous_messages_gpt3))}, document text length: {len(enc.encode(document_nodes_gpt3))}, 
@@ -654,7 +715,7 @@ class Conversation:
 
         new_line = "\n"
         summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
-        prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
+            prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
         other_relevant_messages = "\n".join(
             prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
@@ -686,12 +747,12 @@ Add more details that are not covered in the partial answer. Previous partial an
             partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
 Add more details that are not covered in the partial answer. Previous partial answer is given below.{new_line}'''{partial_answer}'''""" if partial_answer else ''
 
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes = truncate_method(
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer = truncate_method(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
-            other_relevant_messages, permanent_instructions, document_nodes, query["messageText"])
-        web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes = format_llm_inputs(
+            other_relevant_messages, permanent_instructions, document_nodes, query["messageText"], conversation_docs_answer)
+        web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes, conversation_docs_answer = format_llm_inputs(
             web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
-            other_relevant_messages, document_nodes)
+            other_relevant_messages, document_nodes, conversation_docs_answer)
         provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers and llm.use_gpt4 else ''
         other_relevant_messages = other_relevant_messages if llm2.use_gpt4 else ''
 
@@ -703,7 +764,7 @@ Add more details that are not covered in the partial answer. Previous partial an
                                                        document_nodes=document_nodes,
                                                        permanent_instructions=permanent_instructions,
                                                        doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text)
+                                                       link_result_text=link_result_text, conversation_docs_answer=conversation_docs_answer)
         yield {"text": '', "status": "starting answer generation"}
         logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
 last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 
@@ -807,7 +868,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
         return self.__copy__()
 
 
-def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes):
+def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes, conversation_docs_answer):
     web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
     Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
         web_text) > 0 else ""
@@ -825,7 +886,9 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instruct
     '''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
     document_nodes = f"""The documents that were read are as follows:
     '''{document_nodes}'''""" if len(document_nodes) > 0 else ''
-    return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes
+    conversation_docs_answer = f"""The documents that were read are as follows:
+    '''{conversation_docs_answer}'''""" if len(conversation_docs_answer) > 0 else ''
+    return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes, conversation_docs_answer
 
 def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
     enc = tiktoken.encoding_for_model("text-davinci-003")
@@ -841,32 +904,42 @@ def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_tex
     document_nodes = get_first_last_parts(document_nodes, 0, 3000 - used_len) if 3000 - used_len > 0 else ""
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 
-def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
+def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    ctx_len_allowed = 2000 - len(enc.encode(get_first_last_parts(previous_messages, 0, 750)))
-    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed)
-    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed)
-    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed)
-    summary_text = get_first_last_parts(summary_text, 0, 500)
+    l1 = (MODEL_TOKENS_SMART // 2)
+    l2 = (MODEL_TOKENS_SMART // 5.5)
+    l3 = (MODEL_TOKENS_SMART // 1.3)
+    l4 = (MODEL_TOKENS_SMART // 8)
+    ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(previous_messages, 0, l2)))
+    conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
+    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(conversation_docs_answer + user_message)))
+    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + conversation_docs_answer + user_message)))
+    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + web_text + conversation_docs_answer + user_message)))
+    summary_text = get_first_last_parts(summary_text, 0, l4)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
-    previous_messages = get_first_last_parts(previous_messages, 0, 750) if 2750 - used_len > 0 else ""
+    previous_messages = get_first_last_parts(previous_messages, 0, l2) if (l1 + l2) - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
 
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 3000 - used_len > 0 else ""
-    document_nodes = get_first_last_parts(document_nodes, 0, 3250 - used_len) if 3250 - used_len > 0 else ""
-    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
-def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if l3 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, (l3 + l4) - used_len) if (l3 + l4) - used_len > 0 else ""
+    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer
+def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-4")
-    ctx_len_allowed = 4500 - len(enc.encode(get_first_last_parts(previous_messages, 0, 1500)))
-    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message)))
-    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + user_message)))
-    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + user_message)))
-    summary_text = get_first_last_parts(summary_text, 0, 500)
+    l1 = (MODEL_TOKENS_SMART//2) + 500
+    l2 = (MODEL_TOKENS_SMART//5.5)
+    l3 = (MODEL_TOKENS_SMART//1.3)
+    l4 = (MODEL_TOKENS_SMART//8)
+    ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(previous_messages, 0, l2)))
+    conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
+    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message + conversation_docs_answer)))
+    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + user_message + conversation_docs_answer)))
+    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + user_message + conversation_docs_answer)))
+    summary_text = get_first_last_parts(summary_text, 0, l4)
     used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
-    previous_messages = get_first_last_parts(previous_messages, 0, 1500) if 4500 - used_len > 0 else ""
+    previous_messages = get_first_last_parts(previous_messages, 0, l2) if l1 - used_len > 0 else ""
     used_len = len(enc.encode(previous_messages)) + used_len
-    other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, 5500 - used_len) if 5500 - used_len > 0 else ""
+    other_relevant_messages = get_first_last_parts(other_relevant_messages, 0, l1 + l2 - used_len) if (l1 + l2) - used_len > 0 else ""
     used_len = len(enc.encode(other_relevant_messages)) + used_len
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 6000 - used_len > 0 else ""
-    document_nodes = get_first_last_parts(document_nodes, 0, 7000 - used_len) if 7000 - used_len > 0 else ""
-    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
+    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if l3 - used_len > 0 else ""
+    document_nodes = get_first_last_parts(document_nodes, 0, (l3 + l4) - used_len) if (l3 + l4) - used_len > 0 else ""
+    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer

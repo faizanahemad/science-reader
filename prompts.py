@@ -183,7 +183,7 @@ Response to the user's query:
 """,
             ),
             chat_slow_reply_prompt=PromptTemplate(
-                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "partial_answer_text", "provide_detailed_answers_text"],
+                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "partial_answer_text", "provide_detailed_answers_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now.
 Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query.
 {self.complex_output_instructions} 
@@ -195,6 +195,7 @@ user's query: "{{query}}"
 {{previous_messages}}
 {{other_relevant_messages}}
 {{document_nodes}}
+{{conversation_docs_answer}}
 {{permanent_instructions}}
 
 Answers from user's stored documents:
@@ -489,7 +490,7 @@ Response to the user's query:
             chat_slow_reply_prompt=PromptTemplate(
                 input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages",
                                  "document_nodes", "permanent_instructions", "doc_answer", "web_text",
-                                 "link_result_text", "partial_answer_text", "provide_detailed_answers_text"],
+                                 "link_result_text", "partial_answer_text", "provide_detailed_answers_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI.
 As an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query.
 {self.simple_output_instructions}
@@ -503,6 +504,7 @@ user's query: "{{query}}"
 {{previous_messages}}
 {{other_relevant_messages}}
 {{document_nodes}}
+{{conversation_docs_answer}}
 {{permanent_instructions}}
 
 Answers from user's stored documents:

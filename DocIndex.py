@@ -192,7 +192,8 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
 
 class DocIndex:
     def __init__(self, doc_source, doc_filetype, doc_type, doc_text, full_summary, openai_embed, storage):
-        
+
+        self._visible = False
         self.result_cutoff = 2
         self.version = 0
         self.last_access_time = time.time()
@@ -233,6 +234,10 @@ class DocIndex:
         self.set_doc_data("indices", None, indices)
         
         
+    @property
+    def visible(self):
+        return self._visible if hasattr(self, "_visible") else True
+
     def get_doc_data(self, top_key, inner_key=None,):
         import dill
         doc_id = self.doc_id
@@ -297,7 +302,7 @@ class DocIndex:
                     old_deep_reader_details = dict()
 
                 for k, v in old_deep_reader_details.items():
-                    if k.strip() == inner_key.strip():
+                    if inner_key is None or k.strip() == inner_key.strip():
                         continue
                     if v is not None and isinstance(v["text"], str)  and len(v["text"].strip()) > 0 and checkNoneOrEmpty(self.get_doc_data("deep_reader_data").get(k, dict()).get("text", None)):
                         self.set_doc_data("deep_reader_data", k, v)
@@ -347,8 +352,8 @@ class DocIndex:
                 tk = self.get_doc_data(top_key, None)
                 if top_key == "review_data" and isinstance(tk, dict):
                     tk = list(tk.values())
-                assert (type(tk) == type(value) or tk is None) or (isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
-                if tk is not None:
+                assert (type(tk) == type(value) or tk is None or value is None) or (isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
+                if tk is not None and type(tk) == type(value):
                     if isinstance(tk, dict) and not overwrite:
                         tk.update(value)
                     elif isinstance(tk, list) and not overwrite:
@@ -360,8 +365,10 @@ class DocIndex:
                     else:
                         tk = value
                     setattr(self, top_key, tk)
-                else:
+                elif tk is None and value is not None:
                     setattr(self, top_key, value)
+                else:
+                    setattr(self, top_key, None)
             if top_key not in ["indices", "_paper_details"]:
                 with open(json_filepath, "w") as f:
                     json.dump(getattr(self, top_key, None), f)
@@ -463,7 +470,7 @@ class DocIndex:
             mode = "web_search"
 
         if (mode == "detailed" or mode == "review"):
-            additional_info = get_async_future(call_contextual_reader, query, " ".join(self.get_doc_data("raw_data", "chunks")[:(TOKEN_LIMIT_FOR_DETAILED//LARGE_CHUNK_LEN)]), self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
+            additional_info = get_async_future(call_contextual_reader, query, ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED, 0)[0], self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
         llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=scan)
         self_hosted = llm.self_hosted_model_url is not None
         if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
@@ -586,7 +593,7 @@ class DocIndex:
         
     
     def get_short_info(self):
-        return dict(doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.get_doc_data("qna_data", "running_summary") if self.get_doc_data("qna_data", "running_summary") is not None else '')
+        return dict(visible=self.visible, doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.get_doc_data("qna_data", "running_summary") if self.get_doc_data("qna_data", "running_summary") is not None else '')
     
     @property
     def title(self):
@@ -598,6 +605,7 @@ class DocIndex:
             except Exception as e:
                 title = CallLLm(self.get_api_keys(), use_gpt4=False)(f"""Provide a title for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
             setattr(self, "_title", title)
+            self.save_local()
             return title
     
     @staticmethod
@@ -699,6 +707,7 @@ Detailed and comprehensive summary:
             except Exception as e:
                 short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"""Provide a summary for the below scientific text: \n'''{self.get_doc_data("raw_data", "chunks")[0] + ' ' + self.get_doc_data("raw_data", "chunks")[1]}''' \nInclude relevant keywords, the provided abstract and any search/seo friendly terms in your summary. \nSummary: \n""",)
             setattr(self, "_short_summary", short_summary)
+            self.save_local()
             return short_summary
         
     
@@ -1094,8 +1103,45 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
-    doc_text = PDFReaderTool(keys)(pdf_url.strip()).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-    chunks = ChunkText(doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''), LARGE_CHUNK_LEN, 64)
+    from langchain.document_loaders import UnstructuredMarkdownLoader
+    from langchain.document_loaders import JSONLoader
+    from langchain.document_loaders import UnstructuredHTMLLoader
+    from langchain.document_loaders.csv_loader import CSVLoader
+    from langchain.document_loaders import UnstructuredWordDocumentLoader
+    from langchain.document_loaders import TextLoader
+    # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
+    if pdf_url.endswith(".pdf"):
+        doc_text = PDFReaderTool(keys)(pdf_url.strip())
+    elif pdf_url.endswith(".docx"):
+        doc_text = UnstructuredWordDocumentLoader()(pdf_url.strip()).load()[0].page_content
+    elif pdf_url.endswith(".html"):
+        doc_text = UnstructuredHTMLLoader()(pdf_url.strip()).load()[0].page_content
+    elif pdf_url.endswith(".md"):
+        doc_text = UnstructuredMarkdownLoader()(pdf_url.strip()).load()[0].page_content
+    elif pdf_url.endswith(".json"):
+        doc_text = JSONLoader()(pdf_url.strip()).load()[0].page_content
+    elif pdf_url.endswith(".csv"):
+        doc_text = CSVLoader()(pdf_url.strip()).load()[0].page_content
+    elif pdf_url.endswith(".txt"):
+        doc_text = TextLoader()(pdf_url.strip()).load()[0].page_content
+    else:
+        try:
+            doc_text = PDFReaderTool(keys)(pdf_url.strip())
+        except Exception as e:
+            try:
+                doc_text = UnstructuredWordDocumentLoader()(pdf_url.strip()).load()[0].page_content
+            except Exception as e:
+                try:
+                    doc_text = UnstructuredHTMLLoader()(pdf_url.strip()).load()[0].page_content
+                except Exception as e:
+                    try:
+                        doc_text = UnstructuredMarkdownLoader()(pdf_url.strip()).load()[0].page_content
+                    except Exception as e:
+                        raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
+    
+        
+    doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    chunks = ChunkText(doc_text, LARGE_CHUNK_LEN, 64)
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
@@ -1109,7 +1155,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             "limitations_and_future_work" : {"id":"", "text":""},
         }
     }
-    nested_dict["small_chunks"] = ChunkText(doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''), SMALL_CHUNK_LEN, 32)
+    nested_dict["small_chunks"] = ChunkText(doc_text, SMALL_CHUNK_LEN, 32)
     openai_embed = get_embedding_model(keys)
     try:
         doc_index = ImmediateDocIndex(pdf_url, 
