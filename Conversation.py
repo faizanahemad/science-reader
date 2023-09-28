@@ -188,7 +188,9 @@ class Conversation:
         doc_storage = doc_index._storage
         previous_docs = self.get_field("uploaded_documents_list")
         previous_docs = previous_docs if previous_docs is not None else []
-        self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)])
+        # deduplicate on basis of doc_id
+        previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
+        self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)], overwrite=True)
 
     def get_uploaded_documents(self, doc_id=None):
         try:
@@ -486,7 +488,11 @@ class Conversation:
             # assert that all elements of attached docs are greater than equal to 1.
             uploaded_documents = self.get_uploaded_documents()
             attached_docs = [d for d in attached_docs if d <= len(uploaded_documents) and d >= 1]
-            attached_docs = [uploaded_documents[d-1] for d in attached_docs]
+            attached_docs: List[DocIndex] = [uploaded_documents[d-1] for d in attached_docs]
+            doc_infos = [d.title for d in attached_docs]
+            # replace each of the #doc_1, #doc_2 etc with the doc_infos
+            for i, d in enumerate(attached_docs_names):
+                query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
 
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])

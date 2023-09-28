@@ -282,14 +282,14 @@ var ChatManager = {
         documents.forEach(function(doc, index) {
             // Create buttons for each document
             var docButton = $('<button></button>')
-                .addClass('btn btn-outline-primary btn-sm')
+                .addClass('btn btn-outline-primary btn-sm mr-2')
                 .text(`#doc_${index + 1}`)
                 .attr('data-doc-id', doc.doc_id)
                 .attr('data-toggle', 'tooltip')
                 .attr('data-trigger', 'hover')
                 .attr('data-placement', 'top')
                 .attr('data-html', 'true')
-                .attr('title', `<b>${doc.title}</b>`).tooltip({delay: {show: 20}});
+                .attr('title', `<b>${doc.title}</br>${doc.source}</b>`).tooltip({delay: {show: 20}});
             // Create Delete 'x' Button
             var deleteButton = $('<i></i>')
                 .addClass('fa fa-times')
