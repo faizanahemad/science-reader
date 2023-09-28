@@ -828,6 +828,30 @@ def yield_with_condition(yield_value, condition_function, failure_call_back):
         return failure_call_back()
 
 
+def reformat_string(input_str):
+    words = input_str.split("\n")
+    corrected_words = []
+    prev_word_ended_sentence = False
+
+    for i, word in enumerate(words):
+        # If the previous word ended with a sentence-ending punctuation, then
+        # this newline is likely intentional.
+        if prev_word_ended_sentence:
+            corrected_words.append("\n")
+            prev_word_ended_sentence = False
+
+        # Check if this word ends with a sentence-ending punctuation.
+        if word.endswith(('.', '!', '?')):
+            prev_word_ended_sentence = True
+
+        if word in {',', '.', '!', '?', ';'}:
+            corrected_words[-1] += word
+        else:
+            corrected_words.append(word)
+
+    return " ".join(corrected_words)
+
+
 
 
 

@@ -285,8 +285,11 @@ var ChatManager = {
                 .addClass('btn btn-outline-primary btn-sm')
                 .text(`#doc_${index + 1}`)
                 .attr('data-doc-id', doc.doc_id)
-                .attr('title', doc.title); // Hover title
-                
+                .attr('data-toggle', 'tooltip')
+                .attr('data-trigger', 'hover')
+                .attr('data-placement', 'top')
+                .attr('data-html', 'true')
+                .attr('title', `<b>${doc.title}</b>`).tooltip({delay: {show: 20}});
             // Create Delete 'x' Button
             var deleteButton = $('<i></i>')
                 .addClass('fa fa-times')

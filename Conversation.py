@@ -509,6 +509,7 @@ class Conversation:
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
 
+        provide_detailed_answers = (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(searches) == 0) or provide_detailed_answers
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
@@ -521,7 +522,7 @@ class Conversation:
 
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
-            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
+            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers or len(attached_docs) <= 1, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
@@ -536,7 +537,8 @@ class Conversation:
 
         prior_context = self.retrieve_prior_context(
             query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
-        if provide_detailed_answers:
+        prior_detailed_context_future = None
+        if provide_detailed_answers and (len(links) + len(attached_docs) + len(additional_docs_to_read) != 1 or len(searches) > 0):
             prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
                                                              query["messageText"],
                                                              links=links if len(
@@ -720,7 +722,7 @@ class Conversation:
             prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
 
-        if provide_detailed_answers:
+        if provide_detailed_answers and prior_detailed_context_future is not None:
             prior_context = prior_detailed_context_future.result()
             previous_messages = prior_context["previous_messages"]
             summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
@@ -769,7 +771,7 @@ Add more details that are not covered in the partial answer. Previous partial an
         logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
 last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 
 permanent instructions length: {len(enc.encode(permanent_instructions))}, doc answer length: {len(enc.encode(doc_answer))}, web text length: {len(enc.encode(web_text))}, link result text length: {len(enc.encode(link_result_text))}""")
-        if (len(links)==1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers):
+        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers):
             text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -777,8 +779,17 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
-        if (len(links)==0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers):
+        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers):
             text = doc_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
+            yield {"text": text, "status": "answering in progress"}
+            answer += text
+            yield {"text": '', "status": "saving answer ..."}
+            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            return
+
+        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers):
+            text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
+            text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
@@ -906,10 +917,10 @@ def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_tex
 
 def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    l1 = (MODEL_TOKENS_SMART // 2)
-    l2 = (MODEL_TOKENS_SMART // 5.5)
-    l3 = (MODEL_TOKENS_SMART // 1.3)
-    l4 = (MODEL_TOKENS_SMART // 8)
+    l1 = int(MODEL_TOKENS_SMART // 2)
+    l2 = int(MODEL_TOKENS_SMART // 5.5)
+    l3 = int(MODEL_TOKENS_SMART // 1.3)
+    l4 = int(MODEL_TOKENS_SMART // 8)
     ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(previous_messages, 0, l2)))
     conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
     link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(conversation_docs_answer + user_message)))
@@ -925,10 +936,10 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-4")
-    l1 = (MODEL_TOKENS_SMART//2) + 500
-    l2 = (MODEL_TOKENS_SMART//5.5)
-    l3 = (MODEL_TOKENS_SMART//1.3)
-    l4 = (MODEL_TOKENS_SMART//8)
+    l1 = int((MODEL_TOKENS_SMART//2) + 500)
+    l2 = int(MODEL_TOKENS_SMART//5.5)
+    l3 = int(MODEL_TOKENS_SMART//1.3)
+    l4 = int(MODEL_TOKENS_SMART//8)
     ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(previous_messages, 0, l2)))
     conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
     link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message + conversation_docs_answer)))
