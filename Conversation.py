@@ -564,6 +564,7 @@ class Conversation:
 
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             read_links = re.findall(pattern, link_result_text)
+            read_links = list(set([link.strip() for link in read_links]))
             if len(all_docs_info) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
@@ -655,6 +656,7 @@ class Conversation:
             web_text = "\n\n".join(web_text_accumulator)
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
+            read_links = list(set([link.strip() for link in read_links]))
             if len(read_links) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
                 yield {"text": read_links, "status": "web search completed"}

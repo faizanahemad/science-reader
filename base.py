@@ -259,9 +259,9 @@ class CallLLmClaude:
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-        self.system = "<role>You are a helpful assistant. Please follow the instructions and respond to the user request. Provide detailed, comprehensive, informative and in-depth response. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
+        self.system = "<role>You are a helpful assistant. Please follow the instructions and respond to the user request. Provide detailed, comprehensive, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
         import boto3
-        self.bedrock = boto3.client(service_name='bedrock',
+        self.bedrock = boto3.client(service_name='bedrock-runtime',
                                region_name=os.getenv("AWS_REGION"),
                                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
                                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
@@ -272,7 +272,7 @@ class CallLLmClaude:
         response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
         if response.get('modelStreamErrorException') is not None or response.get('internalServerException') is not None:
             import boto3
-            self.bedrock = boto3.client(service_name='bedrock',
+            self.bedrock = boto3.client(service_name='bedrock-runtime',
                                         region_name=os.getenv("AWS_REGION"),
                                         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
                                         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
@@ -292,7 +292,7 @@ class CallLLmClaude:
 
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
 
-        body = json.dumps({"prompt": self.system + text, "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###"]})
+        body = json.dumps({"prompt": f"\n\nHuman: {self.system}\n\n{text}\n\n###\n\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###"]})
         accept = 'application/json'
         contentType = 'application/json'
         if self.use_gpt4:
