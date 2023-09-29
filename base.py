@@ -1321,7 +1321,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    doc_context = "You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
+    doc_context = f"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
     previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(
             previous_answer.strip()) > 10 else ''
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
@@ -1506,9 +1506,11 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
     web_text_accumulator = []
     full_info = []
     qu_st = time.time()
+    cut_off = 8 if provide_detailed_answers else 4
     while True:
         qu_wait = time.time()
-        if len(web_text_accumulator) >= 4 or (qu_wait - qu_st) > 30:
+        break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > 30
+        if break_condition and result_queue.empty():
             break
         one_web_result = result_queue.get()
         qu_et = time.time()

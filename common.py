@@ -31,8 +31,8 @@ SMALL_CHUNK_LEN = 192
 LARGE_CHUNK_LEN = 512
 TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
 TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 2800))
-MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 8000))
-MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 4000))
+MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 7500))
+MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 3500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 
 def is_int(s):
@@ -336,6 +336,8 @@ def check_if_stream_and_raise_exception(iterable_or_str):
         except Exception as e:
             # Here you could handle other exceptions.
             raise
+    elif isinstance(iterable_or_str, peekable):
+        return iterable_or_str
     else:
         # If it's not a string or a generator, raise an exception.
         raise ValueError("Unexpected input type.")

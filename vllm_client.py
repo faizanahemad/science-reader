@@ -55,6 +55,7 @@ def _post_http_request(prompt: str, api_url: str, temperature=0.7, max_tokens=No
     return response
 
 def get_streaming_vllm_response(prompt: str, api_url: str, temperature=0.7, max_tokens=2048, max_allowed_tokens=3000) -> Iterable[str]:
+    prompt = get_first_last_parts(prompt, 2000, 20000)
     if isinstance(max_tokens, int):
         response = _post_http_request(prompt, api_url, temperature, max_tokens)
     else:

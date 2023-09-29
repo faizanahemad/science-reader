@@ -1924,6 +1924,14 @@ $(document).ready(function() {
                             <input type="checkbox" class="form-check-input" id="score_this_review">
                             <label class="form-check-label" for="score_this_review">Score this Review</label>
                         </div>
+                        
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </form>
+        `)
+
+        var unused_var = `
                         <div class="form-check mr-3">
                             <input type="checkbox" class="form-check-input" id="use_previous_reviews">
                             <label class="form-check-label" for="use_previous_reviews">Use Previous Reviews</label>
@@ -1932,11 +1940,7 @@ $(document).ready(function() {
                             <input type="checkbox" class="form-check-input" id="is_meta_review">
                             <label class="form-check-label" for="is_meta_review">Is Meta Review</label>
                         </div>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">Submit</button>
-            </form>
-        `)
+        `
 
         if (activeDocId === null || activeDocId === undefined) {
             return;
@@ -2030,8 +2034,10 @@ $(document).ready(function() {
             var tone = $("input[name='tone']:checked").val();
             var additional_instructions = $('#additional_instructions').val();
             var score_this_review = $('#score_this_review').is(":checked") ? 1 : 0;
-            var use_previous_reviews = $('#use_previous_reviews').is(":checked") ? 1 : 0;
-            var is_meta_review = $('#is_meta_review').is(":checked") ? 1 : 0;
+            // var use_previous_reviews = $('#use_previous_reviews').is(":checked") ? 1 : 0;
+            var use_previous_reviews = 0
+            // var is_meta_review = $('#is_meta_review').is(":checked") ? 1 : 0;
+            var is_meta_review = 0
         
             var write_review_url = '/write_review/' + doc_id + '/' + tone +
                 '?review_topic=' + review_topic +
@@ -2040,17 +2046,8 @@ $(document).ready(function() {
                 '&use_previous_reviews=' + use_previous_reviews +
                 '&is_meta_review=' + is_meta_review;
         
-            let response = await fetch(write_review_url);
-        
-            if (!response.ok) {
-                alert('An error occurred: ' + response.status);
-                return;
-            }
-        
-            let reader = response.body.getReader();
-            let decoder = new TextDecoder();
-        
-            let card = $('<div>').addClass('card');
+            
+            let card = $('<div>').addClass('card').addClass('review-card');
             let cardBody = $('<div>').addClass('card-body');
             card.append(cardBody);
             var cardHeader = $(`
@@ -2081,13 +2078,24 @@ $(document).ready(function() {
 
             let reviewParagraph = $('<p>').addClass('card-text').attr('id', 'main-review-paragraph');
             cardBody.append(reviewParagraph);
-
-            $('#write_review').append(card);
+            
+            let first_review_card = $('.review-card:first');
+            if (first_review_card.length > 0){
+                first_review_card.before(card);
+            } else {
+                $('#write_review').append(card);
+            }
             $('#review-loading-spinner').css('display', 'block');
+            let response = await fetch(write_review_url);
+            if (!response.ok) {
+                alert('An error occurred: ' + response.status);
+                return;
+            }
             renderInnerContentAsMarkdown(cardHeader, function(){
                 showMore(null, text=null, textElem=cardHeader, as_html=true, show_at_start=true);
             });
-        
+            let reader = response.body.getReader();
+            let decoder = new TextDecoder();
             let review = "";
             var content_length = 0;
             while (true) {
@@ -2095,6 +2103,8 @@ $(document).ready(function() {
                 if (done) {
                     $('#review-loading-spinner').css('display', 'none');
                     break;
+                } else {
+                    $('#review-loading-spinner').css('display', 'block');
                 }
                 let part = decoder.decode(value);
                 reviewParagraph.append(part);

@@ -1,5 +1,6 @@
 review_params = {
-    "review_parameters_small" : [
+"review_simple" : "As a reviewer, your primary role is to provide a thoughtful and fair evaluation of the paper or research submitted. Start by understanding the research's objectives, methodology, results, and implications. Ensure that it offers clarity, originality, and contributes significantly to the field. Evaluate the validity of the experimental design, the robustness of the data analysis, and the transparency of the methods used. Look for potential impacts of the research on the field and society at large. Verify ethical considerations, scientific integrity, diversity, and inclusivity aspects. Lastly, review the overall presentation, including the writing style, structure, visual aids, and identification of limitations. Keep your comments constructive, focusing on both the strengths and weaknesses of the paper, and always remember the importance of your role in maintaining the high quality of scientific discourse.",
+    "fine_grained_reviews" : [
         ("Understanding the Research", "Begin by familiarizing yourself with the study's objectives, hypotheses, methodology, and results. Look for clarity, originality, and a significant contribution to the field. Consider the research's relevancy to real-world scenarios and its potential interdisciplinary implications. Do the methods align well with the objectives? Are the theory or models used sound and correct? Ensure to review the literature cited and check if it covers all relevant prior work. Finally, evaluate your confidence as a reviewer."),
 
         ("Analyzing the Research Design and Data", "Investigate the research's experimental design, data analysis, and reproducibility. Assess the complexity and novelty of the methods used. Ensure the experiments test the research questions appropriately and that the results can be generalized. Look for clear, accurate, and effective visual presentations of data. In terms of data transparency, all methods should be clearly explained, and data should be readily available. Check for robustness of results and propose improvements or alternative approaches, if necessary."),
@@ -10,87 +11,87 @@ review_params = {
 
         ("Reviewing the Presentation and Writing", "Review the overall presentation of the paper. Is the writing clear, concise, and well-organized? Does the narrative structure help you understand and follow the research process? Are tables, figures, and other visual aids well-designed and easy to interpret? Identify the strengths and weaknesses of the paper, including clarity, methodology, data analysis, and interpretation of results. Make sure that the paper identifies its own limitations and discuss their impact on the findings."),
     ],
-    "review_parameters_medium": [
-        ("Contribution to the Field", "Does the research present novel findings, ideas, or approaches?"),
-
-        ("Methodology and Experimental Design",
-         "How appropriate and valid are the methods used? Are the experimental setup and data analysis rigorous and reliable?"),
-
-        ("Data Analysis", "How is the statistical analysis handled?"),
-
-        ("Relevance and Significance",
-         "Does the research address an important and relevant problem in the field? What is its potential impact?"),
-
-        ("Citations and References",
-         "Is there an appropriate citation of previous work? How is the quality and relevance of the references?"),
-
-        ("Ethical Considerations", "Are ethical standards and guidelines upheld in the research?"),
-
-        ("Reproducibility",
-         "Does the paper provide sufficient information for replication of the results or reproduction of the experiments?"),
-
-        ("Hypothesis and Objectives", "Is the research question or hypothesis clear and valuable?"),
-
-        ("Contextualisation",
-         "Is the problem or research question well situated within the broader scientific discourse?"),
-
-        ("Use of Theories or Frameworks",
-         "Is there an effective use of existing theories or frameworks to structure the research?"),
-
-        ("Results and Interpretation", "Are the results clear and are their conclusions justified by the data?"),
-
-        ("Robustness Checks",
-         "Does the paper provide checks for its main results to see if they hold under different assumptions or slight changes in the methodology?"),
-
-        ("Visual Presentation of Data",
-         "How clear and effective are the graphs, tables, and other visual presentations of data?"),
-
-        ("Discussion and Implications",
-         "Are the results considered in the wider context of the field? Are implications for future research clearly outlined?"),
-
-        ("Identified Limitations",
-         "Are the limitations of the paper and their impact on the findings and interpretations clearly outlined?"),
-
-        ("Scientific Rigour and Integrity",
-         "Does the paper adhere to principles such as the appropriate use of statistics, transparent reporting of methods and data, declaration of conflicts of interest?"),
-
-        ("Importance and Application",
-         "How significant is the research? Is it addressing a critical problem? Can the results be applied in practice or further research?"),
-
-        ("Strength and Weakness", "What are the strong and weak points of the paper?"),
-
-        ("Theoretical Validity",
-         "Is the theory or model used in the research sound, logical, and based on established scientific principles?"),
-
-        ("Novelty", "Is the study introducing a new concept, theory, methodology, or application?"),
-
-        ("Complexity of Methods and Experiments", "Are they appropriately complex given the problem at hand?"),
-
-        ("Experimental Validity",
-         "Do the experiments effectively test the research question or hypothesis? Can the results be generalized?"),
-
-        ("Literature Review", "Is the review thorough and up-to-date?"),
-
-        ("Suggestions for Improvement", "Are there potential improvements that can be made?"),
-
-        ("Transparency of Data and Methods", "Are the methods and data clearly explained and available?"),
-
-        ("Relevance of Discussion and Conclusion", "Are they directly relevant to the research question and results?"),
-
-        ("Applicability to Real-World Scenarios", "Can the research findings be applied in real-world contexts?"),
-
-        ("Reviewer's Confidence", "Is the reviewer familiar with the field and the paper's proposed ideas?"),
-
-        ("Proposal of Alternative Approaches",
-         "Are there any alternative approaches proposed to overcome identified weaknesses or limitations?"),
-
-        ("Interdisciplinary Relevance", "Is the research relevant to other fields of study?"),
-
-        ("Diversity and Inclusion", "Does the research promote diversity and inclusion?"),
-
-        ("Environmental and Social Impact", "What are the potential environmental and social impacts of the research?"),
-
-    ],
+    # "review_parameters_medium": [
+    #     ("Contribution to the Field", "Does the research present novel findings, ideas, or approaches?"),
+    #
+    #     ("Methodology and Experimental Design",
+    #      "How appropriate and valid are the methods used? Are the experimental setup and data analysis rigorous and reliable?"),
+    #
+    #     ("Data Analysis", "How is the statistical analysis handled?"),
+    #
+    #     ("Relevance and Significance",
+    #      "Does the research address an important and relevant problem in the field? What is its potential impact?"),
+    #
+    #     ("Citations and References",
+    #      "Is there an appropriate citation of previous work? How is the quality and relevance of the references?"),
+    #
+    #     ("Ethical Considerations", "Are ethical standards and guidelines upheld in the research?"),
+    #
+    #     ("Reproducibility",
+    #      "Does the paper provide sufficient information for replication of the results or reproduction of the experiments?"),
+    #
+    #     ("Hypothesis and Objectives", "Is the research question or hypothesis clear and valuable?"),
+    #
+    #     ("Contextualisation",
+    #      "Is the problem or research question well situated within the broader scientific discourse?"),
+    #
+    #     ("Use of Theories or Frameworks",
+    #      "Is there an effective use of existing theories or frameworks to structure the research?"),
+    #
+    #     ("Results and Interpretation", "Are the results clear and are their conclusions justified by the data?"),
+    #
+    #     ("Robustness Checks",
+    #      "Does the paper provide checks for its main results to see if they hold under different assumptions or slight changes in the methodology?"),
+    #
+    #     ("Visual Presentation of Data",
+    #      "How clear and effective are the graphs, tables, and other visual presentations of data?"),
+    #
+    #     ("Discussion and Implications",
+    #      "Are the results considered in the wider context of the field? Are implications for future research clearly outlined?"),
+    #
+    #     ("Identified Limitations",
+    #      "Are the limitations of the paper and their impact on the findings and interpretations clearly outlined?"),
+    #
+    #     ("Scientific Rigour and Integrity",
+    #      "Does the paper adhere to principles such as the appropriate use of statistics, transparent reporting of methods and data, declaration of conflicts of interest?"),
+    #
+    #     ("Importance and Application",
+    #      "How significant is the research? Is it addressing a critical problem? Can the results be applied in practice or further research?"),
+    #
+    #     ("Strength and Weakness", "What are the strong and weak points of the paper?"),
+    #
+    #     ("Theoretical Validity",
+    #      "Is the theory or model used in the research sound, logical, and based on established scientific principles?"),
+    #
+    #     ("Novelty", "Is the study introducing a new concept, theory, methodology, or application?"),
+    #
+    #     ("Complexity of Methods and Experiments", "Are they appropriately complex given the problem at hand?"),
+    #
+    #     ("Experimental Validity",
+    #      "Do the experiments effectively test the research question or hypothesis? Can the results be generalized?"),
+    #
+    #     ("Literature Review", "Is the review thorough and up-to-date?"),
+    #
+    #     ("Suggestions for Improvement", "Are there potential improvements that can be made?"),
+    #
+    #     ("Transparency of Data and Methods", "Are the methods and data clearly explained and available?"),
+    #
+    #     ("Relevance of Discussion and Conclusion", "Are they directly relevant to the research question and results?"),
+    #
+    #     ("Applicability to Real-World Scenarios", "Can the research findings be applied in real-world contexts?"),
+    #
+    #     ("Reviewer's Confidence", "Is the reviewer familiar with the field and the paper's proposed ideas?"),
+    #
+    #     ("Proposal of Alternative Approaches",
+    #      "Are there any alternative approaches proposed to overcome identified weaknesses or limitations?"),
+    #
+    #     ("Interdisciplinary Relevance", "Is the research relevant to other fields of study?"),
+    #
+    #     ("Diversity and Inclusion", "Does the research promote diversity and inclusion?"),
+    #
+    #     ("Environmental and Social Impact", "What are the potential environmental and social impacts of the research?"),
+    #
+    # ],
     # "review_parameters_large" : [
     #     ("Contribution to the field", "Evaluate the paper's contribution to the existing body of knowledge in the field. Assess whether it presents new findings, ideas, or approaches."),
     #
@@ -182,13 +183,11 @@ review_params = {
     #
     #     ("Environmental and Social Impact", "Consider whether the research has potential environmental and social impacts. How does the research relate to broader societal goals, like the Sustainable Development Goals or the climate change agenda? If the research could have negative environmental or social impacts, are these addressed and mitigated?"),
     # ],
+    "review_with_additional_instructions": "As a reviewer, your primary role is to provide a thoughtful and fair evaluation of the paper or research submitted. Follow any instructions given which suggest how to do this review.",
 
-    "simple_review_with_additional_instructions": "As a reviewer, your primary role is to provide a thoughtful and fair evaluation of the paper or research submitted. Follow any instructions given which suggest how to do this review.",
-    "review_overall_simple" : "As a reviewer, your primary role is to provide a thoughtful and fair evaluation of the paper or research submitted. Start by understanding the research's objectives, methodology, results, and implications. Ensure that it offers clarity, originality, and contributes significantly to the field. Evaluate the validity of the experimental design, the robustness of the data analysis, and the transparency of the methods used. Look for potential impacts of the research on the field and society at large. Verify ethical considerations, scientific integrity, diversity, and inclusivity aspects. Lastly, review the overall presentation, including the writing style, structure, visual aids, and identification of limitations. Keep your comments constructive, focusing on both the strengths and weaknesses of the paper, and always remember the importance of your role in maintaining the high quality of scientific discourse.",
     "meta_review" : "As a meta-reviewer or area chair, your primary role is to provide a thoughtful and fair synthesis of the reviews submitted. Read the research work given along with the provided reviews written by reviewers to provide your meta review which gathers all the views presented in the reviews given. Start by understanding the research's objectives, methodology, results, and implications. Ensure that it offers clarity, originality, and contributes significantly to the field. Evaluate the validity of the experimental design, the robustness of the data analysis, and the transparency of the methods used. Look for potential impacts of the research on the field and society at large. Verify ethical considerations, scientific integrity, diversity, and inclusivity aspects. Lastly, review the overall presentation, including the writing style, structure, visual aids, and identification of limitations. Keep your comments constructive, focusing on both the strengths and weaknesses of the paper, and always remember the importance of your role in maintaining the high quality of scientific discourse.",
 
-    "review_accept_decision" : "You were reviewing a paper and you have decided that the paper should have accept decision for the conference. Your goal is to convey the acceptance of a paper effectively and respectfully. Start by familiarizing yourself with the paper's main objectives, methodology, and key findings. Highlight the novelty of the research, its contribution to the field, and the potential impact it may have. Acknowledge the strengths of the paper as identified by the reviewers and the area chair, and detail these in a concise manner. When discussing the paper's limitations, focus on how they can be addressed in future research rather than as shortcomings. Your communication should reinforce the paper's value, acknowledge the efforts of the authors, and express optimism about its potential to further the knowledge in the field.",
-
-    "review_reject_decision" : "You were reviewing a paper and you have decided that the paper should have reject decision for the conference. Your task is to communicate the reject decision in a constructive and empathetic manner. Read the paper thoroughly to understand its main ideas and aims. Highlight the areas of concern identified by the reviewers and the area chair, focusing on the shortcomings in methodology, data analysis, or theoretical framework. Frame these not as failures, but as areas for improvement, providing specific examples where possible. Also, emphasize the potential of the study, suggesting how future work could address these issues. Ensure your communication is clear, respectful, and encourages the authors to continue refining their work for future submissions. Always remember your role is not just to communicate a decision, but also to aid authors in their scientific journey.",
+    # "review_accept_decision" : "You were reviewing a paper and you have decided that the paper should have accept decision for the conference. Your goal is to convey the acceptance of a paper effectively and respectfully. Start by familiarizing yourself with the paper's main objectives, methodology, and key findings. Highlight the novelty of the research, its contribution to the field, and the potential impact it may have. Acknowledge the strengths of the paper as identified by the reviewers and the area chair, and detail these in a concise manner. When discussing the paper's limitations, focus on how they can be addressed in future research rather than as shortcomings. Your communication should reinforce the paper's value, acknowledge the efforts of the authors, and express optimism about its potential to further the knowledge in the field.",
+    # "review_reject_decision" : "You were reviewing a paper and you have decided that the paper should have reject decision for the conference. Your task is to communicate the reject decision in a constructive and empathetic manner. Read the paper thoroughly to understand its main ideas and aims. Highlight the areas of concern identified by the reviewers and the area chair, focusing on the shortcomings in methodology, data analysis, or theoretical framework. Frame these not as failures, but as areas for improvement, providing specific examples where possible. Also, emphasize the potential of the study, suggesting how future work could address these issues. Ensure your communication is clear, respectful, and encourages the authors to continue refining their work for future submissions. Always remember your role is not just to communicate a decision, but also to aid authors in their scientific journey.",
     "scores" : [(1, "reject"), (2, "weak reject"), (3, "neutral"), (4, "weak accept"), (5, "accept")]
 }

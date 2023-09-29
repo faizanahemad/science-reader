@@ -530,6 +530,8 @@ def add_user_question_feedback():
 def write_review(doc_id, tone):
     keys = keyParser(session)
     email, name, _ = check_login(session)
+    if tone == 'undefined':
+        tone = "none"
     assert tone in ["positive", "negative", "neutral", "none"]
     review_topic = request.args.get('review_topic') # Has top level key and then an index variable
     review_topic = review_topic.split(",")

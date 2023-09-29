@@ -216,22 +216,20 @@ Response to the user's query:
             ),
             web_search_prompt=PromptTemplate(
                 input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
-                template="""You are given a question and conversation context as below.
-'''{context}
-{doc_context}'''
-We want to generate web search queries to search the web for more information about the query.
-{previous_answer}
+                template="""<task>Your task is to generate web search queries for a given document and conversation context.</task>
+You are given a question and conversation context as below.
+'''
+{context}
+{doc_context}
+'''
+Generate web search queries to search the web for more information about the user query. {previous_answer}
 {pqs}
-
 Generate {n_query} well specified and diverse web search queries as a valid python list. 
 Instructions for how to generate the queries are given below.
-1. Generate diverse web search queries which break down the actual question into smaller parts. 
-2. Each generated query must be different from others and diverse from each other. 
-3. Output should be only a python list of strings (a valid python syntax code which is a list of strings) with {n_query} queries.
-4. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
-5. Convert abbreviations to full forms and correct typos in the query using the given context.
-6. Your output will look like a python list of strings like below.
-["query_1", "different_web_query_2", "diverse_web_query_3", "part_of_query_web_query_4"]
+1. Generate diverse web search queries which break down the actual question into smaller parts. Each generated query must be different from others. 
+2. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
+3. Your output will look like a python list of strings like below.
+["query based on given document", "different_web_query based on the document and conversation", "diverse_web_query based on question and conversation context", "web_query_4 based for the given task based on question and conversation."]
 
 Output only a valid python list of web search query strings.
 """,
@@ -260,21 +258,19 @@ Output only a valid python list of web search query strings.
             ),
             web_search_question_answering_prompt=PromptTemplate(
                 input_variables=["query", "answer", "additional_info"],
-                template=f"""Continue writing answer to a question or instruction which is partially answered. Provide new details from the additional information provided, don't repeat information from the partial answer already given.
+                template=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>
 Question is given below:
 "{{query}}"
-
-Relevant additional information from other documents with url links, titles and document context are mentioned below:
+Relevant additional information with url links, titles and document context are mentioned below:
 "{{additional_info}}"
 
-
-Continue the answer ('Answer till now') by incorporating additional information from other documents. 
+Continue the answer ('Answer till now' if it is not empty) by incorporating additional information from other documents. 
 Answer by thinking of Multiple different angles that 'the original question or request' can be answered with. Focus mainly on additional information from other documents. Provide the link and title before using their information in markdown format (like `[title](link) information from document`) for the documents you use in your answer.
 
 {self.complex_output_instructions}
 Question: '''{{query}}'''
-Answer till now (partial answer): '''{{answer}}'''
-Write continued answer using additional information below.
+Answer till now (partial answer, can be empty): '''{{answer}}'''
+Write answer using additional information below.
 """,
             ),
 
