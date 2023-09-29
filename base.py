@@ -241,7 +241,7 @@ class CallLLmClaude:
     def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.self_hosted_model_url = None
+        self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_basic_models = ["anthropic.claude-instant-v1"]
         openai_gpt4_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
         openai_turbo_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
@@ -259,7 +259,7 @@ class CallLLmClaude:
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-        self.system = "<role>You are a helpful assistant. Please follow the instructions and respond to the user request. Provide detailed, comprehensive, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
+        self.system = "<role>You are a helpful research and reading assistant. Please follow the instructions and respond to the user request. Always provide detailed, comprehensive, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
         import boto3
         self.bedrock = boto3.client(service_name='bedrock-runtime',
                                region_name=os.getenv("AWS_REGION"),
@@ -269,6 +269,8 @@ class CallLLmClaude:
 
 
     def call_claude(self, modelId, body):
+        from botocore.exceptions import EventStreamError
+        # raise EventStreamError(dict(), "test-error-for-checking-vllm-backup")
         response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
         if response.get('modelStreamErrorException') is not None or response.get('internalServerException') is not None:
             import boto3
@@ -290,11 +292,19 @@ class CallLLmClaude:
                         text = text + "\nOutput truncated due to lack of context Length."
                     yield text
 
+    @retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(4))
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
-
-        body = json.dumps({"prompt": f"\n\nHuman: {self.system}\n\n{text}\n\n###\n\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###"]})
+        from botocore.exceptions import EventStreamError
+        text = f"{self.system}\n\n{text}\n"
+        body = json.dumps({"prompt": f"\n\nHuman: {text}\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###", "Human:", "human:"]})
         accept = 'application/json'
         contentType = 'application/json'
+        vllmUrl = self.self_hosted_model_url
+        def vllmBackup(*args, **kwargs):
+            return get_streaming_vllm_response(text, vllmUrl, temperature=temperature, max_tokens=max_tokens)
+
+        logger.info(
+            f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
         if self.use_gpt4:
             assert len(self.gpt4_enc.encode(text)) < 8000
             modelId = next(round_robin(self.openai_gpt4_models))
@@ -306,7 +316,7 @@ class CallLLmClaude:
         else:
             assert len(self.gpt4_enc.encode(text)) < 8000
             modelId = next(round_robin(self.openai_turbo_models))
-        return call_with_stream(self.call_claude, stream, modelId, body)
+        return call_with_stream(self.call_claude, stream, modelId, body, backup_function=vllmBackup if vllmUrl is not None else None)
 
 
 class CallLLmGpt:
@@ -766,8 +776,8 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide detailed, comprehensive, informative and in-depth response covering the entire details. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write detailed, comprehensive, informative and in depth"
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Always provide detailed, comprehensive, informative and in-depth response covering the entire details. \n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write detailed, comprehensive, informative and in depth"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an AI expert in question answering. {long_or_short}

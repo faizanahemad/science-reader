@@ -287,6 +287,19 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
             raise e
     is_generator = inspect.isgenerator(res)
     if is_generator:
+        try:
+            res = check_if_stream_and_raise_exception(res)
+        except Exception as e:
+            # check if exception is not StopIteration
+            try:
+                from botocore.exceptions import EventStreamError
+                if not isinstance(e, StopIteration) and isinstance(e, EventStreamError) and backup is not None:
+                    res = backup(*args, **kwargs)
+                else:
+                    raise e
+            except Exception as j:
+                raise e
+    if is_generator:
         res = check_if_stream_and_raise_exception(res)
     if do_stream and not is_generator:
         assert isinstance(res, (str, list, tuple))

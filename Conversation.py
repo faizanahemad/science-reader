@@ -147,8 +147,6 @@ class Conversation:
         folder = os.path.join(storage, f"{self.conversation_id}")
         self._storage = folder
         os.makedirs(folder, exist_ok=True)
-        self.running_summary_length_limit = 1000
-        self.last_message_length_limit = 1000
         memory = {  "title": 'Start the Conversation',
                     "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
@@ -471,6 +469,7 @@ class Conversation:
         # TODO: post-critique and improve
         # TODO: Use gpt-3.5-16K for longer contexts as needed.
         # query payload below, actual query is the messageText
+        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         lock_location = self._get_lock_location()
@@ -909,19 +908,7 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instruct
     '''{conversation_docs_answer}'''""" if len(conversation_docs_answer) > 0 else ''
     return web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages, other_relevant_messages, document_nodes, conversation_docs_answer
 
-def truncate_text_for_others(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message):
-    enc = tiktoken.encoding_for_model("text-davinci-003")
-    link_result_text = get_first_last_parts(link_result_text, 0, 1200)
-    web_text = get_first_last_parts(web_text, 0, 1200)
-    doc_answer = get_first_last_parts(doc_answer, 0, 1200)
-    summary_text = get_first_last_parts(summary_text, 0, 400)
-    used_len = len(enc.encode(summary_text + link_result_text + web_text + doc_answer + user_message))
-    previous_messages = get_first_last_parts(previous_messages, 0, 2250 - used_len) if 2250 - used_len > 0 else ""
-    used_len = len(enc.encode(previous_messages)) + used_len
 
-    permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if 2500 - used_len > 0 else ""
-    document_nodes = get_first_last_parts(document_nodes, 0, 3000 - used_len) if 3000 - used_len > 0 else ""
-    return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes
 
 def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
@@ -962,3 +949,5 @@ def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text,
     permanent_instructions = get_first_last_parts(permanent_instructions, 0, 250) if l3 - used_len > 0 else ""
     document_nodes = get_first_last_parts(document_nodes, 0, (l3 + l4) - used_len) if (l3 + l4) - used_len > 0 else ""
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer
+
+truncate_text_for_others = truncate_text_for_gpt4

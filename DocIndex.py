@@ -458,7 +458,7 @@ class DocIndex:
         elif mode["scan"]:
             mode = "detailed"
             scan = True
-            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer. Provide as much detail and depth as possible.\n\n"
+            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer. Remember to provide as much detail, information and depth as possible.\n\n"
         else:
             mode = None
 
