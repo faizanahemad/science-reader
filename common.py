@@ -34,6 +34,25 @@ TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 2800))
 MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 7500))
 MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 3500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
+PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
+
+import requests
+import os
+
+def convert_doc_to_pdf(file_path, output_path):
+    api_url = PDF_CONVERT_URL
+    with open(file_path, 'rb') as f:
+        files = {'files': (os.path.basename(file_path), f)}
+        payload = {'pdfFormat': 'PDF/A-1a'}
+        r = requests.post(api_url, files=files, data=payload)
+        if r.status_code == 200:
+            with open(output_path, 'wb') as out_file:
+                out_file.write(r.content)
+            return True
+        else:
+            print(f"Conversion failed with status code {r.status_code}")
+            return False
+
 
 def is_int(s):
     try:

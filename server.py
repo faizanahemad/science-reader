@@ -37,7 +37,7 @@ from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed, \
-    verify_openai_key_and_fetch_models
+    verify_openai_key_and_fetch_models, convert_doc_to_pdf
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -1002,20 +1002,36 @@ def upload_pdf():
     pdf_file = request.files.get('pdf_file')
     if pdf_file:
         try:
-            # save file to disk at pdfs_dir.
-            pdf_file.save(os.path.join(pdfs_dir, pdf_file.filename))
-            
-            # lets get the full path of the file
-            full_pdf_path = os.path.join(pdfs_dir, pdf_file.filename)
-            
-            doc_index = immediate_create_and_save_index(full_pdf_path, keys)
+            # Determine the file extension
+            file_ext = os.path.splitext(pdf_file.filename)[1]
+
+            # Save the original file first
+            original_file_path = os.path.join(pdfs_dir, pdf_file.filename)
+            pdf_file.save(original_file_path)
+
+            if file_ext in ['.doc', '.docx']:
+                # Convert to PDF
+                pdf_filename = os.path.splitext(pdf_file.filename)[0] + ".pdf"
+                pdf_file_path = os.path.join(pdfs_dir, pdf_filename)
+
+                if not convert_doc_to_pdf(original_file_path, pdf_file_path):
+                    return jsonify({'error': 'Conversion to PDF failed'}), 400
+            else:
+                pdf_file_path = original_file_path
+
+            # Create and save index
+            doc_index = immediate_create_and_save_index(pdf_file_path, keys)
+
             addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
-            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
+            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id,
+                            "properly_indexed": doc_index.doc_id in indexed_docs})
+
         except Exception as e:
             traceback.print_exc()
             return jsonify({'error': str(e)}), 400
     else:
         return jsonify({'error': 'No pdf_file provided'}), 400
+
 
 @app.route('/upload_doc_to_conversation/<conversation_id>', methods=['POST'])
 @limiter.limit("10 per minute")
