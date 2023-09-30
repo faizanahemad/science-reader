@@ -1121,17 +1121,17 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     if pdf_url.endswith(".pdf"):
         doc_text = PDFReaderTool(keys)(pdf_url.strip())
     elif pdf_url.endswith(".docx"):
-        doc_text = UnstructuredWordDocumentLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredWordDocumentLoader(pdf_url.strip()).load()[0].page_content
     elif pdf_url.endswith(".html"):
-        doc_text = UnstructuredHTMLLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredHTMLLoader(pdf_url.strip()).load()[0].page_content
     elif pdf_url.endswith(".md"):
-        doc_text = UnstructuredMarkdownLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredMarkdownLoader(pdf_url.strip()).load()[0].page_content
     elif pdf_url.endswith(".json"):
-        doc_text = JSONLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = JSONLoader(pdf_url.strip()).load()[0].page_content
     elif pdf_url.endswith(".csv"):
-        doc_text = CSVLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = CSVLoader(pdf_url.strip()).load()[0].page_content
     elif pdf_url.endswith(".txt"):
-        doc_text = TextLoader()(pdf_url.strip()).load()[0].page_content
+        doc_text = TextLoader(pdf_url.strip()).load()[0].page_content
     else:
         try:
             doc_text = PDFReaderTool(keys)(pdf_url.strip())
