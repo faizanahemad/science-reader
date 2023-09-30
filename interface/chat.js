@@ -229,7 +229,8 @@ var ChatManager = {
         // Handle file selection
         doc_modal.find('#pdf-file').off().on('change', function(e) {
             var file = $(this)[0].files[0];  // Get the selected file
-            if (file && file.type === 'application/pdf') {
+            // check pdf or doc docx
+            if (file && (file.type === 'application/pdf' || file.type === 'application/msword' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
                 uploadFile(file);  // Call the file upload function
             }
         });
@@ -249,8 +250,8 @@ var ChatManager = {
             // Check if the dropped item is a file
             if (e.originalEvent.dataTransfer.items) {
                 for (var i = 0; i < e.originalEvent.dataTransfer.items.length; i++) {
-                    // If the dropped item is a file and it's a PDF
-                    if (e.originalEvent.dataTransfer.items[i].kind === 'file' && e.originalEvent.dataTransfer.items[i].type === 'application/pdf') {
+                    // If the dropped item is a file and it's a PDF, word doc docx
+                    if (e.originalEvent.dataTransfer.items[i].kind === 'file' && (e.originalEvent.dataTransfer.items[i].type === 'application/pdf' || e.originalEvent.dataTransfer.items[i].type === 'application/msword' || e.originalEvent.dataTransfer.items[i].type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
                         var file = e.originalEvent.dataTransfer.items[i].getAsFile();
                         uploadFile(file);  // Call the file upload function
                     }
