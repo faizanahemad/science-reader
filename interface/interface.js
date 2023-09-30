@@ -1,3 +1,44 @@
+async function responseWaitAndSuccessChecker(url, responsePromise) {
+    // Set a timeout for the API call
+    const apiTimeout = setTimeout(() => {
+        alert(`The API at ${url} took too long to respond. Reloading the page is advised.`);
+        // Reload the page after 5 seconds
+        setTimeout(() => {
+            location.reload();
+        }, 6000);
+    }, 30000);  // 1 minute timeout
+
+    try {
+        // Wait for the API response
+        const response = await responsePromise;
+
+        // Clear the timeout as the API responded
+        clearTimeout(apiTimeout);
+
+        // Check the API response status
+        if (!response.ok) {
+            alert(`An error occurred while calling ${url}: ${response.status}. Reloading the page is advised.`);
+            // Reload the page after 5 seconds
+            setTimeout(() => {
+                location.reload();
+            }, 6000);
+            return;
+        }
+
+        // You can add further code here to process the response if it's OK
+        // ...
+    } catch (error) {
+        // Clear the timeout as an error occurred
+        clearTimeout(apiTimeout);
+
+        alert(`An error occurred while calling ${url}: ${error.toString()}. Reloading the page is advised.`);
+        // Reload the page after 5 seconds
+        setTimeout(() => {
+            location.reload();
+        }, 6000);
+    }
+}
+
 function addNewlineToTextbox(textboxId) {
     var messageText = $('#' + textboxId);
     var cursorPos = messageText.prop('selectionStart');
@@ -867,8 +908,9 @@ function apiCall(url, method, data, useFetch = false) {
         if (method === 'GET') {
             delete options.body;
         } 
-
-        return fetch(url, options);
+        let response = fetch(url, options);
+        responseWaitAndSuccessChecker(url, response);
+        return response
     } else {
         if (method === 'GET') {
             return $.get(url, data);
@@ -2087,10 +2129,7 @@ $(document).ready(function() {
             }
             $('#review-loading-spinner').css('display', 'block');
             let response = await fetch(write_review_url);
-            if (!response.ok) {
-                alert('An error occurred: ' + response.status);
-                return;
-            }
+            responseWaitAndSuccessChecker(write_review_url, response);
             renderInnerContentAsMarkdown(cardHeader, function(){
                 showMore(null, text=null, textElem=cardHeader, as_html=true, show_at_start=true);
             });

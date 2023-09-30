@@ -389,7 +389,7 @@ var ChatManager = {
         ChatManager.renderMessages([userMessage], false);
 
         // Use Fetch API to make request
-        return fetch('/send_message/' + conversationId, {
+        let response = fetch('/send_message/' + conversationId, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -402,6 +402,8 @@ var ChatManager = {
                 'search': search
             })
         });
+        responseWaitAndSuccessChecker('/send_message/' + conversationId, response);
+        return response;
     }
 
 };
