@@ -156,8 +156,6 @@ def get_embedding_model(keys):
 
 @retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_ai21(text, temperature=0.7, api_key=None):
-    if "vllmUrl" in api_key and not checkNoneOrEmpty(api_key["vllmUrl"]):
-        return get_streaming_vllm_response(text, api_key["vllmUrl"], temperature=temperature, max_tokens=3800 - get_gpt4_word_count(text))
     if get_gpt4_word_count(text) > 3600:
         logger.warning(f"call_ai21 Text too long, taking only first 3600 tokens")
         text = get_first_last_parts(text, 3600, 0)
@@ -176,8 +174,6 @@ def call_ai21(text, temperature=0.7, api_key=None):
     return result
 @retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
 def call_cohere(text, temperature=0.7, api_key=None):
-    if "vllmUrl" in api_key and not checkNoneOrEmpty(api_key["vllmUrl"]):
-        return get_streaming_vllm_response(text, api_key["vllmUrl"], temperature=temperature, max_tokens=3800 - get_gpt4_word_count(text))
     import cohere
     co = cohere.Client(api_key["cohereKey"])
     logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
@@ -196,9 +192,6 @@ easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 def call_chat_model(model, text, temperature, system, keys):
-    if "vllmUrl" in keys and not checkNoneOrEmpty(keys["vllmUrl"]):
-        for s in get_streaming_vllm_response(text, keys["vllmUrl"], temperature=temperature, max_tokens=8000-len(easy_enc.encode(system+text))):
-            yield s
     api_key = keys["openAIKey"]
     response = openai.ChatCompletion.create(
         model=model,
@@ -216,11 +209,58 @@ def call_chat_model(model, text, temperature, system, keys):
 
     if chunk["choices"][0]["finish_reason"]!="stop":
         yield "\n Output truncated due to lack of context Length."
-    
+
+
+import requests
+import json
+import random
+
+def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000):
+    # Define the headers for the request
+    api_key = keys["openAIKey"]
+    # append /v1/completions to the base URL if not already present in the URL
+    if url.endswith("/generate"):
+        url = url[:-len("/generate")]
+    if url.endswith("/generate/"):
+        url = url[:-len("/generate/")]
+    if not url.endswith("/v1/completions") and not url.endswith("/v1/completions/"):
+        url = url + "/v1/completions"
+    prompt = get_first_last_parts(prompt, max_tokens - 1000, 500, davinci_enc)
+    input_len = len(davinci_enc.encode(prompt))
+    assert max_tokens - input_len > 0
+    max_tokens = max_tokens - input_len
+    headers = {
+        'Content-Type': 'application/json',
+        # 'Authorization': f'Bearer {api_key}'
+    }
+    # Define the payload for the request
+    payload = {
+        "model":"lmsys/vicuna-13b-v1.5-16k", # "LongLoRA/Llama-2-70b-chat-longlora-32k-sft",
+        'prompt': prompt,
+        'max_tokens': min(max_tokens, 1024),
+        'temperature': temperature,
+        'stop_token_ids': [1, 2],
+        "stop": ["</s>", "Human:", "USER:", "[EOS]"],
+    }
+
+    # Make the POST request
+    response = requests.post(url, headers=headers, json=payload)
+
+    # Parse the JSON response
+    response_json = response.json()
+
+    # Extract the 'finish_reason' and 'text' fields
+    finish_reason = response_json['choices'][0]['finish_reason']
+    text = response_json['choices'][0]['text']
+    text = text.replace(prompt, "")
+    text = "Response from a smaller 13B model.\n" + text
+    if finish_reason != 'stop':
+        text += "\n Output truncated due to lack of context length."
+
+    return text
+
 
 def call_non_chat_model(model, text, temperature, system, keys):
-    if "vllmUrl" in keys and not checkNoneOrEmpty(keys["vllmUrl"]):
-        return get_streaming_vllm_response(text, keys["vllmUrl"], temperature=temperature, max_tokens=4000 - len(davinci_enc.encode(system+text)))
     api_key = keys["openAIKey"]
     input_len = len(davinci_enc.encode(text))
     assert 4000 - input_len > 0
@@ -301,7 +341,7 @@ class CallLLmClaude:
         contentType = 'application/json'
         vllmUrl = self.self_hosted_model_url
         def vllmBackup(*args, **kwargs):
-            return get_streaming_vllm_response(text, vllmUrl, temperature=temperature, max_tokens=max_tokens)
+            return fetch_completion_vllm(vllmUrl, text, temperature, self.keys, max_tokens=12000)
 
         logger.info(
             f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
@@ -351,7 +391,8 @@ class CallLLmGpt:
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
         if self.self_hosted_model_url is not None:
-            return call_with_stream(get_streaming_vllm_response, stream, text, self.self_hosted_model_url, temperature=temperature, max_tokens=max_tokens)
+            return call_with_stream(fetch_completion_vllm, self.self_hosted_model_url, text, temperature, self.keys,
+                                         max_tokens=max_tokens)
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert len(self.gpt4_enc.encode(text)) < 8000
@@ -826,7 +867,6 @@ Output any relevant equations if found in latex format.
         assert isinstance(result, str)
         return result
 
-# TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
 def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2)->str:
     assert isinstance(document, str)
@@ -927,7 +967,6 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     return dedup_results
 
-# TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
@@ -959,7 +998,6 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     
     return dedup_results
 
-# TODO: Add caching
 @typed_memoize(cache, str, int, tuple, bool)
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta

@@ -353,29 +353,28 @@ class Conversation:
         # Lets get the previous 2 messages, upto 1000 tokens
         # TODO: contextualizing the query maybe important since user queries are not well specified
         summary_lookback = 3
-        memory = self.get_field("memory")
-        messages = self.get_field("messages")
+        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices"), get_async_future(self.get_field, "raw_documents_index")]
+        memory, messages, indices, raw_documents_index = [f.result() for f in futures]
         previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
         previous_messages = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n\n" for m in previous_messages])
         running_summary = memory["running_summary"][-1:]
         if len(memory["running_summary"]) > 4:
-            summary_nodes = self.get_field("indices")["summary_index"].similarity_search(query, k=2)
+            summary_nodes = indices["summary_index"].similarity_search(query, k=2)
             summary_nodes = [n.page_content for n in summary_nodes]
-            not_taken_summaries = running_summary + self.get_field("memory")["running_summary"][-summary_lookback:]
+            not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
             summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
             summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
             # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
 
-            message_nodes = self.get_field("indices")["message_index"].similarity_search(query, k=2)
+            message_nodes = indices["message_index"].similarity_search(query, k=2)
             message_nodes = [n.page_content for n in message_nodes]
-            not_taken_messages = self.get_field("messages")[-message_lookback:]
+            not_taken_messages = messages[-message_lookback:]
             message_nodes = [n for n in message_nodes if n not in not_taken_messages]
             message_nodes = [n for n in message_nodes if len(n.strip()) > 0]
         else:
             summary_nodes = []
             message_nodes = []
-        document_nodes = self.get_field("indices")["raw_documents_index"].similarity_search(query, k=4)
-        raw_documents_index = self.get_field("raw_documents_index")
+        document_nodes = indices["raw_documents_index"].similarity_search(query, k=4)
         if links is not None and len(links) > 0:
             for link in links:
                 if link in raw_documents_index:
@@ -527,7 +526,7 @@ class Conversation:
 
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
-            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers or len(attached_docs) <= 1, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
+            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers or len(attached_docs) <= 2, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}

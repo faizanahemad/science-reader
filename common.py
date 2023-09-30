@@ -177,7 +177,8 @@ def call_api_parallel_multi_fn(api_calls, fns):
     return results
 
 def round_robin(arr, randomize=True):
-    random.shuffle(arr)
+    if randomize:
+        random.shuffle(arr)
     while True:
         for item in arr:
             yield item
@@ -356,9 +357,10 @@ def get_gpt3_word_count(my_string):
     enc = tiktoken.encoding_for_model('gpt-3.5-turbo')
     str_encoded = enc.encode(my_string)
     return len(str_encoded)
-def get_first_last_parts(my_string, first_n=250, last_n=750):
+def get_first_last_parts(my_string, first_n=250, last_n=750, enc=None):
     import tiktoken
-    enc = tiktoken.encoding_for_model('gpt-4')
+    if enc is None:
+        enc = tiktoken.encoding_for_model('gpt-4')
     str_encoded = enc.encode(my_string)
     if len(str_encoded) < first_n + last_n:
         return my_string
