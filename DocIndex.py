@@ -238,7 +238,6 @@ class DocIndex:
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
             f.result()
-        self.get_short_info()
         
         
     @property
@@ -1117,21 +1116,22 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain.document_loaders.csv_loader import CSVLoader
     from langchain.document_loaders import UnstructuredWordDocumentLoader
     from langchain.document_loaders import TextLoader
+    pdf_url = pdf_url.strip()
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
     if pdf_url.endswith(".pdf"):
-        doc_text = PDFReaderTool(keys)(pdf_url.strip())
+        doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
-        doc_text = UnstructuredWordDocumentLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".html"):
-        doc_text = UnstructuredHTMLLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".md"):
-        doc_text = UnstructuredMarkdownLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = UnstructuredMarkdownLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".json"):
-        doc_text = JSONLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = JSONLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".csv"):
-        doc_text = CSVLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = CSVLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".txt"):
-        doc_text = TextLoader(pdf_url.strip()).load()[0].page_content
+        doc_text = TextLoader(pdf_url).load()[0].page_content
     else:
         try:
             doc_text = PDFReaderTool(keys)(pdf_url.strip())
@@ -1171,10 +1171,16 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
                     "scientific_article", doc_text, nested_dict, openai_embed, folder)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
+        doc_index.set_api_keys(keys)
+        doc_index.get_short_info()
     except Exception as e:
-        folder = os.path.join(folder, f"{doc_index.doc_id}")
-        if os.path.exists(folder):
-            shutil.rmtree(folder)
+        doc_id = str(mmh3.hash(pdf_url + "pdf" + "scientific_article", signed=False))
+        try:
+            folder = os.path.join(folder, f"{doc_id}")
+            if os.path.exists(folder):
+                shutil.rmtree(folder)
+        except Exception as e:
+            pass
         logger.error(f"Error creating immediate doc index for {pdf_url}")
         raise e
     
