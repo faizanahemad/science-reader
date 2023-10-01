@@ -751,7 +751,6 @@ def list_all():
     doc_ids = set([d[1] for d in docs])
     docs = [set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs]
     # docs = sorted(docs, key=lambda x: x['last_updated'], reverse=True)
-    docs = [d for d in docs if d["visible"]]
     return jsonify(docs)
 
 
