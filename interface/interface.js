@@ -1838,9 +1838,9 @@ $(document).ready(function() {
     }
 
     function setupPDFModalSubmit() {
-        doc_modal = $('#add-document-modal');
-        $('#add-document-button').click(function() {
-            doc_modal.modal('show');
+        let doc_modal = $('#add-document-modal');
+        $('#add-document-button').off().click(function() {
+            $('#add-document-modal').modal('show');
         });
         function success(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
@@ -1880,12 +1880,12 @@ $(document).ready(function() {
             .catch(failure);
         }
     
-        doc_modal.find('#file-upload-button').on('click', function() {
+        doc_modal.find('#file-upload-button').off().on('click', function() {
             doc_modal.find('#pdf-file').click();
         });
         
         // Handle file selection
-        doc_modal.find('#pdf-file').on('change', function(e) {
+        doc_modal.find('#pdf-file').off().on('change', function(e) {
             var file = $(this)[0].files[0];  // Get the selected file
             // check for doc and docx
             if (file && (file.type === 'application/pdf' || file.type === 'application/msword' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
@@ -1893,7 +1893,7 @@ $(document).ready(function() {
             }
         });
     
-        var dropArea = doc_modal.find('#drop-area');
+        let dropArea = doc_modal.find('#drop-area');
         dropArea.on('dragover', function(e) {
             e.preventDefault();  // Prevent the default dragover behavior
             $(this).css('background-color', '#eee');  // Change the color of the drop area
@@ -1917,7 +1917,7 @@ $(document).ready(function() {
                 }
             }
         });
-        doc_modal.find('#add-document-form').on('submit', function(event) {
+        doc_modal.find('#add-document-form').off().on('submit', function(event) {
             event.preventDefault();  // Prevents the default form submission action
             var pdfUrl = doc_modal.find('#pdf-url').val();
             if (pdfUrl) {

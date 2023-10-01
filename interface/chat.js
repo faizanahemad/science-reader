@@ -183,9 +183,9 @@ var ChatManager = {
         });
     },
     setupAddDocumentForm: function(conversationId) {
-        doc_modal = $('#add-document-modal-chat')
+        let doc_modal = $('#add-document-modal-chat')
         $('#add-document-button-chat').off().click(function() {
-            doc_modal.modal('show');
+            $('#add-document-modal-chat').modal('show');
         });
         function success(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
@@ -235,7 +235,7 @@ var ChatManager = {
             }
         });
     
-        var dropArea = doc_modal.find('#drop-area').off();
+        let dropArea = doc_modal.find('#drop-area').off();
         dropArea.on('dragover', function(e) {
             e.preventDefault();  // Prevent the default dragover behavior
             $(this).css('background-color', '#eee');  // Change the color of the drop area
