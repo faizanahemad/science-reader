@@ -698,7 +698,7 @@ def load_documents(folder):
     global indexed_docs, bm25_corpus, doc_id_to_bm25_index
     folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
     docs: List[DocIndex] = [DocIndex.load_local(os.path.join(folder, filepath)) for filepath in folders]
-    docs = [doc for doc in docs if doc is not None and doc.visible]
+    docs = [doc for doc in docs if doc is not None] # and doc.visible
     # filename = os.path.basename(filepath)
     for doc_index in docs:
         indexed_docs[doc_index.doc_id] = doc_index
