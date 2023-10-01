@@ -1166,13 +1166,14 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     nested_dict["small_chunks"] = ChunkText(doc_text, SMALL_CHUNK_LEN, 32)
     openai_embed = get_embedding_model(keys)
     try:
-        doc_index = ImmediateDocIndex(pdf_url, 
+        doc_index: DocIndex = ImmediateDocIndex(pdf_url,
                     "pdf", 
                     "scientific_article", doc_text, nested_dict, openai_embed, folder)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
         doc_index.set_api_keys(keys)
         doc_index.get_short_info()
+        doc_index._visible = True
     except Exception as e:
         doc_id = str(mmh3.hash(pdf_url + "pdf" + "scientific_article", signed=False))
         try:
