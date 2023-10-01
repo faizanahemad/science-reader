@@ -637,6 +637,8 @@ class IndexDict(dict):
             super().__setitem__(key, item)
             return item
         except KeyError:
+            exc = traceback.format_exc()
+            logger.error(f"Error in getting doc_index for key = {key}, error = {exc}")
             return load_document(folder, key)
     
     def __setitem__(self, __key: str, __value: DocIndex) -> None:
