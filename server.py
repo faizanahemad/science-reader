@@ -644,7 +644,7 @@ class IndexDict(dict):
     def __setitem__(self, __key: str, __value: DocIndex) -> None:
         __value = __value.copy()
         return super().__setitem__(__key, __value)
-indexed_docs: IndexDict[str, DocIndex] = {}
+indexed_docs: IndexDict[str, DocIndex] = IndexDict()
 doc_index_cache = SetQueue(maxsize=50)
 def load_conversation(conversation_id):
     return Conversation.load_local(os.path.join(conversation_folder, conversation_id))
