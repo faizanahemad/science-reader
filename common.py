@@ -39,19 +39,6 @@ PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libr
 import requests
 import os
 
-def convert_doc_to_pdf(file_path, output_path):
-    api_url = PDF_CONVERT_URL
-    with open(file_path, 'rb') as f:
-        files = {'files': (os.path.basename(file_path), f)}
-        payload = {'pdfFormat': 'PDF/A-1a'}
-        r = requests.post(api_url, files=files, data=payload)
-        if r.status_code == 200:
-            with open(output_path, 'wb') as out_file:
-                out_file.write(r.content)
-            return True
-        else:
-            print(f"Conversion failed with status code {r.status_code}")
-            return False
 
 
 def is_int(s):
@@ -89,6 +76,28 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+
+
+def convert_doc_to_pdf(file_path, output_path):
+    api_url = PDF_CONVERT_URL
+    try:
+        logger.info(f"Converting doc at {file_path} to pdf, file exists = {os.path.exists(file_path)}")
+        assert os.path.exists(file_path)
+        with open(file_path, 'rb') as f:
+            files = {'files': (os.path.basename(file_path), f)}
+            payload = {'pdfFormat': 'PDF/A-1a'}
+            r = requests.post(api_url, files=files, data=payload)
+            if r.status_code == 200:
+                with open(output_path, 'wb') as out_file:
+                    out_file.write(r.content)
+                return True
+            else:
+                print(f"Conversion failed with status code {r.status_code}")
+                return False
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"Exception converting doc at {file_path} to pdf: {e}\n{exc}")
+        return False
 
 class RunThread(threading.Thread):
     def __init__(self, func, args, kwargs):
