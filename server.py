@@ -627,14 +627,17 @@ def get_user_info():
 
 class IndexDict(dict):
     def __getitem__(self, key):
-        item = super().__getitem__(key)
-        if item.doc_id in doc_index_cache:
+        try:
+            item = super().__getitem__(key)
+            if item.doc_id in doc_index_cache:
+                return item
+            else:
+                item = item.copy()
+            doc_index_cache.add(item.doc_id)
+            super().__setitem__(key, item)
             return item
-        else:
-            item = item.copy()
-        doc_index_cache.add(item.doc_id)
-        super().__setitem__(key, item)
-        return item
+        except KeyError:
+            return load_document(folder, key)
     
     def __setitem__(self, __key: str, __value: DocIndex) -> None:
         __value = __value.copy()
@@ -699,6 +702,13 @@ def load_documents(folder):
         indexed_docs[doc_index.doc_id] = doc_index
         add_to_bm25_corpus(doc_index)
 
+def load_document(folder, filepath):
+    global indexed_docs, bm25_corpus, doc_id_to_bm25_index
+    doc_index = DocIndex.load_local(os.path.join(folder, filepath))
+    indexed_docs[doc_index.doc_id] = doc_index
+    add_to_bm25_corpus(doc_index)
+    return doc_index
+
 
 
 @app.route('/search_document', methods=['GET'])
@@ -732,8 +742,10 @@ def search_document():
 def list_all():
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
-    addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
     docs = getDocsForUser(email)
+    if len(docs) == 0:
+        addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
+        docs = getDocsForUser(email)
     doc_ids = set([d[1] for d in docs])
     docs = [set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs]
     # docs = sorted(docs, key=lambda x: x['last_updated'], reverse=True)
