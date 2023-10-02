@@ -24,10 +24,21 @@ import requests
 import re
 import traceback
 
+script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
+noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)
+script_pattern_inside_header = re.compile(r'<header.*?>.*?<script.*?>.*?</script>.*?</header>', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v1 = re.compile(r'enable(?:(?!\n).){0,100}?javascript', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v2 = re.compile(r'javascript(?:(?!\n).){0,100}?enable', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v3 = re.compile(r'javascript(?:(?!\n).){0,100}?required', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v4 = re.compile(r'javascript(?:(?!\n).){0,100}?disabled', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v5 = re.compile(r'javascript(?:(?!\n).){0,100}?not enabled', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v6 = re.compile(r'js(?:(?!\n).){0,100}?not enabled', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v7 = re.compile(r'js(?:(?!\n).){0,100}?disabled', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v8 = re.compile(r'js(?:(?!\n).){0,100}?required', re.IGNORECASE | re.DOTALL)
 def check_js_needed(html):
-    noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)
-    script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
-    return bool(noscript_pattern.search(html)) or bool(script_pattern.search(html))
+    js_warn = js_warning_pattern_v1.search(html) or js_warning_pattern_v2.search(html) or js_warning_pattern_v3.search(html) or js_warning_pattern_v4.search(html) or js_warning_pattern_v5.search(html) or js_warning_pattern_v6.search(html) or js_warning_pattern_v7.search(html) or js_warning_pattern_v8.search(html)
+    # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
+    return bool(noscript_pattern.search(html)) or bool(script_pattern_inside_header.search(html)) or js_warn
 
 logger = logging.getLogger(__name__)
 
@@ -505,8 +516,7 @@ def fetch_content_brightdata_shim(url, brightdata_proxy):
         'text': ""
     }
 
-
-def fetch_content_brightdata(url, brightdata_proxy):
+def fetch_content_brightdata_html(url, brightdata_proxy):
     """
     Fetch the content of the webpage at the specified URL using a proxy.
 
@@ -536,6 +546,10 @@ def fetch_content_brightdata(url, brightdata_proxy):
         html = response.content.decode('utf-8')
     except:
         html = response.text
+    return html
+
+def fetch_content_brightdata(url, brightdata_proxy):
+    html = fetch_content_brightdata_html(url, brightdata_proxy)
     js_need = check_js_needed(html)
     result = None
     goose3_result = None
@@ -573,8 +587,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     # Return the response content
     return result
 
-
-def send_request_zenrows(url, apikey):
+def send_request_zenrows_html(url, apikey):
     js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
 
     params = {
@@ -603,7 +616,19 @@ def send_request_zenrows(url, apikey):
     et = time.time() - st
     logger.info(" ".join(['send_request_zenrows ', str(et), "\n", response.text[-100:]]))
     html = response.text
+    return html
 
+def fetch_html(url, apikey=None, brightdata_proxy=None):
+    html = ''
+    if brightdata_proxy is not None:
+        html = fetch_content_brightdata_html(url, brightdata_proxy)
+    js_need = check_js_needed(html)
+    if (js_need or brightdata_proxy is None or brightdata_proxy == '' or html == '') and apikey is not None:
+        html = send_request_zenrows_html(url, apikey)
+    return html
+
+def send_request_zenrows(url, apikey):
+    html = send_request_zenrows_html(url, apikey)
     result = None
     goose3_result = None
     trafilatura_result = None

@@ -399,7 +399,7 @@ def get_first_last_parts(my_string, first_n=250, last_n=750, enc=None):
 
 def convert_to_pdf_link_if_needed(link):
     if "arxiv.org" in link and "pdf" not in link:
-        link = link.replace("abs", "pdf")
+        link = link.replace("abs", "pdf") + ".pdf"
         # convert arxiv link to pdf
     if "openreview.net" in link and "pdf" not in link:
         link = link.replace("forum", "pdf")

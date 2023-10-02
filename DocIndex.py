@@ -44,6 +44,9 @@ from concurrent.futures import Future
 
 import openai
 import tiktoken
+
+from web_scraping import fetch_html
+
 try:
     import ujson as json
 except ImportError:
@@ -1117,11 +1120,26 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain.document_loaders import UnstructuredWordDocumentLoader
     from langchain.document_loaders import TextLoader
     pdf_url = pdf_url.strip()
+    # check if the link is local or remote
+    is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
+    if is_remote:
+        pdf_url = convert_to_pdf_link_if_needed(pdf_url)
+        is_pdf = is_pdf_link(pdf_url)
+    else:
+        is_pdf = pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
-    if pdf_url.endswith(".pdf"):
+    if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
+    elif is_remote and not (pdf_url.endswith(".md") or pdf_url.endswith(".json") or pdf_url.endswith(".csv") or pdf_url.endswith(".txt")):
+        html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
+        # save this html to a file and then use the html loader.
+        html_file = os.path.join(folder, "temp.html")
+        with open(html_file, "w") as f:
+            f.write(html)
+        pdf_url = convert_doc_to_pdf(html_file, html_file.replace(".html", ".pdf"))
+        doc_text = UnstructuredHTMLLoader(html_file).load()[0].page_content
     elif pdf_url.endswith(".html"):
         doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".md"):
