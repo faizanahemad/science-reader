@@ -215,49 +215,80 @@ import requests
 import json
 import random
 
-def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000):
+def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, stream=False):
     # Define the headers for the request
-    api_key = keys["openAIKey"]
     # append /v1/completions to the base URL if not already present in the URL
     if url.endswith("/generate"):
         url = url[:-len("/generate")]
     if url.endswith("/generate/"):
         url = url[:-len("/generate/")]
-    if not url.endswith("/v1/completions") and not url.endswith("/v1/completions/"):
-        url = url + "/v1/completions"
-    prompt = get_first_last_parts(prompt, max_tokens - 1000, 500, davinci_enc)
+
+    prompt = get_first_last_parts(prompt, max_tokens - 1000, 1000, davinci_enc)
     input_len = len(davinci_enc.encode(prompt))
     assert max_tokens - input_len > 0
     max_tokens = max_tokens - input_len
-    headers = {
-        'Content-Type': 'application/json',
-        # 'Authorization': f'Bearer {api_key}'
-    }
+    model = "lmsys/vicuna-13b-v1.5-16k"
     # Define the payload for the request
-    payload = {
-        "model":"lmsys/vicuna-13b-v1.5-16k", # "LongLoRA/Llama-2-70b-chat-longlora-32k-sft",
-        'prompt': prompt,
-        'max_tokens': min(max_tokens, 1024),
-        'temperature': temperature,
-        'stop_token_ids': [1, 2],
-        "stop": ["</s>", "Human:", "USER:", "[EOS]"],
-    }
+    if stream:
+        if not url.endswith("/v1/") and not url.endswith("/v1"):
+            url = url + "/v1"
+        payload = {
+            "model": model,
+            'messages': prompt,
+            'max_tokens': min(max_tokens, 1024),
+            'temperature': temperature,
+            "stream": True,
+            'stop_token_ids': [2],
+            "stop": ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :",
+                     "Human :", "###"],
+        }
 
-    # Make the POST request
-    response = requests.post(url, headers=headers, json=payload)
+        response = openai.ChatCompletion.create(
+            model=model,
+            api_key="EMPTY",
+            api_base=url,
+            messages=prompt,
+            temperature=temperature,
+            stream=True,
+            stop_token_ids= [2],
+            stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :",
+                 "Human :", "###"],
+        )
+        yield "Response from a smaller 13B model.\n"
+        for chunk in response:
+            if "content" in chunk["choices"][0]["delta"]:
+                yield chunk["choices"][0]["delta"]["content"]
 
-    # Parse the JSON response
-    response_json = response.json()
+        if chunk["choices"][0]["finish_reason"] != "stop":
+            yield "\nOutput truncated due to lack of context Length."
 
-    # Extract the 'finish_reason' and 'text' fields
-    finish_reason = response_json['choices'][0]['finish_reason']
-    text = response_json['choices'][0]['text']
-    text = text.replace(prompt, "")
-    text = "Response from a smaller 13B model.\n" + text
-    if finish_reason != 'stop':
-        text += "\n Output truncated due to lack of context length."
+    else:
+        if not url.endswith("/v1/completions") and not url.endswith("/v1/completions/"):
+            url = url + "/v1/completions"
+        payload = {
+            "model":model, # "LongLoRA/Llama-2-70b-chat-longlora-32k-sft", # "lmsys/vicuna-13b-v1.5-16k"
+            'prompt': prompt,
+            'max_tokens': min(max_tokens, 1024),
+            'temperature': temperature,
+            'stop_token_ids': [2],
+            "stop": ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"],
+        }
 
-    return text
+        # Make the POST request
+        response = requests.post(url, json=payload)
+
+        # Parse the JSON response
+        response_json = response.json()
+
+        # Extract the 'finish_reason' and 'text' fields
+        finish_reason = response_json['choices'][0]['finish_reason']
+        text = response_json['choices'][0]['text']
+        text = text.replace(prompt, "").strip()
+        text = "Response from a smaller 13B model.\n" + text
+        if finish_reason != 'stop':
+            text += "\nOutput truncated due to lack of context length."
+
+        yield text
 
 
 def call_non_chat_model(model, text, temperature, system, keys):
@@ -336,12 +367,12 @@ class CallLLmClaude:
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
         from botocore.exceptions import EventStreamError
         text = f"{self.system}\n\n{text}\n"
-        body = json.dumps({"prompt": f"\n\nHuman: {text}\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":["\n\nHuman:", "###", "Human:", "human:"]})
+        body = json.dumps({"prompt": f"\n\nHuman: {text}\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":list(set(["\n\nHuman:", "###", "Human:", "human:", "HUMAN:"] + ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"]))})
         accept = 'application/json'
         contentType = 'application/json'
         vllmUrl = self.self_hosted_model_url
         def vllmBackup(*args, **kwargs):
-            return fetch_completion_vllm(vllmUrl, text, temperature, self.keys, max_tokens=12000)
+            return fetch_completion_vllm(vllmUrl, text, temperature, self.keys, max_tokens=12000, stream=stream)
 
         logger.info(
             f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
