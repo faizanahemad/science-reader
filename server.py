@@ -200,6 +200,14 @@ def getCoversationsForUser(user_email):
     conn.close()
     return rows
 
+def getAllCoversations():
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM UserToConversationId")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 def addUpvoteOrDownvote(user_email, question_id, doc_id, upvote, downvote):
     assert not checkNoneOrEmpty(question_id)
     assert not checkNoneOrEmpty(user_email)
@@ -365,7 +373,9 @@ app.config["RATELIMIT_STORAGE_URL"] = "memory://"
 
 def limiter_key_func():
     # logger.info(f"limiter_key_func called with {session.get('email')}")
-    email = session.get('email')
+    email = None
+    if session:
+        email = session.get('email')
     if email:
         return email
     # Here, you might want to use a different fallback or even raise an error
@@ -464,8 +474,9 @@ def get_votes_by_user():
     logger.debug(f"called , response = {rows}")
     return jsonify(rows), 200
 
+# TODO: make bulk api for this
 @app.route('/getUpvotesDownvotesByQuestionId/<question_id>', methods=['POST'])
-@limiter.limit("100 per minute")
+@limiter.limit("5000 per minute")
 @login_required
 def get_votes_by_question(question_id):
     if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
@@ -481,8 +492,9 @@ def get_votes_by_question(question_id):
     logger.info(f"'/getUpvotesDownvotesByQuestionId' called with question_id = {question_id}, response = {rows}")
     return jsonify(rows), 200
 
+# TODO: make bulk api for this
 @app.route('/getUpvotesDownvotesByQuestionIdAndUser', methods=['POST'])
-@limiter.limit("100 per minute")
+@limiter.limit("5000 per minute")
 @login_required
 def get_votes_by_question_and_user():
     email, name, _ = check_login(session)
@@ -596,7 +608,7 @@ def logout():
     """)
 
 @app.route('/authorize')
-@limiter.limit("5 per minute")
+@limiter.limit("15 per minute")
 def authorize():
     logger.info(f"Authorize for email {session.get('email')} and name {session.get('name')}")
     token = google.authorize_access_token()
@@ -611,7 +623,7 @@ def authorize():
         return "Failed to log in", 401
 
 @app.route('/get_user_info')
-@limiter.limit("5 per minute")
+@limiter.limit("15 per minute")
 @login_required
 def get_user_info():
     if 'email' in session and "name" in session:
@@ -714,7 +726,7 @@ def load_document(folder, filepath):
 
 
 @app.route('/search_document', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def search_document():
     keys = keyParser(session)
@@ -739,7 +751,7 @@ def search_document():
 
 
 @app.route('/list_all', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def list_all():
     keys = keyParser(session)
@@ -755,7 +767,7 @@ def list_all():
 
 
 @app.route('/get_document_detail', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def get_document_detail():
     keys = keyParser(session)
@@ -792,7 +804,7 @@ def index_document():
         return jsonify({'error': 'No pdf_url provided'}), 400
 
 @app.route('/set_keys', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def set_keys():
     keys = request.json  # Assuming keys are sent as JSON in the request body
@@ -833,7 +845,7 @@ def save_index(doc_index: DocIndex, folder):
 
     
 @app.route('/streaming_get_answer', methods=['POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("15 per minute")
 @login_required
 def streaming_get_answer():
     keys = keyParser(session)
@@ -903,7 +915,7 @@ from multiprocessing import Lock
 lock = Lock()
 
 @app.route('/delete_document', methods=['DELETE'])
-@limiter.limit("5 per minute")
+@limiter.limit("30 per minute")
 @login_required
 def delete_document():
     email, name, loggedin = check_login(session)
@@ -952,7 +964,7 @@ def get_extended_abstract():
         return Response("Error Document not found", content_type='text/plain')
     
 @app.route('/get_fixed_details', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("30 per minute")
 @login_required
 def get_fixed_details():
     keys = keyParser(session)
@@ -969,7 +981,7 @@ def get_fixed_details():
 from flask import send_from_directory
 
 @app.route('/favicon.ico')
-@limiter.limit("10 per minute")
+@limiter.limit("30 per minute")
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
@@ -1102,7 +1114,7 @@ def delete_document_from_conversation(conversation_id, document_id):
         return jsonify({'error': 'No doc_id provided'}), 400
 
 @app.route('/list_documents_by_conversation/<conversation_id>', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("30 per minute")
 @login_required
 def list_documents_by_conversation(conversation_id):
     keys = keyParser(session)
@@ -1110,7 +1122,7 @@ def list_documents_by_conversation(conversation_id):
     conversation: Conversation = conversation_cache[conversation_id]
     conversation = set_keys_on_docs(conversation, keys)
     if conversation:
-        docs:List[DocIndex] = conversation.get_uploaded_documents()
+        docs:List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
         docs = [d.get_short_info() for d in docs]
         # sort by doc_id
         # docs = sorted(docs, key=lambda x: x['doc_id'], reverse=True)
@@ -1119,13 +1131,14 @@ def list_documents_by_conversation(conversation_id):
         return jsonify({'error': 'Conversation not found'}), 404
 
 @app.route('/download_doc_from_conversation/<conversation_id>/<doc_id>', methods=['GET'])
+@limiter.limit("30 per minute")
 @login_required
 def download_doc_from_conversation(conversation_id, doc_id):
     keys = keyParser(session)
     conversation: Conversation = conversation_cache[conversation_id]
     conversation = set_keys_on_docs(conversation, keys)
     if conversation:
-        doc:DocIndex = conversation.get_uploaded_documents(doc_id)[0]
+        doc:DocIndex = conversation.get_uploaded_documents(doc_id, readonly=True)[0]
         if doc and os.path.exists(doc.doc_source):
             return send_from_directory(doc.doc_source, as_attachment=True)
         elif doc:
@@ -1176,7 +1189,7 @@ def cached_get_file(file_url):
 
 ### chat apis
 @app.route('/list_conversation_by_user', methods=['GET'])
-@limiter.limit("20 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def list_conversation_by_user():
     # TODO: sort by last_updated
@@ -1241,8 +1254,27 @@ def list_messages_by_conversation(conversation_id):
         conversation = set_keys_on_docs(conversation, keys)
     return jsonify(conversation.get_message_list())
 
+@app.route('/list_messages_by_conversation_shareable/<conversation_id>', methods=['GET'])
+@limiter.limit("10 per minute")
+def list_messages_by_conversation_shareable(conversation_id):
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    conversation_ids = [c[1] for c in getAllCoversations()]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation: Conversation = conversation_cache[conversation_id]
+
+    if conversation:
+        docs: List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
+        docs = [d.get_short_info() for d in docs]
+        messages = conversation.get_message_list()
+        return jsonify({"messages": messages, "docs": docs})
+    else:
+        return jsonify({'error': 'Conversation not found'}), 404
+
 @app.route('/send_message/<conversation_id>', methods=['POST'])
-@limiter.limit("3 per minute")
+@limiter.limit("5 per minute")
 @login_required
 def send_message(conversation_id):
     keys = keyParser(session)
@@ -1291,7 +1323,7 @@ def get_conversation_details(conversation_id):
     return jsonify(data)
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
-@limiter.limit("5 per minute")
+@limiter.limit("25 per minute")
 @login_required
 def delete_conversation(conversation_id):
     email, name, loggedin = check_login(session)
@@ -1307,7 +1339,7 @@ def delete_conversation(conversation_id):
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
 
 @app.route('/delete_last_message/<conversation_id>', methods=['DELETE'])
-@limiter.limit("10 per minute")
+@limiter.limit("30 per minute")
 @login_required
 def delete_last_message(conversation_id):
     message_id=1

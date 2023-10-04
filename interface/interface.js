@@ -48,9 +48,29 @@ function addNewlineToTextbox(textboxId) {
     messageText.val(textBefore + '\n' + textAfter);
     messageText.prop('selectionStart', cursorPos + 1);
     messageText.prop('selectionEnd', cursorPos + 1);
-    var scrollHeight = messageText.prop('scrollHeight');
-    messageText.scrollTop(scrollHeight);
+    if (textAfter.length === 0) {
+        var scrollHeight = messageText.prop('scrollHeight');
+        messageText.scrollTop(scrollHeight);
+    }
     return false;  // Prevents the default action
+}
+
+// This function sets the max-height based on the line height
+function setMaxHeightForTextbox(textboxId, height=10) {
+    var messageText = $('#' + textboxId);
+    
+    // Determine the line height (might not always be precise, but close)
+    var lineHeight = parseFloat(getComputedStyle(messageText[0]).lineHeight);
+    
+    // Set max-height for 10 lines
+    if (!height) {
+        height = 10;
+    }
+    var maxHeight = lineHeight * height;
+    messageText.css('max-height', maxHeight + 'px');
+    
+    // Set overflow to auto to ensure scrollbars appear if needed
+    messageText.css('overflow-y', 'auto');
 }
 
 function showMore(parentElem, text=null, textElem=null, as_html=false, show_at_start=false){

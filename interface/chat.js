@@ -51,6 +51,7 @@ var ConversationManager = {
             ChatManager.renderDocuments(conversationId, documents);
         });
         ChatManager.setupAddDocumentForm(conversationId);
+        ChatManager.setupDownloadChatButton(conversationId);
         highLightActiveConversation();
     }
 
@@ -180,6 +181,11 @@ var ChatManager = {
                     ChatManager.renderDocuments(conversationId, documents);
                 });
             }
+        });
+    },
+    setupDownloadChatButton: function(conversationId) {
+        $('#get-chat-transcript').off().on('click', function() {
+            window.open('/list_messages_by_conversation_shareable/' + conversationId, '_blank');
         });
     },
     setupAddDocumentForm: function(conversationId) {
@@ -544,16 +550,34 @@ $(document).ready(function() {
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();
     });
-    $('#messageText').keypress(function(e) { // Add this block to submit the question on enter
-            if (e.which == 13 && !e.shiftKey && !e.altKey) {
+    setMaxHeightForTextbox('messageText', 10);
+    setMaxHeightForTextbox('permanentMessageText', 8);
+    setMaxHeightForTextbox("linkInput", 4);
+    setMaxHeightForTextbox("searchInput", 4);
+    function textboxCallBack(e) { // Add this block to submit the question on enter
+        this_id = this.id
+        if (e.which == 13 && !e.shiftKey && !e.altKey) {
+            if (this.id == 'messageText'){
                 sendMessageCallback();
-                return false; // Prevents the default action
             }
-            if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey)) {
-                addNewlineToTextbox('messageText');
-                return false; // Prevents the default action
+            else {
+                addNewlineToTextbox(this_id);
             }
-        });
+            return false; // Prevents the default action
+        }
+        if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey)) {
+            addNewlineToTextbox(this_id);
+            return false; // Prevents the default action
+        }
+        if ((e.which != 13) && (e.which != 8) && (e.which != 46) && (e.which != 37) && (e.which != 38) && (e.which != 39) && (e.which != 40)) {
+            var scrollHeight = $(this).prop('scrollHeight');
+            var maxHeight = parseFloat($(this).css('max-height'));
+            if(scrollHeight > maxHeight) {
+                $(this).scrollTop(scrollHeight);
+            }
+        }
+    }
+    $('#messageText').keypress(textboxCallBack);
     addOptions('chat-options', 'assistant', null);
     $('#sendMessageButton').on('click', sendMessageCallback);
     $('.dynamic-textarea').on('input change', function() {
@@ -561,6 +585,7 @@ $(document).ready(function() {
           // If the textarea is empty, reset to the default height of 30px
           this.style.height = '35px';
       } else {
+        
           this.style.height = 'auto'; // Reset height to auto to recalculate
           this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
       }

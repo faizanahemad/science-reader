@@ -91,7 +91,7 @@ from langchain.document_loaders import PyPDFLoader
 from langchain.utilities import SerpAPIWrapper
 from langchain.agents import initialize_agent
 from langchain.agents import AgentType
-from typing import Optional, Type
+from typing import Optional, Type, List
 from langchain.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain.tools import DuckDuckGoSearchRun
 from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
@@ -190,7 +190,7 @@ class Conversation:
         previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
         self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)], overwrite=True)
 
-    def get_uploaded_documents(self, doc_id=None):
+    def get_uploaded_documents(self, doc_id=None, readonly=False):
         try:
             doc_list = self.get_field("uploaded_documents_list")
         except ValueError as e:
@@ -202,9 +202,10 @@ class Conversation:
             docs = []
         if doc_id is not None:
             docs = [d for d in docs if d.doc_id == doc_id]
-        keys = self.get_api_keys()
-        for d in docs:
-            d.set_api_keys(keys)
+        if not readonly:
+            keys = self.get_api_keys()
+            for d in docs:
+                d.set_api_keys(keys)
         return docs
 
     def delete_uploaded_document(self, doc_id):
@@ -357,16 +358,23 @@ class Conversation:
         memory, messages, indices, raw_documents_index = [f.result() for f in futures]
         previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
         previous_messages = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n\n" for m in previous_messages])
+        raw_docs = []
+        if links is not None and len(links) > 0:
+            for link in links:
+                if link in raw_documents_index:
+                    raw_document_nodes = get_async_future(raw_documents_index[link].similarity_search, query, k=2)
+                    raw_docs.append(raw_document_nodes)
         running_summary = memory["running_summary"][-1:]
+        document_nodes = get_async_future(indices["raw_documents_index"].similarity_search, query, k=2)
         if len(memory["running_summary"]) > 4:
+            message_nodes = get_async_future(indices["message_index"].similarity_search, query, k=2)
             summary_nodes = indices["summary_index"].similarity_search(query, k=2)
             summary_nodes = [n.page_content for n in summary_nodes]
             not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
             summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
             summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
             # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
-
-            message_nodes = indices["message_index"].similarity_search(query, k=2)
+            message_nodes = message_nodes.result()
             message_nodes = [n.page_content for n in message_nodes]
             not_taken_messages = messages[-message_lookback:]
             message_nodes = [n for n in message_nodes if n not in not_taken_messages]
@@ -374,12 +382,9 @@ class Conversation:
         else:
             summary_nodes = []
             message_nodes = []
-        document_nodes = indices["raw_documents_index"].similarity_search(query, k=4)
-        if links is not None and len(links) > 0:
-            for link in links:
-                if link in raw_documents_index:
-                    raw_document_nodes = raw_documents_index[link].similarity_search(query, k=3)
-                    document_nodes.extend(raw_document_nodes)
+        document_nodes = document_nodes.result()
+        for raw_document_nodes in raw_docs:
+            document_nodes.extend(raw_document_nodes.result())
         document_nodes = [n.page_content for n in document_nodes]
         document_nodes = [n for n in document_nodes if len(n.strip()) > 0]
 

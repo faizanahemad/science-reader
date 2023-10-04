@@ -1168,10 +1168,13 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     
         
     doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-    chunks = ChunkText(doc_text, LARGE_CHUNK_LEN, 64)
+    chunks = get_async_future(ChunkText, doc_text, LARGE_CHUNK_LEN, 64)
+    small_chunks = get_async_future(ChunkText, doc_text, SMALL_CHUNK_LEN, 32)
+    chunks, small_chunks = chunks.result(), small_chunks.result()
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
+        "small_chunks": small_chunks,
         'running_summary': '',
         'detailed_qna': [],
         'deep_reader_details': {
@@ -1182,7 +1185,6 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             "limitations_and_future_work" : {"id":"", "text":""},
         }
     }
-    nested_dict["small_chunks"] = ChunkText(doc_text, SMALL_CHUNK_LEN, 32)
     openai_embed = get_embedding_model(keys)
     try:
         doc_index: DocIndex = ImmediateDocIndex(pdf_url,
@@ -1190,8 +1192,10 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
                     "scientific_article", doc_text, nested_dict, openai_embed, folder)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
-        doc_index.set_api_keys(keys)
-        doc_index.get_short_info()
+        def get_doc_ready():
+            doc_index.set_api_keys(keys)
+            return doc_index.get_short_info()
+        _ = get_async_future(get_doc_ready)
         doc_index._visible = True
     except Exception as e:
         doc_id = str(mmh3.hash(pdf_url + "pdf" + "scientific_article", signed=False))
