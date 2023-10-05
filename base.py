@@ -322,7 +322,7 @@ class CallLLmClaude:
         self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
         self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4",
-                                              True) and not use_small_models and self.self_hosted_model_url is None
+                                              True) and not use_small_models
         self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
         self.use_16k = use_16k and len(openai_16k_models) > 0

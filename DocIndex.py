@@ -449,7 +449,7 @@ class DocIndex:
             mode = "web_search"
         elif mode["provide_detailed_answers"]:
             mode = "detailed"
-            query = f"{query}\n\nProvide detailed answers.\n\n"
+            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer. Remember to provide as much detail, information and depth as possible.\n\n"
         elif mode["use_references_and_citations"]:
             mode = "use_references_and_citations"
         elif mode["use_multiple_docs"]:
@@ -475,11 +475,6 @@ class DocIndex:
         additional_info = None
         if (mode == "detailed" or mode == "review"):
             additional_info = get_async_future(call_contextual_reader, query, brief_summary + ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 500, 0)[0], self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
-        # else:
-        #     additional_info = get_async_future(call_contextual_reader, query, brief_summary +
-        #                                        ChunkText(self.get_doc_data("static_data", "doc_text"),
-        #                                                  TOKEN_LIMIT_FOR_SHORT - 500, 0)[0], self.get_api_keys(),
-        #                                        provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT + 500)
         answer = ''
         if not scan:
             llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=scan)
@@ -498,6 +493,12 @@ class DocIndex:
             rem_tokens = rem_word_len // LARGE_CHUNK_LEN
             raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
             raw_text = "\n\n".join([n.page_content for n in raw_nodes])
+            st_wt = time.time()
+            while (additional_info is not None and time.time() - st_wt < 45 and not additional_info.done()):
+                time.sleep(1)
+            full_summary = ""
+            if additional_info is not None and additional_info.done():
+                full_summary = additional_info.result() if additional_info is not None else ""
             if mode == "web_search":
                 pass
             elif llm.use_gpt4 or scan:
@@ -507,10 +508,10 @@ class DocIndex:
                 small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
                 raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
-                                                questions_answers=qna_text, full_summary=additional_info.result() if additional_info is not None else "")
+                                                questions_answers=qna_text, full_summary=full_summary)
             else:
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary="",
-                                                questions_answers="", full_summary=additional_info.result() if additional_info is not None else "")
+                                                questions_answers="", full_summary=full_summary)
 
             if mode == "web_search":
                 pass
@@ -564,7 +565,7 @@ class DocIndex:
                 answer += (query_results + "\n")
                 yield (query_results + "\n")
                 txc = web_results.result()[1].result()['text']
-            elif mode == "detailed":
+            elif mode == "detailed" and scan:
                 additional_info = additional_info.result()
                 for t in additional_info:
                     txc += t
