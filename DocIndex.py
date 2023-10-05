@@ -1129,6 +1129,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     else:
         is_pdf = pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
+    logger.info(f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}")
     if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
