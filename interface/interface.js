@@ -610,7 +610,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
     
 
     $(`#${parentElementId}`).append(
-        `<div style="display: flex; margin-bottom: 10px;">` +
+        `<div style="display: flex;">` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 

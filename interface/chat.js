@@ -363,7 +363,7 @@ var ChatManager = {
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-          var messageElement = $('<div class="card w-75 my-2 d-flex flex-column" style="width: 95%!important;"></div>');
+          var messageElement = $('<div class="card w-100 my-2 d-flex flex-column"></div>');
           var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
           var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}><small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
           var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
@@ -376,13 +376,13 @@ var ChatManager = {
           
           // Depending on who the sender is, we adjust the alignment and add different background shading
           if (message.sender == 'user') {
-            messageElement.addClass('ml-md-auto');  // For right alignment
+            // messageElement.addClass('ml-md-auto');  // For right alignment
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
           } else {
             if (message.text.trim().length > 0) {
                 initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
             }
-            messageElement.addClass('mr-md-auto');  // For left alignment
+            // messageElement.addClass('mr-md-auto');  // For left alignment
             messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
           }
           if (message.text.trim().length > 0){

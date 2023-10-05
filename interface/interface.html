@@ -263,19 +263,19 @@
                   <div class="tab-content">
                     <div class="tab-pane fade show active" id="assistant-view" role="tabpanel">
                       <div class="row scrolling-row">
-                        <div class="col-3 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
+                        <div class="col-2 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
                             <!-- Sidebar -->
                             <div class="d-flex justify-content-between align-items-center mt-2">
                                 <button class="btn btn-primary btn-sm" id="hide-chat-sidebar"><i class="fa fa-bars"></i></button>
-                                <h4 class="mb-0">Conversations</h4> <!-- Added class mb-0 to remove default bottom margin -->
-                                <button id="add-new-chat" type="button" class="btn btn-primary ml-2 btn-sm"><i class="fa fa-plus">&nbsp; New Chat</i></button>
+                                <h5 class="mb-0">Chats</h5> <!-- Added class mb-0 to remove default bottom margin -->
+                                <button id="add-new-chat" type="button" class="btn btn-primary ml-2 btn-sm"><i class="fa fa-plus">&nbsp;Chat</i></button>
                             </div>
                             <div id="conversations" class="list-group" style="margin-top: 10px;">
                                 <!-- Conversations will be dynamically populated here -->
                             </div>
                         </div>
                         <button class="btn btn-primary btn-sm" id="show-chat-sidebar" style="display: none;"><i class="fa fa-bars"></i></button>
-                        <div class="col-9" id="chat-assistant">
+                        <div class="col-10" id="chat-assistant">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
                               <div id="chat-doc-view" class="row">
                                   <!-- Chat Docs will be populated here -->
