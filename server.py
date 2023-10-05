@@ -1337,6 +1337,21 @@ def delete_conversation(conversation_id):
     removeUserFromConversation(email, conversation_id)
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
+@app.route('/delete_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['DELETE'])
+@limiter.limit("30 per minute")
+@login_required
+def delete_message_from_conversation(conversation_id, message_id, index):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.delete_message(message_id, index)
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Message {message_id} deleted'})
 
 @app.route('/delete_last_message/<conversation_id>', methods=['DELETE'])
 @limiter.limit("30 per minute")

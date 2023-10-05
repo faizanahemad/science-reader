@@ -458,6 +458,11 @@ class Conversation:
         msg_set.result()
         mem_set.result()
 
+    def delete_message(self, message_id, index):
+        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        messages = self.get_field("messages")
+        messages = [m for i, m in enumerate(messages) if m["message_id"] != message_id and i != index]
+        self.set_field("messages", messages, overwrite=True)
     def __call__(self, query):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query):

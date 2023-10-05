@@ -368,3 +368,39 @@ textarea.form-control.dynamic-textarea {
     background-color: #fff;
     border-color: #ccc;
 }
+
+.delete-message-button {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;            /* Adjust padding as needed */
+    color: #000000;
+}
+
+.delete-message-button:hover {
+    border: 1px solid red;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+.delete-message-button:visited {
+    border: 1px solid #010101;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: #551A8B;
+}
+
+.delete-message-button,
+.delete-message-button:visited {
+    border: 1px solid #000000;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px; 
+    color: #000000;
+}
+
+.delete-message-button:hover {
+    border: 1px solid red;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}

@@ -43,7 +43,7 @@ var ConversationManager = {
         this.activeConversationId = conversationId;
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function(messages) {
-            ChatManager.renderMessages(messages, true);
+            ChatManager.renderMessages(conversationId, messages, true);
             $('#messageText').focus();
             
         });
@@ -78,7 +78,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
         };
 
         if (!card) {
-            card = ChatManager.renderMessages([serverMessage], false);
+            card = ChatManager.renderMessages(conversationId, [serverMessage], false);
         }
         while (boundary !== -1) {
             const part = JSON.parse(buffer.slice(0, boundary));
@@ -166,7 +166,7 @@ var ChatManager = {
             success: function(response) {
                 // Reload the conversation
                 ChatManager.listMessages(conversationId).done(function(messages) {
-                    ChatManager.renderMessages(messages);
+                    ChatManager.renderMessages(conversationId, messages);
                 });
             }
         });
@@ -330,17 +330,37 @@ var ChatManager = {
             // Append the container to the chat_doc_view
             chat_doc_view.append(container);
         });
-    }
-,
-    renderMessages: function(messages, shouldClearChatView) {
+    },
+    deleteMessage: function(conversationId, messageId, index) {
+        return $.ajax({
+            url: '/delete_message_from_conversation/' + conversationId + '/' + messageId + '/' + index,
+            type: 'DELETE',
+            success: function(response) {
+                // Reload the conversation
+                ChatManager.listMessages(conversationId).done(function(messages) {
+                    ChatManager.renderMessages(conversationId, messages, true);
+                    $('#messageText').focus();
+                });
+
+                ChatManager.listDocuments(conversationId).done(function(documents) {
+                    ChatManager.renderDocuments(conversationId, documents);
+                });
+                ChatManager.setupAddDocumentForm(conversationId);
+                ChatManager.setupDownloadChatButton(conversationId);
+                highLightActiveConversation();
+
+            }
+        });
+    },
+    renderMessages: function(conversationId, messages, shouldClearChatView) {
         if (shouldClearChatView) {
           $('#chatView').empty();  // Clear the chat view first
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
           var messageElement = $('<div class="card w-75 my-2 d-flex flex-column" style="width: 95%!important;"></div>');
-          
-          var cardHeader = $('<div class="card-header text-end"><small><strong>' + senderText + '</strong></small></div>');
+          var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
+          var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}><small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
           var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
           var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
           textElem.html(message.text.replace(/\n/g, '  \n'))
@@ -379,6 +399,13 @@ var ChatManager = {
           statusDiv.hide();
           statusDiv.find('.spinner-border').hide();
         });
+        $(".delete-message-button").off().on("click", function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).closest('[message-id]').attr('message-id');
+            var messageIndex = $(this).closest('[message-index]').attr('message-index');
+            ChatManager.deleteMessage(conversationId, messageId, messageIndex);
+        });
         // var chatView = $('#chatView');
         // chatView.scrollTop(chatView.prop('scrollHeight'));
         return $('#chatView').find('.card').last();
@@ -393,7 +420,7 @@ var ChatManager = {
             sender: 'user',
             text: messageText
         };
-        ChatManager.renderMessages([userMessage], false);
+        ChatManager.renderMessages(conversationId, [userMessage], false);
 
         // Use Fetch API to make request
         let response = fetch('/send_message/' + conversationId, {
