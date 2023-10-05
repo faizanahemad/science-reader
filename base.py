@@ -1320,7 +1320,7 @@ class CustomPDFLoader(MathpixPDFLoader):
         if os.path.exists(self.file_path):
             options = dict(**self.options)
         else:
-            options = dict(url=self.file_path,**self.options)
+            options = dict(url=self.file_path, **self.options)
         return {"options_json": json.dumps(options)}
     def clean_pdf(self, contents: str) -> str:
         contents = "\n".join(

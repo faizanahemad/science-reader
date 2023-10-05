@@ -701,16 +701,21 @@ cache_timeout = 7 * 24 * 60 * 60
 @typed_memoize(cache, str, int, tuple, bool)
 def is_pdf_link(link):
     st = time.time()
-    try:
-        response = ProcessFnWithTimeout(Queue())(requests.head, 5, link)
-        content_type = response.headers.get('Content-Type')
-        et = time.time() - st
-        logger.info(f"Time taken to check if link is pdf: {et:.2f} sec")
-        result = ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
-        return result
-    except Exception as e:
-        print(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
-        return False
+    result = False
+    science_doc = ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or ("aclanthology.org" in link and "pdf" in link) or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
+    if science_doc:
+        result = True
+    else:
+        try:
+            response = ProcessFnWithTimeout(Queue())(requests.head, 10, link)
+            content_type = response.headers.get('Content-Type')
+            result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+        except Exception as e:
+            print(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
+            result = False
+    et = time.time() - st
+    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec")
+    return result
 
 
 import threading
