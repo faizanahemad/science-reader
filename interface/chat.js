@@ -53,6 +53,11 @@ var ConversationManager = {
         ChatManager.setupAddDocumentForm(conversationId);
         ChatManager.setupDownloadChatButton(conversationId);
         highLightActiveConversation();
+        var chatView = $('#chatView');
+        chatView.scrollTop(chatView.prop('scrollHeight'));
+        setTimeout(function() {
+            chatView.scrollTop(chatView.prop('scrollHeight'));
+        }, 150);
     }
 
 };
