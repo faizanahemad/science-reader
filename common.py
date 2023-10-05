@@ -714,7 +714,7 @@ def is_pdf_link(link):
             print(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
             result = False
     et = time.time() - st
-    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec")
+    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec, result: {result}")
     return result
 
 
