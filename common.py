@@ -698,7 +698,7 @@ temp_dir = tempfile.gettempdir()
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
 
-@typed_memoize(cache, str, int, tuple, bool)
+# @typed_memoize(cache, str, int, tuple, bool)
 def is_pdf_link(link):
     st = time.time()
     result = False
