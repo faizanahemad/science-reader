@@ -156,7 +156,7 @@ Summary and Salient points below:
 
             # Translate the above prompt string to PromptTemplate object
             chat_fast_reply_prompt=PromptTemplate(
-                input_variables=["query", "summary_text", "previous_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text"],
+                input_variables=["query", "summary_text", "previous_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI. Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query. 
 Provide a short and concise reply now, we will expand and enhance your answer later.
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
@@ -164,6 +164,7 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{summary_text}}
 {{previous_messages}}
 {{document_nodes}}
+{{conversation_docs_answer}}
 {{permanent_instructions}}
 
 Answers from user's stored documents:
@@ -458,13 +459,14 @@ Summary and Salient points below:
             ),
             chat_fast_reply_prompt=PromptTemplate(
                 input_variables=["query", "summary_text", "previous_messages", "document_nodes",
-                                 "permanent_instructions", "doc_answer", "web_text", "link_result_text"],
+                                 "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI. Provide informative answer to the human's query. 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {self.simple_output_instructions}
 {{summary_text}}
 {{previous_messages}}
 {{document_nodes}}
+{{conversation_docs_answer}}
 {{permanent_instructions}}
 
 Answers from user's stored documents:
