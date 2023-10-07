@@ -638,6 +638,28 @@ def send_request_zenrows(url, apikey):
     except Exception as e:
         exc = traceback.format_exc()
         logger.error(f"[send_request_zenrows] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+    if result is not None and "title" in result and "text" in result and result["text"] is not None and result["text"] != "":
+        return result
+    try:
+        result = local_browser_reader(html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
+    try:
+        goose3_result = send_request_goose3(link=url, html=html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
+    try:
+        trafilatura_result = send_request_trafilatura(link=url, html=html)
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
+
+    if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text']) // 2):
+        result = goose3_result
+    if trafilatura_result is not None and (result is None or len(result['text']) < len(trafilatura_result['text']) // 2):
+        result = trafilatura_result
     # Return the response content
     return result
 
