@@ -711,7 +711,7 @@ def is_pdf_link(link):
             content_type = response.headers.get('Content-Type')
             result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
         except Exception as e:
-            print(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
+            logger.warning(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
             result = False
     et = time.time() - st
     logger.info(f"Time taken to check if link is pdf: {et:.2f} sec, result: {result}")

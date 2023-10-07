@@ -453,6 +453,10 @@ function loadConversations(autoselect=true) {
     var request = apiCall(api, 'GET', {})
 
     request.done(function(data) {
+        // sort data by last_updated in descending order
+        data.sort(function(a, b) {
+            return new Date(b.last_updated) - new Date(a.last_updated);
+        });
         // Auto-select the first conversation
         var firstConversation = true;
         $('#conversations').empty();
