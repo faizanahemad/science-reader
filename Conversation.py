@@ -423,37 +423,39 @@ Title of the conversation:
         msg_set = get_async_future(self.set_field,"messages", [
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query, "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id}, 
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)), "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
-        
+        memory = get_async_future(self.get_field, "memory")
+        indices = get_async_future(self.get_field, "indices")
+        if len(new_docs) > 0:
+            raw_doc_index = get_async_future(self.get_field, "raw_documents_index")
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_summary=get_first_last_parts("".join(self.get_field("memory")["running_summary"]), 0, 1000))
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, response)
         summary = summary.result()
         title = title.result()
-
-        memory = self.get_field("memory")
+        memory = memory.result()
         memory["title"] = title
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"].append(summary)
         mem_set = get_async_future(self.set_field, "memory", memory)
         # self.set_field("memory", memory)
-        
-        indices = self.get_field("indices")
-        message_index_new = FAISS.from_texts([query, response], get_embedding_model(self.get_api_keys()))
-        _ = indices["message_index"].merge_from(message_index_new)
-        summary_index_new = FAISS.from_texts([summary], get_embedding_model(self.get_api_keys()))
-        _ = indices["summary_index"].merge_from(summary_index_new)
-        raw_doc_index = self.get_field("raw_documents_index")
-        for link, text in new_docs.items():
-            if link in raw_doc_index:
-                continue
-            text = ChunkText(text, 2**14, 0)[0]
-            chunks = ChunkText(text, 256, 32)
-            chunks = [f"link:{link}\n\ntext:{c}" for c in chunks if len(c.strip()) > 0]
-            idx = create_index_faiss(chunks, get_embedding_model(self.get_api_keys()), )
-            raw_doc_index[link] = idx
-            indices["raw_documents_index"].merge_from(idx)
-        self.set_field("raw_documents_index", raw_doc_index)
+        indices = indices.result()
+        message_index_new = get_async_future(FAISS.from_texts,[query, response], get_embedding_model(self.get_api_keys()))
+        summary_index_new = get_async_future(FAISS.from_texts,[summary], get_embedding_model(self.get_api_keys()))
+        _ = indices["message_index"].merge_from(message_index_new.result())
+        _ = indices["summary_index"].merge_from(summary_index_new.result())
+        if len(new_docs) > 0:
+            raw_doc_index = raw_doc_index.result()
+            for link, text in new_docs.items():
+                if link in raw_doc_index:
+                    continue
+                text = ChunkText(text, 2**14, 0)[0]
+                chunks = ChunkText(text, 256, 32)
+                chunks = [f"link:{link}\n\ntext:{c}" for c in chunks if len(c.strip()) > 0]
+                idx = create_index_faiss(chunks, get_embedding_model(self.get_api_keys()), )
+                raw_doc_index[link] = idx
+                indices["raw_documents_index"].merge_from(idx)
+            self.set_field("raw_documents_index", raw_doc_index)
         self.set_field("indices", indices)
         msg_set.result()
         mem_set.result()
@@ -662,7 +664,7 @@ Title of the conversation:
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:(8 if provide_detailed_answers else 4)]
             web_text = "\n\n".join(web_text_accumulator)
-            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
+            # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
             read_links = list(set([link.strip() for link in read_links]))
             if len(read_links) > 0:
@@ -729,7 +731,7 @@ Title of the conversation:
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.1)
             web_text = "\n\n".join(web_text_accumulator)
-            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
+            # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
 
         new_line = "\n"
         summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (

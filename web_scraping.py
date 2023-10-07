@@ -615,6 +615,10 @@ def fetch_content_brightdata(url, brightdata_proxy):
     # Return the response content
     return result
 
+import threading
+ZENROW_PARALLELISM = 10
+zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
+
 def send_request_zenrows_html(url, apikey, readability=True):
     if readability:
         js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
@@ -631,7 +635,8 @@ def send_request_zenrows_html(url, apikey, readability=True):
     }
     import time
     st = time.time()
-    response = requests.get('https://api.zenrows.com/v1/', params=params)
+    with zenrows_semaphore:
+        response = requests.get('https://api.zenrows.com/v1/', params=params)
     if response.status_code != 200:
         raise Exception(
             f"Error in zenrows with status code {response.status_code}")
@@ -763,7 +768,7 @@ def web_scrape_page(link, apikeys):
     try:
         bright_data_result = None
         zenrows_service_result = None
-        if random.random() < 0.7:
+        if random.random() <= 0.5:
             bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         else:
             zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
