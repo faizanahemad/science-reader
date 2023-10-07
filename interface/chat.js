@@ -342,18 +342,21 @@ var ChatManager = {
             type: 'DELETE',
             success: function(response) {
                 // Reload the conversation
-                ChatManager.listMessages(conversationId).done(function(messages) {
-                    ChatManager.renderMessages(conversationId, messages, true);
-                    $('#messageText').focus();
-                });
+                // ChatManager.listMessages(conversationId).done(function(messages) {
+                //     ChatManager.renderMessages(conversationId, messages, true);
+                //     $('#messageText').focus();
+                // });
 
-                ChatManager.listDocuments(conversationId).done(function(documents) {
-                    ChatManager.renderDocuments(conversationId, documents);
-                });
-                ChatManager.setupAddDocumentForm(conversationId);
-                ChatManager.setupDownloadChatButton(conversationId);
-                highLightActiveConversation();
+                // ChatManager.listDocuments(conversationId).done(function(documents) {
+                //     ChatManager.renderDocuments(conversationId, documents);
+                // });
+                // ChatManager.setupAddDocumentForm(conversationId);
+                // ChatManager.setupDownloadChatButton(conversationId);
+                // highLightActiveConversation();
 
+            },
+            error: function(response) {
+                alert('Refresh page, delete error, Error: ' + response.responseText);
             }
         });
     },
@@ -409,6 +412,7 @@ var ChatManager = {
             event.stopPropagation();
             var messageId = $(this).closest('[message-id]').attr('message-id');
             var messageIndex = $(this).closest('[message-index]').attr('message-index');
+            $(this).closest('.card').remove();
             ChatManager.deleteMessage(conversationId, messageId, messageIndex);
         });
         // var chatView = $('#chatView');
