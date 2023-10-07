@@ -1113,7 +1113,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import send_request_goose3, send_request_readabilipy, send_request_trafilatura, send_request_zenrows, send_local_browser, local_browser_reader, fetch_content_brightdata, send_request_zenrows_shim, fetch_content_brightdata_shim, web_scrape_page
+from web_scraping import web_scrape_page
 
 
 

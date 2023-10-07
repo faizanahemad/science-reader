@@ -1142,6 +1142,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             f.write(html)
         convert_doc_to_pdf(html_file, html_file.replace(".html", ".pdf"))
         pdf_url = html_file.replace(".html", ".pdf")
+        # delete html file
+        os.remove(html_file)
         doc_text = UnstructuredHTMLLoader(html_file).load()[0].page_content
     elif pdf_url.endswith(".html"):
         doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content

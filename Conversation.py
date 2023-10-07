@@ -397,20 +397,20 @@ class Conversation:
     def create_title(self, query, response):
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         memory = self.get_field("memory")
-        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) > 0) or (len(memory["running_summary"]) > 5 and len(memory["running_summary"]) % 5 == 1):
+        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0) or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1):
             llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-            prompt = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. We also have a list of salient points of the conversation.
-        Using these you will write a new title for this conversation. 
-        The summary of the conversation is as follows:
-        '''{"".join(self.get_field("memory")["running_summary"][-1:])}'''
+            running_summary = memory["running_summary"][-1:]
+            running_summary = "".join(running_summary)
+            running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
+            prompt = f"""You are given conversation details between a human and an AI. You will write a title for this conversation. 
+{running_summary}
+The last 2 messages of the conversation are as follows:
+User query: '''{query}'''
+System response: '''{response}'''
 
-        The last 2 messages of the conversation are as follows:
-        User query: '''{query}'''
-        System response: '''{response}'''
-
-        Now lets write a title of the conversation.
-        Title of the conversation:
-        """
+Now lets write a title of the conversation.
+Title of the conversation:
+"""
             title = get_async_future(llm, prompt, temperature=0.2, stream=False)
         else:
             title = wrap_in_future(self.get_field("memory")["title"])
