@@ -58,18 +58,11 @@ Answer:
                 template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
-
-Short summary of the document is given below.
-'''{{full_summary}}'''
-
+{{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
-
-Next, You are given few question and answer pairs from the document below:
-'''{{questions_answers}}'''
-
-You are also given summaries of certain parts of document below:
-'''{{summary}}'''
+{{questions_answers}}
+{{summary}}
 
 {self.complex_output_instructions}
 
@@ -115,21 +108,19 @@ Rephrased and contextualised human's last message:
             persist_current_turn_prompt=PromptTemplate(
                 input_variables=["query", "response", "previous_summary",],
                 template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. Salient points should capture the salient, important and noteworthy aspects and details from the user query and system response. 
-Your salient points should only focus on the current query and response.
-Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
-Preserve important details that have been mentioned in the previous summary especially including factual details and references. Salient points (unforgettables) should be different from summary and capture different aspects of the conversation at a higher level.
+Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. 
+Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
+Preserve important details that have been mentioned in the previous summary especially including factual details and references.
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
-
 
 The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
 User query: '''{query}'''
 System response: '''{response}'''
 
-First, lets write a new summary of the conversation. Then write the salient points of the conversation.
-Summary and Salient points below:
+Write a summary of the conversation using the previous summary and the last 2 messages.
+Conversation Summary:
 """,
             ),
 
@@ -363,18 +354,11 @@ Answer:
                 template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
-
-Short summary of the document is given below.
-'''{{full_summary}}'''
-
+{{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
-
-Next, You are given few question and answer pairs from the document below:
-'''{{questions_answers}}'''
-
-You are also given summaries of certain parts of document below:
-'''{{summary}}'''
+{{questions_answers}}
+{{summary}}
 {self.simple_output_instructions}
 
 Question or Query is given below.
@@ -414,9 +398,7 @@ Rephrased and contextualised human's last message:
             persist_current_turn_prompt=PromptTemplate(
                 input_variables=["query", "response", "previous_summary", ],
                 template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Write a new summary of the conversation, and then write a list of salient points from this user query and system response. Salient points are few, short and crisp like an expanded table of contents. 
-Your salient points should only focus on the current query and response.
-Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
+Write a new summary of the conversation. Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. 
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
@@ -425,8 +407,8 @@ The last 2 messages of the conversation from which we will derive the summary an
 User query: '''{query}'''
 System response: '''{response}'''
 
-First, lets write a new summary of the conversation. Then write the salient points of the conversation.
-Summary and Salient points below:
+First, lets write a new summary of the conversation.
+Conversation Summary:
 """,
             ),
             chat_fast_reply_prompt=PromptTemplate(

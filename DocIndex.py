@@ -488,7 +488,9 @@ class DocIndex:
             dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
             summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff*2)
             summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
+            summary_text = f"You are also given summaries of certain parts of document below:\n'''{summary_text}'''" if len(summary_text.strip()) > 0 else ""
             qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
+            qna_text = f"Next, You are given few question and answer pairs from the document below:\n'''{qna_text}'''" if len(qna_text.strip()) > 0 else ""
             rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary)
             rem_tokens = rem_word_len // LARGE_CHUNK_LEN
             raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
@@ -499,6 +501,7 @@ class DocIndex:
             full_summary = ""
             if additional_info is not None and additional_info.done():
                 full_summary = additional_info.result() if additional_info is not None else ""
+            full_summary = f"Short summary of the document is given below. \n'''{full_summary}'''" if len(full_summary.strip()) > 0 else ""
             if mode == "web_search":
                 pass
             elif llm.use_gpt4 or scan:
