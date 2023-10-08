@@ -871,14 +871,15 @@ Detailed and comprehensive summary:
             chunk_summaries.append(this_chunk)
             running_summary = running_summary + " " + this_chunk
 
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         if llm.use_gpt4:
-            rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+            rs = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
             if get_gpt4_word_count(" ".join(rs)) < 7000:
-                running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+                running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
             else:
-                rs = [running_summaries[i] for i in range(0, len(running_summaries), 4)]
+                rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
                 if get_gpt4_word_count(" ".join(rs)) < 7000:
-                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 4)]
+                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
                 else:
                     mid = max(len(running_summaries) // 2 - 1, 0)
                     running_summaries = running_summaries[mid:mid + 1]
@@ -886,11 +887,10 @@ Detailed and comprehensive summary:
             mid = max(len(running_summaries)//2 - 1, 0)
             running_summaries = running_summaries[mid:mid+1]
         yield '\n\n</br></br>'
-        new_summary_prompt = "Create an overall summary (elaborate and detailed summary) of a scientific paper from given sectional summary of parts of the paper.\n Sectional Summaries: \n '{}' \n Overall Summary: \n"
+        new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document.\nSectional Summaries:\n'{}'\nProvide detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
         rsum = ''
-        prompt = new_summary_prompt.format(" \n".join(running_summaries+[running_summary]))
+        prompt = new_summary_prompt.format(" \n".join([brief_summary] + running_summaries+[running_summary]))
         prompt = get_first_last_parts(prompt, 1000, 6000)
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         yield "### Overall Summary: \n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             rsum = rsum + txt
