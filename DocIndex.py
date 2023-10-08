@@ -854,15 +854,17 @@ Detailed and comprehensive summary:
         llm = CallLLm(self.get_api_keys(), use_16k=True)
         brief_summary = self.title + "\n" + self.short_summary
         brief_summary = (brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
-        two_chunks = ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 2000, 256)
-        two_chunks = [f"Overall document context:\n'''{brief_summary}'''\nText from current fragment we are summarising:\n'''{t}'''" for t in two_chunks if len(t.strip()) > 0]
+        chunks = ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 2000, 256)
+        chunks = [f"Overall document context:\n'''{brief_summary}'''\nText from current document context we are summarising:\n'''{t}'''" for t in chunks if len(t.strip()) > 0]
         chunk_summaries = []
-        for ic, chunk in enumerate(two_chunks):
+        for ic, chunk in enumerate(chunks):
             if not TextLengthCheck(running_summary, 1600):
                 running_summaries.append(running_summary)
                 running_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(summary_prompt.format(running_summary), temperature=0.7, stream=False)
                 
-            prompt = self.running_summary_prompt.format(summary=running_summary, document=chunk, previous_chunk_summary=this_chunk)
+            cur_sum = f"The summary we have written till now:\n'''{running_summary}'''\nContinue writing ahead from the 'summary we have written till now'." if len(running_summary.strip()) > 0 else ""
+            prev_sum = f"Summary of previous context from the same document:\n'''{this_chunk}'''" if len(this_chunk.strip()) > 0 else ""
+            prompt = self.running_summary_prompt.format(summary=cur_sum, document=chunk, previous_chunk_summary=prev_sum)
             this_chunk = ''
             for txt in llm(prompt, temperature=0.7, stream=True):
                 this_chunk = this_chunk + txt
@@ -887,11 +889,12 @@ Detailed and comprehensive summary:
             mid = max(len(running_summaries)//2 - 1, 0)
             running_summaries = running_summaries[mid:mid+1]
         yield '\n\n</br></br>'
-        new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document.\nSectional Summaries:\n'{}'\nProvide detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
+        new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document. Ignore References. \nSectional Summaries:\n'{}'\nProvide elaborate, detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
         rsum = ''
         prompt = new_summary_prompt.format(" \n".join([brief_summary] + running_summaries+[running_summary]))
         prompt = get_first_last_parts(prompt, 1000, 6000)
-        yield "### Overall Summary: \n"
+        yield "<h3>Overall Summary</h3>"
+        yield "\n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             rsum = rsum + txt
             yield txt

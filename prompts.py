@@ -82,33 +82,15 @@ Write informative answer below.
             running_summary_prompt=PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
                 template=f"""We are reading a large document in fragments sequentially to write a continuous summary.
-Current chunk/fragment we are looking at:
-"{{document}}"
-
-Summary of previous chunk/fragment:
-"{{previous_chunk_summary}}"
-
-The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
-"{{summary}}"
-
-{self.complex_output_instructions}
-
-Instructions for this task as below:
-- Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now". 
+'''{{document}}'''
+{{previous_chunk_summary}}
+{{summary}}
+Instructions for this summarization task as below:
 - Ignore references.
-- Always provide detailed, comprehensive, informative and in-depth response.
-- Your output will look as below in structure:
-"
-<h4>Title or Topic of this Part</h4>
-details of this part
-</br>
+- Provide detailed, comprehensive, informative and in-depth response.
+- Use markdown for formatting. Use lists and paragraphs.
 
-<h4>Title or Topic of next part</h4>
-Details of next part
-</br>
-"
-
-Short Summary:
+Summary:
 """,
             ),
             retrieve_prior_context_prompt=PromptTemplate(
@@ -403,19 +385,11 @@ Write informative answer below.
             running_summary_prompt=PromptTemplate(
                 input_variables=["summary", "document", "previous_chunk_summary"],
                 template=f"""We are reading a large document in fragments sequentially to write a continuous summary. 
-Current chunk/fragment we are looking at:
-"{{document}}"
-
-Summary of previous chunk/fragment:
-"{{previous_chunk_summary}}"
-
-Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now". 
+'''{{document}}'''
+{{previous_chunk_summary}}
+{{summary}}
 Ignore references. Always provide detailed, comprehensive, informative and in-depth response.
-The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
-"{{summary}}"
-
-{self.simple_output_instructions}
-Short Summary:
+Summary:
 """,
             ),
             retrieve_prior_context_prompt=PromptTemplate(
