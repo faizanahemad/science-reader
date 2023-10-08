@@ -95,6 +95,7 @@ The summary written till now will be empty if this is the first chunk/fragment o
 
 Instructions for this task as below:
 - Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now". 
+- Ignore references.
 - Add html header '<h4>topic/header text of current chunk</h4>' and header text (inside <h4> tags) at appropriate places when the current chunk/fragment moves to a new topic. In case the topic discussed is still the same as last topic of 'summary written till now' then don't add header <h4> tags and header text.
 - Your output will look as below in structure:
 "
@@ -408,7 +409,7 @@ Current chunk/fragment we are looking at:
 Summary of previous chunk/fragment:
 "{{previous_chunk_summary}}"
 
-Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now".
+Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now". Ignore references.
 The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
 "{{summary}}"
 
