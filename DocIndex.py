@@ -873,31 +873,34 @@ Detailed and comprehensive summary:
             chunk_summaries.append(this_chunk)
             running_summary = running_summary + " " + this_chunk
 
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        if llm.use_gpt4:
-            rs = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
-            if get_gpt4_word_count(" ".join(rs)) < 7000:
-                running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
-            else:
-                rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
-                if get_gpt4_word_count(" ".join(rs)) < 7000:
-                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
-                else:
-                    mid = max(len(running_summaries) // 2 - 1, 0)
-                    running_summaries = running_summaries[mid:mid + 1]
+        if len(running_summaries) == 1:
+            rsum = running_summaries[0]
         else:
-            mid = max(len(running_summaries)//2 - 1, 0)
-            running_summaries = running_summaries[mid:mid+1]
-        yield '\n\n</br></br>'
-        new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document. Ignore References. \nSectional Summaries:\n'{}'\nProvide elaborate, detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
-        rsum = ''
-        prompt = new_summary_prompt.format(" \n".join([brief_summary] + running_summaries+[running_summary]))
-        prompt = get_first_last_parts(prompt, 1000, 6000)
-        yield "<h3>Overall Summary</h3>"
-        yield "\n"
-        for txt in llm(prompt, temperature=0.7, stream=True):
-            rsum = rsum + txt
-            yield txt
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+            if llm.use_gpt4:
+                rs = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
+                if get_gpt4_word_count(" ".join(rs)) < 7000:
+                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
+                else:
+                    rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+                    if get_gpt4_word_count(" ".join(rs)) < 7000:
+                        running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
+                    else:
+                        mid = max(len(running_summaries) // 2 - 1, 0)
+                        running_summaries = running_summaries[mid:mid + 1]
+            else:
+                mid = max(len(running_summaries)//2 - 1, 0)
+                running_summaries = running_summaries[mid:mid+1]
+            yield '\n\n</br></br>'
+            new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document. Ignore References. \nSectional Summaries:\n'{}'\nProvide elaborate, detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
+            rsum = ''
+            prompt = new_summary_prompt.format(" \n".join([brief_summary] + running_summaries+[running_summary]))
+            prompt = get_first_last_parts(prompt, 1000, 6000)
+            yield "<h3>Overall Summary</h3>"
+            yield "\n"
+            for txt in llm(prompt, temperature=0.7, stream=True):
+                rsum = rsum + txt
+                yield txt
         
         self.set_doc_data("qna_data", "chunked_summary", chunk_summaries, overwrite=True) 
         assert len(rsum.strip()) > 0
