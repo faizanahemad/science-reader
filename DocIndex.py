@@ -875,6 +875,8 @@ Detailed and comprehensive summary:
 
         if len(running_summaries) == 1:
             rsum = running_summaries[0]
+        elif len(running_summaries) == 0:
+            rsum = running_summary
         else:
             llm = CallLLm(self.get_api_keys(), use_gpt4=True)
             if llm.use_gpt4:

@@ -88,7 +88,7 @@ Write informative answer below.
 Instructions for this summarization task as below:
 - Ignore references.
 - Provide detailed, comprehensive, informative and in-depth response.
-- Include key experiments, results, insights, and conclusions.
+- Include key experiments, experimental observations, results and insights.
 - Use markdown for formatting. Use lists and paragraphs.
 
 Summary:
@@ -389,7 +389,7 @@ Write informative answer below.
 '''{{document}}'''
 {{previous_chunk_summary}}
 {{summary}}
-Ignore references. Always provide detailed, comprehensive, informative and in-depth response. Include key experiments, results, insights, and conclusions.
+Ignore references. Always provide detailed, comprehensive, informative and in-depth response. Include key experiments, experimental observations, results and conclusions.
 Summary:
 """,
             ),
