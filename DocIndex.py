@@ -842,7 +842,7 @@ Detailed and comprehensive summary:
             answer += txt
 
     def streaming_build_summary(self):
-        summary_prompt = "The given text is part of a scientific document. Write a detailed summary which contains all important and essential information from the text. Summarize the text:\n '{}' \nSummary: \n"
+        summary_prompt = "The given text is part of a document. Write a detailed summary which contains all important and essential information from the given text. Summarize the text:\n '{}' \nSummary: \n"
         if len(self.get_doc_data("qna_data", "chunked_summary")) > 0 and len(self.get_doc_data("qna_data", "chunked_summary")[0].strip())>0:
             # We already have the summary
             for txt in self.get_doc_data("qna_data", "chunked_summary"):
@@ -851,32 +851,26 @@ Detailed and comprehensive summary:
         self.set_doc_data("qna_data", "chunked_summary", [])
         running_summary = ''
         this_chunk = ''
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        two_chunks = combine_array_two_at_a_time(self.get_doc_data("raw_data", "chunks"))
-        if llm.use_gpt4:
-            two_chunks = [two_chunks[0] + ' ' + two_chunks[1]] + two_chunks[2:]
-        
+        llm = CallLLm(self.get_api_keys(), use_16k=True)
+        brief_summary = self.title + "\n" + self.short_summary
+        brief_summary = (brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+        two_chunks = ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 2000, 256)
+        two_chunks = [f"Overall document context:\n'''{brief_summary}'''\nText from current fragment we are summarising:\n'''{t}'''" for t in two_chunks if len(t.strip()) > 0]
         chunk_summaries = []
         for ic, chunk in enumerate(two_chunks):
-            if not TextLengthCheck(running_summary, 800):
+            if not TextLengthCheck(running_summary, 1600):
                 running_summaries.append(running_summary)
                 running_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(summary_prompt.format(running_summary), temperature=0.7, stream=False)
                 
             prompt = self.running_summary_prompt.format(summary=running_summary, document=chunk, previous_chunk_summary=this_chunk)
             this_chunk = ''
-            if ic == 0:
-                for txt in llm(prompt, temperature=0.7, stream=True):
-                    this_chunk = this_chunk + txt
-                    yield txt
-            else:
-                for txt in CallLLm(self.get_api_keys(), use_gpt4=False)(prompt, temperature=0.7, stream=True):
-                    this_chunk = this_chunk + txt
-                    yield txt
+            for txt in llm(prompt, temperature=0.7, stream=True):
+                this_chunk = this_chunk + txt
+                yield txt
             
             chunk_summaries.append(this_chunk)
             running_summary = running_summary + " " + this_chunk
-        
-        
+
         if llm.use_gpt4:
             rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
             if get_gpt4_word_count(" ".join(rs)) < 7000:
@@ -896,6 +890,7 @@ Detailed and comprehensive summary:
         rsum = ''
         prompt = new_summary_prompt.format(" \n".join(running_summaries+[running_summary]))
         prompt = get_first_last_parts(prompt, 1000, 6000)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         for txt in llm(prompt, temperature=0.7, stream=True):
             rsum = rsum + txt
             yield txt

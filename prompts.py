@@ -13,13 +13,12 @@ class CustomPrompts:
         self.complex_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting. Use lists and paragraphs.
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
-3. Do not repeat information from previous answers. Provide references or links within the answer itself closest to the point of mention using markdown link format.
-4. Answer the question as well as you can with your own knowledge if no context is provided.
-5. Provide references in markdown link format like `[Link Title](link-url)`, citing them within the answer text wherever needed."""
+3. Provide references or links within the answer inline itself closest to the point of mention using markdown link format (like wikipedia inline references).
+4. Answer the question as well as you can with your own knowledge. You are an expert in the domain of the user query."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
-1. Use markdown for formatting.
-2. Provide references within the answer itself using markdown link format."""
+1. Use markdown for formatting. Use lists and paragraphs.
+2. Provide references within the answer inline itself using markdown link format (like wikipedia inline references)."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
                 input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
@@ -95,10 +94,8 @@ The summary written till now will be empty if this is the first chunk/fragment o
 {self.complex_output_instructions}
 
 Instructions for this task as below:
-- Ignore irrelevant details not relevant to the overall document.
-- Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing from the "summary we have written till now", don't repeat information we already have. 
+- Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now". 
 - Add html header '<h4>topic/header text of current chunk</h4>' and header text (inside <h4> tags) at appropriate places when the current chunk/fragment moves to a new topic. In case the topic discussed is still the same as last topic of 'summary written till now' then don't add header <h4> tags and header text.
-- One chunk/fragment can have multiple html header '<h4>topic/header text of current chunk</h4>' and one html header can span over to multiple chunks/fragments as well. A topic or html header may start in one chunk/fragment and it's content can go over into the next chunk/fragment as well.
 - Your output will look as below in structure:
 "
 <h4>Title or Topic of this Part</h4>
@@ -115,10 +112,8 @@ Short Summary:
             ),
             retrieve_prior_context_prompt=PromptTemplate(
                 input_variables=["requery_summary_text", "previous_messages", "query"],
-                template="""You are given conversation details between a human and an AI. 
-Based on the given conversation details and human's last response or query we want to search our database of responses.
-You will generate a contextualised query based on the given conversation details and human's last response or query.
-The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
+                template="""You are given conversation details between a human and an AI. Based on the given conversation details and human's last response or query we want to search our database of responses.
+You will generate a contextualised query based on the given conversation details and human's last response or query. The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
 Ensure that the rephrased and contextualised version is different from the original query.
 The summary of the conversation is as follows:
 {requery_summary_text}
@@ -413,7 +408,7 @@ Current chunk/fragment we are looking at:
 Summary of previous chunk/fragment:
 "{{previous_chunk_summary}}"
 
-Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing from the "summary we have written till now", don't repeat information we already have.
+Continue and extend the above summary written till now by adding details from the current chunk/fragment. Continue writing ahead from the "summary we have written till now".
 The summary written till now will be empty if this is the first chunk/fragment of the larger document. The summary we have written till now:
 "{{summary}}"
 
