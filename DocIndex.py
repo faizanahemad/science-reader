@@ -891,6 +891,7 @@ Detailed and comprehensive summary:
         prompt = new_summary_prompt.format(" \n".join(running_summaries+[running_summary]))
         prompt = get_first_last_parts(prompt, 1000, 6000)
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        yield "### Overall Summary: \n"
         for txt in llm(prompt, temperature=0.7, stream=True):
             rsum = rsum + txt
             yield txt
