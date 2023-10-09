@@ -179,6 +179,10 @@ class Conversation:
         keys = self.get_api_keys()
         keys["mathpixKey"] = None
         keys["mathpixId"] = None
+        current_documents: List[DocIndex] = self.get_uploaded_documents()
+        current_sources = [d.doc_source for d in current_documents]
+        if pdf_url in current_sources:
+            return None
         doc_index: DocIndex = create_immediate_document_index(pdf_url, storage, keys)
         doc_index._visible = False
         doc_index.save_local()
