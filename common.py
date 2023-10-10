@@ -878,6 +878,24 @@ def yield_with_condition(yield_value, condition_function, failure_call_back):
     else:
         return failure_call_back()
 
+def remove_leading_spaces(text):
+    lines = text.splitlines()
+    in_code_block = False
+    for i, line in enumerate(lines):
+        if re.match(r'^<code>|^```|^`', line):
+            in_code_block = not in_code_block
+        if not in_code_block:
+            lines[i] = line.lstrip()
+    return '\n'.join(lines)
+def remove_bad_whitespaces(s):
+    s = re.sub(' +', ' ', s)  # Remove extra whitespaces
+    s = re.sub("\n{3,}", "\n\n", s)
+    s = s.strip()
+    lines = s.splitlines(keepends=False)
+    lines = [line.rstrip() for line in lines]
+    s = '\n'.join(lines)
+    s = remove_leading_spaces(s)
+    return s
 
 def reformat_string(input_str):
     words = input_str.split("\n")

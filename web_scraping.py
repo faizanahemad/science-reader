@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.DEBUG,
+    level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
@@ -614,21 +614,19 @@ def fetch_content_brightdata(url, brightdata_proxy):
 
     # Return the response content
     if result is not None and "text" in result and len(result["text"]) > 0:
-        result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
-        result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
-        result["text"] = result["text"].strip()
+        result["text"] = remove_bad_whitespaces(result["text"])
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
-        result["title"] = re.sub(' +', ' ', result["title"])
-        result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
-        result["title"] = result["title"].strip()
+        result["title"] = remove_bad_whitespaces(result["title"])
     return result
 
 import threading
+import time
 ZENROW_PARALLELISM = 10
 zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 
 def send_request_zenrows_html(url, apikey, readability=True):
+    st = time.time()
     if readability:
         js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
     else:
@@ -642,8 +640,6 @@ def send_request_zenrows_html(url, apikey, readability=True):
         'block_resources': 'image,media,stylesheet,font',
         'js_instructions': js,
     }
-    import time
-    st = time.time()
     with zenrows_semaphore:
         response = requests.get('https://api.zenrows.com/v1/', params=params)
     if response.status_code != 200:
@@ -659,7 +655,7 @@ def send_request_zenrows_html(url, apikey, readability=True):
             'text': ""
         }
     et = time.time() - st
-    logger.info(" ".join(['send_request_zenrows ', str(et), "\n", response.text[-100:]]))
+    logger.info(" ".join(['send_request_zenrows ', f"Time = {et:.2f}, ", f"Response length = {len(response.text)}"]))
     html = response.text
     return html
 
@@ -712,14 +708,10 @@ def send_request_zenrows(url, apikey):
     if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
         result = soup_html_parser_result
     if result is not None and "text" in result and len(result["text"]) > 0:
-        result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
-        result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
-        result["text"] = result["text"].strip()
+        result["text"] = remove_bad_whitespaces(result["text"])
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
-        result["title"] = re.sub(' +', ' ', result["title"])
-        result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
-        result["title"] = result["title"].strip()
+        result["title"] = remove_bad_whitespaces(result["title"])
     return result
 
 def local_browser_reader(html):

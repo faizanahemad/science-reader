@@ -554,15 +554,16 @@ Title of the conversation:
                                            '',
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
-        prior_context = self.retrieve_prior_context(
+        prior_context_future = get_async_future(self.retrieve_prior_context,
             query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
         prior_detailed_context_future = None
-        if provide_detailed_answers and (len(links) + len(attached_docs) + len(additional_docs_to_read) != 1 or len(searches) > 0):
-            prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
-                                                             query["messageText"],
-                                                             links=links if len(
-                                                                 links) > 0 else None,
-                                                             prior_context=prior_context, message_lookback=message_lookback)
+        # if provide_detailed_answers and (len(links) + len(attached_docs) + len(additional_docs_to_read) != 1 or len(searches) > 0):
+        #     prior_context = prior_context_future.result()
+        #     prior_detailed_context_future = get_async_future(self.retrieve_prior_context_with_requery,
+        #                                                      query["messageText"],
+        #                                                      links=links if len(
+        #                                                          links) > 0 else None,
+        #                                                      prior_context=prior_context, message_lookback=message_lookback)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -684,6 +685,7 @@ Title of the conversation:
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
         yield {"text": '', "status": "getting previous context"}
+        prior_context = prior_context_future.result()
         previous_messages = prior_context["previous_messages"]
         summary_text = "\n".join(prior_context["summary_nodes"][-1:] if enablePreviousMessages in ["infinite", "1", "2"] else [])
         other_relevant_messages = ''
