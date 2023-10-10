@@ -492,7 +492,7 @@ Title of the conversation:
         web_text_accumulator = []
         with lock.acquire(timeout=600):
             # Acquiring the lock so that we don't start another reply before previous is stored.
-            pass
+            time.sleep(0.1)
         query["messageText"] = query["messageText"].strip()
         # find all occurences which look as #doc_1 , #doc_2 and get the numbers at the end of the string from query["messageText"]
         attached_docs = re.findall(r'#doc_\d+', query["messageText"])
@@ -550,8 +550,9 @@ Title of the conversation:
         web_text = ''
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
+            logger.info(f"Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search_queue, link_context, 'scientific chat assistant',
+            web_results = get_async_future(web_search_queue, link_context, 'helpful ai assistant',
                                            '',
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
 
@@ -886,9 +887,6 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
                 setattr(j.embedding_function.__self__,
                         "openai_api_key", api_keys["openAIKey"])
         setattr(self, "api_keys", api_keys)
-    
-    def add_document(self, src_link):
-        pass
     
     def __copy__(self):
             # Create a new instance of our class

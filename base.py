@@ -1144,7 +1144,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 page.wait_for_selector('body', timeout=timeout * 1000)
                 page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
                 while page.evaluate('document.readyState') != 'complete':
-                    pass
+                    time.sleep(0.1)
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             except Exception as e:
                 # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
@@ -1153,7 +1153,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
                 page.wait_for_selector('body', timeout=timeout * 1000)
                 while page.evaluate('document.readyState') != 'complete':
-                    pass
+                    time.sleep(0.1)
                 init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
                 init_title = page.evaluate("""(function e(){return document.title})()""")
                 # page = example_page
@@ -1166,7 +1166,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 page.wait_for_selector('body', timeout=timeout*1000)
                 while page.evaluate('document.readyState') != 'complete':
-                    pass
+                    time.sleep(0.1)
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             title = normalize_whitespace(result['title'])
             text = normalize_whitespace(result['textContent'])
@@ -1209,7 +1209,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             try:
                 driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
+                    time.sleep(0.1)
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
@@ -1225,7 +1225,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 driver.execute_script("""document.title=arguments[0]""", init_title)
                 driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
-                    pass
+                    time.sleep(0.1)
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
