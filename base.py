@@ -1384,7 +1384,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     num_res = 10
-    n_query = "four" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "two"
 
     pqs = []
     if previous_search_results:
@@ -1742,7 +1742,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(16 if provide_detailed_answers else 8, os.cpu_count()*4)
+    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]
@@ -1768,9 +1768,9 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
     def compute_timeout(link):
-        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 45}
+        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
     timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 45, 45)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 30, 45)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
