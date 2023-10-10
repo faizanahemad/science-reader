@@ -13,12 +13,12 @@ class CustomPrompts:
         self.complex_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting. Use lists and paragraphs.
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
-3. Provide references or links within the answer inline itself closest to the point of mention using markdown link format (like wikipedia inline references).
+3. Provide references or links within the answer inline itself immediately closest to the point of mention or use.
 4. Answer the question as well as you can with your own knowledge. You are an expert in the domain of the user query."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting. Use lists and paragraphs.
-2. Provide references within the answer inline itself using markdown link format (like wikipedia inline references)."""
+2. Provide references within the answer inline itself immediately closest to the point of mention or use."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
                 input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
@@ -136,17 +136,9 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{document_nodes}}
 {{conversation_docs_answer}}
 {{permanent_instructions}}
-
-Answers from user's stored documents:
 {{doc_answer}}
-
-Answers from web search documents:
 {{web_text}}
-
-Answers from web links provided by the user:
 {{link_result_text}}
-
-User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
 Write a clear, helpful and informative response to the user's query.
@@ -168,19 +160,10 @@ user's query: "{{query}}"
 {{document_nodes}}
 {{conversation_docs_answer}}
 {{permanent_instructions}}
-
-Answers from user's stored documents:
 {{doc_answer}}
-
-Answers from web search documents:
 {{web_text}}
-
-Answers from web links provided by the user:
 {{link_result_text}}
-
 {{partial_answer_text}}
-
-User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,
@@ -417,24 +400,18 @@ Conversation Summary:
                 template=f"""You are given conversation details between human and AI. Provide informative answer to the human's query. 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {self.simple_output_instructions}
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
+user's query: "{{query}}"
+
 {{summary_text}}
 {{previous_messages}}
 {{document_nodes}}
 {{conversation_docs_answer}}
 {{permanent_instructions}}
-
-Answers from user's stored documents:
 {{doc_answer}}
-
-Answers from web search documents:
 {{web_text}}
-
-Answers from web links provided by the user:
 {{link_result_text}}
 
-User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: "{{query}}"
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,
@@ -458,19 +435,10 @@ user's query: "{{query}}"
 {{document_nodes}}
 {{conversation_docs_answer}}
 {{permanent_instructions}}
-
-Answers from user's stored documents:
 {{doc_answer}}
-
-Answers from web search documents:
 {{web_text}}
-
-Answers from web links provided by the user:
 {{link_result_text}}
-
 {{partial_answer_text}}
-
-User's most recent message to which we will respond can be related to the overall conversation or to the web links and user's stored documents if provided above.
 Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,

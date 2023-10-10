@@ -633,13 +633,13 @@ Title of the conversation:
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Reading web search results ... "}
 
-                if len(unseen_query_results) > 0:
-                    answer += "\n###### Other Search Results: \n"
-                    yield {"text": "\n###### Other Search Results: \n", "status": "displaying web search results ... "}
-                    query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in unseen_query_results]
-                    query_results = two_column_list(query_results)
-                    answer += (query_results + "\n")
-                    yield {"text": query_results + "\n", "status": "Reading web search results ... "}
+                # if len(unseen_query_results) > 0:
+                #     answer += "\n###### Other Search Results: \n"
+                #     yield {"text": "\n###### Other Search Results: \n", "status": "displaying web search results ... "}
+                #     query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in unseen_query_results]
+                #     query_results = two_column_list(query_results)
+                #     answer += (query_results + "\n")
+                #     yield {"text": query_results + "\n", "status": "Reading web search results ... "}
             result_queue = web_results.result()[1]
             web_text_accumulator = []
             full_info = []
@@ -702,6 +702,9 @@ Title of the conversation:
             link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3, _, permanent_instructions_gpt3, document_nodes_gpt3, conversation_docs_answer = format_llm_inputs(
                 link_result_text_gpt3, web_text_gpt3, doc_answer_gpt3, summary_text_gpt3, previous_messages_gpt3,
                 other_relevant_messages, permanent_instructions_gpt3, document_nodes_gpt3, conversation_docs_answer)
+            doc_answer_gpt3 = f"Answers from user's stored documents:\n'''{doc_answer_gpt3}'''\n" if len(doc_answer_gpt3.strip()) > 0 else ''
+            web_text_gpt3 = f"Answers from web search:\n'''{web_text_gpt3}'''\n" if len(web_text_gpt3.strip()) > 0 else ''
+            link_result_text_gpt3 = f"Answers from web links provided by the user:\n'''{link_result_text_gpt3}'''\n" if len(link_result_text_gpt3.strip()) > 0 else ''
             prompt = prompts.chat_fast_reply_prompt.format(query=query["messageText"], summary_text=summary_text_gpt3, previous_messages=previous_messages_gpt3, document_nodes=document_nodes_gpt3, permanent_instructions=permanent_instructions_gpt3, doc_answer=doc_answer_gpt3, web_text=web_text_gpt3, link_result_text=link_result_text_gpt3, conversation_docs_answer=conversation_docs_answer)
             logger.info(
                 f"""Time to reply / Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text_gpt3))}, 
@@ -779,7 +782,11 @@ Add more details that are not covered in the partial answer. Previous partial an
             other_relevant_messages, document_nodes, conversation_docs_answer)
         provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers and llm.use_gpt4 else ''
         other_relevant_messages = other_relevant_messages if llm2.use_gpt4 else ''
-
+        doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
+            doc_answer.strip()) > 0 else ''
+        web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+        link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
+            link_result_text.strip()) > 0 else ''
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"], partial_answer_text=partial_answer_text,
                                                        provide_detailed_answers_text=provide_detailed_answers_text,
                                                        summary_text=summary_text,
@@ -788,7 +795,8 @@ Add more details that are not covered in the partial answer. Previous partial an
                                                        document_nodes=document_nodes,
                                                        permanent_instructions=permanent_instructions,
                                                        doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text, conversation_docs_answer=conversation_docs_answer)
+                                                       link_result_text=link_result_text,
+                                                       conversation_docs_answer=conversation_docs_answer)
         yield {"text": '', "status": "starting answer generation"}
         logger.info(f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
 last few messages length: {len(enc.encode(previous_messages))}, other relevant messages length: {len(enc.encode(other_relevant_messages))}, document text length: {len(enc.encode(document_nodes))}, 
