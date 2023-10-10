@@ -613,6 +613,13 @@ def fetch_content_brightdata(url, brightdata_proxy):
         result = soup_html_parser_result
 
     # Return the response content
+    if result is not None and "text" in result and len(result["text"]) > 0:
+        result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
+        result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
+    # do the same for title
+    if result is not None and "title" in result and len(result["title"]) > 0:
+        result["title"] = re.sub(' +', ' ', result["title"])
+        result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
     return result
 
 import threading
@@ -702,7 +709,13 @@ def send_request_zenrows(url, apikey):
         result = trafilatura_result
     if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
         result = soup_html_parser_result
-    # Return the response content
+    if result is not None and "text" in result and len(result["text"]) > 0:
+        result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
+        result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
+    # do the same for title
+    if result is not None and "title" in result and len(result["title"]) > 0:
+        result["title"] = re.sub(' +', ' ', result["title"])
+        result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
     return result
 
 def local_browser_reader(html):

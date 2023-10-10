@@ -763,7 +763,7 @@ Title of the conversation:
             document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
         # Set limit on how many documents can be selected
 
-        llm = llm2
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         if (perform_web_search or google_scholar) and not provide_detailed_answers:
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
