@@ -580,7 +580,7 @@ Title of the conversation:
             read_links = re.findall(pattern, link_result_text)
             read_links = list(set([link.strip() for link in read_links]))
             if len(all_docs_info) > 0:
-                read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
+                read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
@@ -670,12 +670,14 @@ Title of the conversation:
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:(8 if provide_detailed_answers else 4)]
-            web_text = "\n\n".join(web_text_accumulator)
+            # Join the elements along with serial numbers.
+            web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
+            # web_text = "\n\n".join(web_text_accumulator)
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
             read_links = list(set([link.strip() for link in read_links]))
             if len(read_links) > 0:
-                read_links = "\nWe read the below links:\n" + "\n".join(read_links) + "\n"
+                read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "web search completed"}
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
@@ -745,7 +747,7 @@ Title of the conversation:
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.1)
-            web_text = "\n\n".join(web_text_accumulator)
+            web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
 
         new_line = "\n"
