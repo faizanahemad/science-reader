@@ -471,10 +471,10 @@ class CallLLmGpt:
         elif self.keys["openAIKey"] is not None and self.use_16k:
             if text_len > 3400:
                 models = round_robin(self.openai_16k_models)
-                logger.warning(f"Try Turbo model with stream = {stream} with text len = {text_len}")
+                logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
             else:
                 models = round_robin(self.openai_turbo_models)
-                logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
+                logger.warning(f"Try Turbo model with stream = {stream} with text len = {text_len}")
             assert text_len < 15000
             try:
                 model = next(models)

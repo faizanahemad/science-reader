@@ -892,7 +892,7 @@ def remove_bad_whitespaces(s):
     s = re.sub("\n{3,}", "\n\n", s)
     s = s.strip()
     lines = s.splitlines(keepends=False)
-    lines = [line.rstrip() for line in lines]
+    lines = [line.rstrip() for line in lines if line.strip()!='']
     s = '\n'.join(lines)
     s = remove_leading_spaces(s)
     return s
