@@ -616,10 +616,12 @@ def fetch_content_brightdata(url, brightdata_proxy):
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
         result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
+        result["text"] = result["text"].strip()
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
         result["title"] = re.sub(' +', ' ', result["title"])
         result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
+        result["title"] = result["title"].strip()
     return result
 
 import threading
@@ -712,10 +714,12 @@ def send_request_zenrows(url, apikey):
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = re.sub(' +', ' ', result["text"]) # Remove extra whitespaces
         result["text"] = re.sub("\n{3,}", "\n\n", result["text"])
+        result["text"] = result["text"].strip()
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
         result["title"] = re.sub(' +', ' ', result["title"])
         result["title"] = re.sub("\n{3,}", "\n\n", result["title"])
+        result["title"] = result["title"].strip()
     return result
 
 def local_browser_reader(html):

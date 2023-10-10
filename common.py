@@ -698,12 +698,13 @@ temp_dir = tempfile.gettempdir()
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
 
-# @typed_memoize(cache, str, int, tuple, bool)
+@typed_memoize(cache, str, int, tuple, bool)
 def is_pdf_link(link):
     st = time.time()
     result = False
     science_doc = ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or ("aclanthology.org" in link and "pdf" in link) or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
-    if science_doc:
+    ends_with_pdf = link.endswith(".pdf")
+    if science_doc or ends_with_pdf:
         result = True
     else:
         try:
@@ -714,7 +715,7 @@ def is_pdf_link(link):
             logger.warning(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
             result = False
     et = time.time() - st
-    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec, result: {result}")
+    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
     return result
 
 

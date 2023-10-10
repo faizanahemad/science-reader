@@ -1381,11 +1381,12 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                      previous_answer=None, previous_search_results=None, extra_queries=None,
                      gscholar=False, provide_detailed_answers=False):
 
+    st = time.time()
     if extra_queries is None:
         extra_queries = []
     num_res = 10
     n_query = "two" if previous_search_results or len(extra_queries) > 0 else "two"
-
+    n_query_num = 2
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
@@ -1400,12 +1401,12 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
+        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:n_query_num]]
 
         if len(query_strings) == 0:
             query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
             query_strings.split("###END###")[0].strip()
-            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
+            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:n_query_num]]
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
         query_strings = query_strings + extra_queries
@@ -1535,13 +1536,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_contexts = None
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-    cut_off = 16 if provide_detailed_answers else 10
+    cut_off = 20 if provide_detailed_answers else 10
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
         else:
             variables[i] = var[:cut_off]
     all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    logger.info(f"Time taken to get web search links: {(time.time() - st):.2f}")
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
@@ -1714,7 +1716,7 @@ def get_page_text(link_title_context_apikeys):
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
-pdf_process_executor = ThreadPoolExecutor(max_workers=32)
+pdf_process_executor = ThreadPoolExecutor(max_workers=64)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     basic_context = contexts[0] if len(contexts) > 0 else ""
@@ -1762,7 +1764,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         context = link_data["context"] if "context" in link_data else basic_context
         detailed = link_data["detailed"] if "detailed" in link_data else False
         if exception:
-            link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
+            # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
             raise Exception(f"Exception raised for link: {link}")
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
