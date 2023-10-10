@@ -787,7 +787,7 @@ Add more details that are not covered in the partial answer. Previous partial an
             web_text, doc_answer, link_result_text, permanent_instructions, summary_text, previous_messages,
             other_relevant_messages, document_nodes, conversation_docs_answer)
         provide_detailed_answers_text ='Provide detailed and elaborate responses to the query using all the documents and information you have from the given documents.' if provide_detailed_answers and llm.use_gpt4 else ''
-        other_relevant_messages = other_relevant_messages if llm2.use_gpt4 else ''
+        other_relevant_messages = other_relevant_messages if llm.use_gpt4 else ''
         doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
             doc_answer.strip()) > 0 else ''
         web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
