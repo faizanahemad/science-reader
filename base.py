@@ -402,7 +402,10 @@ class CallLLmGpt:
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
-        openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m and "16k" not in m]
+        openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m and "16k" not in m and "instruct" not in m]
+        openai_instruct_models = ["gpt-3.5-turbo-instruct"] if available_openai_models is None else [m for m in
+                                                                                         available_openai_models if
+                                                                                         "gpt-3.5-turbo-instruct" in m and "16k" not in m]
         openai_16k_models = ["gpt-3.5-turbo-16k"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo-16k" in m]
         self.use_16k = use_16k and len(openai_16k_models) > 0
         openai_basic_models = [
@@ -413,6 +416,7 @@ class CallLLmGpt:
         self.openai_turbo_models = random.sample(openai_turbo_models, len(openai_turbo_models))
         self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
         self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
+        self.openai_instruct_models = random.sample(openai_instruct_models, len(openai_instruct_models))
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
@@ -443,7 +447,7 @@ class CallLLmGpt:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
         elif self.keys["openAIKey"] is not None and not self.use_16k and ((not self.use_small_models) or (self.use_small_models and self.keys["cohereKey"] is None and self.keys["ai21Key"] is None)):
-            models = round_robin(self.openai_turbo_models)
+            models = round_robin(self.openai_turbo_models + self.openai_instruct_models)
             assert text_len < 3800
             try:
                 model = next(models)
@@ -456,7 +460,7 @@ class CallLLmGpt:
                     model = next(models)
                     fn = call_chat_model if "instruct" not in model else call_non_chat_model
                 else:
-                    models = round_robin(self.openai_basic_models)
+                    models = round_robin(self.openai_instruct_models)
                     model = next(models)
                     fn = call_non_chat_model
                 try:  
@@ -479,17 +483,24 @@ class CallLLmGpt:
             try:
                 model = next(models)
 #                 logger.info(f"Try 16k model with stream = {stream}")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
-                if len(self.openai_16k_models) > 0:
+                if len(self.openai_16k_models) > 0 and text_len > 3400:
                     model = next(models)
                     fn = call_chat_model
+                elif len(self.openai_turbo_models) > 0:
+                    model = next(models)
+                    fn = call_chat_model
+                elif len(self.openai_instruct_models) > 0:
+                    models = round_robin(self.openai_instruct_models)
+                    model = next(models)
+                    fn = call_non_chat_model
                 else:
                     raise e
                 try:
-                    return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                    return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
                 except Exception as e:
                     raise e
         elif self.keys["cohereKey"] is not None:
