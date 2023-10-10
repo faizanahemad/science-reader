@@ -373,13 +373,13 @@ class CallLLmClaude:
         vllmUrl = self.self_hosted_model_url
         def vllmBackup(*args, **kwargs):
             return fetch_completion_vllm(vllmUrl, text, temperature, self.keys, max_tokens=12000, stream=stream)
-
+        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.info(
-            f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
+            f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {text_len}")
         if self.use_gpt4:
             assert len(self.gpt4_enc.encode(text)) < 8000
             modelId = next(round_robin(self.openai_gpt4_models))
-        elif self.use_16k:
+        elif self.use_16k and text_len > 3400:
             modelId = next(round_robin(self.openai_16k_models))
         elif self.use_small_models:
             assert len(self.gpt4_enc.encode(text)) < 4000
@@ -420,13 +420,14 @@ class CallLLmGpt:
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
-        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))}")
+        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
+        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
             return call_with_stream(fetch_completion_vllm, self.self_hosted_model_url, text, temperature, self.keys,
                                          max_tokens=max_tokens)
         if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
-            assert len(self.gpt4_enc.encode(text)) < 8000
+            assert text_len < 8000
             models = round_robin(self.openai_gpt4_models)
             try:
                 model = next(models)
@@ -443,7 +444,7 @@ class CallLLmGpt:
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
         elif self.keys["openAIKey"] is not None and not self.use_16k and ((not self.use_small_models) or (self.use_small_models and self.keys["cohereKey"] is None and self.keys["ai21Key"] is None)):
             models = round_robin(self.openai_turbo_models)
-            assert len(self.turbo_enc.encode(text)) < 4000
+            assert text_len < 3800
             try:
                 model = next(models)
 #                 logger.info(f"Try turbo model with stream = {stream}")
@@ -468,9 +469,12 @@ class CallLLmGpt:
                     else:
                         raise e
         elif self.keys["openAIKey"] is not None and self.use_16k:
-            text_len = len(self.turbo_enc.encode(text))
-            logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
-            models = round_robin(self.openai_16k_models)
+            if text_len > 3400:
+                models = round_robin(self.openai_16k_models)
+                logger.warning(f"Try Turbo model with stream = {stream} with text len = {text_len}")
+            else:
+                models = round_robin(self.openai_turbo_models)
+                logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
             assert text_len < 15000
             try:
                 model = next(models)
@@ -479,7 +483,7 @@ class CallLLmGpt:
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
-                if len(self.openai_16k_models) > 1:
+                if len(self.openai_16k_models) > 0:
                     model = next(models)
                     fn = call_chat_model
                 else:
@@ -1687,7 +1691,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
                                                     api_keys, provide_short_responses=False,
                                                     chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)))
             tt = time.time() - st
-            logger.info(f"Called contextual reader for link: {link}, word length = {len(extracted_info.split())} with total time = {tt:.2f}")
+            logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}")
         else:
             chunked_text = text
             return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
@@ -1769,9 +1773,10 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    def compute_timeout(link):
-        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
-    timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    # def compute_timeout(link):
+    #     return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
+    # timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    timeouts = [{"timeout": 30}] * len(links)
     task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 30, 45)
     return task_queue
 
