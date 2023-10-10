@@ -194,7 +194,7 @@ class Conversation:
         previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
         self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)], overwrite=True)
 
-    def get_uploaded_documents(self, doc_id=None, readonly=False):
+    def get_uploaded_documents(self, doc_id=None, readonly=False)->List[DocIndex]:
         try:
             doc_list = self.get_field("uploaded_documents_list")
         except ValueError as e:
@@ -474,6 +474,20 @@ Title of the conversation:
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
+    def get_uploaded_documents_for_query(self, query):
+        attached_docs = re.findall(r'#doc_\d+', query["messageText"])
+        attached_docs_names = attached_docs
+        attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
+        if len(attached_docs) > 0:
+            # assert that all elements of attached docs are greater than equal to 1.
+            uploaded_documents = self.get_uploaded_documents()
+            attached_docs: List[int] = [d for d in attached_docs if len(uploaded_documents) >= d >= 1]
+            attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
+            doc_infos = [d.title for d in attached_docs]
+            # replace each of the #doc_1, #doc_2 etc with the doc_infos
+            for i, d in enumerate(attached_docs_names):
+                query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
+        return query, attached_docs, attached_docs_names
     @property
     def max_time_to_wait_for_web_results(self):
         return 15
@@ -494,20 +508,8 @@ Title of the conversation:
             # Acquiring the lock so that we don't start another reply before previous is stored.
             time.sleep(0.1)
         query["messageText"] = query["messageText"].strip()
-        # find all occurences which look as #doc_1 , #doc_2 and get the numbers at the end of the string from query["messageText"]
-        attached_docs = re.findall(r'#doc_\d+', query["messageText"])
-        attached_docs_names = attached_docs
-        attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
-        if len(attached_docs) > 0:
-            # assert that all elements of attached docs are greater than equal to 1.
-            uploaded_documents = self.get_uploaded_documents()
-            attached_docs = [d for d in attached_docs if d <= len(uploaded_documents) and d >= 1]
-            attached_docs: List[DocIndex] = [uploaded_documents[d-1] for d in attached_docs]
-            doc_infos = [d.title for d in attached_docs]
-            # replace each of the #doc_1, #doc_2 etc with the doc_infos
-            for i, d in enumerate(attached_docs_names):
-                query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
-
+        attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
+        query, attached_docs, attached_docs_names = attached_docs_future.result()
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
         yield {"text": '', "status": "Getting prior chat context ..."}
@@ -516,15 +518,11 @@ Title of the conversation:
         checkboxes = query["checkboxes"]
         google_scholar = checkboxes["googleScholar"]
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
-        message_lookback = 6
         if enablePreviousMessages == "infinite":
             message_lookback = 6
         else:
             message_lookback = int(enablePreviousMessages) * 2
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
-        llm2 = CallLLm(self.get_api_keys(), use_gpt4=True, )
-        if llm2.self_hosted_model_url is not None:
-            provide_detailed_answers = False
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
@@ -535,7 +533,7 @@ Title of the conversation:
         full_doc_texts = {}
         link_context = (
                            f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
-                               summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this current query: '''{query['messageText']}'''"
+                               summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this user query: '''{query['messageText']}'''\n"
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
@@ -550,7 +548,7 @@ Title of the conversation:
         web_text = ''
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
-            logger.info(f"Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
+            logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search_queue, link_context, 'helpful ai assistant',
                                            '',
@@ -651,9 +649,12 @@ Title of the conversation:
                 break_condition = len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * (2 if provide_detailed_answers else 1.5))
                 if break_condition and result_queue.empty():
                     break
-                one_web_result = result_queue.get()
+                one_web_result = None
+                if not result_queue.empty():
+                    one_web_result = result_queue.get()
                 qu_et = time.time()
                 if one_web_result is None:
+                    time.sleep(0.1)
                     continue
                 if one_web_result == FINISHED_TASK:
                     break
@@ -720,13 +721,17 @@ Title of the conversation:
                 partial_answer += txt
             full_info = []
             qu_cst = time.time()
+            result_queue = web_results.result()[1]
             while True:
                 qu_wait = time.time()
                 if (qu_wait - qu_cst) > 3:
                     break
-                one_web_result = result_queue.get()
+                one_web_result = None
+                if not result_queue.empty():
+                    one_web_result = result_queue.get()
                 qu_et = time.time()
                 if one_web_result is None:
+                    time.sleep(0.1)
                     continue
                 if one_web_result == FINISHED_TASK:
                     break
