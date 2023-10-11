@@ -574,6 +574,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     html = fetch_content_brightdata_html(url, brightdata_proxy)
     js_need = check_js_needed(html)
     if js_need:
+        logger.warning(f"[fetch_content_brightdata] Js needed for link {url}")
         return None
     result = None
     goose3_result = None
@@ -843,17 +844,17 @@ def web_scrape_page(link, apikeys):
             if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
                 try:
                     result = bright_data_result.result()
-                    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                    if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                         result_from = "brightdata"
                         break
-                    elif len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                         brightdata_exception = True
                 except Exception as e:
                     brightdata_exception = True
                     exc = traceback.format_exc()
                     logger.info(
                         f"web_scrape_page:: {link} bright_data_result failed with exception = {str(e)}, \n {exc}")
-                if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "brightdata"
                     break
             time.sleep(0.1)
