@@ -28,7 +28,7 @@ def embed_query():
     embeddings = cache.get(key)
     if embeddings is None:
         # Compute the embeddings and store them in the cache
-        embeddings = model.encode(sentence).tolist()
+        embeddings = model.encode(sentence, normalize_embeddings=True).tolist()
         cache.set(key, embeddings)
 
     return jsonify(embeddings)
@@ -43,7 +43,7 @@ def embed_documents():
     embeddings = cache.get(key)
     if embeddings is None:
         # Compute the embeddings and store them in the cache
-        embeddings = model.encode(sentences).tolist()
+        embeddings = model.encode(sentences, normalize_embeddings=True).tolist()
         cache.set(key, embeddings)
 
     return jsonify(embeddings)
