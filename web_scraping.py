@@ -49,7 +49,7 @@ def check_js_needed(html):
     js_warn = js_warn_1 or js_warn_2 or js_warn_3 or js_warn_4 or js_warn_5 or js_warn_6 or js_warn_7 or js_warn_8
     no_script_text = noscript_pattern.search(html)
     no_script_warn = bool(no_script_text)
-    if js_warn or no_script_warn:
+    if js_warn:
         logger.warning(f"check_js_needed js_warn = {js_warn}, no_script_warn = {no_script_warn}, {no_script_text}, js patterns flagged = 1: {js_warn_1}, 2: {js_warn_2}, 3: {js_warn_3}, 4: {js_warn_4}, 5: {js_warn_5}, 6: {js_warn_6}, 7: {js_warn_7}, 8: {js_warn_8}")
     # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
     return js_warn
