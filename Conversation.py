@@ -585,6 +585,7 @@ Title of the conversation:
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
+            yield {"text": "\n", "status": "Finished reading your provided links."}
 
         logger.info(f"Time taken to read links: {time.time() - st}")
         logger.info(f"Link result text:\n```\n{link_result_text}\n```")
@@ -682,6 +683,7 @@ Title of the conversation:
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "web search completed"}
+            yield {"text": "\n", "status": "Finished reading your provided links."}
             logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
