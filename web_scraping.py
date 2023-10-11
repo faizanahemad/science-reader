@@ -585,7 +585,7 @@ def fetch_content_brightdata_html(url, brightdata_proxy):
 
 import re
 
-def remove_script_tags(html):
+def remove_script_tags_from_html(html):
     # This regex looks for <script> tags and their content and removes them
     cleaned_html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
     return cleaned_html
@@ -599,7 +599,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     if js_need:
         logger.warning(f"[fetch_content_brightdata] Js needed for link {url}")
         return None
-    html = remove_script_tags(html)
+    html = remove_script_tags_from_html(html)
     result = None
     goose3_result = None
     trafilatura_result = None
@@ -686,7 +686,7 @@ def send_request_zenrows_html(url, apikey, readability=True):
     et = time.time() - st
     logger.info(" ".join(['send_request_zenrows ', f"Time = {et:.2f}, ", f"Response length = {len(response.text)}"]))
     html = response.text
-    html = remove_script_tags(html)
+    html = remove_script_tags_from_html(html)
     return html
 
 def fetch_html(url, apikey=None, brightdata_proxy=None):
