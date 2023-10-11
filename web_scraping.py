@@ -37,19 +37,20 @@ js_warning_pattern_v7 = re.compile(r'js(?:(?!\n).){0,100}?disabled', re.IGNORECA
 js_warning_pattern_v8 = re.compile(r'js(?:(?!\n).){0,100}?required', re.IGNORECASE | re.DOTALL)
 js_warning_pattern_v9 = re.compile(r'something went wrong', re.IGNORECASE | re.DOTALL)
 def check_js_needed(html):
-    js_warn_1 = js_warning_pattern_v1.search(html)
-    js_warn_2 = js_warning_pattern_v2.search(html)
-    js_warn_3 = js_warning_pattern_v3.search(html)
-    js_warn_4 = js_warning_pattern_v4.search(html)
-    js_warn_5 = js_warning_pattern_v5.search(html)
-    js_warn_6 = js_warning_pattern_v6.search(html)
-    js_warn_7 = js_warning_pattern_v7.search(html)
-    js_warn_8 = js_warning_pattern_v8.search(html)
+    js_warn_1 = bool(js_warning_pattern_v1.search(html))
+    js_warn_2 = bool(js_warning_pattern_v2.search(html))
+    js_warn_3 = bool(js_warning_pattern_v3.search(html))
+    js_warn_4 = bool(js_warning_pattern_v4.search(html))
+    js_warn_5 = bool(js_warning_pattern_v5.search(html))
+    js_warn_6 = bool(js_warning_pattern_v6.search(html))
+    js_warn_7 = bool(js_warning_pattern_v7.search(html))
+    js_warn_8 = bool(js_warning_pattern_v8.search(html))
 
     js_warn = js_warn_1 or js_warn_2 or js_warn_3 or js_warn_4 or js_warn_5 or js_warn_6 or js_warn_7 or js_warn_8
-    no_script_warn = bool(noscript_pattern.search(html))
+    no_script_text = noscript_pattern.search(html)
+    no_script_warn = bool(no_script_text)
     if js_warn or no_script_warn:
-        logger.warning(f"check_js_needed js_warn = {js_warn}, no_script_warn = {no_script_warn}, js patterns flagged = 1: {js_warn_1}, 2: {js_warn_2}, 3: {js_warn_3}, 4: {js_warn_4}, 5: {js_warn_5}, 6: {js_warn_6}, 7: {js_warn_7}, 8: {js_warn_8}")
+        logger.warning(f"check_js_needed js_warn = {js_warn}, no_script_warn = {no_script_warn}, {no_script_text}, js patterns flagged = 1: {js_warn_1}, 2: {js_warn_2}, 3: {js_warn_3}, 4: {js_warn_4}, 5: {js_warn_5}, 6: {js_warn_6}, 7: {js_warn_7}, 8: {js_warn_8}")
         logger.warning(f"Flagged HTML = \n```\n{html[:1000]}\n```")
     # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
     return no_script_warn or js_warn
