@@ -294,7 +294,8 @@ atexit.register(close_playwright)
 page_pool = None
 playwright_obj = None
 pool_size = 32
-playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
+playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
+# playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
 
 def init_playwright_resources():
     global page_pool, playwright_obj
@@ -320,10 +321,9 @@ def playwright_thread_worker(link):
 def playwright_thread_reader(html):
     init_thread_local_playwright()
     result = parse_page_content(html)
-    return result
+    yield next(result)
+    yield next(result)
 
-playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
-        
 
 def create_page_pool(pool_size=16):
     from playwright.sync_api import sync_playwright
@@ -385,24 +385,23 @@ def parse_page_content(html, create_browser=False):
     else:
         raise Exception("Playwright resources not initialized")
     st = time.time()
-    browser = browser_resources[0]
-    for context in browser.contexts:
-        context.clear_cookies()
     try:
         _, page, _ = browser_resources
         page.set_content(html)
         page.add_script_tag(content=readability_script_content)
         page.wait_for_function(
-            "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')",
+            "() => typeof(Readability) !== 'undefined'", # && (document.readyState === 'complete' || document.readyState === 'interactive')
             timeout=6000)
         result = page.evaluate(
             """(function execute(){var article = new Readability(document).parse();return article})()""")
         title = normalize_whitespace(result['title'])
         text = normalize_whitespace(result['textContent'])
+        yield {"text": text, "title": title}
     except Exception as e:
         exc = traceback.format_exc()
         logger.error(
             f"Error in parse_page_content with exception = {str(e)}\n{exc}")
+        yield {"text": text, "title": title}
     finally:
         if create_browser:
             browser.close()
@@ -420,14 +419,19 @@ def parse_page_content(html, create_browser=False):
                 page.close()
                 page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
                 browser_resources = [browser, page, 0]
+                browser = browser_resources[0]
+                for context in browser.contexts:
+                    context.clear_cookies()
+            else:
+                browser = browser_resources[0]
+                for context in browser.contexts:
+                    context.clear_cookies()
             page.goto('about:blank')
             page.set_content('<html><body></body></html>')
             if hasattr(thread_local, 'page_pool'):
                 page_pool = thread_local.page_pool
                 page_pool.put(browser_resources)
     logger.info(" ".join(['parse_page_content using browser', str(time.time() - st), "\n", text[-100:]]))
-    return {"text": text, "title": title}
-
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=2):
@@ -733,9 +737,16 @@ def send_request_zenrows(url, apikey):
 def local_browser_reader(html):
     st = time.time()
     result = playwright_thread_executor.submit(playwright_thread_reader, html).result(timeout=10)
+    res = next(result)
+    def close():
+        try:
+            next(result)
+        except StopIteration:
+            pass
+    get_async_future(close)
     et = time.time() - st
     logger.debug(" ".join(['local_browser_reader ', str(et), "\n", result['text'][-100:]]))
-    return result
+    return res
 
 def soup_html_parser(html):
     from bs4 import BeautifulSoup, SoupStrainer
