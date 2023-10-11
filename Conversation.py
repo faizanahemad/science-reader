@@ -670,7 +670,7 @@ Title of the conversation:
             logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
-            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:max(1, len(web_text_accumulator)-2)]
+            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:max(4, len(web_text_accumulator)-2)]
             # Join the elements along with serial numbers.
             web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             # web_text = "\n\n".join(web_text_accumulator)
