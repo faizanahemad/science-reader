@@ -684,6 +684,7 @@ Title of the conversation:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "web search completed"}
             yield {"text": "\n", "status": "Finished reading your provided links."}
+            web_text = read_links + "\n" + web_text
             logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
@@ -696,7 +697,6 @@ Title of the conversation:
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0", "1"] else ''
         permanent_instructions = query["permanentMessageText"]
         partial_answer = ''
-        new_accumulator = []
         if (perform_web_search or google_scholar) and not provide_detailed_answers:
             yield {"text": '', "status": "starting answer generation"}
             llm = CallLLm(self.get_api_keys(), use_gpt4=False,)
@@ -725,31 +725,9 @@ Title of the conversation:
                 yield {"text": txt, "status": "answering in progress"}
                 answer += txt
                 partial_answer += txt
-            full_info = []
-            qu_cst = time.time()
-            result_queue = web_results.result()[1]
-            while True:
-                qu_wait = time.time()
-                if (qu_wait - qu_cst) > 3:
-                    break
-                one_web_result = None
-                if not result_queue.empty():
-                    one_web_result = result_queue.get()
-                qu_et = time.time()
-                if one_web_result is None:
-                    time.sleep(0.1)
-                    continue
-                if one_web_result == FINISHED_TASK:
-                    break
-                if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
-                    logger.info(
-                        f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
-                    web_text_accumulator.append(one_web_result["text"])
-                    new_accumulator.append(one_web_result["text"])
-                if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-                    full_info.append(one_web_result["full_info"])
-                time.sleep(0.1)
-            web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
+            yield {"text": '', "status": "saving answer ..."}
+            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            return
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info if dinfo is not None})
 
         new_line = "\n"
@@ -758,7 +736,6 @@ Title of the conversation:
         other_relevant_messages = "\n".join(
             prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
         document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
-
         if provide_detailed_answers and prior_detailed_context_future is not None:
             prior_context = prior_detailed_context_future.result()
             previous_messages = prior_context["previous_messages"]
@@ -768,12 +745,7 @@ Title of the conversation:
                 prior_context["message_nodes"]) if enablePreviousMessages == "infinite" else ''
             document_nodes = "\n".join(prior_context["document_nodes"]) if enablePreviousMessages not in ["0"] else ''
         # Set limit on how many documents can be selected
-
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        if (perform_web_search or google_scholar) and not provide_detailed_answers:
-            yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
-            return
         truncate_method = truncate_text_for_gpt4
         partial_answer_text = f"""Previously, you had already provided a partial answer to this question. 
 Please extend, improve and expand your previous partial answer while covering any ideas, thoughts and angles that are not covered in the partial answer. Partial answer is given below. {new_line}{partial_answer}""" if len(partial_answer.strip())>0 else ''
