@@ -745,7 +745,7 @@ def local_browser_reader(html):
             pass
     get_async_future(close)
     et = time.time() - st
-    logger.debug(" ".join(['local_browser_reader ', str(et), "\n", result['text'][-100:]]))
+    logger.debug(" ".join(['local_browser_reader ', str(et), "\n", res['text'][-100:]]))
     return res
 
 def soup_html_parser(html):
