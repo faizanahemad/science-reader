@@ -51,9 +51,8 @@ def check_js_needed(html):
     no_script_warn = bool(no_script_text)
     if js_warn or no_script_warn:
         logger.warning(f"check_js_needed js_warn = {js_warn}, no_script_warn = {no_script_warn}, {no_script_text}, js patterns flagged = 1: {js_warn_1}, 2: {js_warn_2}, 3: {js_warn_3}, 4: {js_warn_4}, 5: {js_warn_5}, 6: {js_warn_6}, 7: {js_warn_7}, 8: {js_warn_8}")
-        logger.warning(f"Flagged HTML = \n```\n{html[:1000]}\n```")
     # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
-    return no_script_warn or js_warn
+    return js_warn
 
 logger = logging.getLogger(__name__)
 
@@ -584,12 +583,23 @@ def fetch_content_brightdata_html(url, brightdata_proxy):
     html = response.text
     return html
 
+import re
+
+def remove_script_tags(html):
+    # This regex looks for <script> tags and their content and removes them
+    cleaned_html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
+    return cleaned_html
+
+
+
 def fetch_content_brightdata(url, brightdata_proxy):
     html = fetch_content_brightdata_html(url, brightdata_proxy)
     js_need = check_js_needed(html)
+
     if js_need:
         logger.warning(f"[fetch_content_brightdata] Js needed for link {url}")
         return None
+    html = remove_script_tags(html)
     result = None
     goose3_result = None
     trafilatura_result = None
@@ -676,6 +686,7 @@ def send_request_zenrows_html(url, apikey, readability=True):
     et = time.time() - st
     logger.info(" ".join(['send_request_zenrows ', f"Time = {et:.2f}, ", f"Response length = {len(response.text)}"]))
     html = response.text
+    html = remove_script_tags(html)
     return html
 
 def fetch_html(url, apikey=None, brightdata_proxy=None):
