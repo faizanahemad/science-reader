@@ -35,6 +35,7 @@ js_warning_pattern_v5 = re.compile(r'javascript(?:(?!\n).){0,100}?not enabled', 
 js_warning_pattern_v6 = re.compile(r'js(?:(?!\n).){0,100}?not enabled', re.IGNORECASE | re.DOTALL)
 js_warning_pattern_v7 = re.compile(r'js(?:(?!\n).){0,100}?disabled', re.IGNORECASE | re.DOTALL)
 js_warning_pattern_v8 = re.compile(r'js(?:(?!\n).){0,100}?required', re.IGNORECASE | re.DOTALL)
+js_warning_pattern_v9 = re.compile(r'something went wrong', re.IGNORECASE | re.DOTALL)
 def check_js_needed(html):
     js_warn = js_warning_pattern_v1.search(html) or js_warning_pattern_v2.search(html) or js_warning_pattern_v3.search(html) or js_warning_pattern_v4.search(html) or js_warning_pattern_v5.search(html) or js_warning_pattern_v6.search(html) or js_warning_pattern_v7.search(html) or js_warning_pattern_v8.search(html)
     # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
@@ -556,21 +557,20 @@ def fetch_content_brightdata_html(url, brightdata_proxy):
     session = requests.Session()
 
     # Set up retries
-    retries = Retry(total=0, backoff_factor=2, status_forcelist=[400, 404, 500, 501, 502, 503, 504])
+    retries = Retry(total=0, backoff_factor=2, status_forcelist=[400, 401, 402, 403, 422, 420, 404, 500, 501, 502, 503, 504, 505])
     session.mount('http://', HTTPAdapter(max_retries=retries))
     session.mount('https://', HTTPAdapter(max_retries=retries))
 
     # Make the request
     response = session.get(url, proxies=proxies, verify=False)
-    try:
-        html = response.content.decode('utf-8')
-    except:
-        html = response.text
+    html = response.text
     return html
 
 def fetch_content_brightdata(url, brightdata_proxy):
     html = fetch_content_brightdata_html(url, brightdata_proxy)
     js_need = check_js_needed(html)
+    if js_need:
+        return None
     result = None
     goose3_result = None
     trafilatura_result = None
@@ -670,42 +670,58 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
 
 def send_request_zenrows(url, apikey):
     html = send_request_zenrows_html(url, apikey)
-    result = None
-    goose3_result = None
-    trafilatura_result = None
-    soup_html_parser_result = None
+    result = get_async_future(soup_parser, html)
+    # local_result = get_async_future(local_browser_reader, html)
+    goose3_result = get_async_future(send_request_goose3, url, html)
+    trafilatura_result = get_async_future(send_request_trafilatura, url, html)
+    soup_html_parser_result = get_async_future(soup_html_parser, html)
     try:
-        result = soup_parser(html)
+        result = result.result()
     except Exception as e:
+        result = None
         exc = traceback.format_exc()
-        logger.error(f"[send_request_zenrows] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+        logger.error(
+            f"[fetch_content_brightdata] link = {url}, Error in soup_parser with exception = {str(e)}\n{exc}")
     if result is not None and "title" in result and "text" in result and result["text"] is not None and result["text"] != "":
         return result
+    # try:
+    #     local_result = local_result.result()
+    # except Exception as e:
+    #     local_result = None
+    #     exc = traceback.format_exc()
+    #     logger.error(
+    #         f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
     try:
-        result = local_browser_reader(html)
+        goose3_result = goose3_result.result()
     except Exception as e:
+        goose3_result = None
         exc = traceback.format_exc()
-        logger.error(f"[send_request_zenrows] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
+        logger.error(
+            f"[fetch_content_brightdata] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
     try:
-        goose3_result = send_request_goose3(link=url, html=html)
+        trafilatura_result = trafilatura_result.result()
     except Exception as e:
+        trafilatura_result = None
         exc = traceback.format_exc()
-        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
+        logger.error(
+            f"[fetch_content_brightdata] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
     try:
-        trafilatura_result = send_request_trafilatura(link=url, html=html)
+        soup_html_parser_result = soup_html_parser_result.result()
     except Exception as e:
+        soup_html_parser_result = None
         exc = traceback.format_exc()
-        logger.error(f"[send_request_zenrows] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
-    try:
-        soup_html_parser_result = soup_html_parser(html)
-    except Exception as e:
-        exc = traceback.format_exc()
-        logger.error(f"[send_request_zenrows] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+        logger.error(
+            f"[fetch_content_brightdata] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+
+    # if local_result is not None and (result is None or len(result['text']) < len(local_result['text']) // 2):
+    #     result = local_result
     if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text']) // 2):
         result = goose3_result
-    if trafilatura_result is not None and (result is None or len(result['text']) < len(trafilatura_result['text']) // 2):
+    if trafilatura_result is not None and (
+            result is None or len(result['text']) < len(trafilatura_result['text']) // 2):
         result = trafilatura_result
-    if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
+    if soup_html_parser_result is not None and (
+            result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
         result = soup_html_parser_result
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = remove_bad_whitespaces(result["text"])
@@ -778,6 +794,7 @@ def send_request_trafilatura(link, html=None):
 
 
 def web_scrape_page(link, apikeys):
+    good_page_size = 300
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     try:
@@ -787,54 +804,52 @@ def web_scrape_page(link, apikeys):
             bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         else:
             zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
-
         # Also add bright data cdp fetch as a backup.
-        st = time.time()
         result_from = "None"
         brightdata_exception = False
         zenrows_exception = False
-        while time.time() - st < 45:
+        while time.time() - st < 20:
             if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:
                     result = zenrows_service_result.result()
-                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                         result_from = "zenrows"
                         break
-                    elif len(result["text"].strip()) <= 100 or result["text"].strip() == DDOS_PROTECTION_STR:
+                    elif len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                         zenrows_exception = True
                 except Exception as e:
                     zenrows_exception = True
                     exc = traceback.format_exc()
                     logger.info(
                         f"web_scrape_page:: {link} zenrows_service_result failed with exception = {str(e)}, \n {exc}")
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "zenrows"
                     break
-            if (time.time() - st > 8 or zenrows_exception) and bright_data_result is None:
+            if (time.time() - st > 4 or zenrows_exception) and bright_data_result is None:
                 bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-            elif (time.time() - st > 8 or brightdata_exception) and zenrows_service_result is None:
-                zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+            # elif (time.time() - st > 8 or brightdata_exception) and zenrows_service_result is None:
+            #     zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
             if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
                 try:
                     result = bright_data_result.result()
-                    if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                         result_from = "brightdata"
                         break
-                    elif len(result["text"].strip()) <= 100 or result["text"].strip() == DDOS_PROTECTION_STR:
+                    elif len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                         brightdata_exception = True
                 except Exception as e:
                     brightdata_exception = True
                     exc = traceback.format_exc()
                     logger.info(
                         f"web_scrape_page:: {link} bright_data_result failed with exception = {str(e)}, \n {exc}")
-                if len(result["text"].strip()) > 100 and result["text"].strip() != DDOS_PROTECTION_STR:
+                if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "brightdata"
                     break
             time.sleep(0.1)
         et = time.time() - st
         logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, time = {et:.2f}, result sample = {result['text'][:100]}")
-        if len(result["text"].strip()) < 100:
+        if len(result["text"].strip()) < good_page_size:
             result = {"text": "", "title": "", "link": link, "error": "Text too short"}
             logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         if result["text"].strip() == DDOS_PROTECTION_STR:

@@ -512,28 +512,36 @@ Title of the conversation:
         query, attached_docs, attached_docs_names = attached_docs_future.result()
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
-        yield {"text": '', "status": "Getting prior chat context ..."}
-        additional_docs_to_read = query["additional_docs_to_read"]
-        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         checkboxes = query["checkboxes"]
-        google_scholar = checkboxes["googleScholar"]
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
         if enablePreviousMessages == "infinite":
             message_lookback = 6
         else:
             message_lookback = int(enablePreviousMessages) * 2
+        link_context = (
+                           f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
+                               summary.strip()) > 0 and message_lookback >= 0 else '') + f"Provide answer for this user query: '''{query['messageText']}'''\n"
+        yield {"text": '', "status": "Getting prior chat context ..."}
+        additional_docs_to_read = query["additional_docs_to_read"]
+        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
+        google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = checkboxes["provide_detailed_answers"]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+        if google_scholar or perform_web_search:
+            # TODO: provide_detailed_answers addition
+            logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
+            yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
+            web_results = get_async_future(web_search_queue, link_context, 'helpful ai assistant',
+                                           '',
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
 
-        provide_detailed_answers = (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(searches) == 0) or provide_detailed_answers
+        provide_detailed_answers = (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+            searches) == 0) or provide_detailed_answers
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
-        link_context = (
-                           f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
-                               summary.strip()) > 0 and message_lookback >= 1 else '') + f"Provide answer for this user query: '''{query['messageText']}'''\n"
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
@@ -546,14 +554,6 @@ Title of the conversation:
             yield {"text": '', "status": "reading your documents"}
             doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', provide_detailed_answers, len(attached_docs)==0 and len(links)==0 and len(searches)==0)
         web_text = ''
-        if google_scholar or perform_web_search:
-            # TODO: provide_detailed_answers addition
-            logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
-            yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search_queue, link_context, 'helpful ai assistant',
-                                           '',
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
-
         prior_context_future = get_async_future(self.retrieve_prior_context,
             query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
         prior_detailed_context_future = None
@@ -670,7 +670,7 @@ Title of the conversation:
             logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
-            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:(8 if provide_detailed_answers else 4)]
+            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)[:max(1, len(web_text_accumulator)-2)]
             # Join the elements along with serial numbers.
             web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             # web_text = "\n\n".join(web_text_accumulator)
@@ -852,6 +852,8 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+        with lock.acquire(timeout=600):
+            pass
 
     
     def get_last_ten_messages(self):
