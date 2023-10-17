@@ -314,6 +314,13 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
             res = backup(*args, **kwargs)
         else:
             raise e
+    except Exception as e:
+        trace = traceback.format_exc()
+        logger.error(f"Exception: {e}, \n{trace}")
+        if backup is not None:
+            res = backup(*args, **kwargs)
+        else:
+            raise e
     is_generator = inspect.isgenerator(res)
     if is_generator:
         try:

@@ -223,7 +223,7 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
     if url.endswith("/generate/"):
         url = url[:-len("/generate/")]
 
-    prompt = get_first_last_parts(prompt, max_tokens - 1000, 1000, davinci_enc)
+    prompt = get_first_last_parts(prompt, max_tokens - 1500, 1000, davinci_enc)
     input_len = len(davinci_enc.encode(prompt))
     assert max_tokens - input_len > 0
     max_tokens = max_tokens - input_len
@@ -232,17 +232,6 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
     if stream:
         if not url.endswith("/v1/") and not url.endswith("/v1"):
             url = url + "/v1"
-        payload = {
-            "model": model,
-            'messages': prompt,
-            'max_tokens': min(max_tokens, 1024),
-            'temperature': temperature,
-            "stream": True,
-            'stop_token_ids': [2],
-            "stop": ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :",
-                     "Human :", "###"],
-        }
-
         response = openai.ChatCompletion.create(
             model=model,
             api_key="EMPTY",
