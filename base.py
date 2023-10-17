@@ -227,7 +227,7 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
     input_len = len(davinci_enc.encode(prompt))
     assert max_tokens - input_len > 0
     max_tokens = max_tokens - input_len
-    model = "lmsys/vicuna-13b-v1.5-16k" # "Open-Orca/LlongOrca-13B-16k"
+    model = "Open-Orca/LlongOrca-13B-16k" # "Open-Orca/LlongOrca-13B-16k" # "lmsys/vicuna-13b-v1.5-16k"
     # Define the payload for the request
     if stream:
         if not url.endswith("/v1/") and not url.endswith("/v1"):

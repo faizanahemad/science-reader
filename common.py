@@ -329,7 +329,7 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
             # check if exception is not StopIteration
             try:
                 from botocore.exceptions import EventStreamError
-                if not isinstance(e, StopIteration) and isinstance(e, EventStreamError) and backup is not None:
+                if not isinstance(e, StopIteration) and backup is not None:
                     res = backup(*args, **kwargs)
                 else:
                     raise e
