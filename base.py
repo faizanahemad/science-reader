@@ -1720,7 +1720,7 @@ def get_page_text(link_title_context_apikeys):
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
-pdf_process_executor = ThreadPoolExecutor(max_workers=64)
+pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     basic_context = contexts[0] if len(contexts) > 0 else ""
@@ -1748,7 +1748,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
+    threads = min(16 if provide_detailed_answers else 16, os.cpu_count()*8)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]

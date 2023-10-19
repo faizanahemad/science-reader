@@ -306,7 +306,7 @@ atexit.register(close_playwright)
 
 page_pool = None
 playwright_obj = None
-pool_size = 32
+pool_size = 16
 playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
 # playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
 
