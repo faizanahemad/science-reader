@@ -279,15 +279,13 @@ user_agents = [
     # Safari
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15',
 ]
-page_pool = Queue()
-playwright_obj = None
 
 # Thread-local storage for Playwright resources
 thread_local = threading.local()
 def init_thread_local_playwright():
     global thread_local
     if not hasattr(thread_local, "playwright_obj"):
-        thread_local.playwright_obj = create_page_pool_thread(pool_size=1)
+        thread_local.playwright_obj = create_single_page_pool_thread()
         atexit.register(close_playwright_thread)
         
 def close_playwright_thread():
@@ -296,66 +294,82 @@ def close_playwright_thread():
         thread_local.playwright_obj.stop()
         
         
+# playwright_obj = None
+# def close_playwright():
+#     global playwright_obj
+#     if playwright_obj:
+#         playwright_obj.stop()
+#
+# atexit.register(close_playwright)
 
-def close_playwright():
-    global playwright_obj
-    if playwright_obj:
-        playwright_obj.stop()
-
-atexit.register(close_playwright)
-
-page_pool = None
-playwright_obj = None
 pool_size = 16
 playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
 # playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
 
-def init_playwright_resources():
-    global page_pool, playwright_obj
-    page_pool = Queue()
-    if not playwright_obj:
-        create_page_pool(pool_size=1)
-        atexit.register(close_playwright)
+# def init_playwright_resources():
+#     global page_pool, playwright_obj
+#     page_pool = Queue()
+#     if not playwright_obj:
+#         create_page_pool(pool_size=1)
+#         atexit.register(close_playwright)
         
-def playwright_worker(link):
-    # Initialize Playwright resources, if not already initialized
-    init_playwright_resources()
-    
-    # Here, page_pool and playwright_obj are available and initialized
-    result = get_page_content(link)
-    
-    return result
+# def playwright_worker(link):
+#     # Initialize Playwright resources, if not already initialized
+#     init_playwright_resources()
+#
+#     # Here, page_pool and playwright_obj are available and initialized
+#     result = get_page_content(link)
+#
+#     return result
 
-def playwright_thread_worker(link):
-    init_thread_local_playwright()
-    result = get_page_content(link)
-    return result
+# def playwright_thread_worker(link):
+#     init_thread_local_playwright()
+#     result = get_page_content(link)
+#     return result
 
 def playwright_thread_reader(html):
     init_thread_local_playwright()
     result = parse_page_content(html)
     yield next(result)
-    yield next(result)
+    try:
+        next(result)
+    except StopIteration:
+        pass
 
-
-def create_page_pool(pool_size=16):
-    from playwright.sync_api import sync_playwright
-    global playwright_obj  # Declare it as global so we can modify it
-    playwright_obj = sync_playwright().start()
-    p = playwright_obj
-    for _ in range(pool_size):
-        browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials", ])
-        page = browser.new_page(user_agent=random.choice(
-            user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-        page_pool.put([browser, page, 0])  # Store the page in the pool
+# def create_page_pool(pool_size=16):
+#     from playwright.sync_api import sync_playwright
+#     global playwright_obj  # Declare it as global so we can modify it
+#     playwright_obj = sync_playwright().start()
+#     p = playwright_obj
+#     for _ in range(pool_size):
+#         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials", ])
+#         page = browser.new_page(user_agent=random.choice(
+#             user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+#         page_pool.put([browser, page, 0])  # Store the page in the pool
         
         
-def create_page_pool_thread(pool_size=1):
+# def create_page_pool_thread(pool_size=1):
+#     from playwright.sync_api import sync_playwright
+#     global thread_local  # Declare it as global so we can modify it
+#
+#     if not hasattr(thread_local, 'page_pool'):
+#         thread_local.page_pool = Queue()
+#
+#     if not hasattr(thread_local, 'playwright_obj'):
+#         thread_local.playwright_obj = sync_playwright().start()
+#
+#     p = thread_local.playwright_obj
+#     for _ in range(pool_size):
+#         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+#         page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+#         page.set_content('<html><body></body></html>')
+#         thread_local.page_pool.put([browser, page, 0])  # Store the page in the thread-local pool
+#     return thread_local.playwright_obj
+
+def create_single_page_pool_thread():
     from playwright.sync_api import sync_playwright
     global thread_local  # Declare it as global so we can modify it
 
-    if not hasattr(thread_local, 'page_pool'):
-        thread_local.page_pool = Queue()
 
     if not hasattr(thread_local, 'playwright_obj'):
         thread_local.playwright_obj = sync_playwright().start()
@@ -365,7 +379,7 @@ def create_page_pool_thread(pool_size=1):
         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
         page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
         page.set_content('<html><body></body></html>')
-        thread_local.page_pool.put([browser, page, 0])  # Store the page in the thread-local pool
+        thread_local.page_pool = [browser, page, 0]  # Store the page in the thread-local pool
     return thread_local.playwright_obj
 
             
@@ -385,7 +399,7 @@ def parse_page_content(html, create_browser=False):
     global thread_local
     if hasattr(thread_local, 'page_pool') and not create_browser:
         page_pool = thread_local.page_pool
-        browser_resources = page_pool.get()
+        browser_resources = page_pool
     elif create_browser:
         from playwright.sync_api import sync_playwright
         from playwright.sync_api import Page
@@ -407,8 +421,9 @@ def parse_page_content(html, create_browser=False):
             timeout=6000)
         result = page.evaluate(
             """(function execute(){var article = new Readability(document).parse();return article})()""")
-        title = normalize_whitespace(result['title'])
-        text = normalize_whitespace(result['textContent'])
+        if result is not None:
+            title = normalize_whitespace(result['title'])
+            text = normalize_whitespace(result['textContent'])
         yield {"text": text, "title": title}
     except Exception as e:
         exc = traceback.format_exc()
@@ -442,104 +457,103 @@ def parse_page_content(html, create_browser=False):
             page.goto('about:blank')
             page.set_content('<html><body></body></html>')
             if hasattr(thread_local, 'page_pool'):
-                page_pool = thread_local.page_pool
-                page_pool.put(browser_resources)
+                thread_local.page_pool = browser_resources
     logger.info(" ".join(['parse_page_content using browser', str(time.time() - st), "\n", text[-100:]]))
 
 
-def get_page_content(link, playwright_cdp_link=None, timeout=2):
-    text = ''
-    title = ''
-    global thread_local
-    if hasattr(thread_local, 'page_pool'):
-        page_pool = thread_local.page_pool
-    st = time.time()
-    browser_resources = page_pool.get()
-    browser = browser_resources[0]
-    for context in browser.contexts:
-        context.clear_cookies()
-    try:
-        _, page, _ = browser_resources
-        url = link
-        response = page.goto(url,  timeout = 60000)
-        if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
-            text = DDOS_PROTECTION_STR
-            raise Exception(DDOS_PROTECTION_STR)
-        initial_base_url = urlparse(link).netloc
-        final_base_url = urlparse(response.url).netloc
-        if initial_base_url != final_base_url:
-            text = DDOS_PROTECTION_STR
-            raise Exception(DDOS_PROTECTION_STR)
-
-        try:
-            page.add_script_tag(content=readability_script_content)
-            page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
-            result = page.evaluate(
-                """(function execute(){var article = new Readability(document).parse();return article})()""")
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-        except Exception as e:
-
-            exc = traceback.format_exc()
-            # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
-            logger.warning(
-                f"Trying playwright for link {link} after playwright failed with exception = {str(e)}\n{exc}")
-            # traceback.print_exc()
-            # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-            init_html = page.evaluate(
-                """(function e(){return document.body.innerHTML})()""")
-            init_title = page.evaluate(
-                """(function e(){return document.title})()""")
-            page.goto('about:blank')
-            page.set_content('<html><body></body></html>')
-            page.evaluate(
-                f"""text=>document.body.innerHTML=text""", init_html)
-            page.evaluate(f"""text=>document.title=text""", init_title)
-            page.add_script_tag(content=readability_script_content)
-            logger.debug(
-                f"Loaded html and title into page with example.com as url")
-            page.add_script_tag(content=readability_script_content)
-            page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
-            # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-            result = page.evaluate(
-                """(function execute(){var article = new Readability(document).parse();return article})()""")
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-
-    except Exception as e:
-        traceback.print_exc()
-        exc = traceback.format_exc()
-        logger.error(
-            f"Error in get_page_content with exception = {str(e)}\n{exc}")
-    finally:
-        browser_resources[2] += 1
-        if browser_resources[2] % 10 == 0:
-            page.close()
-            browser.close()
-            browser = thread_local.playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-            browser_resources = [browser, page, 0]
-        elif browser_resources[2] % 5 == 0:
-            page.close()
-            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-            browser_resources = [browser, page, 0]
-        page.goto('about:blank')
-        page.set_content('<html><body></body></html>')
-        page_pool.put(browser_resources)
-    logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
-    return {"text": text, "title": title}
+# def get_page_content(link, playwright_cdp_link=None, timeout=2):
+#     text = ''
+#     title = ''
+#     global thread_local
+#     if hasattr(thread_local, 'page_pool'):
+#         page_pool = thread_local.page_pool
+#     st = time.time()
+#     browser_resources = page_pool.get()
+#     browser = browser_resources[0]
+#     for context in browser.contexts:
+#         context.clear_cookies()
+#     try:
+#         _, page, _ = browser_resources
+#         url = link
+#         response = page.goto(url,  timeout = 60000)
+#         if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
+#             text = DDOS_PROTECTION_STR
+#             raise Exception(DDOS_PROTECTION_STR)
+#         initial_base_url = urlparse(link).netloc
+#         final_base_url = urlparse(response.url).netloc
+#         if initial_base_url != final_base_url:
+#             text = DDOS_PROTECTION_STR
+#             raise Exception(DDOS_PROTECTION_STR)
+#
+#         try:
+#             page.add_script_tag(content=readability_script_content)
+#             page.wait_for_function(
+#                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
+#             result = page.evaluate(
+#                 """(function execute(){var article = new Readability(document).parse();return article})()""")
+#             title = normalize_whitespace(result['title'])
+#             text = normalize_whitespace(result['textContent'])
+#         except Exception as e:
+#
+#             exc = traceback.format_exc()
+#             # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
+#             logger.warning(
+#                 f"Trying playwright for link {link} after playwright failed with exception = {str(e)}\n{exc}")
+#             # traceback.print_exc()
+#             # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
+#             init_html = page.evaluate(
+#                 """(function e(){return document.body.innerHTML})()""")
+#             init_title = page.evaluate(
+#                 """(function e(){return document.title})()""")
+#             page.goto('about:blank')
+#             page.set_content('<html><body></body></html>')
+#             page.evaluate(
+#                 f"""text=>document.body.innerHTML=text""", init_html)
+#             page.evaluate(f"""text=>document.title=text""", init_title)
+#             page.add_script_tag(content=readability_script_content)
+#             logger.debug(
+#                 f"Loaded html and title into page with example.com as url")
+#             page.add_script_tag(content=readability_script_content)
+#             page.wait_for_function(
+#                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
+#             # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
+#             result = page.evaluate(
+#                 """(function execute(){var article = new Readability(document).parse();return article})()""")
+#             title = normalize_whitespace(result['title'])
+#             text = normalize_whitespace(result['textContent'])
+#
+#     except Exception as e:
+#         traceback.print_exc()
+#         exc = traceback.format_exc()
+#         logger.error(
+#             f"Error in get_page_content with exception = {str(e)}\n{exc}")
+#     finally:
+#         browser_resources[2] += 1
+#         if browser_resources[2] % 10 == 0:
+#             page.close()
+#             browser.close()
+#             browser = thread_local.playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+#             page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+#             browser_resources = [browser, page, 0]
+#         elif browser_resources[2] % 5 == 0:
+#             page.close()
+#             page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+#             browser_resources = [browser, page, 0]
+#         page.goto('about:blank')
+#         page.set_content('<html><body></body></html>')
+#         page_pool.put(browser_resources)
+#     logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
+#     return {"text": text, "title": title}
 
 # for i in range(pool_size):
 #     _ = playwright_thread_executor.submit(playwright_thread_worker, "https://www.example.com/").result()
 
-def send_local_browser(link):
-    st = time.time()
-    result = playwright_thread_executor.submit(playwright_thread_worker, link).result()
-    et = time.time() - st
-    logger.info(" ".join(['send_local_browser ', str(et), "\n", result['text'][-100:]]))
-    return result
+# def send_local_browser(link):
+#     st = time.time()
+#     result = playwright_thread_executor.submit(playwright_thread_worker, link).result()
+#     et = time.time() - st
+#     logger.info(" ".join(['send_local_browser ', str(et), "\n", result['text'][-100:]]))
+#     return result
 
 # pip install readabilipy from this git repo https://github.com/alan-turing-institute/ReadabiliPy below.
 # pip install
@@ -762,7 +776,7 @@ def send_request_zenrows(url, apikey):
 
 def local_browser_reader(html):
     st = time.time()
-    result = playwright_thread_executor.submit(playwright_thread_reader, html).result(timeout=10)
+    result = playwright_thread_executor.submit(playwright_thread_reader, html).result()
     res = next(result)
     def close():
         try:
