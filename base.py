@@ -1773,10 +1773,10 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    # def compute_timeout(link):
-    #     return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
-    # timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    timeouts = [{"timeout": 30}] * len(links)
+    def compute_timeout(link):
+        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
+    timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    # timeouts = [{"timeout": 30}] * len(links)
     task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 30, 45)
     return task_queue
 

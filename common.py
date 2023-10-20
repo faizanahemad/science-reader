@@ -715,7 +715,7 @@ def is_pdf_link(link):
         result = True
     else:
         try:
-            response = ProcessFnWithTimeout(Queue())(requests.head, 10, link)
+            response = ProcessFnWithTimeout(Queue())(requests.head, 15, link)
             content_type = response.headers.get('Content-Type')
             result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
         except Exception as e:
