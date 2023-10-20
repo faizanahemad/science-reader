@@ -618,7 +618,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     goose3_result = None
     trafilatura_result = None
     soup_html_parser_result = None
-    result = get_async_future(local_browser_reader, html)
+    # result = get_async_future(local_browser_reader, html)
     goose3_result = get_async_future(send_request_goose3, url, html)
     trafilatura_result = get_async_future(send_request_trafilatura, url,html)
     soup_html_parser_result = get_async_future(soup_html_parser, html)
@@ -798,27 +798,27 @@ def soup_html_parser(html):
         link.decompose()
 
     # Remove header and footer elements
-    for header in soup.find_all(['header', 'footer']):
+    for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
         header.decompose()
     content_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
     content_text = '\n '.join(element.get_text() for element in content_elements)
     return {"text": content_text, "title": title}
 
-def send_request_readabilipy(link, html=None):
-    from readabilipy import simple_json_from_html_string
-    st = time.time()
-    if html is None:
-        response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
-        if response.status_code not in [200, 201, 202, 303, 302, 301]:
-            logger.error(
-                f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
-            return {"text": '', "title": ''}
-        html = response.text
-
-    et = time.time() - st
-    logger.debug(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
-    article = simple_json_from_html_string(html)
-    return {"text": article['plain_text'], "title": article['title']}
+# def send_request_readabilipy(link, html=None):
+#     from readabilipy import simple_json_from_html_string
+#     st = time.time()
+#     if html is None:
+#         response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
+#         if response.status_code not in [200, 201, 202, 303, 302, 301]:
+#             logger.error(
+#                 f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
+#             return {"text": '', "title": ''}
+#         html = response.text
+#
+#     et = time.time() - st
+#     logger.debug(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
+#     article = simple_json_from_html_string(html)
+#     return {"text": article['plain_text'], "title": article['title']}
 
 def send_request_goose3(link, html=None):
     from goose3 import Goose
@@ -866,7 +866,7 @@ def web_scrape_page(link, apikeys):
                     if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                         result_from = "zenrows"
                         break
-                    elif len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                         zenrows_exception = True
                 except Exception as e:
                     zenrows_exception = True
