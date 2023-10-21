@@ -512,15 +512,17 @@ Title of the conversation:
         query, attached_docs, attached_docs_names = attached_docs_future.result()
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
+
         checkboxes = query["checkboxes"]
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
         if enablePreviousMessages == "infinite":
             message_lookback = 6
         else:
             message_lookback = int(enablePreviousMessages) * 2
-        link_context = (
-                           f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(
-                               summary.strip()) > 0 and message_lookback >= 0 else '') + f"Provide answer for this user query: '''{query['messageText']}'''\n"
+
+        previous_context = f"Previous context and conversation details between human and AI assistant: '''{summary}'''\n" if len(summary.strip()) > 0 and message_lookback >= 0 else ''
+        user_query = f"Provide answer for this user query: '''{query['messageText']}'''\n"
+        link_context = previous_context + user_query
         yield {"text": '', "status": "Getting prior chat context ..."}
         additional_docs_to_read = query["additional_docs_to_read"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
@@ -531,8 +533,8 @@ Title of the conversation:
             # TODO: provide_detailed_answers addition
             logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search_queue, link_context, 'helpful ai assistant',
-                                           '',
+            web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
+                                           previous_context,
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
