@@ -174,11 +174,13 @@ Response to the user's query:
                 input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
                 template="""<task>Your task is to generate web search queries for a given document and conversation context.</task>
 You are given a question and conversation context as below.
-'''
-{context}
-{doc_context}
-'''
-Generate web search queries to search the web for more information about the user query. {previous_answer}
+Current question: 
+'''{context}'''
+
+Earlier conversation context:
+'''{doc_context}'''
+
+Generate web search queries to search the web for more information about the current user query. {previous_answer}
 {pqs}
 Generate {n_query} well specified and diverse web search queries as a valid python list. 
 Instructions for how to generate the queries are given below.
@@ -448,9 +450,13 @@ Response to the user's query:
             web_search_prompt=PromptTemplate(
                 input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
                 template="""You are given a query or question or conversation context as below.
+Current question: 
 '''{context}'''
-{doc_context}
-We want to generate {n_query} web search queries to search the web for more information about the query.
+
+Earlier conversation context:
+'''{doc_context}'''
+
+We want to generate {n_query} web search queries to search the web for more information about the current query.
 {previous_answer}
 {pqs}
 Instructions for how to generate the web search queries are given below.

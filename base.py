@@ -418,7 +418,11 @@ class CallLLmGpt:
         if self.self_hosted_model_url is not None:
             return call_with_stream(fetch_completion_vllm, self.self_hosted_model_url, text, temperature, self.keys,
                                          max_tokens=max_tokens)
-        if self.use_gpt4 and self.keys["openAIKey"] is not None and len(self.openai_gpt4_models) > 0:
+        else:
+            assert self.keys["openAIKey"] is not None
+            assert not self.use_small_models
+
+        if self.use_gpt4 and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             assert text_len < 8000
             models = round_robin(self.openai_gpt4_models)
@@ -435,7 +439,7 @@ class CallLLmGpt:
                 else:
                     raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
-        elif self.keys["openAIKey"] is not None and not self.use_16k and ((not self.use_small_models) or (self.use_small_models and self.keys["cohereKey"] is None and self.keys["ai21Key"] is None)):
+        elif not self.use_16k:
             models = round_robin(self.openai_turbo_models + self.openai_instruct_models)
             assert text_len < 3800
             try:
@@ -461,7 +465,7 @@ class CallLLmGpt:
                         return call_with_stream(call_ai21, stream, text, temperature, self.keys)
                     else:
                         raise e
-        elif self.keys["openAIKey"] is not None and self.use_16k:
+        elif self.use_16k:
             if text_len > 3400:
                 models = round_robin(self.openai_16k_models)
                 logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
@@ -492,13 +496,6 @@ class CallLLmGpt:
                     return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
                 except Exception as e:
                     raise e
-        elif self.keys["cohereKey"] is not None:
-            return call_with_stream(call_cohere, stream, text, temperature, self.keys, backup_function=call_ai21 if self.keys["ai21Key"] is not None else None)
-        elif self.keys["ai21Key"] is not None:
-#             logger.info(f"Try Ai21 model with stream = {stream}, Ai21 key = {self.keys['ai21Key']}")
-            return call_with_stream(call_ai21, stream, text, temperature, self.keys, backup_function=call_cohere if self.keys["cohereKey"] is not None else None)
-        elif self.self_hosted_model_url is not None:
-            raise ValueError("Self hosted models not yet supported")
         else:
             raise ValueError("No model use criteria met")
 
@@ -1396,7 +1393,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         for r in previous_search_results:
             pqs.append(r["query"])
     doc_context = f"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
-    previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand this answer." if previous_answer and len(
+    previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand and follow up on this answer." if previous_answer and len(
             previous_answer.strip()) > 10 else ''
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, previous_answer=previous_answer, pqs=pqs, n_query=n_query)
