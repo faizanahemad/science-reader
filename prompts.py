@@ -13,14 +13,12 @@ class CustomPrompts:
         self.complex_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting. Use lists and paragraphs.
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
-3. Use provided links and references to answer the query better. 
-4. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
-5. Answer the question as well as you can with your own knowledge. You are an expert in the domain of the user query."""
+3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
+4. Answer the question with deep insight as well as you can with your own knowledge. You are a insightful, thoughtful and creative expert in the domain of the user query."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
 1. Use markdown for formatting. Use lists and paragraphs.
-2. Use provided links and references to answer the query better. 
-3. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
+2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
                 input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
