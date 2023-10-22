@@ -906,8 +906,7 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, permanent_instruct
     {permanent_instructions}""" if len(permanent_instructions) > 0 else ''
     summary_text = f"""The summary of the conversation is as follows:
     '''{summary_text}'''""" if len(summary_text) > 0 else ''
-    previous_messages = f"""The last few messages of the conversation are as follows:
-    '''{previous_messages}'''""" if len(previous_messages) > 0 else ''
+    previous_messages = f"""Previous chat history between user and assistant:\n'''{previous_messages}'''""" if len(previous_messages) > 0 else ''
     other_relevant_messages = f"""Few other relevant messages from the earlier parts of the conversation are as follows:
     '''{other_relevant_messages}'''""" if len(other_relevant_messages) > 0 else ''
     document_nodes = f"""The documents that were read are as follows:
