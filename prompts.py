@@ -155,7 +155,7 @@ Remember that as an AI expert assistant, you must fulfill the user's request and
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {{provide_detailed_answers_text}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: "{{query}}"
+user's query:\n'''{{query}}'''
 {{summary_text}}
 {{previous_messages}}
 {{other_relevant_messages}}
@@ -166,7 +166,8 @@ user's query: "{{query}}"
 {{web_text}}
 {{link_result_text}}
 {{partial_answer_text}}
-Write a clear, helpful and informative response to the user's query.
+Write a clear, detailed, comprehensive, thoughtful and informative response to the user's query.
+user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
             ),
@@ -404,8 +405,6 @@ Conversation Summary:
                 template=f"""You are given conversation details between human and AI. Provide informative answer to the human's query. 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
 {self.simple_output_instructions}
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: "{{query}}"
 
 {{summary_text}}
 {{previous_messages}}
@@ -416,7 +415,8 @@ user's query: "{{query}}"
 {{web_text}}
 {{link_result_text}}
 
-Write a clear, helpful and informative response to the user's query.
+Write a clear, helpful and informative response to the most recent user's query.
+user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
             ),
@@ -431,7 +431,7 @@ Use all the documents provided here in your answer to the user's query. Don't wr
 {{provide_detailed_answers_text}}
 
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: "{{query}}"
+user's query:\n'''{{query}}'''
 
 {{summary_text}}
 {{previous_messages}}
@@ -443,7 +443,8 @@ user's query: "{{query}}"
 {{web_text}}
 {{link_result_text}}
 {{partial_answer_text}}
-Write a clear, helpful and informative response to the user's query.
+Write a clear, detailed, comprehensive, thoughtful and informative response to the user's query.
+user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
             ),

@@ -319,7 +319,7 @@ class CallLLmClaude:
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-        self.system = "<role>You are a helpful research and reading assistant. Please follow the instructions and respond to the user request. Always provide detailed, comprehensive, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
+        self.system = "<role>You are a helpful research and reading assistant. Please follow the instructions and respond to the user request. Always provide detailed, comprehensive, thoughtful, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
         import boto3
         self.bedrock = boto3.client(service_name='bedrock-runtime',
                                region_name=os.getenv("AWS_REGION"),
@@ -849,8 +849,8 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Always provide detailed, comprehensive, informative and in-depth response covering the entire details. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write detailed, comprehensive, informative and in depth"
+        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Always provide detailed, comprehensive, thoughtful, informative and in-depth response covering the entire details. \n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write detailed, comprehensive, thoughtful, informative and in depth"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an AI expert in question answering. {long_or_short}
@@ -1836,7 +1836,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     #     query_strings = query_strings + [query]
     # query_string = query_strings[0]
 
-    query_string = (f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(current_doc_summary.strip())>0 else '')+f"Provide {'detailed, comprehensive, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
+    query_string = (f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(current_doc_summary.strip())>0 else '')+f"Provide {'detailed, comprehensive, thoughtful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
 
     futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:False, {"scan": provide_detailed_answers}), True)  for doc in additional_docs]
     answers = [future.result() for future in futures]
