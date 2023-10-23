@@ -183,12 +183,14 @@ Generate web search queries to search the web for more information about the cur
 {pqs}
 Generate {n_query} well specified and diverse web search queries as a valid python list. 
 Instructions for how to generate the queries are given below.
-1. Generate diverse web search queries which break down the actual question into smaller parts. Each generated query must be different from others. 
-2. Determine the subject domain of the query from the research document or context and the query and make sure to mention the domain in your web search queries. 
+1. Generate diverse web search queries for the current question using the current question and conversation context. 
+2. Determine the subject domain of the current question from the context and the current question and mention the domain in your web search queries. 
 3. Your output will look like a python list of strings like below.
-["query based on given document", "different_web_query based on the document and conversation", "diverse_web_query based on question and conversation context", "web_query_4 based for the given task based on question and conversation."]
+["diverse google search query based on given document", "different_web_query based on the document and conversation"]
 
-Output only a valid python list of web search query strings.
+Current question: 
+'''{context}'''
+Output only a valid python list of web search query strings for the current question.
 """,
             ),
             document_search_prompt=PromptTemplate(
@@ -459,12 +461,14 @@ We want to generate {n_query} web search queries to search the web for more info
 {previous_answer}
 {pqs}
 Instructions for how to generate the web search queries are given below.
-1. Generate {n_query} well specified and diverse web search queries.
+1. Generate {n_query} well specified and diverse web search queries using the current question and conversation context.
 2. Write one search query per line for a total of {n_query} queries.
 3. Only write the search queries. Don't write anything else.
 4. After writing the google web search queries write ###END### on a new line.
 5. End your response for queries with ###END###.
 
+Current question: 
+'''{context}'''
 Google Search Queries are written below.
 """,
             ),
