@@ -424,7 +424,10 @@ class CallLLmGpt:
 
         if self.use_gpt4 and len(self.openai_gpt4_models) > 0:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
-            assert text_len < 8000
+            try:
+                assert text_len < 8000
+            except AssertionError as e:
+                text = get_first_last_parts(text, 4000, 3500, self.gpt4_enc)
             models = round_robin(self.openai_gpt4_models)
             try:
                 model = next(models)
