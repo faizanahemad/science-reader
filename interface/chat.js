@@ -391,7 +391,7 @@ var ChatManager = {
           if (message.text.trim().length > 0){
               renderInnerContentAsMarkdown(textElem, function(){
                   if ((textElem.text().length > 300)){ // && (index < array.length - 2)
-                    showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=index >= array.length - 2);
+                    showMore(null, text=null, textElem=textElem, as_html=true, show_at_start=true); // index >= array.length - 2
                   }
               }, continuous=false, html=message.text.replace(/\n/g, '  \n'));
           }
