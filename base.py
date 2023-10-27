@@ -1852,7 +1852,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
             read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in
                  answers]
     elif len(additional_docs) == 2 and provide_detailed_answers:
-        if provide_raw_text:
+        if False:
             doc_search_results = [ChunkText(d.semantic_search_document(query), 1400 - get_gpt4_word_count(p['text']) if provide_detailed_answers else 700 - get_gpt3_word_count(p['text']), 0)[0] for p, d in zip(answers, additional_docs)]
             read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in zip(doc_search_results, answers)]
         else:
