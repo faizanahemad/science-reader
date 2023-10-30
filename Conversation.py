@@ -476,6 +476,7 @@ Title of the conversation:
 
     def get_uploaded_documents_for_query(self, query):
         attached_docs = re.findall(r'#doc_\d+', query["messageText"])
+        attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
         attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
         if len(attached_docs) > 0:
