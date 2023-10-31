@@ -129,7 +129,7 @@ Conversation Summary:
 """,
             ),
             persist_current_turn_prompt=PromptTemplate(
-                input_variables=["query", "response", "previous_summary",],
+                input_variables=["query", "response", "previous_summary", "previous_messages_text"],
                 template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. Your summary should be detailed, comprehensive and in-depth.
 Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
