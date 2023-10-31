@@ -437,7 +437,7 @@ Title of the conversation:
         message_lookback = 2
         previous_messages_text = ""
 
-        while get_gpt3_word_count(previous_messages_text) < 1250:
+        while get_gpt3_word_count(previous_messages_text) < 1250 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
@@ -498,7 +498,7 @@ Title of the conversation:
         message_lookback = 2
         previous_messages_text = ""
 
-        while get_gpt4_word_count(previous_messages_text) < 5000:
+        while get_gpt4_word_count(previous_messages_text) < 5000 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
