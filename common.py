@@ -929,6 +929,16 @@ def reformat_string(input_str):
     return " ".join(corrected_words)
 
 
+def find_nearest_divisible_by_three(arr):
+    # Start from the last index
+    for i in range(len(arr) - 1, -1, -1):
+        # Check if the current index (i + 1 because index starts from 0) is divisible by 3
+        if (i + 1) % 3 == 0:
+            return arr[i]
+    # Return a message if no such element is found
+    return "No element found with index divisible by 3"
+
+
 
 
 

@@ -265,11 +265,9 @@ class Conversation:
     def get_field(self, top_key):
         import dill
         doc_id = self.conversation_id
-
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
-
         try:
             assert top_key in self.store_separate
         except Exception as e:
@@ -294,11 +292,11 @@ class Conversation:
             else:
                 return None
     
-    def _get_lock_location(self):
+    def _get_lock_location(self, key="all"):
         doc_id = self.conversation_id
         folder = self._storage
         path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}")
+        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}_{key}")
         return lock_location
 
     def set_field(self, top_key, value, overwrite=False):
@@ -307,7 +305,7 @@ class Conversation:
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
-        lock_location = self._get_lock_location()
+        lock_location = self._get_lock_location(top_key)
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             tk = self.get_field(top_key)
@@ -357,7 +355,7 @@ class Conversation:
         encoder = tiktoken.encoding_for_model("gpt-3.5-turbo")
         # Lets get the previous 2 messages, upto 1000 tokens
         # TODO: contextualizing the query maybe important since user queries are not well specified
-        summary_lookback = 3
+        summary_lookback = 4
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices"), get_async_future(self.get_field, "raw_documents_index")]
         memory, messages, indices, raw_documents_index = [f.result() for f in futures]
         previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
@@ -369,14 +367,15 @@ class Conversation:
                     raw_document_nodes = get_async_future(raw_documents_index[link].similarity_search, query, k=2)
                     raw_docs.append(raw_document_nodes)
         running_summary = memory["running_summary"][-1:]
+        older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         document_nodes = get_async_future(indices["raw_documents_index"].similarity_search, query, k=2)
         if len(memory["running_summary"]) > 4:
             message_nodes = get_async_future(indices["message_index"].similarity_search, query, k=2)
-            summary_nodes = indices["summary_index"].similarity_search(query, k=2)
+            summary_nodes = indices["summary_index"].similarity_search(query, k=6)
             summary_nodes = [n.page_content for n in summary_nodes]
             not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
             summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
-            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0]
+            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0][-2:]
             # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
             message_nodes = message_nodes.result()
             message_nodes = [n.page_content for n in message_nodes]
@@ -386,6 +385,9 @@ class Conversation:
         else:
             summary_nodes = []
             message_nodes = []
+
+        if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
+            running_summary = [older_extensive_summary] + running_summary
         document_nodes = document_nodes.result()
         for raw_document_nodes in raw_docs:
             document_nodes.extend(raw_document_nodes.result())
@@ -424,28 +426,47 @@ Title of the conversation:
     def persist_current_turn(self, query, response, new_docs):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
-        msg_set = get_async_future(self.set_field,"messages", [
-            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query, "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id}, 
-            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)), "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
+        messages = get_async_future(self.get_field, "messages")
         memory = get_async_future(self.get_field, "memory")
         indices = get_async_future(self.get_field, "indices")
         if len(new_docs) > 0:
             raw_doc_index = get_async_future(self.get_field, "raw_documents_index")
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_summary=get_first_last_parts("".join(self.get_field("memory")["running_summary"]), 0, 1000))
+        memory = memory.result()
+        messages = messages.result()
+        message_lookback = 2
+        previous_messages_text = ""
+
+        while get_gpt3_word_count(previous_messages_text) < 1250:
+            previous_messages = messages[-message_lookback:]
+            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+            message_lookback += 2
+        msg_set = get_async_future(self.set_field, "messages", [
+            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
+             "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
+            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
+             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
+
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
+        prompt = get_first_last_parts(prompt, 1000, 2500)
+        if get_gpt3_word_count(prompt) > 3700:
+            prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text="",
+                                                                previous_summary=get_first_last_parts("".join(
+                                                                    memory["running_summary"][-4:-3] + memory[
+                                                                                                           "running_summary"][
+                                                                                                       -1:]), 0, 1000))
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, response)
-        summary = summary.result()
-        title = title.result()
-        memory = memory.result()
-        memory["title"] = title
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = title.result()
+        summary = summary.result()
+        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
+        memory["title"] = title
         memory["running_summary"].append(summary)
         mem_set = get_async_future(self.set_field, "memory", memory)
         # self.set_field("memory", memory)
         indices = indices.result()
         message_index_new = get_async_future(FAISS.from_texts,[query, response], get_embedding_model(self.get_api_keys()))
-        summary_index_new = get_async_future(FAISS.from_texts,[summary], get_embedding_model(self.get_api_keys()))
         _ = indices["message_index"].merge_from(message_index_new.result())
         _ = indices["summary_index"].merge_from(summary_index_new.result())
         if len(new_docs) > 0:
@@ -462,6 +483,36 @@ Title of the conversation:
             self.set_field("raw_documents_index", raw_doc_index)
         self.set_field("indices", indices)
         msg_set.result()
+        mem_set.result()
+        self.create_deep_summary()
+
+    def create_deep_summary(self):
+        indices = get_async_future(self.get_field, "indices")
+        memory = get_async_future(self.get_field, "memory")
+        messages = self.get_field("messages")
+        if len(messages) % 6 != 0:
+            return
+        memory = memory.result()
+        recent_summary = "".join(memory["running_summary"][-1:])
+        old_summary = "\n\n".join(memory["running_summary"][-4:-3] + memory["running_summary"][-7:-6])
+        message_lookback = 2
+        previous_messages_text = ""
+
+        while get_gpt4_word_count(previous_messages_text) < 5000:
+            previous_messages = messages[-message_lookback:]
+            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+            message_lookback += 2
+        assert get_gpt4_word_count(previous_messages_text) > 0
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+        prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
+        summary = llm(prompt, temperature=0.2, stream=False)
+        memory["running_summary"][-1] = summary
+
+        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
+        indices = indices.result()
+        _ = indices["summary_index"].merge_from(summary_index_new.result())
+        mem_set = get_async_future(self.set_field, "memory", memory)
+        self.set_field("indices", indices)
         mem_set.result()
 
     def delete_message(self, message_id, index):
@@ -502,7 +553,7 @@ Title of the conversation:
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
-        lock_location = self._get_lock_location()
+        lock_location = self._get_lock_location("reply")
         lock = FileLock(f"{lock_location}.lock")
         web_text_accumulator = []
         with lock.acquire(timeout=600):
