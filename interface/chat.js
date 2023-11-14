@@ -196,16 +196,21 @@ var ChatManager = {
     setupAddDocumentForm: function(conversationId) {
         let doc_modal = $('#add-document-modal-chat')
         $('#add-document-button-chat').off().click(function() {
-            $('#add-document-modal-chat').modal('show');
+            $('#add-document-modal-chat').modal({backdrop: 'static', keyboard: false}, 'show');
         });
         function success(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
             doc_modal.find('#submit-spinner').hide();  // Hide the spinner
             if (response.status) {
-                doc_modal.modal('hide');
                 ChatManager.listDocuments(conversationId)
-                    .done(function(documents){ChatManager.renderDocuments(conversationId, documents);})
-                    .fail(function(){alert(response.error);})
+                    .done(function(documents){
+                        doc_modal.modal('hide');
+                        ChatManager.renderDocuments(conversationId, documents);
+                    })
+                    .fail(function(){
+                        doc_modal.modal('hide');
+                        alert(response.error);
+                    })
                 // set the new document as the current document
                 
             } else {

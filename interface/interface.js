@@ -1860,7 +1860,7 @@ $(document).ready(function() {
     function setupPDFModalSubmit() {
         let doc_modal = $('#add-document-modal');
         $('#add-document-button').off().click(function() {
-            $('#add-document-modal').modal('show');
+            $('#add-document-modal').modal({backdrop: 'static', keyboard: false}, 'show');
         });
         function success(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
@@ -1868,15 +1868,21 @@ $(document).ready(function() {
             if (response.status) {
                 alert(JSON.stringify(response));
                 var newDocId = response.doc_id;
-                doc_modal.modal('hide');
                 // refresh the document list
                 loadDocuments(false)
-                    .done(function(){setActiveDoc(newDocId);})
-                    .fail(function(){alert(response.error);})
+                    .done(function(){
+                        doc_modal.modal('hide');
+                        setActiveDoc(newDocId);
+                    })
+                    .fail(function(){
+                        doc_modal.modal('hide');
+                        alert(response.error);
+                    })
                 // set the new document as the current document
                 
             } else {
                 alert(response.error);
+                doc_modal.modal('hide');
             }
         }
         function failure(response) {
