@@ -387,7 +387,7 @@ class CallLLmGpt:
         self.system = "You are a helpful assistant. Please follow the instructions and respond to the user request. Don't repeat what is told to you in the prompt. Always provide thoughtful, insightful, informative and in-depth response. Directly start your answer without any greetings.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
-        openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m]
+        openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
