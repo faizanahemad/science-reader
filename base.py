@@ -1016,7 +1016,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     return dedup_results
 
-
+@typed_memoize(cache, str, int, tuple, bool)
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
     from datetime import datetime, timedelta
@@ -1437,6 +1437,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                      gscholar=False, provide_detailed_answers=False):
 
     st = time.time()
+    provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
         extra_queries = []
     num_res = 10
@@ -1449,9 +1450,11 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     doc_context = f"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
     previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand and follow up on this answer." if previous_answer and len(
             previous_answer.strip()) > 10 else ''
+    if provide_detailed_answers > 1 and len(extra_queries) > 0:
+        pqs.extend(extra_queries)
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, previous_answer=previous_answer, pqs=pqs, n_query=n_query)
-    if len(extra_queries) < 1:
+    if (len(extra_queries) < 1) or (len(extra_queries) <= 2 and provide_detailed_answers >= 1):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
@@ -1507,19 +1510,25 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         serps = [s.result() if hasattr(s, "result") else s for s in serps]
         assert len(serps[0]) > 0
         assert len([r for serp in serps for r in serp]) >= 10
+        if provide_detailed_answers >= 2:
+            assert len([r for serp in serps for r in serp]) >= 15
     except Exception as e:
-        logger.error(f"Error in getting results from web search engines, error = {e}")
-        if serp_available:
-            serps_v2 = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
-            logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
-        elif bing_available:
-            # TODO: Bing is not working debug this
-            serps_v2 = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
-            logger.debug(f"Using BING for web search, serps len = {len(serps)}")
-        else:
-            return {"text":'', "search_results": [], "queries": query_strings}
-        serps = serps.extend([s.result() for s in serps_v2])
+        try:
+            logger.error(f"Error in getting results from web search engines, error = {e}")
+            if serp_available:
+                serps_v2 = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+                logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
+            elif bing_available:
+                # TODO: Bing is not working debug this
+                serps_v2 = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+                logger.debug(f"Using BING for web search, serps len = {len(serps)}")
+            else:
+                return {"text":'', "search_results": [], "queries": query_strings}
+            serps = serps.extend([s.result() for s in serps_v2])
+        except Exception as e:
+            pass
     
+    assert serps is not None
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
     logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])} Qres len = {len(qres)}")
     dedup_results = []
@@ -1594,7 +1603,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_contexts = None
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
-    cut_off = 20 if provide_detailed_answers else 10
+    cut_off = (30 if provide_detailed_answers > 1 else 20) if provide_detailed_answers else 10
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
@@ -1635,7 +1644,7 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
     web_text_accumulator = []
     full_info = []
     qu_st = time.time()
-    cut_off = 8 if provide_detailed_answers else 4
+    cut_off = (8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4
     while True:
         qu_wait = time.time()
         break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > 30
@@ -1716,6 +1725,28 @@ def read_pdf(link_title_context_apikeys):
     extracted_info = ''
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    if "arxiv.org" in link:
+        try:
+            import re
+            from bs4 import BeautifulSoup, SoupStrainer
+            # convert to ar5iv link
+            arxiv_id = link.replace(".pdf", "").split("/")[-1]
+            new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+            logger.debug(f"Converted arxiv link {link} to {new_link}")
+            status = requests.head(new_link, timeout=10)
+            assert status.status_code == 200
+            arxiv_text = requests.get(new_link, timeout=10).text
+            soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
+            element = soup.find(id='bib')
+            # Remove the element
+            if element is not None:
+                element.decompose()
+            title = soup.select("h1")[0].text
+            text = soup.select("article")[0].text
+            text = re.sub('\n{3,}', '\n\n', text)
+        except Exception as e:
+            logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}")
+            new_link = link
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
@@ -1802,7 +1833,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(16 if provide_detailed_answers else 16, os.cpu_count()*8)
+    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(link_title_context_apikeys, *args, **kwargs):
         link = link_title_context_apikeys[0]
@@ -1828,7 +1859,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
     def compute_timeout(link):
-        return {"timeout": 60} if is_pdf_link(link) else {"timeout": 30}
+        return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     timeouts = list(pdf_process_executor.map(compute_timeout, links))
     # timeouts = [{"timeout": 30}] * len(links)
     task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 30, 45)

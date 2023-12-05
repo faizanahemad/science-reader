@@ -617,8 +617,32 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Your Docs</label></div>` +
+        
+        (type === "assistant" ? `
+        
+    <div class="form-check form-check-inline" id="${slow_fast}" style="line-height: 0.9;">
+    <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+        <div style="margin-left: auto; margin-right: 5px;">Depth</div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}1" value="1" autocomplete="off">
+            <label for="${slow_fast}1"><small>1</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off">
+            <label for="${slow_fast}2"><small>2</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}3" value="3" autocomplete="off">
+            <label for="${slow_fast}3"><small>3</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}4" value="4" autocomplete="off">
+            <label for="${slow_fast}4"><small>4</small></label>
+        </div>
+    </div>
+    </div>
 
-        `<div class="form-check form-check-inline" id="${slow_fast}-container"><input class="form-check-input" type="checkbox" id="${slow_fast}" data-toggle="toggle" data-width="90" data-onstyle="success" data-offstyle="danger"></div>` + 
+` : '') +
 
         (type === "assistant" ? `
         
@@ -650,12 +674,6 @@ function addOptions(parentElementId, type, activeDocId=null) {
         (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 10px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
-
-    $(`#${slow_fast}`).bootstrapToggle({
-        on: 'Detailed',
-        off: 'Fast',
-        height: 20,
-    });
 
 
     // Elements for Multiple Documents option
@@ -716,11 +734,13 @@ function addOptions(parentElementId, type, activeDocId=null) {
 function getOptions(parentElementId, type) {
     checkBoxOptionOne = type==="assistant" ? "googleScholar":"use_references_and_citations"
     optionOneChecked = $(type==="assistant"?`#${parentElementId}-${type}-use-google-scholar`:`#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked');
+    slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     values = {
         perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
         use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
-        provide_detailed_answers: $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).is(':checked')
     };
+    let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
+    values['provide_detailed_answers'] = speedValue;
     values[checkBoxOptionOne] = optionOneChecked;
     if (type === "assistant") {
         let historyValue = $("input[name='historyOptions']:checked").val();
@@ -738,7 +758,6 @@ function resetOptions(parentElementId, type) {
     $(type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
-    $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).prop('checked', false);
 
     
     var searchBox = $(`#${parentElementId}-${type}-search-box`);

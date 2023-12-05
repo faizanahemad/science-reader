@@ -579,7 +579,7 @@ Title of the conversation:
         additional_docs_to_read = query["additional_docs_to_read"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         google_scholar = checkboxes["googleScholar"]
-        provide_detailed_answers = checkboxes["provide_detailed_answers"]
+        provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         if google_scholar or perform_web_search:
             # TODO: provide_detailed_answers addition
@@ -591,8 +591,9 @@ Title of the conversation:
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
 
-        provide_detailed_answers = (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
-            searches) == 0) or provide_detailed_answers
+        if provide_detailed_answers == 0 and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+            searches) == 0):
+            provide_detailed_answers = 1
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
@@ -646,7 +647,7 @@ Title of the conversation:
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (6 if provide_detailed_answers else 4))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1)*4))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
@@ -658,7 +659,7 @@ Title of the conversation:
                 yield {"text": '', "status": "document reading failed"}
         conversation_docs_answer = ''
         if len(attached_docs) > 0:
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * (6 if provide_detailed_answers else 4))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1)*4))):
                 if conversation_docs_future.done():
                     conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
                     conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
@@ -678,7 +679,7 @@ Title of the conversation:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = 10 if provide_detailed_answers else 8
+                cut_off = 10
                 seen_query_results = query_results_part1[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
@@ -702,7 +703,7 @@ Title of the conversation:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = len(web_text_accumulator) >= (8 if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((4 if google_scholar else 2) if (provide_detailed_answers or google_scholar) else 1.5))
+                break_condition = len(web_text_accumulator) >= ((8 if provide_detailed_answers <= 1 else 10) if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None

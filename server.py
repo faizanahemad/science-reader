@@ -856,6 +856,7 @@ def streaming_get_answer():
     d = perform_web_search = request.json.get("perform_web_search", False)
     if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
         return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
+    provide_detailed_answers = int(provide_detailed_answers)
     if use_multiple_docs:
         additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
     meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
@@ -897,6 +898,7 @@ def streaming_get_followup_answer():
     d = perform_web_search = request.json.get("perform_web_search", False)
     if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
         return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
+    provide_detailed_answers = int(provide_detailed_answers)
     if use_multiple_docs:
         additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
     meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
