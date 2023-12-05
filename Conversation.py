@@ -542,7 +542,7 @@ Title of the conversation:
         return query, attached_docs, attached_docs_names
     @property
     def max_time_to_wait_for_web_results(self):
-        return 15
+        return 25
     def reply(self, query):
         # Get prior context
         # Get document context

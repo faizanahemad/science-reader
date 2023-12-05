@@ -319,7 +319,7 @@ class CallLLmClaude:
         self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
         self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
         self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-        self.system = "<role>You are a helpful research and reading assistant. Please follow the instructions and respond to the user request. Always provide detailed, comprehensive, thoughtful, insightful, informative and in-depth response. Directly start your answer without any greetings. End your response with ###. Write '###' after your response is over in a new line.</role>\n"
+        self.system = "<role>You are a helpful research and reading assistant. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others.</role>\n\n<rules>\n<rule>Please follow the instructions and respond to the user request.</rule>\n<rule> Always provide detailed, comprehensive, thoughtful, insightful, informative and in-depth response.</rule>\n<rule>Directly start your answer without any greetings.</rule>\n<rule>Use markdown lists and paragraphs for formatting.</rule>\n<rule>End your response with ###. Write '###' after your response is over in a new line.</rule>\n</rules>\n\n"
         import boto3
         self.bedrock = boto3.client(service_name='bedrock-runtime',
                                region_name=os.getenv("AWS_REGION"),
@@ -353,9 +353,10 @@ class CallLLmClaude:
                     yield text
 
     @retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(4))
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
         from botocore.exceptions import EventStreamError
-        text = f"{self.system}\n\n{text}\n"
+        system = f"\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else ""
+        text = f"{self.system}{system}\n\n{text}\n"
         body = json.dumps({"prompt": f"\n\nHuman: {text}\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":list(set(["\n\nHuman:", "###", "Human:", "human:", "HUMAN:"] + ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"]))})
         accept = 'application/json'
         contentType = 'application/json'
@@ -384,7 +385,7 @@ class CallLLmGpt:
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.system = "You are a helpful assistant. Please follow the instructions and respond to the user request. Don't repeat what is told to you in the prompt. Always provide thoughtful, insightful, informative and in-depth response. Directly start your answer without any greetings.\n"
+        self.system = "You are a very helpful assistant who provides in depth responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. Please follow the instructions and respond to the user request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
@@ -412,7 +413,8 @@ class CallLLmGpt:
 
         
     @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None):
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
+        system = f"{self.system}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else self.system
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
@@ -431,7 +433,7 @@ class CallLLmGpt:
             models = round_robin(self.openai_gpt4_models)
             try:
                 model = next(models)
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
@@ -441,14 +443,14 @@ class CallLLmGpt:
                     model = self.openai_16k_models[0]
                 else:
                     raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
         elif not self.use_16k:
             models = round_robin(self.openai_turbo_models + self.openai_instruct_models)
             assert text_len < 3800
             try:
                 model = next(models)
 #                 logger.info(f"Try turbo model with stream = {stream}")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
@@ -460,7 +462,7 @@ class CallLLmGpt:
                     model = next(models)
                     fn = call_non_chat_model
                 try:  
-                    return call_with_stream(fn, stream, model, text, temperature, self.system, self.keys)
+                    return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
                 except Exception as e:
                     if type(e).__name__ == 'AssertionError':
                         raise e
@@ -479,7 +481,7 @@ class CallLLmGpt:
             try:
                 model = next(models)
 #                 logger.info(f"Try 16k model with stream = {stream}")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys)
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
@@ -496,7 +498,7 @@ class CallLLmGpt:
                 else:
                     raise e
                 try:
-                    return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, self.system, self.keys["openAIKey"])
+                    return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys["openAIKey"])
                 except Exception as e:
                     raise e
         else:
@@ -994,15 +996,27 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     pre_query = query
     after_string = f"after:{date_string}" if now and not only_pdf and not only_science_sites else ""
     search_pdf = " filetype:pdf" if only_pdf else ""
-    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites and not only_pdf else " "
+    if only_science_sites is None:
+        site_string = " "
+    elif only_science_sites:
+        site_string = " (site:arxiv.org OR site:openreview.net) "
+    elif not only_science_sites:
+        site_string = " -site:arxiv.org AND -site:openreview.net "
+    og_query = query
+    no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
     results = search.results(query, num)
+    expected_res_length = min(num, 10)
+    if len(results) < expected_res_length:
+        results.extend(search.results(no_after_query, num))
+    if len(results) < expected_res_length:
+        results.extend(search.results(og_query, num))
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
-@typed_memoize(cache, str, int, tuple, bool)
+
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
     from datetime import datetime, timedelta
@@ -1022,12 +1036,27 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     pre_query = query
     after_string = f"after:{date_string}" if now else ""
     search_pdf = " filetype:pdf" if only_pdf else ""
-    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " -site:arxiv.org AND -site:openreview.net "
+    if only_science_sites is None:
+        site_string = " "
+    elif only_science_sites:
+        site_string = " (site:arxiv.org OR site:openreview.net) "
+    elif not only_science_sites:
+        site_string = " -site:arxiv.org AND -site:openreview.net "
+    og_query = query
+    no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
-    
+
+    expected_res_length = min(num, 10)
     results = search.results(query, min(num, 10), search_params={"filter":"1", "start": "1"})
     if num > 10:
         results.extend(search.results(query, min(num, 10), search_params={"filter":"1", "start": "11"}))
+        expected_res_length = 30
+    if len(results) < expected_res_length:
+        results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": "1"}))
+    if len(results) < expected_res_length:
+        results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
+    if len(results) < expected_res_length:
+        results.extend(search.results(og_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
@@ -1054,7 +1083,14 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     pre_query = query
     after_string = f"after:{date_string}" if now else ""
     search_pdf = " filetype:pdf" if only_pdf else ""
-    site_string = " (site:arxiv.org OR site:openreview.net) " if only_science_sites else " -site:arxiv.org AND -site:openreview.net "
+    if only_science_sites is None:
+        site_string = " "
+    elif only_science_sites:
+        site_string = " (site:arxiv.org OR site:openreview.net) "
+    elif not only_science_sites:
+        site_string = " -site:arxiv.org AND -site:openreview.net "
+    og_query = query
+    no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
     params = {
        "q": query,
@@ -1070,6 +1106,15 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         results = rjs["organic_results"]
     else:
         return []
+    expected_res_length = min(num, 10)
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": no_after_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
@@ -1095,6 +1140,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     pre_query = query
     search_pdf = " filetype:pdf" if only_pdf else ""
     site_string = ""
+    og_query = query
     query = f"{query}{search_pdf}"
     params = {
         "q": query,
@@ -1109,6 +1155,11 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
         results = rjs["organic_results"]
     else:
         return []
+    expected_res_length = min(num, 10)
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": min(num, 10), "no_cache": False, "engine": "google_scholar"}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
@@ -1427,7 +1478,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         co = cohere.Client(api_keys["cohereKey"])
         num_res = 10
     if len(extra_queries) > 0:
-        num_res = 10
+        num_res = 20
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1437,8 +1488,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                  query_strings]
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
     elif google_available:
-        num_res = 10
-        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        num_res = 20
+        serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        # serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
         serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
@@ -1452,19 +1504,21 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
         assert len(serps) > 0
-        serps = [s.result() for s in serps]
+        serps = [s.result() if hasattr(s, "result") else s for s in serps]
         assert len(serps[0]) > 0
+        assert len([r for serp in serps for r in serp]) >= 10
     except Exception as e:
         logger.error(f"Error in getting results from web search engines, error = {e}")
         if serp_available:
-            serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+            serps_v2 = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
             logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
         elif bing_available:
-            serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+            # TODO: Bing is not working debug this
+            serps_v2 = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
             logger.debug(f"Using BING for web search, serps len = {len(serps)}")
         else:
             return {"text":'', "search_results": [], "queries": query_strings}
-        serps = [s.result() for s in serps]
+        serps = serps.extend([s.result() for s in serps_v2])
     
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
     logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])} Qres len = {len(qres)}")

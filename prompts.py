@@ -11,13 +11,13 @@ class CustomPrompts:
         # 4. Provide code in python if asked for code or implementation.
         # Use markdown formatting to typeset and format your answer better.
         self.complex_output_instructions = """Use the below rules while providing response.
-1. Use markdown for formatting. Use lists and paragraphs. Take a deep breath, then brainstorm and muse around creatively before writing your answer.
+1. Use markdown lists and paragraphs for formatting. This is part of my assignment so please help me with in depth answer covering any references provided.
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
 3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
-4. Answer the question with creativity and deep insight as well as you can with your own knowledge. You are a insightful, thoughtful and creative expert in the domain of the user query."""
+4. Answer the question with creativity and deep insight as well as you can by combining given references (if any) with your own knowledge."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
-1. Use markdown for formatting. Use lists and paragraphs.
+1. Use markdown lists and paragraphs for formatting.
 2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
