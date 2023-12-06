@@ -385,7 +385,7 @@ class CallLLmGpt:
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.system = "You are a very helpful assistant who provides in depth responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. Please follow the instructions and respond to the user request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
+        self.system = "You are a very helpful assistant who provides detailed and comprehensive responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. Please follow the instructions and respond to the user request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative, comprehensive and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
@@ -1039,7 +1039,8 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     if only_science_sites is None:
         site_string = " "
     elif only_science_sites:
-        site_string = " (site:arxiv.org OR site:openreview.net) "
+        # site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
+        site_string = " (site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org) "
     elif not only_science_sites:
         site_string = " -site:arxiv.org AND -site:openreview.net "
     og_query = query
@@ -1436,6 +1437,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                      previous_answer=None, previous_search_results=None, extra_queries=None,
                      gscholar=False, provide_detailed_answers=False):
 
+    # TODO: if it is scientific or knowledge based question, then use google scholar api, use filetype:pdf and site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
     st = time.time()
     provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
@@ -1491,8 +1493,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                  query_strings]
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
     elif google_available:
-        num_res = 20
-        serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        num_res = 10
+        serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
+                [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                           num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
+                 query_strings] + \
+                [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                           num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
+                 query_strings]
         # serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
@@ -1524,7 +1532,10 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 logger.debug(f"Using BING for web search, serps len = {len(serps)}")
             else:
                 return {"text":'', "search_results": [], "queries": query_strings}
-            serps = serps.extend([s.result() for s in serps_v2])
+            if serps is not None:
+                serps.extend([s.result() for s in serps_v2])
+            else:
+                serps = [s.result() for s in serps_v2]
         except Exception as e:
             pass
     
@@ -1589,7 +1600,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     #     pre_rerank = dedup_results_web
     #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
 
-    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:30]
+    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:40]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1750,6 +1761,8 @@ def read_pdf(link_title_context_apikeys):
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+        else:
+            txt = text
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
@@ -1805,7 +1818,7 @@ def get_page_text(link_title_context_apikeys):
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
-pdf_process_executor = ThreadPoolExecutor(max_workers=32)
+pdf_process_executor = ThreadPoolExecutor(max_workers=64)
 
 def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     basic_context = contexts[0] if len(contexts) > 0 else ""
@@ -1862,7 +1875,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     timeouts = list(pdf_process_executor.map(compute_timeout, links))
     # timeouts = [{"timeout": 30}] * len(links)
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 30, 45)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 60, 75)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

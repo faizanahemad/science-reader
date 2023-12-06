@@ -445,11 +445,13 @@ class DocIndex:
         ent_time = time.time()
 
         scan = False
+        detail_level = 1
         if mode["perform_web_search"]:
             mode = "web_search"
         elif mode["provide_detailed_answers"]:
+            detail_level = int(mode["provide_detailed_answers"])
             mode = "detailed"
-            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer. Remember to provide as much detail, information and depth as possible.\n\n"
+            query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
         elif mode["use_references_and_citations"]:
             mode = "use_references_and_citations"
         elif mode["use_multiple_docs"]:
@@ -460,12 +462,12 @@ class DocIndex:
         elif mode["scan"]:
             mode = "detailed"
             scan = True
-            query = f"{query}\n\nCarefully write detailed, informative, comprehensive and in depth answer. Remember to provide as much detail, information and depth as possible.\n\n"
+            query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
         else:
             mode = None
 
         brief_summary = self.title + "\n" + self.short_summary
-        brief_summary = (brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
+        brief_summary = ("Summary:\n"+ brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
         if mode == "web_search":
             web_results = get_async_future(web_search, query, self.doc_source, "\n".join([brief_summary] + self.get_doc_data("raw_data", "chunks")[:1]), self.get_api_keys(), self.get_date())
             
@@ -474,24 +476,62 @@ class DocIndex:
             mode = "web_search"
         additional_info = None
         if (mode == "detailed" or mode == "review"):
-            additional_info = get_async_future(call_contextual_reader, query, brief_summary + ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 500, 0)[0], self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
+            text = brief_summary + self.get_doc_data("static_data", "doc_text")
+            tex_len = get_gpt4_word_count(text)
+            if tex_len < 6000:
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+                prompt = f"""Answer the question or query given below using the given context as reference. 
+Question or Query is given below.
+{query}
+
+Context is given below.
+{text}
+
+Write answer below.
+"""
+                additional_info = get_async_future(llm, prompt, temperature=0.5)
+            else:
+                additional_info = get_async_future(call_contextual_reader, query, brief_summary + ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 500, 0)[0], self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
+
+            if detail_level > 1 and tex_len >= 6000:
+                raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
+                                                                                                     4200//LARGE_CHUNK_LEN))
+                raw_text = "\n\n".join([n.page_content for n in raw_nodes])
+                small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(
+                    self.result_cutoff, 1200//SMALL_CHUNK_LEN))
+                small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
+                raw_text = raw_text + " \n\n " + small_chunk_text
+                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text,
+                                                                   summary='',
+                                                                   questions_answers='',
+                                                                   full_summary='')
+
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+                additional_info_v1 = additional_info
+
+                def get_additional_info():
+                    ad_info = get_async_future(llm, prompt, temperature=0.5)
+                    init_add_info = additional_info_v1.result()
+                    return init_add_info + "\n\n" + ad_info.result()
+                additional_info = get_async_future(get_additional_info)
+
         answer = ''
         if not scan:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=scan)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=True)
             self_hosted = llm.self_hosted_model_url is not None
             if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
-                rem_init_len = 512 * (4 if self_hosted else 6) + 1
+                rem_init_len = LARGE_CHUNK_LEN * 6 + 1
             elif scan:
-                rem_init_len = 512 * (8 if self_hosted else 32) + 1
+                rem_init_len = LARGE_CHUNK_LEN * 16 + 1
             else:
-                rem_init_len = 512 * (8 if self_hosted else 12) + 1
+                rem_init_len = LARGE_CHUNK_LEN * 8 + 1
             dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
             summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff*2)
             summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
             summary_text = f"You are also given summaries of certain parts of document below:\n'''{summary_text}'''" if len(summary_text.strip()) > 0 else ""
             qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
             qna_text = f"Next, You are given few question and answer pairs from the document below:\n'''{qna_text}'''" if len(qna_text.strip()) > 0 else ""
-            rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary)
+            rem_word_len = min(5200 if detail_level > 1 else 6200, ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary))
             rem_tokens = rem_word_len // LARGE_CHUNK_LEN
             raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
             raw_text = "\n\n".join([n.page_content for n in raw_nodes])
@@ -505,15 +545,16 @@ class DocIndex:
             if mode == "web_search":
                 pass
             elif llm.use_gpt4 or scan:
-                rem_word_len = (rem_init_len * 2 + 1000) - get_gpt4_word_count(summary_text + qna_text + brief_summary + raw_text)
-                rem_tokens = rem_word_len // SMALL_CHUNK_LEN
-                small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-                small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
-                raw_text = raw_text + " \n\n " + small_chunk_text
+                rem_word_len = min((rem_init_len * 2 + 1000), 7000) - get_gpt4_word_count(summary_text + qna_text + brief_summary + raw_text)
+                if rem_word_len > SMALL_CHUNK_LEN:
+                    rem_tokens = rem_word_len // SMALL_CHUNK_LEN
+                    small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+                    small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
+                    raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
                                                 questions_answers=qna_text, full_summary=full_summary)
             else:
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary="",
+                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
                                                 questions_answers="", full_summary=full_summary)
 
             if mode == "web_search":

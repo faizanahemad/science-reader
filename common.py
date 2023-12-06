@@ -702,6 +702,7 @@ def typed_memoize(cache, *types):
 
 import requests
 temp_dir = tempfile.gettempdir()
+temp_dir = os.path.join(os.getcwd(), "storage", "cache")
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
 

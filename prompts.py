@@ -55,7 +55,7 @@ Answer:
             ),
             short_streaming_answer_prompt=PromptTemplate(
                 input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
-                template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
+                template=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
 {{full_summary}}
@@ -172,12 +172,11 @@ Response to the user's query:
 """,
             ),
             chat_slow_reply_prompt=PromptTemplate(
-                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "partial_answer_text", "provide_detailed_answers_text", "conversation_docs_answer"],
+                input_variables=["query", "summary_text", "previous_messages", "other_relevant_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now.
 Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query.
 {self.complex_output_instructions} 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-{{provide_detailed_answers_text}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query:\n'''{{query}}'''
 {{summary_text}}
@@ -185,11 +184,11 @@ user's query:\n'''{{query}}'''
 {{other_relevant_messages}}
 {{document_nodes}}
 {{conversation_docs_answer}}
-{{permanent_instructions}}
 {{doc_answer}}
 {{web_text}}
 {{link_result_text}}
-{{partial_answer_text}}
+\n
+{{permanent_instructions}}
 Write a clear, detailed, comprehensive, thoughtful and informative response to the user's query.
 user's query:\n'''{{query}}'''
 Response to the user's query:
@@ -365,7 +364,7 @@ Answer:
             ),
             short_streaming_answer_prompt=PromptTemplate(
                 input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
-                template=f"""Answer the question or information request given below using the given context (text chunks of larger document) as a helpful reference. 
+                template=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
 {{full_summary}}
