@@ -84,7 +84,7 @@ from llama_index import GPTTreeIndex, SimpleDirectoryReader
 from langchain.utilities import SerpAPIWrapper
 from langchain.agents import initialize_agent
 from langchain.agents import AgentType
-from typing import Optional, Type
+from typing import Optional, Type, List
 from langchain.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain.tools import DuckDuckGoSearchRun
 from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
@@ -143,6 +143,97 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 import time
 
+from langchain.embeddings.openai import embed_with_retry
+import numpy as np
+class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
+    def _get_len_safe_embeddings(
+        self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
+    ) -> List[List[float]]:
+        embeddings: List[List[float]] = [[] for _ in range(len(texts))]
+        try:
+            import tiktoken
+        except ImportError:
+            raise ImportError(
+                "Could not import tiktoken python package. "
+                "This is needed in order to for OpenAIEmbeddings. "
+                "Please install it with `pip install tiktoken`."
+            )
+
+        tokens = []
+        indices = []
+        model_name = self.tiktoken_model_name or self.model
+        try:
+            encoding = tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            logger.warning("Warning: model not found. Using cl100k_base encoding.")
+            model = "cl100k_base"
+            encoding = tiktoken.get_encoding(model)
+        for i, text in enumerate(texts):
+            if self.model.endswith("001"):
+                # See: https://github.com/openai/openai-python/issues/418#issuecomment-1525939500
+                # replace newlines, which can negatively affect performance.
+                text = text.replace("\n", " ")
+            token = encoding.encode(
+                text,
+                allowed_special=self.allowed_special,
+                disallowed_special=self.disallowed_special,
+            )
+            for j in range(0, len(token), self.embedding_ctx_length):
+                tokens += [token[j : j + self.embedding_ctx_length]]
+                indices += [i]
+
+        batched_embeddings = []
+        _chunk_size = chunk_size or self.chunk_size
+
+        if self.show_progress_bar:
+            try:
+                import tqdm
+
+                _iter = tqdm.tqdm(range(0, len(tokens), _chunk_size))
+            except ImportError:
+                _iter = range(0, len(tokens), _chunk_size)
+        else:
+            _iter = range(0, len(tokens), _chunk_size)
+        if _iter <= 2:
+            for i in _iter:
+                response = embed_with_retry(
+                    self,
+                    input=tokens[i : i + _chunk_size],
+                    **self._invocation_params,
+                )
+                batched_embeddings += [r["embedding"] for r in response["data"]]
+        else:
+            # parallelize the above with a threadpool
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = []
+                for i in _iter:
+                    futures.append(executor.submit(embed_with_retry, self, input=tokens[i : i + _chunk_size], **self._invocation_params))
+                for future in futures:
+                    response = future.result()
+                    batched_embeddings += [r["embedding"] for r in response["data"]]
+
+        results: List[List[List[float]]] = [[] for _ in range(len(texts))]
+        num_tokens_in_batch: List[List[int]] = [[] for _ in range(len(texts))]
+        for i in range(len(indices)):
+            results[indices[i]].append(batched_embeddings[i])
+            num_tokens_in_batch[indices[i]].append(len(tokens[i]))
+        avg_const = embed_with_retry(
+                    self,
+                    input="",
+                    **self._invocation_params,
+                )[
+                    "data"
+                ][0]["embedding"]
+        for i in range(len(texts)):
+            _result = results[i]
+            if len(_result) == 0:
+                average = avg_const
+            else:
+                average = np.average(_result, axis=0, weights=num_tokens_in_batch[i])
+            embeddings[i] = (average / np.linalg.norm(average)).tolist()
+
+        return embeddings
+
 
 def get_embedding_model(keys):
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
@@ -151,7 +242,7 @@ def get_embedding_model(keys):
     openai_key = keys["openAIKey"]
     assert openai_key
     # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
-    openai_embed = OpenAIEmbeddings(openai_api_key=openai_key, model='text-embedding-ada-002')
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-ada-002', chunk_size=2048)
     return openai_embed
 
 @retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
@@ -1494,14 +1585,23 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
     elif google_available:
         num_res = 10
-        serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
-                [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                           num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
+        # serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
+        #         [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+        #                    num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
+        #          query_strings] + \
+        #         [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+        #                    num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
+        #          query_strings]
+        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
+                [get_async_future(googleapi, query,
+                                  dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                  num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
                  query_strings] + \
-                [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                           num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
+                [get_async_future(googleapi, query,
+                                  dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=True) for query in
                  query_strings]
-        # serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
         serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
@@ -1871,11 +1971,11 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
-    def compute_timeout(link):
-        return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
-    timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    # timeouts = [{"timeout": 30}] * len(links)
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 60, 75)
+    # def compute_timeout(link):
+    #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
+    # timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    timeouts = [dict()] * len(links)
+    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 45, 75)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

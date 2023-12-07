@@ -781,7 +781,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
     def task_worker(args, kwargs):
         try:
             wait_time = kwargs.pop('timeout', timeout)
-            result = process_fn_with_timeout(fn, wait_time, *args, **kwargs)
+            result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
             if callback and result is not None:
                 result = callback(result, args, kwargs)
             task_queue.put(result)
@@ -789,8 +789,6 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
             traceback.print_exc()
             print(f"Exception in task_worker: {e}")
             task_queue.put(None)  # Put None to indicate an error
-
-    process_fn_with_timeout = ProcessFnWithTimeout(Queue())
 
     def run_tasks():
         try:
@@ -829,7 +827,7 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
         try:
             wait_time = kwargs.pop('timeout', timeout)
             if result is not TERMINATION_SIGNAL:
-                new_result = process_fn_with_timeout(fn, wait_time, *args, **kwargs)
+                new_result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
                 if callback and new_result is not None:
                     new_result = callback(new_result, args, kwargs)
                 task_queue.put(new_result)
@@ -837,8 +835,6 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
             traceback.print_exc()
             print(f"Exception in task_worker: {e}")
             task_queue.put(None)  # Put None to indicate an error
-
-    process_fn_with_timeout = ProcessFnWithTimeout(Queue())
 
     def run_tasks():
         try:

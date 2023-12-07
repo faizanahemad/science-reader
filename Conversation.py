@@ -719,7 +719,7 @@ Title of the conversation:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = len(web_text_accumulator) >= ((8 if provide_detailed_answers <= 1 else 10) if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
+                break_condition = len(web_text_accumulator) >= ((8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None

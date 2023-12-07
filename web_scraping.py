@@ -293,7 +293,7 @@ readability_script_content = readability_script_content_response.text
 
 def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
     if playwright_cdp_link is None:
-        os.environ.get("BRIGHTDATA_PLAYWRIGHT_CDP_LINK", None)
+        playwright_cdp_link = os.environ.get("BRIGHTDATA_PLAYWRIGHT_CDP_LINK", None)
     text = ''
     title = ''
     from playwright.sync_api import sync_playwright
@@ -309,7 +309,7 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
                 timeout=6000)
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
-            if result is not None:
+            if result is not None and "title" in result and "textContent" in result and result["textContent"] is not None and result["textContent"] != "":
                 title = normalize_whitespace(result['title'])
                 text = normalize_whitespace(result['textContent'])
                 return {"text": text, "title": title}
@@ -318,8 +318,8 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
                 return soup_html_parser(html)
     except Exception as e:
         exc = traceback.format_exc()
-        logger.error(
-            f"Error in browse_to_page_brightdata_playwright with exception = {str(e)}\n{exc}")
+        logger.warning(
+            f"Error in browse_to_page_brightdata_playwright with exception = {str(e)}")
         return {"text": text, "title": title}
 
 def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
@@ -355,7 +355,7 @@ def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
 
             WebDriverWait(driver, timeout=timeout).until(document_initialised)
             result = driver.execute_script("""var article = new Readability(document).parse();return article""")
-            if result is not None:
+            if result is not None and "title" in result and "textContent" in result and result["textContent"] is not None and result["textContent"] != "":
                 title = normalize_whitespace(result['title'])
                 text = normalize_whitespace(result['textContent'])
                 return {"text": text, "title": title}
@@ -363,7 +363,9 @@ def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
                 init_html = driver.execute_script("""return document.body.innerHTML;""")
                 return soup_html_parser(init_html)
         except Exception as e:
-            traceback.print_exc()
+            exc = traceback.format_exc()
+            logger.warning(
+                f"Error in browse_to_page_selenium with exception = {str(e)}")
             return {"text": "", "title": ""}
 
 # pip install readabilipy from this git repo https://github.com/alan-turing-institute/ReadabiliPy below.
@@ -436,7 +438,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     except Exception as e:
         result = None
         exc = traceback.format_exc()
-        logger.error(f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
+        logger.warning(f"[fetch_content_brightdata] link = {url}, Error in fetch_content_brightdata with exception = {str(e)}")
     try:
         soup_html_parser_result = soup_html_parser_result.result()
     except Exception as e:
@@ -639,7 +641,7 @@ def web_scrape_page(link, apikeys):
                 if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "bright_data_selenium"
                     break
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st > 25:
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st > 15:
                 try:
                     result = bright_data_result.result()
                     if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
