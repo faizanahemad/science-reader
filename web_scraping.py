@@ -1,5 +1,6 @@
 import atexit
 import copy
+import os
 import random
 import requests
 import time
@@ -101,7 +102,7 @@ def soup_parser(html):
 
 remove_script_tags = """
 const scriptElements = document.querySelectorAll('body script');scriptElements.forEach(scriptElement => scriptElement.remove());const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
-""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,1e3)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,1e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
+""".strip() + """var script=document.createElement("script");async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if("interactive"===document.readyState||"complete"===document.readyState){var t=document.createElement("script");t.src="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js",document.head.appendChild(t)}else setTimeout(e,200)}(),function e(){if("undefined"!=typeof Readability){const n=document.getElementsByTagName("body")[0];inner_html=n.innerHTML;try{var t=new Readability(document).parse();n.innerHTML="";const e=document.createElement("div");e.id="custom_content";const i=document.createElement("div");i.id="title",i.textContent=t.title;const c=document.createElement("div");return c.id="textContent",c.textContent=t.textContent,e.appendChild(i),e.appendChild(c),n.appendChild(e),t}catch(e){return console.log(e),e.innerHTML=inner_html,inner_html}}setTimeout(e,1e3)}()}script.src="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js",document.head.appendChild(script),myFunc();"""
 js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
     remove_script_tags + '"}]}'
 
@@ -280,108 +281,6 @@ user_agents = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15',
 ]
 
-# Thread-local storage for Playwright resources
-thread_local = threading.local()
-def init_thread_local_playwright():
-    global thread_local
-    if not hasattr(thread_local, "playwright_obj"):
-        thread_local.playwright_obj = create_single_page_pool_thread()
-        atexit.register(close_playwright_thread)
-        
-def close_playwright_thread():
-    global thread_local
-    if hasattr(thread_local, "playwright_obj"):
-        thread_local.playwright_obj.stop()
-        
-        
-# playwright_obj = None
-# def close_playwright():
-#     global playwright_obj
-#     if playwright_obj:
-#         playwright_obj.stop()
-#
-# atexit.register(close_playwright)
-
-pool_size = 16
-playwright_thread_executor = ThreadPoolExecutor(max_workers=pool_size)
-# playwright_executor = ProcessPoolExecutor(max_workers=pool_size)
-
-# def init_playwright_resources():
-#     global page_pool, playwright_obj
-#     page_pool = Queue()
-#     if not playwright_obj:
-#         create_page_pool(pool_size=1)
-#         atexit.register(close_playwright)
-        
-# def playwright_worker(link):
-#     # Initialize Playwright resources, if not already initialized
-#     init_playwright_resources()
-#
-#     # Here, page_pool and playwright_obj are available and initialized
-#     result = get_page_content(link)
-#
-#     return result
-
-# def playwright_thread_worker(link):
-#     init_thread_local_playwright()
-#     result = get_page_content(link)
-#     return result
-
-def playwright_thread_reader(html):
-    init_thread_local_playwright()
-    result = parse_page_content(html)
-    yield next(result)
-    try:
-        next(result)
-    except StopIteration:
-        pass
-
-# def create_page_pool(pool_size=16):
-#     from playwright.sync_api import sync_playwright
-#     global playwright_obj  # Declare it as global so we can modify it
-#     playwright_obj = sync_playwright().start()
-#     p = playwright_obj
-#     for _ in range(pool_size):
-#         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials", ])
-#         page = browser.new_page(user_agent=random.choice(
-#             user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-#         page_pool.put([browser, page, 0])  # Store the page in the pool
-        
-        
-# def create_page_pool_thread(pool_size=1):
-#     from playwright.sync_api import sync_playwright
-#     global thread_local  # Declare it as global so we can modify it
-#
-#     if not hasattr(thread_local, 'page_pool'):
-#         thread_local.page_pool = Queue()
-#
-#     if not hasattr(thread_local, 'playwright_obj'):
-#         thread_local.playwright_obj = sync_playwright().start()
-#
-#     p = thread_local.playwright_obj
-#     for _ in range(pool_size):
-#         browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-#         page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-#         page.set_content('<html><body></body></html>')
-#         thread_local.page_pool.put([browser, page, 0])  # Store the page in the thread-local pool
-#     return thread_local.playwright_obj
-
-def create_single_page_pool_thread():
-    from playwright.sync_api import sync_playwright
-    global thread_local  # Declare it as global so we can modify it
-
-
-    if not hasattr(thread_local, 'playwright_obj'):
-        thread_local.playwright_obj = sync_playwright().start()
-
-    p = thread_local.playwright_obj
-    for _ in range(pool_size):
-        browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-        page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-        page.set_content('<html><body></body></html>')
-        thread_local.page_pool = [browser, page, 0]  # Store the page in the thread-local pool
-    return thread_local.playwright_obj
-
             
         
 readability_script_content_response = requests.get("https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
@@ -392,168 +291,80 @@ readability_script_content = readability_script_content_response.text
 # https://trafilatura.readthedocs.io/en/latest/
 # https://github.com/goose3/goose3
 
-
-def parse_page_content(html, create_browser=False):
+def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
+    if playwright_cdp_link is None:
+        os.environ.get("BRIGHTDATA_PLAYWRIGHT_CDP_LINK", None)
     text = ''
     title = ''
-    global thread_local
-    if hasattr(thread_local, 'page_pool') and not create_browser:
-        page_pool = thread_local.page_pool
-        browser_resources = page_pool
-    elif create_browser:
-        from playwright.sync_api import sync_playwright
-        from playwright.sync_api import Page
-        playwright_obj = sync_playwright().start()
-        browser = playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-        page: Page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True,
-                                java_script_enabled=True, bypass_csp=True)
-        page.set_content('<html><body></body></html>')
-        browser_resources = [browser, page, 0]
-    else:
-        raise Exception("Playwright resources not initialized")
-    st = time.time()
+    from playwright.sync_api import sync_playwright
     try:
-        _, page, _ = browser_resources
-        page.set_content(html)
-        page.add_script_tag(content=readability_script_content)
-        page.wait_for_function(
-            "() => typeof(Readability) !== 'undefined'", # && (document.readyState === 'complete' || document.readyState === 'interactive')
-            timeout=6000)
-        result = page.evaluate(
-            """(function execute(){var article = new Readability(document).parse();return article})()""")
-        if result is not None:
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-        yield {"text": text, "title": title}
+        with sync_playwright() as pw:
+            browser = pw.chromium.connect_over_cdp(playwright_cdp_link)
+            page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+            page.goto(url, timeout=timeout*1_000)
+            page.add_script_tag(content=readability_script_content)
+            page.wait_for_function(
+                "() => typeof(Readability) !== 'undefined'",
+                # && (document.readyState === 'complete' || document.readyState === 'interactive')
+                timeout=6000)
+            result = page.evaluate(
+                """(function execute(){var article = new Readability(document).parse();return article})()""")
+            if result is not None:
+                title = normalize_whitespace(result['title'])
+                text = normalize_whitespace(result['textContent'])
+                return {"text": text, "title": title}
+            else:
+                html = page.content()
+                return soup_html_parser(html)
     except Exception as e:
         exc = traceback.format_exc()
         logger.error(
-            f"Error in parse_page_content with exception = {str(e)}\n{exc}")
-        yield {"text": text, "title": title}
-    finally:
-        if create_browser:
-            browser.close()
-        # Set empty html context
-        else:
-            browser_resources[2] += 1
-            _, page, _ = browser_resources
-            if browser_resources[2] % 3 == 0:
-                page.close()
-                browser.close()
-                browser = thread_local.playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-                page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-                browser_resources = [browser, page, 0]
-            elif browser_resources[2] % 2 == 0:
-                page.close()
-                page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-                browser_resources = [browser, page, 0]
-                browser = browser_resources[0]
-                for context in browser.contexts:
-                    context.clear_cookies()
+            f"Error in browse_to_page_brightdata_playwright with exception = {str(e)}\n{exc}")
+        return {"text": text, "title": title}
+
+def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
+    if brightdata_selenium_url is None:
+        brightdata_selenium_url = os.environ.get("BRIGHTDATA_SELENIUM_URL", None)
+    from selenium.webdriver import Remote, ChromeOptions
+    from selenium.webdriver.chromium.remote_connection import ChromiumRemoteConnection
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.wait import WebDriverWait
+    from selenium.webdriver.common.action_chains import ActionChains
+    from selenium.webdriver.support import expected_conditions as EC
+    sbr_connection = ChromiumRemoteConnection(brightdata_selenium_url, 'goog', 'chrome')
+    with Remote(sbr_connection, options=ChromeOptions()) as driver:
+        driver.get(url)
+        add_readability_to_selenium = '''
+                            function myFunction() {
+                                var script = document.createElement('script');
+                                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+                                document.head.appendChild(script);
+                            }
+
+                            myFunction();
+                        '''
+        try:
+            driver.execute_script(add_readability_to_selenium)
+            while driver.execute_script('return document.readyState;') != 'complete':
+                time.sleep(0.1)
+
+            def document_initialised(driver):
+                return driver.execute_script(
+                    """return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
+
+            WebDriverWait(driver, timeout=timeout).until(document_initialised)
+            result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+            if result is not None:
+                title = normalize_whitespace(result['title'])
+                text = normalize_whitespace(result['textContent'])
+                return {"text": text, "title": title}
             else:
-                browser = browser_resources[0]
-                for context in browser.contexts:
-                    context.clear_cookies()
-            page.goto('about:blank')
-            page.set_content('<html><body></body></html>')
-            if hasattr(thread_local, 'page_pool'):
-                thread_local.page_pool = browser_resources
-    logger.info(" ".join(['parse_page_content using browser', str(time.time() - st), "\n", text[-100:]]))
-
-
-# def get_page_content(link, playwright_cdp_link=None, timeout=2):
-#     text = ''
-#     title = ''
-#     global thread_local
-#     if hasattr(thread_local, 'page_pool'):
-#         page_pool = thread_local.page_pool
-#     st = time.time()
-#     browser_resources = page_pool.get()
-#     browser = browser_resources[0]
-#     for context in browser.contexts:
-#         context.clear_cookies()
-#     try:
-#         _, page, _ = browser_resources
-#         url = link
-#         response = page.goto(url,  timeout = 60000)
-#         if response.status == 403 or response.status == 429 or response.status == 302 or response.status == 301:
-#             text = DDOS_PROTECTION_STR
-#             raise Exception(DDOS_PROTECTION_STR)
-#         initial_base_url = urlparse(link).netloc
-#         final_base_url = urlparse(response.url).netloc
-#         if initial_base_url != final_base_url:
-#             text = DDOS_PROTECTION_STR
-#             raise Exception(DDOS_PROTECTION_STR)
-#
-#         try:
-#             page.add_script_tag(content=readability_script_content)
-#             page.wait_for_function(
-#                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
-#             result = page.evaluate(
-#                 """(function execute(){var article = new Readability(document).parse();return article})()""")
-#             title = normalize_whitespace(result['title'])
-#             text = normalize_whitespace(result['textContent'])
-#         except Exception as e:
-#
-#             exc = traceback.format_exc()
-#             # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
-#             logger.warning(
-#                 f"Trying playwright for link {link} after playwright failed with exception = {str(e)}\n{exc}")
-#             # traceback.print_exc()
-#             # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-#             init_html = page.evaluate(
-#                 """(function e(){return document.body.innerHTML})()""")
-#             init_title = page.evaluate(
-#                 """(function e(){return document.title})()""")
-#             page.goto('about:blank')
-#             page.set_content('<html><body></body></html>')
-#             page.evaluate(
-#                 f"""text=>document.body.innerHTML=text""", init_html)
-#             page.evaluate(f"""text=>document.title=text""", init_title)
-#             page.add_script_tag(content=readability_script_content)
-#             logger.debug(
-#                 f"Loaded html and title into page with example.com as url")
-#             page.add_script_tag(content=readability_script_content)
-#             page.wait_for_function(
-#                 "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')", timeout=10000)
-#             # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-#             result = page.evaluate(
-#                 """(function execute(){var article = new Readability(document).parse();return article})()""")
-#             title = normalize_whitespace(result['title'])
-#             text = normalize_whitespace(result['textContent'])
-#
-#     except Exception as e:
-#         traceback.print_exc()
-#         exc = traceback.format_exc()
-#         logger.error(
-#             f"Error in get_page_content with exception = {str(e)}\n{exc}")
-#     finally:
-#         browser_resources[2] += 1
-#         if browser_resources[2] % 10 == 0:
-#             page.close()
-#             browser.close()
-#             browser = thread_local.playwright_obj.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-#             page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-#             browser_resources = [browser, page, 0]
-#         elif browser_resources[2] % 5 == 0:
-#             page.close()
-#             page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
-#             browser_resources = [browser, page, 0]
-#         page.goto('about:blank')
-#         page.set_content('<html><body></body></html>')
-#         page_pool.put(browser_resources)
-#     logger.info(" ".join(['get_page_content ', str(time.time() - st), "\n", text[-100:]]))
-#     return {"text": text, "title": title}
-
-# for i in range(pool_size):
-#     _ = playwright_thread_executor.submit(playwright_thread_worker, "https://www.example.com/").result()
-
-# def send_local_browser(link):
-#     st = time.time()
-#     result = playwright_thread_executor.submit(playwright_thread_worker, link).result()
-#     et = time.time() - st
-#     logger.info(" ".join(['send_local_browser ', str(et), "\n", result['text'][-100:]]))
-#     return result
+                init_html = driver.execute_script("""return document.body.innerHTML;""")
+                return soup_html_parser(init_html)
+        except Exception as e:
+            traceback.print_exc()
+            return {"text": "", "title": ""}
 
 # pip install readabilipy from this git repo https://github.com/alan-turing-institute/ReadabiliPy below.
 # pip install
@@ -568,7 +379,7 @@ def fetch_content_brightdata_shim(url, brightdata_proxy):
         'text': ""
     }
 
-def fetch_content_brightdata_html(url, brightdata_proxy):
+def fetch_content_brightdata_html(url, brightdata_proxy=None):
     """
     Fetch the content of the webpage at the specified URL using a proxy.
 
@@ -578,6 +389,8 @@ def fetch_content_brightdata_html(url, brightdata_proxy):
     Returns:
     str: The content of the webpage.
     """
+    if brightdata_proxy is None:
+        brightdata_proxy = os.environ.get("BRIGHTDATA_PROXY", None)
 
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
@@ -615,12 +428,8 @@ def fetch_content_brightdata(url, brightdata_proxy):
         return None
     html = remove_script_tags_from_html(html)
     result = None
-    goose3_result = None
-    trafilatura_result = None
     soup_html_parser_result = None
     # result = get_async_future(local_browser_reader, html)
-    goose3_result = get_async_future(send_request_goose3, url, html)
-    trafilatura_result = get_async_future(send_request_trafilatura, url,html)
     soup_html_parser_result = get_async_future(soup_html_parser, html)
     try:
         result = result.result()
@@ -629,29 +438,12 @@ def fetch_content_brightdata(url, brightdata_proxy):
         exc = traceback.format_exc()
         logger.error(f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
     try:
-        goose3_result = goose3_result.result()
-    except Exception as e:
-        goose3_result = None
-        exc = traceback.format_exc()
-        logger.error(f"[fetch_content_brightdata] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
-    try:
-        trafilatura_result = trafilatura_result.result()
-    except Exception as e:
-        trafilatura_result = None
-        exc = traceback.format_exc()
-        logger.error(f"[fetch_content_brightdata] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
-    try:
         soup_html_parser_result = soup_html_parser_result.result()
     except Exception as e:
         soup_html_parser_result = None
         exc = traceback.format_exc()
         logger.error(f"[fetch_content_brightdata] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
 
-
-    if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text'])//2):
-        result = goose3_result
-    if trafilatura_result is not None and (result is None or len(result['text']) < len(trafilatura_result['text'])//2):
-        result = trafilatura_result
     if soup_html_parser_result is not None and (result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
         result = soup_html_parser_result
 
@@ -688,10 +480,6 @@ def send_request_zenrows_html(url, apikey, readability=True):
     if response.status_code != 200:
         raise Exception(
             f"Error in zenrows with status code {response.status_code}")
-        return {
-            'title': "",
-            'text': ""
-        }
     if response is None or response.text is None:
         return {
             'title': "",
@@ -716,8 +504,6 @@ def send_request_zenrows(url, apikey):
     html = send_request_zenrows_html(url, apikey)
     result = get_async_future(soup_parser, html)
     # local_result = get_async_future(local_browser_reader, html)
-    goose3_result = get_async_future(send_request_goose3, url, html)
-    trafilatura_result = get_async_future(send_request_trafilatura, url, html)
     soup_html_parser_result = get_async_future(soup_html_parser, html)
     try:
         result = result.result()
@@ -725,7 +511,7 @@ def send_request_zenrows(url, apikey):
         result = None
         exc = traceback.format_exc()
         logger.error(
-            f"[fetch_content_brightdata] link = {url}, Error in soup_parser with exception = {str(e)}\n{exc}")
+            f"[fetch_content_zenrows] link = {url}, Error in soup_parser with exception = {str(e)}\n{exc}")
     if result is not None and "title" in result and "text" in result and result["text"] is not None and result["text"] != "":
         return result
     # try:
@@ -736,20 +522,6 @@ def send_request_zenrows(url, apikey):
     #     logger.error(
     #         f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
     try:
-        goose3_result = goose3_result.result()
-    except Exception as e:
-        goose3_result = None
-        exc = traceback.format_exc()
-        logger.error(
-            f"[fetch_content_brightdata] link = {url}, Error in send_request_goose3 with exception = {str(e)}\n{exc}")
-    try:
-        trafilatura_result = trafilatura_result.result()
-    except Exception as e:
-        trafilatura_result = None
-        exc = traceback.format_exc()
-        logger.error(
-            f"[fetch_content_brightdata] link = {url}, Error in send_request_trafilatura with exception = {str(e)}\n{exc}")
-    try:
         soup_html_parser_result = soup_html_parser_result.result()
     except Exception as e:
         soup_html_parser_result = None
@@ -759,11 +531,6 @@ def send_request_zenrows(url, apikey):
 
     # if local_result is not None and (result is None or len(result['text']) < len(local_result['text']) // 2):
     #     result = local_result
-    if goose3_result is not None and (result is None or len(result['text']) < len(goose3_result['text']) // 2):
-        result = goose3_result
-    if trafilatura_result is not None and (
-            result is None or len(result['text']) < len(trafilatura_result['text']) // 2):
-        result = trafilatura_result
     if soup_html_parser_result is not None and (
             result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
         result = soup_html_parser_result
@@ -774,92 +541,56 @@ def send_request_zenrows(url, apikey):
         result["title"] = remove_bad_whitespaces(result["title"])
     return result
 
-def local_browser_reader(html):
-    st = time.time()
-    result = playwright_thread_executor.submit(playwright_thread_reader, html).result()
-    res = next(result)
-    def close():
-        try:
-            next(result)
-        except StopIteration:
-            pass
-    get_async_future(close)
-    et = time.time() - st
-    logger.debug(" ".join(['local_browser_reader ', str(et), "\n", res['text'][-100:]]))
-    return res
+from bs4 import BeautifulSoup, NavigableString
 
 def soup_html_parser(html):
-    from bs4 import BeautifulSoup, SoupStrainer
     soup = BeautifulSoup(html, 'html.parser')
-    # Extract the title
     title = soup.title.string if soup.title else ''
-    # Remove links and other unwanted elements
     for link in soup.find_all('a'):
         link.decompose()
-
-    # Remove header and footer elements
     for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
         header.decompose()
-    content_elements = soup.find_all(['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-    content_text = '\n '.join(element.get_text() for element in content_elements)
-    return {"text": content_text, "title": title}
 
-# def send_request_readabilipy(link, html=None):
-#     from readabilipy import simple_json_from_html_string
-#     st = time.time()
-#     if html is None:
-#         response = requests.get(link, verify=False, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'})
-#         if response.status_code not in [200, 201, 202, 303, 302, 301]:
-#             logger.error(
-#                 f"Error in readabilipy with status code {response.status_code}, link = {link}, response = {response.text}")
-#             return {"text": '', "title": ''}
-#         html = response.text
-#
-#     et = time.time() - st
-#     logger.debug(" ".join(['send_request_readabilipy ', str(et), "\n", html[-100:]]))
-#     article = simple_json_from_html_string(html)
-#     return {"text": article['plain_text'], "title": article['title']}
+    def extract_text(element):
+        # If the element is a string, return it as is
+        if isinstance(element, NavigableString):
+            return element.strip()
+        # If the element is a tag you're interested in and doesn't contain any child tags of interest, extract its text
+        elif element.name in ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] and not any(child.name in ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] for child in element.children):
+            return element.get_text().strip()
+        # Otherwise, return an empty string
+        return ""
 
-def send_request_goose3(link, html=None):
-    from goose3 import Goose
-    st = time.time()
-    g = Goose()
-    article = g.extract(url=link, raw_html=html)
-    et = time.time() - st
-    logger.debug(" ".join(['send_request_goose3 ', str(et), "\n", article.cleaned_text[:100]]))
-    return {"text": article.cleaned_text, "title": article.title}
+    content_text = ''
+    for child in soup.recursiveChildGenerator():
+        text = extract_text(child)
+        if text:
+            content_text += text.strip() + '\n'
 
-
-def send_request_trafilatura(link, html=None):
-    import trafilatura
-    from trafilatura.settings import DEFAULT_CONFIG
-    DEFAULT_CONFIG.set('DEFAULT', 'EXTRACTION_TIMEOUT', '0')
-    st = time.time()
-    if html is None:
-        html = trafilatura.fetch_url(link)
-    et = time.time() - st
-    result = trafilatura.extract(html)
-    title = result.split('\n')[0]
-    logger.debug(" ".join(['send_request_trafilatura ', str(et), "\n", title[:100]]))
-    return {"text": result, "title": title}
-
+    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
 def web_scrape_page(link, apikeys):
     good_page_size = 300
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     try:
-        bright_data_result = None
+        bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         zenrows_service_result = None
+        bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+        bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+
         if random.random() <= 0.5:
-            bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+            pass
         else:
             zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
         # Also add bright data cdp fetch as a backup.
         result_from = "None"
         brightdata_exception = False
         zenrows_exception = False
-        while time.time() - st < 20:
+        bright_data_playwright_exception = False
+        bright_data_selenium_exception = False
+        while time.time() - st < 30:
+
             if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:
                     result = zenrows_service_result.result()
@@ -876,11 +607,39 @@ def web_scrape_page(link, apikeys):
                 if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "zenrows"
                     break
-            if (time.time() - st > 4 or zenrows_exception) and bright_data_result is None:
-                bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-            # elif (time.time() - st > 8 or brightdata_exception) and zenrows_service_result is None:
-            #     zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception:
+            if bright_data_playwright_result is not None and bright_data_playwright_result.done() and not bright_data_playwright_exception:
+                try:
+                    result = bright_data_playwright_result.result()
+                    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "bright_data_playwright"
+                        break
+                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                        bright_data_playwright_exception = True
+                except Exception as e:
+                    bright_data_playwright_exception = True
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: {link} bright_data_playwright_result failed with exception = {str(e)}, \n {exc}")
+                if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "bright_data_playwright"
+                    break
+            if bright_data_selenium_result is not None and bright_data_selenium_result.done() and not bright_data_selenium_exception:
+                try:
+                    result = bright_data_selenium_result.result()
+                    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                        result_from = "bright_data_selenium"
+                        break
+                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                        bright_data_selenium_exception = True
+                except Exception as e:
+                    bright_data_selenium_exception = True
+                    exc = traceback.format_exc()
+                    logger.info(
+                        f"web_scrape_page:: {link} bright_data_selenium_result failed with exception = {str(e)}, \n {exc}")
+                if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_from = "bright_data_selenium"
+                    break
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st > 25:
                 try:
                     result = bright_data_result.result()
                     if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:

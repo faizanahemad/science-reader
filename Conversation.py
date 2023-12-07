@@ -768,7 +768,7 @@ Title of the conversation:
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=get_gpt3_word_count(prompt) > 3400)
                 web_ans_gen_p1 = get_async_future(llm, prompt, temperature=0.7, stream=False)
 
                 web_text = "\n\n".join(
@@ -795,7 +795,7 @@ Title of the conversation:
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=get_gpt3_word_count(prompt) > 3400)
                 web_ans_gen_p2 = get_async_future(llm, prompt, temperature=0.7, stream=False)
                 web_ans_gen_p1 = web_ans_gen_p1.result()
                 web_ans_gen_p2 = web_ans_gen_p2.result()
@@ -881,6 +881,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
+        llm = CallLLm(self.get_api_keys(), use_gpt4=get_gpt4_word_count(prompt) < 7200, use_16k=get_gpt4_word_count(prompt) >= 7200)
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
         et = time.time() - st
         logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
