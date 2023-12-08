@@ -889,8 +889,8 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
 
         llm = CallLLm(self.get_api_keys(), use_gpt4=get_gpt4_word_count(prompt) < 7200, use_16k=get_gpt4_word_count(prompt) >= 7200)
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
-        et = time.time() - st
-        time_logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
+        et = time.time()
+        time_logger.info(f"Time taken to start replying for chatbot: {(et - st):.2f}")
         if len(doc_answer) > 0:
             logger.debug(f"Doc Answer: {doc_answer}")
         if len(web_text) > 0:

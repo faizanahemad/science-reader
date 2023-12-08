@@ -919,8 +919,9 @@ Output any relevant equations if found in latex format.
         assert isinstance(text_document, str)
         import functools
         st = time.time()
-        part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
-        result = process_text(text_document, chunk_size, part_fn, self.keys)
+        # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
+        # result = process_text(text_document, chunk_size, part_fn, self.keys)
+        result = self.get_one(context_user_query, chunk_size, text_document)
         short = self.provide_short_responses and chunk_size < int(TOKEN_LIMIT_FOR_SHORT*1.4)
         result = get_first_last_parts(result, 256, 256) if short else get_first_last_parts(result, 384, 256)
         assert isinstance(result, str)

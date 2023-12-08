@@ -347,6 +347,10 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+log = logging.getLogger('faiss.loader')
+log.setLevel(logging.ERROR)
 logger.setLevel(logging.ERROR)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
