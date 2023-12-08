@@ -197,7 +197,8 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
                 _iter = range(0, len(tokens), _chunk_size)
         else:
             _iter = range(0, len(tokens), _chunk_size)
-        if _iter <= 2:
+        _iter = list(_iter)
+        if len(_iter) <= 2:
             for i in _iter:
                 response = embed_with_retry(
                     self,
@@ -479,7 +480,7 @@ class CallLLmGpt:
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.system = "You are a very helpful assistant who provides detailed and comprehensive responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. Please follow the instructions and respond to the user request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative, comprehensive and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
+        self.system = "You are a very helpful assistant who provides detailed and comprehensive responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. Please follow the instructions and respond to my request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative, comprehensive and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
@@ -896,7 +897,8 @@ Output any relevant equations if found in latex format.
     def get_one(self, context, chunk_size, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>(TOKEN_LIMIT_FOR_SHORT * 1.3), use_small_models=False)
+        wc = get_gpt3_word_count(prompt)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>(TOKEN_LIMIT_FOR_SHORT * 1.3), use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -1642,6 +1644,10 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     web_links = None
     web_titles = None
     web_contexts = None
+    assert links is not None
+    assert titles is not None
+    assert contexts is not None
+    assert texts is None or len(texts) == len(links)
     variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
     variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
     cut_off = (30 if provide_detailed_answers > 1 else 20) if provide_detailed_answers else 10
@@ -1671,6 +1677,10 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
     web_links = [] if web_links is None else web_links
     web_titles = [] if web_titles is None else web_titles
     web_contexts = [] if web_contexts is None else web_contexts
+    assert links is not None
+    assert titles is not None
+    assert contexts is not None
+    assert texts is None or len(texts) == len(links)
     links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
     read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
     return read_queue

@@ -772,7 +772,8 @@ Title of the conversation:
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=get_gpt3_word_count(prompt) > 3400)
+                gpt16k_used_in_p1 = get_gpt3_word_count(prompt) > 3400
+                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=gpt16k_used_in_p1)
                 web_ans_gen_p1 = get_async_future(llm, prompt, temperature=0.7, stream=False)
 
                 web_text = "\n\n".join(
@@ -799,13 +800,14 @@ Title of the conversation:
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=get_gpt3_word_count(prompt) > 3400)
+                gpt16k_used_in_p2 = get_gpt3_word_count(prompt) > 3400
+                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=gpt16k_used_in_p2)
                 web_ans_gen_p2 = get_async_future(llm, prompt, temperature=0.7, stream=False)
                 web_ans_gen_p1 = web_ans_gen_p1.result()
                 web_ans_gen_p2 = web_ans_gen_p2.result()
                 web_ans_summary = f"\n\nSummary of web search results is as below.\n{web_ans_gen_p1}\n{web_ans_gen_p2}\n"
                 time_logger.info(
-                    f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}")
+                    f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}, gpt16k_used_in_p1: {gpt16k_used_in_p1}, gpt16k_used_in_p2: {gpt16k_used_in_p2}")
                 # TODO: Use LLM to generate two expert answers.
             web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             # web_text = "\n\n".join(web_text_accumulator)
