@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
+    level=logging.ERROR,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
@@ -664,7 +664,7 @@ def web_scrape_page(link, apikeys):
         et = time.time() - st
         if result is None:
             result = {"text": "", "title": "", "link": link, "error": "No result"}
-        logger.info(
+        time_logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, time = {et:.2f}, result sample = {result['text'][:100]}")
         if len(result["text"].strip()) < good_page_size:
             result = {"text": "", "title": "", "link": link, "error": "Text too short"}

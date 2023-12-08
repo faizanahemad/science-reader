@@ -341,12 +341,15 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
+    level=logging.ERROR,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logger.setLevel(logging.ERROR)
+time_logger = logging.getLogger(__name__ + " | TIMING")
+time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

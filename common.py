@@ -70,7 +70,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
+    level=logging.ERROR,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
@@ -220,7 +220,7 @@ def timer(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, result length: {len(result) if hasattr(result, '__len__') else None}")
+        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, result length: {len(result) if hasattr(result, '__len__') else None}")
         return result
     return wrapper
 
@@ -232,7 +232,7 @@ def streaming_timer(func):
             yield r
             accum = accum + r
         end_time = time.time()
-        logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds")
+        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds")
     return wrapper
 
 def print_nested(val, nesting = -5): 
@@ -759,7 +759,7 @@ class ProcessFnWithTimeout:
         # Wait for either the result to be ready or the timeout to occur
         exception_event.wait(timeout)
         if not exception_event.is_set():
-            print(f"Timeout processing function {fn.__name__}")
+            print(f"Timeout processing function {fn.__name__} , timeout = {timeout}")
             result = None  # Use None to indicate timeout
 
         # Put the result (or None if there was a timeout) in the queue

@@ -112,7 +112,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
+    level=logging.ERROR,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
@@ -275,7 +275,7 @@ class Conversation:
             assert top_key in self.store_separate
         except Exception as e:
             raise ValueError(f"Invalid top_key {top_key} provided")
-        logger.info(f"Get doc data for top_key = {top_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
+        logger.debug(f"Get doc data for top_key = {top_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
         if getattr(self, top_key, None) is not None:
             return getattr(self, top_key, None)
         else:
@@ -645,8 +645,8 @@ Title of the conversation:
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             yield {"text": "\n", "status": "Finished reading your provided links."}
 
-        logger.info(f"Time taken to read links: {time.time() - st}")
-        logger.info(f"Link result text:\n```\n{link_result_text}\n```")
+            logger.info(f"Time taken to read links: {time.time() - st}")
+            logger.debug(f"Link result text:\n```\n{link_result_text}\n```")
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
@@ -741,13 +741,14 @@ Title of the conversation:
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.1)
-            logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
+            time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             # Join the elements along with serial numbers.
             web_ans_summary = ""
             if len(web_text_accumulator) > 6 and provide_detailed_answers > 1:
+                ws_st = time.time()
                 web_text = "\n\n".join([f"{i + 1}.\n{wta}" for i, wta in enumerate(web_text_accumulator[:len(web_text_accumulator)//2])])
                 read_links = re.findall(pattern, web_text)
                 read_links = list(set([link.strip() for link in read_links]))
@@ -803,6 +804,8 @@ Title of the conversation:
                 web_ans_gen_p1 = web_ans_gen_p1.result()
                 web_ans_gen_p2 = web_ans_gen_p2.result()
                 web_ans_summary = f"\n\nSummary of web search results is as below.\n{web_ans_gen_p1}\n{web_ans_gen_p2}\n"
+                time_logger.info(
+                    f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}")
                 # TODO: Use LLM to generate two expert answers.
             web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             # web_text = "\n\n".join(web_text_accumulator)
@@ -817,7 +820,7 @@ Title of the conversation:
                 yield {"text": read_links, "status": "web search completed"}
             yield {"text": "\n", "status": "Finished reading your provided links."}
             web_text = read_links + "\n" + web_text + web_ans_summary
-            logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
+            time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
 
@@ -887,7 +890,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
         llm = CallLLm(self.get_api_keys(), use_gpt4=get_gpt4_word_count(prompt) < 7200, use_16k=get_gpt4_word_count(prompt) >= 7200)
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
         et = time.time() - st
-        logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
+        time_logger.info(f"Time taken to start replying for chatbot: {et:.2f}")
         if len(doc_answer) > 0:
             logger.debug(f"Doc Answer: {doc_answer}")
         if len(web_text) > 0:
@@ -896,6 +899,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
+        time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
@@ -929,7 +933,7 @@ permanent instructions length: {len(enc.encode(permanent_instructions))}, doc an
 
     
     def get_api_keys(self):
-        logger.info(
+        logger.debug(
             f"get api keys for self hash = {hash(self)} and doc_id = {self.conversation_id}")
         if hasattr(self, "api_keys"):
             api_keys = deepcopy(self.api_keys)
@@ -1011,11 +1015,11 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, conversation_docs_answer
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, other_relevant_messages, permanent_instructions, document_nodes, user_message, conversation_docs_answer):
     enc = tiktoken.encoding_for_model("gpt-4")
-    l1 = int((MODEL_TOKENS_SMART//2) + 500)
+    l1 = int((MODEL_TOKENS_SMART) + 500)
     l2 = int(MODEL_TOKENS_SMART//5.5)
     l3 = int(MODEL_TOKENS_SMART//1.3)
     l4 = int(MODEL_TOKENS_SMART//8)
-    ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(previous_messages, 0, l2)))
+    ctx_len_allowed = l1 - len(enc.encode(get_first_last_parts(user_message + previous_messages + summary_text+ permanent_instructions, 0, l2)))
     conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
     link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(user_message + conversation_docs_answer)))
     doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + user_message + conversation_docs_answer)))

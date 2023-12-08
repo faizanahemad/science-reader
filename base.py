@@ -121,7 +121,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
+    level=logging.ERROR,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
@@ -567,10 +567,10 @@ class CallLLmGpt:
         elif self.use_16k:
             if text_len > 3400:
                 models = round_robin(self.openai_16k_models)
-                logger.warning(f"Try 16k model with stream = {stream} with text len = {text_len}")
+                logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
             else:
                 models = round_robin(self.openai_turbo_models)
-                logger.warning(f"Try Turbo model with stream = {stream} with text len = {text_len}")
+                logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
             assert text_len < 15000
             try:
                 model = next(models)
@@ -854,79 +854,6 @@ async def get_url_content(url):
         return {"title": title, "page_content": page_content}
 
 
-class Cleaner:
-    def __init__(self, keys, prompt=None, context=None):
-        self.keys=keys
-        self.instruction = """
-You will be given unclean text fragments from web scraping a url.
-Your goal is to return cleaned text without html tags and other irrelevant content (including code exception stack traces). 
-If you are given a user request, instruction or query, then use that as well in filtering the information and return information relevant to the user query or instruction.
-just extract relevant information if user query is given (Try to answer mostly in bullet points in this case.) else return cleaned text..
-No creativity needed here.
-Some context about the source document and user query is provided next, use the user query if provided and give very concise succint response.
-        """ if prompt is None else prompt
-        self.clean_now_follows = "\nActual text to be cleaned follows: \n"
-        self.prompt = (self.instruction + " " + (context if context is not None else "") + " " + self.clean_now_follows) if prompt is None else prompt
-        
-    def clean_one(self, string, model=None):
-        return CallLLm(self.keys, use_gpt4=False)(self.prompt + string, temperature=0.2)
-
-    
-    def clean_one_with_exception(self, string):
-        try:
-            cleaned_text = self.clean_one(string)
-            return cleaned_text
-        except Exception as e:
-            exp_str = str(e)
-            too_long = "maximum context length" in exp_str and "your messages resulted in" in exp_str
-            if too_long:
-                return " ".join([self.clean_one_with_exception(st) for st in split_text(string)])
-            raise e
-                
-    def __call__(self, string, chunk_size=3400):
-        return process_text(string, chunk_size, self.clean_one_with_exception, self.keys)
-
-class GetWebPage:
-    
-    def __init__(self, keys):
-        self.keys = keys
-        self.name = "GetWebPage"
-        self.description = """
-GetWebPage:
-    This tool takes a url link to a webpage and returns cleaned text content of that Page. Useful if you want to visit a page and get it's content. Optionally it can also take a user context or instruction and give only relevant parts of the page for the provided context.
-
-    Input params/args: 
-        url (str): url of page to visit
-        context (str): user query/instructions/context about what to look for in this webpage
-
-    Returns: 
-        str: page_content
-
-    Usage:
-        `page_content = GetWebPage()(url="url to visit", context="user query or page reading instructions") # Note: this tool needs to be initialized first.`
-
-    """
-    def __call__(self, url, context=None):
-        page_items = run_async(get_url_content, url)
-
-        if not isinstance(page_items, dict):
-            print(f"url: {url}, title: None, content: None")
-            return f"url: {url}, title: None, content: None"
-        page_content = page_items["page_content"]
-        if not isinstance(page_content, str):
-            print(f"url: {url}, title: {page_items['title']}, content: None")
-            return f"url: {url}, title: {page_items['title']}, content: None"
-        page_content = Cleaner(self.keys, context=f"\n\n url: {url}, title: {page_items['title']}" + (f"user query or context: {context}" if context is not None else ""))(page_content,
-        chunk_size=768)
-        return f"url: {url}, title: {page_items['title']}, content: {page_content}"
-    def _run(self, url: str, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Use the tool."""
-        return self.__call__(url)
-    async def _arun(self, query: str, run_manager: Optional[AsyncCallbackManagerForToolRun] = None) -> str:
-        """Use the tool asynchronously."""
-        raise NotImplementedError("custom_search does not support async")
-
-
 class ContextualReader:
     def __init__(self, keys, provide_short_responses=False):
         self.keys = keys
@@ -969,7 +896,7 @@ Output any relevant equations if found in latex format.
     def get_one(self, context, chunk_size, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>(TOKEN_LIMIT_FOR_SHORT * 1.4), use_small_models=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>(TOKEN_LIMIT_FOR_SHORT * 1.3), use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -991,11 +918,14 @@ Output any relevant equations if found in latex format.
     def __call__(self, context_user_query, text_document, chunk_size=TOKEN_LIMIT_FOR_SHORT):
         assert isinstance(text_document, str)
         import functools
+        st = time.time()
         part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         short = self.provide_short_responses and chunk_size < int(TOKEN_LIMIT_FOR_SHORT*1.4)
         result = get_first_last_parts(result, 256, 256) if short else get_first_last_parts(result, 384, 256)
         assert isinstance(result, str)
+        et = time.time()
+        time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")
         return result
 
 @typed_memoize(cache, str, int, tuple, bool)
@@ -1720,7 +1650,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         else:
             variables[i] = var[:cut_off]
     all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
-    logger.info(f"Time taken to get web search links: {(time.time() - st):.2f}")
+    time_logger.info(f"Time taken to get web search links via Search: {(time.time() - st):.2f}, Total links = {len(links)}")
     return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
@@ -1799,8 +1729,9 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
-
+@timer
 def download_link_data(link_title_context_apikeys):
+    st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"download_link_data-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
@@ -1820,6 +1751,8 @@ def download_link_data(link_title_context_apikeys):
                                                                                          'end_of_text').replace(
             '<|endoftext|>', '')
         cache.set(key, result, expire=cache_timeout)
+    et = time.time() - st
+    time_logger.info(f"Time taken to download link data for {link} = {et:.2f}")
     return result
 
 
@@ -1834,7 +1767,6 @@ def read_pdf(link_title_context_apikeys):
     # Reading PDF
     extracted_info = ''
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     if "arxiv.org" in link:
         try:
             import re
@@ -1854,14 +1786,15 @@ def read_pdf(link_title_context_apikeys):
             title = soup.select("h1")[0].text
             text = soup.select("article")[0].text
             text = re.sub('\n{3,}', '\n\n', text)
+            time_logger.info(f"Time taken to convert and read arxiv link {link} to ar5iv link = {(time.time() - st):.2f}")
         except Exception as e:
-            logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}")
-            new_link = link
+            logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
     try:
         if len(text.strip()) == 0:
             txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+            time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
         else:
-            txt = text
+            txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
@@ -1884,16 +1817,17 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
             chunked_text = ChunkText(
                 txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+            non_chunk_time = time.time()
             extracted_info = call_contextual_reader(context, chunked_text,
                                                     api_keys, provide_short_responses=False,
                                                     chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)))
             tt = time.time() - st
-            logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}")
+            time_logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
         else:
             chunked_text = text
             return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
     except Exception as e:
-        logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}")
+        logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}\n{traceback.format_exc()}")
         return {"link": link, "title": title, "text": extracted_info, "detailed": detailed, "context": context, "exception": True, "full_text": txt}
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
