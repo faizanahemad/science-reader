@@ -118,6 +118,9 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logger.setLevel(logging.ERROR)
+time_logger = logging.getLogger(__name__ + " | TIMING")
+time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 from tenacity import (
     retry,
@@ -695,7 +698,7 @@ Title of the conversation:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = 10
+                cut_off = ((8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4)
                 seen_query_results = query_results_part1[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
@@ -719,7 +722,7 @@ Title of the conversation:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = len(web_text_accumulator) >= ((8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4) or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
+                break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None

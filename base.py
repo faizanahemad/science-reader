@@ -127,6 +127,9 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logger.setLevel(logging.ERROR)
+time_logger = logging.getLogger(__name__ + " | TIMING")
+time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 from tenacity import (
     retry,
@@ -991,7 +994,7 @@ Output any relevant equations if found in latex format.
         part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         result = process_text(text_document, chunk_size, part_fn, self.keys)
         short = self.provide_short_responses and chunk_size < int(TOKEN_LIMIT_FOR_SHORT*1.4)
-        result = get_first_last_parts(result, 384, 256) if short else get_first_last_parts(result, 1024, 1024)
+        result = get_first_last_parts(result, 256, 256) if short else get_first_last_parts(result, 384, 256)
         assert isinstance(result, str)
         return result
 
@@ -1593,14 +1596,10 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         #                    num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
         #          query_strings]
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
-                [get_async_future(googleapi, query,
+                [get_async_future(googleapi, query + (" pdf" if ix % 2 == 1 else " research paper"),
                                   dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                  num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
-                 query_strings] + \
-                [get_async_future(googleapi, query,
-                                  dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=True) for query in
-                 query_strings]
+                                  num_res, our_datetime=year_month, only_pdf=ix % 2 == 1, only_science_sites=ix % 2 == 0) for ix, query in
+                 enumerate(query_strings)]
 
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:

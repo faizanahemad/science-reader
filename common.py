@@ -76,6 +76,9 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logger.setLevel(logging.ERROR)
+time_logger = logging.getLogger(__name__ + " | TIMING")
+time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 
 def convert_doc_to_pdf(file_path, output_path):

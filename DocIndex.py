@@ -120,6 +120,9 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
+logger.setLevel(logging.ERROR)
+time_logger = logging.getLogger(__name__ + " | TIMING")
+time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 from tenacity import (
     retry,
@@ -517,7 +520,7 @@ Write answer below.
 
         answer = ''
         if not scan:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=(mode == "detailed" or mode == "review") and not scan, use_16k=True)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=((mode == "detailed" and detail_level > 1) or mode == "review") and not scan, use_16k=True)
             self_hosted = llm.self_hosted_model_url is not None
             if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
                 rem_init_len = LARGE_CHUNK_LEN * 6 + 1
