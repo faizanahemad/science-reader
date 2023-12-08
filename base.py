@@ -480,7 +480,7 @@ class CallLLmGpt:
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.system = "You are a very helpful assistant who provides detailed and comprehensive responses. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. Please follow the instructions and respond to my request. \nDon't repeat what is told to you in the prompt. \nAlways provide thoughtful, insightful, informative, comprehensive and in-depth response. Directly start your answer without any greetings.\nUse markdown lists and paragraphs for formatting.\n"
+        self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
@@ -796,7 +796,7 @@ Write reduced document after removing duplicate or redundant information below.
         logger.info(f"ReduceRepeatTool with input as \n {text_document} and output as \n {result}")
         return result
 
-process_text_executor = ThreadPoolExecutor(max_workers=32)
+process_text_executor = ThreadPoolExecutor(max_workers=1)
 def contrain_text_length_by_summary(text, keys, threshold=2000):
     summariser = Summarizer(keys)
     tlc = partial(TextLengthCheck, threshold=threshold)
@@ -876,11 +876,11 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Always provide detailed, comprehensive, thoughtful, insightful, informative and in-depth response covering the entire details. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write detailed, comprehensive, thoughtful, insightful, informative and in depth"
+        long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide brief, concise, comprehensive and informative response. \n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write brief, concise, comprehensive and informative"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
-            template=f"""You are an AI expert in question answering. {long_or_short}
+            template=f"""You are an information retrieval agent. {long_or_short}
 Provide relevant and helpful information from the given document for the given user question and conversation context given below.
 '''{{context}}'''
 
@@ -889,7 +889,7 @@ Document to read and extract information from is given below.
 {{document}}
 '''
 
-Output any relevant equations if found in latex format.
+Output any relevant equations if found in latex format. Only provide answer from the document given above.
 {response_prompt} response below.
 """,
         )
@@ -902,8 +902,40 @@ Output any relevant equations if found in latex format.
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
-        
-        
+
+    def get_one_with_rag(self, context, chunk_size, document):
+
+        import inspect
+        openai_embed = get_embedding_model(self.keys)
+        def get_doc_embeds(document):
+            document = document.strip()
+            ds = document.split(" ")
+            document = " ".join(ds[:64_000])
+            wc = len(ds)
+            if wc < 8000:
+                chunk_size = 512
+            elif wc < 16000:
+                chunk_size = 1024
+            else:
+                chunk_size = 1536
+            chunks = ChunkText(text_document=document, chunk_size=chunk_size)
+            doc_embeds = openai_embed.embed_documents(chunks)
+            return chunks, chunk_size, np.array(doc_embeds)
+        doc_em_future = get_async_future(get_doc_embeds, document)
+        query_em_future =  get_async_future(openai_embed.embed_query, context)
+        chunks, chunk_size, doc_embedding = doc_em_future.result()
+        query_embedding = np.array(query_em_future.result())
+        # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
+        scores = np.dot(doc_embedding, query_embedding)
+        sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
+        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else (6 if chunk_size == 512 else 2))]
+        top_chunks = '\n\n'.join([c[0] for c in top_chunks])
+        fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
+        prompt = self.prompt.format(context=context, document=fragments_text)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>=2048, use_small_models=False)
+        result = callLLm(prompt, temperature=0.4, stream=False)
+        assert isinstance(result, str)
+        return result
     
     def get_one_with_exception(self, context, chunk_size, document):
         try:
@@ -923,9 +955,13 @@ Output any relevant equations if found in latex format.
         st = time.time()
         # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
-        result = self.get_one(context_user_query, chunk_size, text_document)
-        short = self.provide_short_responses and chunk_size < int(TOKEN_LIMIT_FOR_SHORT*1.4)
-        result = get_first_last_parts(result, 256, 256) if short else get_first_last_parts(result, 384, 256)
+        doc_word_count = get_gpt3_word_count(text_document)
+        if doc_word_count < TOKEN_LIMIT_FOR_SHORT * 1.2:
+            result = self.get_one(context_user_query, chunk_size, text_document)
+        else:
+            result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
+        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.4)
+        result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 256, 256)
         assert isinstance(result, str)
         et = time.time()
         time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")
@@ -1041,6 +1077,58 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
+    return dedup_results
+
+
+def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+    import requests
+
+    from datetime import datetime, timedelta
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365 * 3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
+    else:
+        now = None
+
+    pre_query = query
+    after_string = f"after:{date_string}" if now else ""
+    search_pdf = " filetype:pdf" if only_pdf else ""
+    if only_science_sites is None:
+        site_string = " "
+    elif only_science_sites:
+        # site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
+        site_string = " (site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org) "
+    elif not only_science_sites:
+        site_string = " -site:arxiv.org AND -site:openreview.net "
+    og_query = query
+    no_after_query = f"{query}{site_string}{search_pdf}"
+    query = f"{query}{site_string}{after_string}{search_pdf}"
+    expected_res_length = min(num, 10)
+    def search_google(query):
+        # URL encode the query
+        encoded_query = requests.utils.quote(query)
+        # Set up the URL
+        url = f"https://www.google.com/search?q={encoded_query}&gl=us&num={num}&brd_json=1"
+        # Set up the proxy
+        proxy = {
+            'https': os.getenv("BRIGHTDATA_SERP_API_PROXY", key)
+        }
+        # Make the request
+        response = requests.get(url, proxies=proxy, verify=False)
+        try:
+            return json.loads(response.text)["organic"]
+        except Exception as e:
+            logger.error(f"Error in brightdata_google_serp with query = {query} and response = {response.text} and error = {str(e)}\n{traceback.format_exc()}")
+            return []
+    results = search_google(query)
+    for r in results:
+        _ = r.pop("image", None)
+        _ = r.pop("image_alt", None)
+        _ = r.pop("image_url", None)
+        _ = r.pop("global_rank", None)
+        _ = r.pop("image_base64", None)
+    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
 
 @typed_memoize(cache, str, int, tuple, bool)
@@ -1547,32 +1635,37 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
         assert len(serps) > 0
-        serps = [s.result() if hasattr(s, "result") else s for s in serps]
+        serps = [s.result() if hasattr(s, "result") and hasattr(s, "exception") and s.exception() is None else s for s in serps if not hasattr(s, "result") or (hasattr(s, "exception") and s.exception() is None)]
         assert len(serps[0]) > 0
-        assert len([r for serp in serps for r in serp]) >= 10
+        assert len([r for serp in serps for r in serp]) >= 15
         if provide_detailed_answers >= 2:
-            assert len([r for serp in serps for r in serp]) >= 15
+            assert len([r for serp in serps for r in serp]) >= 25
     except Exception as e:
+        num_res = 20
         try:
+            serps_v2 = []
             logger.error(f"Error in getting results from web search engines, error = {e}")
+            if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
+                # use brightdata_google_serp
+                serps_v2.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
             if serp_available:
-                serps_v2 = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+                serps_v2.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
                 logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
-            elif bing_available:
+            if bing_available:
                 # TODO: Bing is not working debug this
-                serps_v2 = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+                serps_v2.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings])
                 logger.debug(f"Using BING for web search, serps len = {len(serps)}")
-            else:
-                return {"text":'', "search_results": [], "queries": query_strings}
             if serps is not None:
-                serps.extend([s.result() for s in serps_v2])
+                serps.extend([s.result() for s in serps_v2 if s.exception() is None])
             else:
                 serps = [s.result() for s in serps_v2]
         except Exception as e:
             pass
+
     
     assert serps is not None
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
+    assert len(qres) > 0
     logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])} Qres len = {len(qres)}")
     dedup_results = []
     seen_titles = set()
@@ -1588,7 +1681,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         link_counter.update([link])
         title_counter.update([link])
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link or " https://ieeexplore.ieee.org" in link:
             continue
         dedup_results.append(r)
         seen_titles.add(title)
@@ -1637,6 +1730,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
         r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
 
+    assert len(dedup_results) > 0
     links = [r["link"] for r in dedup_results]
     titles = [r["title"] for r in dedup_results]
     contexts = [context +"? \n" + r["query"] for r in dedup_results] if len(dedup_results) > 0 else None
@@ -1767,6 +1861,82 @@ def download_link_data(link_title_context_apikeys):
     return result
 
 
+import requests
+import base64
+
+
+def convert_pdf_to_txt(file_url, secret_key):
+    """
+    Converts a PDF file to a text file using an online API.
+
+    Args:
+    file_url (str): URL of the PDF file to be converted.
+    secret_key (str): API secret key.
+
+    Returns:
+    str: Content of the converted text file.
+    """
+
+    # Define the API endpoint with the secret key as a query parameter
+    api_endpoint = f"https://v2.convertapi.com/convert/pdf/to/txt?Secret={secret_key}"
+
+    # Data for non-file fields
+    data = {
+        'Timeout': 30,
+        'PageRange': '1-50'
+    }
+
+    # File payload
+    files = {'File': (None, file_url)}
+
+    # Make the POST request
+    response = requests.post(api_endpoint, data=data, files=files)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Parse the response JSON
+        response_json = response.json()
+
+        # Extract the FileData field
+        file_data_base64 = response_json['Files'][0]['FileData']
+
+        # Decode the base64 string to get the file content
+        file_content = base64.b64decode(file_data_base64).decode('utf-8')
+
+        return file_content
+    else:
+        raise Exception(f"Failed to convert PDF: {response.status_code} {response.text}")
+
+
+def get_arxiv_pdf_link(link):
+    try:
+        assert "arxiv.org" in link
+        import re
+        from bs4 import BeautifulSoup, SoupStrainer
+        # convert to ar5iv link
+        arxiv_id = link.replace(".pdf", "").split("/")[-1]
+        new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        logger.debug(f"Converted arxiv link {link} to {new_link}")
+        status = requests.head(new_link, timeout=10)
+        assert status.status_code == 200
+        arxiv_text = requests.get(new_link, timeout=10).text
+        soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
+        element = soup.find(id='bib')
+        # Remove the element
+        if element is not None:
+            element.decompose()
+        title = soup.select("h1")[0].text
+        text = soup.select("article")[0].text
+        text = re.sub('\n{3,}', '\n\n', text)
+        return title, text
+    except AssertionError as e:
+        text = ""
+        raise e
+    except Exception as e:
+        text = ""
+        logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
+        raise e
+
 def read_pdf(link_title_context_apikeys):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"read_pdf-{str([link])}"
@@ -1777,35 +1947,30 @@ def read_pdf(link_title_context_apikeys):
     st = time.time()
     # Reading PDF
     extracted_info = ''
-    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    if "arxiv.org" in link:
-        try:
-            import re
-            from bs4 import BeautifulSoup, SoupStrainer
-            # convert to ar5iv link
-            arxiv_id = link.replace(".pdf", "").split("/")[-1]
-            new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
-            logger.debug(f"Converted arxiv link {link} to {new_link}")
-            status = requests.head(new_link, timeout=10)
-            assert status.status_code == 200
-            arxiv_text = requests.get(new_link, timeout=10).text
-            soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
-            element = soup.find(id='bib')
-            # Remove the element
-            if element is not None:
-                element.decompose()
-            title = soup.select("h1")[0].text
-            text = soup.select("article")[0].text
-            text = re.sub('\n{3,}', '\n\n', text)
-            time_logger.info(f"Time taken to convert and read arxiv link {link} to ar5iv link = {(time.time() - st):.2f}")
-        except Exception as e:
-            logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
+    if len(text.strip()) == 0:
+        pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+        pdf_text_future = get_async_future(pdfReader, link)
+        convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
+    get_arxiv_pdf_link_future = None
+    if "arxiv.org" in link and len(text.strip()) == 0:
+        get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
     try:
-        if len(text.strip()) == 0:
-            txt = pdfReader(link).replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-            time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
-        else:
-            txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+        while time.time() - st < 30 and len(text.strip()) == 0:
+            if pdf_text_future.done() and pdf_text_future.exception() is None:
+                text = pdf_text_future.result()
+                break
+            if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
+                text = convert_api_pdf_future.result()
+                break
+            if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None:
+                title, text = get_arxiv_pdf_link_future.result()
+                break
+            time.sleep(0.2)
+    except Exception as e:
+        logger.error(f"Error reading PDF {link} with error {e}")
+    try:
+        txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+        time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
@@ -1825,15 +1990,15 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     extracted_info = ''
     try:
         if len(text.strip()) > 0:
-            chunked_text = ChunkText(
-                txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
+            # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
             non_chunk_time = time.time()
-            extracted_info = call_contextual_reader(context, chunked_text,
+            extracted_info = call_contextual_reader(context, txt,
                                                     api_keys, provide_short_responses=False,
                                                     chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)))
             tt = time.time() - st
             time_logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
+            assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short for link: {link}"
         else:
             chunked_text = text
             return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}

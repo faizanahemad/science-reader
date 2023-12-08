@@ -660,7 +660,7 @@ def web_scrape_page(link, apikeys):
                 if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "brightdata"
                     break
-            time.sleep(0.1)
+            time.sleep(0.2)
         et = time.time() - st
         if result is None:
             result = {"text": "", "title": "", "link": link, "error": "No result"}

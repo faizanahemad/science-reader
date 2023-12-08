@@ -540,7 +540,7 @@ Write answer below.
             raw_text = "\n\n".join([n.page_content for n in raw_nodes])
             st_wt = time.time()
             while (additional_info is not None and time.time() - st_wt < 45 and not additional_info.done()):
-                time.sleep(1)
+                time.sleep(0.5)
             full_summary = ""
             if additional_info is not None and additional_info.done():
                 full_summary = additional_info.result() if additional_info is not None else ""

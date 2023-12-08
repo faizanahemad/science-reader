@@ -545,7 +545,7 @@ Title of the conversation:
         return query, attached_docs, attached_docs_names
     @property
     def max_time_to_wait_for_web_results(self):
-        return 25
+        return 20
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -632,7 +632,7 @@ Title of the conversation:
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
                     break
-                time.sleep(0.1)
+                time.sleep(0.2)
 
             full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             read_links = re.findall(pattern, link_result_text)
@@ -655,7 +655,7 @@ Title of the conversation:
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
                     break
-                time.sleep(0.1)
+                time.sleep(0.2)
             if len(doc_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
@@ -667,7 +667,7 @@ Title of the conversation:
                     conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
                     conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
                     break
-                time.sleep(0.1)
+                time.sleep(0.2)
             if len(conversation_docs_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
@@ -698,7 +698,7 @@ Title of the conversation:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = ((8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4)
+                cut_off = ((6 if provide_detailed_answers <= 1 else 10) if provide_detailed_answers else 4)
                 seen_query_results = query_results_part1[:cut_off]
                 unseen_query_results = query_results_part1[cut_off:]
                 answer += "\n#### Search Results: \n"
@@ -730,7 +730,7 @@ Title of the conversation:
                     one_web_result = result_queue.get()
                 qu_et = time.time()
                 if one_web_result is None:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                     continue
                 if one_web_result == FINISHED_TASK:
                     break
@@ -740,7 +740,7 @@ Title of the conversation:
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
-                time.sleep(0.1)
+                time.sleep(0.2)
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
@@ -762,13 +762,13 @@ Title of the conversation:
                 web_text, _, _, permanent_instructions, summary_text, _, _, _, _ = format_llm_inputs(
                     web_text, '', '', permanent_instructions, summary_text, '',
                     '', '', '')
-                web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+                web_text = f"References and Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
                                                                previous_messages='',
                                                                other_relevant_messages='',
                                                                document_nodes='',
-                                                               permanent_instructions=permanent_instructions,
+                                                               permanent_instructions='Answer concisely and briefly while covering all given references. Use only the provided references to give your answer.',
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
@@ -790,13 +790,13 @@ Title of the conversation:
                 web_text, _, _, permanent_instructions, summary_text, _, _, _, _ = format_llm_inputs(
                     web_text, '', '', permanent_instructions, summary_text, '',
                     '', '', '')
-                web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+                web_text = f"References and Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
                                                                previous_messages='',
                                                                other_relevant_messages='',
                                                                document_nodes='',
-                                                               permanent_instructions=permanent_instructions,
+                                                               permanent_instructions='Answer concisely and briefly while covering all given references.',
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
@@ -810,6 +810,12 @@ Title of the conversation:
                     f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}, gpt16k_used_in_p1: {gpt16k_used_in_p1}, gpt16k_used_in_p2: {gpt16k_used_in_p2}")
                 # TODO: Use LLM to generate two expert answers.
             web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
+            full_web_string = ""
+            for i, wta in enumerate(web_text_accumulator):
+                web_string = f"{i + 1}.\n{wta}"
+                full_web_string = full_web_string + web_string + "\n\n"
+                if get_gpt4_word_count(full_web_string) > 6000:
+                    break
             # web_text = "\n\n".join(web_text_accumulator)
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
