@@ -574,7 +574,7 @@ def soup_html_parser(html):
 
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
-def web_scrape_page(link, apikeys):
+def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
     good_page_size = 300
     result = dict(text="", title="", link=link, error="")
     st = time.time()
@@ -594,7 +594,7 @@ def web_scrape_page(link, apikeys):
         zenrows_exception = False
         bright_data_playwright_exception = False
         bright_data_selenium_exception = False
-        while time.time() - st < 30:
+        while time.time() - st < 30 and exists_tmp_marker_file(web_search_tmp_marker_name):
 
             if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:

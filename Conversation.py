@@ -585,12 +585,15 @@ Title of the conversation:
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         if google_scholar or perform_web_search:
+            web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
+            create_tmp_marker_file(web_search_tmp_marker_name)
             # TODO: provide_detailed_answers addition
             logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
                                            previous_context,
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers)
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches,
+                                           gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
 
@@ -741,13 +744,14 @@ Title of the conversation:
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.2)
+            remove_tmp_marker_file(web_search_tmp_marker_name)
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             # Join the elements along with serial numbers.
             web_ans_summary = ""
-            if len(web_text_accumulator) > 6 and provide_detailed_answers > 1:
+            if len(web_text_accumulator) > 6 and provide_detailed_answers > 1 and False:
                 ws_st = time.time()
                 web_text = "\n\n".join([f"{i + 1}.\n{wta}" for i, wta in enumerate(web_text_accumulator[:len(web_text_accumulator)//2])])
                 read_links = re.findall(pattern, web_text)
@@ -808,7 +812,6 @@ Title of the conversation:
                 web_ans_summary = f"\n\nSummary of web search results is as below.\n{web_ans_gen_p1}\n{web_ans_gen_p2}\n"
                 time_logger.info(
                     f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}, gpt16k_used_in_p1: {gpt16k_used_in_p1}, gpt16k_used_in_p2: {gpt16k_used_in_p2}")
-                # TODO: Use LLM to generate two expert answers.
             # web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             full_web_string = ""
             for i, wta in enumerate(web_text_accumulator):

@@ -704,10 +704,34 @@ def typed_memoize(cache, *types):
     return decorator
 
 import requests
-temp_dir = tempfile.gettempdir()
+os_temp_dir = tempfile.gettempdir()
 temp_dir = os.path.join(os.getcwd(), "storage", "cache")
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
+
+def create_tmp_marker_file(file_path):
+    marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
+    with open(marker_file_path, 'w') as f:
+        f.write(f"{file_path}")
+    return marker_file_path
+
+def remove_tmp_marker_file(file_path):
+    if file_path is None:
+        return None
+    try:
+        marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
+        if os.path.exists(marker_file_path):
+            os.remove(marker_file_path)
+        return marker_file_path
+    except Exception as e:
+        logger.error(f"Exception removing tmp marker file: {e}\n{traceback.format_exc()}")
+        return None
+
+def exists_tmp_marker_file(file_path):
+    if file_path is None:
+        return True
+    marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
+    return os.path.exists(marker_file_path)
 
 @typed_memoize(cache, str, int, tuple, bool)
 def is_pdf_link(link):
@@ -739,6 +763,7 @@ class ProcessFnWithTimeout:
 
     def __call__(self, fn, timeout, *args, **kwargs):
         timeout = kwargs.pop('timeout', timeout)
+        keep_going_marker = kwargs.pop('keep_going_marker', None)
         result = None
         exception_event = threading.Event()
 

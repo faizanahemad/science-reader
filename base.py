@@ -890,7 +890,8 @@ Document to read and extract information from is given below.
 {{document}}
 '''
 
-Output any relevant equations if found in latex format. Only provide answer from the document given above.
+Output any relevant equations if found in latex format. 
+Only provide answer from the document given above. If no relevant information is found in given context, then output "No relevant information found." only.
 {response_prompt} response below.
 """,
         )
@@ -1772,13 +1773,13 @@ def web_search(context, doc_source, doc_context, api_keys, year_month=None, prev
     part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
-def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
+def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
     # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
-def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
+def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     web_links = [] if web_links is None else web_links
     web_titles = [] if web_titles is None else web_titles
@@ -1788,7 +1789,7 @@ def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False):
     assert contexts is not None
     assert texts is None or len(texts) == len(links)
     links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
-    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers)
+    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
     return read_queue
 
 def get_part_1_results(part1_res):
@@ -1796,15 +1797,15 @@ def get_part_1_results(part1_res):
     return {"search_results": rs[0], "queries": rs[8]}
 
 
-def web_search_part2(part1_res, api_keys, provide_detailed_answers=False):
-    result_queue = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers)
+def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
+    result_queue = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
     web_text_accumulator = []
     full_info = []
     qu_st = time.time()
-    cut_off = (8 if provide_detailed_answers <= 1 else 12) if provide_detailed_answers else 4
+    cut_off = (10 if provide_detailed_answers <= 1 else 16) if provide_detailed_answers else 6
     while True:
         qu_wait = time.time()
-        break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > 30
+        break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > 45
         if break_condition and result_queue.empty():
             break
         one_web_result = result_queue.get()
@@ -1847,7 +1848,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
 
 from concurrent.futures import ThreadPoolExecutor
 @timer
-def download_link_data(link_title_context_apikeys):
+def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"download_link_data-{str([link])}"
@@ -1860,9 +1861,9 @@ def download_link_data(link_title_context_apikeys):
     is_pdf = is_pdf_link(link)
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_pdf:
-        result = read_pdf(link_title_context_apikeys)
+        result = read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     else:
-        result = get_page_text(link_title_context_apikeys)
+        result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     if "full_text" in result and len(result["full_text"].strip()) > 0:
         result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
                                                                                          'end_of_text').replace(
@@ -1949,7 +1950,7 @@ def get_arxiv_pdf_link(link):
         logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
         raise e
 
-def read_pdf(link_title_context_apikeys):
+def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"read_pdf-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
@@ -1967,7 +1968,7 @@ def read_pdf(link_title_context_apikeys):
     if "arxiv.org" in link and len(text.strip()) == 0:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
     try:
-        while time.time() - st < 30 and len(text.strip()) == 0:
+        while time.time() - st < 30 and len(text.strip()) == 0 and exists_tmp_marker_file(web_search_tmp_marker_name):
             if pdf_text_future.done() and pdf_text_future.exception() is None:
                 text = pdf_text_future.result()
                 break
@@ -1983,6 +1984,7 @@ def read_pdf(link_title_context_apikeys):
     try:
         txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
         time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
+        assert len(txt.strip()) > 0, f"Extracted pdf info is too short for link: {link}"
     except Exception as e:
         logger.error(f"Error reading PDF {link} with error {e}")
         txt = ''
@@ -1995,7 +1997,7 @@ def read_pdf(link_title_context_apikeys):
 
 
 
-def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
+def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False, web_search_tmp_marker_name=None):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
@@ -2020,7 +2022,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 
-def get_page_text(link_title_context_apikeys):
+def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     key = f"get_page_text-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
@@ -2028,7 +2030,7 @@ def get_page_text(link_title_context_apikeys):
     if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
         return result
     st = time.time()
-    pgc = web_scrape_page(link, api_keys)
+    pgc = web_scrape_page(link, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     if len(pgc["text"].strip()) == 0:
         logger.error(f"[process_page_link] Empty text for link: {link}")
         return {"link": link, "title": title, "exception": True, "full_text": '', "detailed": detailed, "context": context}
@@ -2041,7 +2043,7 @@ def get_page_text(link_title_context_apikeys):
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=64)
 
-def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
+def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     basic_context = contexts[0] if len(contexts) > 0 else ""
     if texts is None:
         texts = [''] * len(links)
@@ -2069,7 +2071,8 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
 
     threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
-    def fn1(link_title_context_apikeys, *args, **kwargs):
+    def fn1(*args, **kwargs):
+        link_title_context_apikeys = args[0]
         link = link_title_context_apikeys[0]
         title = link_title_context_apikeys[1]
         context = link_title_context_apikeys[2]
@@ -2077,7 +2080,8 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         text = link_title_context_apikeys[4]
         detailed = link_title_context_apikeys[5]
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        return [download_link_data(link_title_context_apikeys), {}]
+        web_search_tmp_marker_name = args[1].pop("keep_going_marker", None) if len(args) > 1 else None
+        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), {}]
     def fn2(*args, **kwargs):
         link_data = args[0]
         link = link_data["link"]
@@ -2086,16 +2090,17 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         exception = link_data["exception"]
         context = link_data["context"] if "context" in link_data else basic_context
         detailed = link_data["detailed"] if "detailed" in link_data else False
+        web_search_tmp_marker_name = args[1].pop("keep_going_marker", None) if len(args) > 1 else None
         if exception:
             # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
             raise Exception(f"Exception raised for link: {link}")
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        summary = get_downloaded_data_summary(link_title_context_apikeys)
+        summary = get_downloaded_data_summary(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         return summary
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    timeouts = [dict()] * len(links)
+    timeouts = [dict(keep_going_marker=web_search_tmp_marker_name)] * len(links)
     task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 45, 75)
     return task_queue
 
