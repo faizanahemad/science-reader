@@ -462,8 +462,10 @@ class DocIndex:
             mode = "use_multiple_docs"
         elif mode["review"]:
             mode = "review"
+            detail_level = 2
         elif mode["scan"]:
             mode = "detailed"
+            detail_level = 2
             scan = True
             query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
         else:
@@ -481,7 +483,7 @@ class DocIndex:
         if (mode == "detailed" or mode == "review"):
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
-            if tex_len < 6000:
+            if tex_len < 7000:
                 llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
                 prompt = f"""Answer the question or query given below using the given context as reference. 
 Question or Query is given below.
@@ -494,7 +496,9 @@ Write answer below.
 """
                 additional_info = get_async_future(llm, prompt, temperature=0.5)
             else:
-                additional_info = get_async_future(call_contextual_reader, query, brief_summary + ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 500, 0)[0], self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500)
+                additional_info = get_async_future(call_contextual_reader, query,
+                                                   brief_summary + self.get_doc_data("static_data", "doc_text"),
+                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500, scan=detail_level >= 3)
 
             if detail_level > 1 and tex_len >= 6000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,

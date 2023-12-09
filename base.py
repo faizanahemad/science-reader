@@ -1302,8 +1302,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 # TODO: Add caching
-from web_scraping import web_scrape_page
-
+from web_scraping import web_scrape_page, soup_html_parser
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
@@ -1943,8 +1942,16 @@ def get_arxiv_pdf_link(link):
         # Remove the element
         if element is not None:
             element.decompose()
-        title = soup.select("h1")[0].text
-        text = soup.select("article")[0].text
+        try:
+            title = soup.select("h1")[0].text
+        except:
+            pass
+        try:
+            text = soup.select("article")[0].text
+        except:
+            soupy = soup_html_parser(arxiv_text)
+            text = soupy["text"]
+            title = soupy["title"]
         text = re.sub('\n{3,}', '\n\n', text)
         return title, text
     except AssertionError as e:

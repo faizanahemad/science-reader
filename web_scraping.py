@@ -555,6 +555,10 @@ def soup_html_parser(html):
         link.decompose()
     for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
         header.decompose()
+    element = soup.find(id='bib')
+    # Remove the element
+    if element is not None:
+        element.decompose()
 
     def extract_text(element):
         # If the element is a string, return it as is
