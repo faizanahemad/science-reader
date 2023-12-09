@@ -585,11 +585,14 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
     try:
         bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         zenrows_service_result = None
-        bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
-        bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+        bright_data_playwright_result = None
+        bright_data_selenium_result = None
 
-        if random.random() <= 0.5:
-            pass
+        if random.random() <= 0.75:
+            if random.random() <= 0.5:
+                bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+            else:
+                bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
         else:
             zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
         # Also add bright data cdp fetch as a backup.

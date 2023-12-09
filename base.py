@@ -1140,6 +1140,10 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
             logger.error(f"Error in brightdata_google_serp with query = {query} and response = {response.text} and error = {str(e)}\n{traceback.format_exc()}")
             return []
     results = search_google(query)
+    if len(results) < expected_res_length:
+        results.extend(search_google(no_after_query))
+    if len(results) < expected_res_length:
+        results.extend(search_google(og_query))
     for r in results:
         _ = r.pop("image", None)
         _ = r.pop("image_alt", None)
@@ -1623,7 +1627,18 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if gscholar and serp_available:
         serps = [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                  query_strings]
+        serps.extend([get_async_future(gscholarapi, query + " recent research papers", api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                 query_strings])
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
+    elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
+        num_res = 10
+        serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                          our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        if gscholar:
+            serps.extend([get_async_future(brightdata_google_serp, query + " research paper",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None, only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                 enumerate(query_strings)])
     elif google_available:
         num_res = 10
         # serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
@@ -1634,9 +1649,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         #                    num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
         #          query_strings]
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
-                [get_async_future(googleapi, query + (" pdf" if ix % 2 == 1 else " research paper"),
+                [get_async_future(googleapi, query + (" pdf" if ix % 2 == 1 and not gscholar else " research paper"),
                                   dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                  num_res, our_datetime=year_month, only_pdf=ix % 2 == 1, only_science_sites=ix % 2 == 0) for ix, query in
+                                  num_res, our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None, only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                  enumerate(query_strings)]
 
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
@@ -1662,15 +1677,40 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         try:
             serps_v2 = []
             logger.error(f"Error in getting results from web search engines, error = {e}")
+            if gscholar and serp_available:
+                serps_v2.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                          only_pdf=None, only_science_sites=None) for query in
+                         query_strings])
             if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
                 # use brightdata_google_serp
                 serps_v2.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
-            if serp_available:
+                if gscholar:
+                    serps_v2.extend([get_async_future(brightdata_google_serp, query,
+                                                      os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                                      our_datetime=year_month, only_pdf=True, only_science_sites=None)
+                                     for query in query_strings])
+                    serps_v2.extend([get_async_future(brightdata_google_serp, query + " research paper",
+                                                      os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                                      our_datetime=year_month, only_pdf=None, only_science_sites=None)
+                                     for query in query_strings])
+            elif serp_available:
                 serps_v2.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
                 logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
-            if bing_available:
+                if gscholar and serp_available:
+                    serps_v2.extend(
+                        [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                          only_pdf=None, only_science_sites=None) for query in
+                         query_strings])
+            elif bing_available:
                 # TODO: Bing is not working debug this
                 serps_v2.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings])
+                if gscholar:
+                    serps_v2.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
+                                                      only_pdf=True, only_science_sites=None) for query in
+                                     query_strings])
+                    serps_v2.extend([get_async_future(bingapi, query + " research paper", api_keys["bingKey"], num_res, our_datetime=None,
+                                                      only_pdf=None, only_science_sites=None) for query in
+                                     query_strings])
                 logger.debug(f"Using BING for web search, serps len = {len(serps)}")
             if serps is not None:
                 serps.extend([s.result() for s in serps_v2 if s.exception() is None])

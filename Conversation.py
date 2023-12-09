@@ -613,7 +613,7 @@ Title of the conversation:
             truncate_method = truncate_text_for_gpt3
         prior_context = prior_context_future.result()
         previous_messages = prior_context["previous_messages"]
-        permanent_instructions = query["permanentMessageText"]
+        permanent_instructions = query["permanentMessageText"] if "permanentMessageText" in query else ""
         new_line = "\n"
         summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
             prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
