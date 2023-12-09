@@ -856,10 +856,11 @@ async def get_url_content(url):
 
 
 class ContextualReader:
-    def __init__(self, keys, provide_short_responses=False):
+    def __init__(self, keys, provide_short_responses=False, scan=False):
         self.keys = keys
         self.name = "ContextualReader"
         self.provide_short_responses = provide_short_responses
+        self.scan = scan
         self.description = """
 ContextualReader:
     This tool takes a context/query/instruction, and a text document. It reads the document based on the context or query instruction and outputs only parts of document relevant to the query. Useful when the document is too long and you need to store a short contextual version of it for answering the user request. Sometimes rephrasing the query/question/user request before asking the ContextualReader helps ContextualReader provide better results. You can also specify directives to ContextualReader like "return numbers only", along with the query for better results.
@@ -958,6 +959,17 @@ Output any relevant equations if found in latex format. Only provide answer from
         doc_word_count = get_gpt3_word_count(text_document)
         if doc_word_count < TOKEN_LIMIT_FOR_SHORT * 1.2:
             result = self.get_one(context_user_query, chunk_size, text_document)
+        elif self.scan:
+            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
+            first_chunk = chunks[0]
+            second_result = None
+            if len(chunks) > 1:
+                first_chunk = first_chunk + "..."
+                second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
+                second_result = get_async_future(self.get_one, context_user_query, TOKEN_LIMIT_FOR_DETAILED,
+                                                 second_chunk)
+            result = self.get_one(context_user_query, TOKEN_LIMIT_FOR_DETAILED, first_chunk)
+            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "")
         else:
             result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.4)
@@ -968,9 +980,9 @@ Output any relevant equations if found in latex format. Only provide answer from
         return result
 
 @typed_memoize(cache, str, int, tuple, bool)
-def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2)->str:
+def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2, scan=False)->str:
     assert isinstance(document, str)
-    cr = ContextualReader(keys, provide_short_responses=provide_short_responses)
+    cr = ContextualReader(keys, provide_short_responses=provide_short_responses, scan=scan)
     return cr(query, document, chunk_size=chunk_size+512)
 
 
@@ -1995,7 +2007,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
             non_chunk_time = time.time()
             extracted_info = call_contextual_reader(context, txt,
                                                     api_keys, provide_short_responses=False,
-                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)))
+                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
             tt = time.time() - st
             time_logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
             assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short for link: {link}"

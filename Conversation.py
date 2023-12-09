@@ -809,13 +809,14 @@ Title of the conversation:
                 time_logger.info(
                     f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}, gpt16k_used_in_p1: {gpt16k_used_in_p1}, gpt16k_used_in_p2: {gpt16k_used_in_p2}")
                 # TODO: Use LLM to generate two expert answers.
-            web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
+            # web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             full_web_string = ""
             for i, wta in enumerate(web_text_accumulator):
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
                 if get_gpt4_word_count(full_web_string) > 6000:
                     break
+            web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
