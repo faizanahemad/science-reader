@@ -918,8 +918,10 @@ Only provide answer from the document given above. If no relevant information is
                 chunk_size = 512
             elif wc < 16000:
                 chunk_size = 1024
-            else:
+            elif wc < 32000:
                 chunk_size = 1536
+            else:
+                chunk_size = 2048
             chunks = ChunkText(text_document=document, chunk_size=chunk_size)
             doc_embeds = openai_embed.embed_documents(chunks)
             return chunks, chunk_size, np.array(doc_embeds)
@@ -930,7 +932,7 @@ Only provide answer from the document given above. If no relevant information is
         # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
         scores = np.dot(doc_embedding, query_embedding)
         sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else (6 if chunk_size == 512 else 2))]
+        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else (6 if chunk_size == 512 or chunk_size == 2048 else 2))]
         top_chunks = '\n\n'.join([c[0] for c in top_chunks])
         fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
         prompt = self.prompt.format(context=context, document=fragments_text)
@@ -964,17 +966,20 @@ Only provide answer from the document given above. If no relevant information is
             chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
             first_chunk = chunks[0]
             second_result = None
+            rag_result = None
             if len(chunks) > 1:
                 first_chunk = first_chunk + "..."
                 second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
                 second_result = get_async_future(self.get_one, context_user_query, TOKEN_LIMIT_FOR_DETAILED,
                                                  second_chunk)
+            if len(chunks) > 2:
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, TOKEN_LIMIT_FOR_DETAILED, "\n\n".join(chunks[2:]))
             result = self.get_one(context_user_query, TOKEN_LIMIT_FOR_DETAILED, first_chunk)
-            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "")
+            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None else "")
         else:
             result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.4)
-        result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 256, 256)
+        result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 1024 if self.scan else 256, 512 if self.scan else 256)
         assert isinstance(result, str)
         et = time.time()
         time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")
@@ -1997,7 +2002,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
 
 
 
-def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False, web_search_tmp_marker_name=None):
+def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
@@ -2095,7 +2100,7 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
             # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
             raise Exception(f"Exception raised for link: {link}")
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        summary = get_downloaded_data_summary(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        summary = get_downloaded_data_summary(link_title_context_apikeys)
         return summary
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
