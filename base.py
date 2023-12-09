@@ -480,7 +480,7 @@ class CallLLmGpt:
         
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
-        self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\n"
+        self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\nDon't repeat what is given to you in the prompt.\n"
         available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
@@ -1738,7 +1738,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
         link_counter.update([link])
         title_counter.update([link])
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link or " https://ieeexplore.ieee.org" in link:
+        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
             continue
         dedup_results.append(r)
         seen_titles.add(title)
