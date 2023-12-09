@@ -676,9 +676,11 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
         if len(result["text"].strip()) < good_page_size:
             result = {"text": "", "title": "", "link": link, "error": "Text too short"}
             logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+            raise Exception(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         if result["text"].strip() == DDOS_PROTECTION_STR:
             result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR}
             logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+            raise Exception(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     except Exception as e:
         exc = traceback.format_exc()

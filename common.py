@@ -762,8 +762,8 @@ class ProcessFnWithTimeout:
         self.result_queue = result_queue
 
     def __call__(self, fn, timeout, *args, **kwargs):
-        timeout = kwargs.pop('timeout', timeout)
-        keep_going_marker = kwargs.pop('keep_going_marker', None)
+        timeout = kwargs.get('timeout', timeout)
+        keep_going_marker = kwargs.get('keep_going_marker', None)
         result = None
         exception_event = threading.Event()
 
@@ -808,7 +808,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
 
     def task_worker(args, kwargs):
         try:
-            wait_time = kwargs.pop('timeout', timeout)
+            wait_time = kwargs.get('timeout', timeout)
             result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
             if callback and result is not None:
                 result = callback(result, args, kwargs)
@@ -853,7 +853,7 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
 
     def task_worker(result, args, kwargs):
         try:
-            wait_time = kwargs.pop('timeout', timeout)
+            wait_time = kwargs.get('timeout', timeout)
             if result is not TERMINATION_SIGNAL:
                 new_result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
                 if callback and new_result is not None:

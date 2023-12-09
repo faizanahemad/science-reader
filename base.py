@@ -582,19 +582,18 @@ class CallLLmGpt:
                     raise e
                 if len(self.openai_16k_models) > 0 and text_len > 3400:
                     model = next(models)
-                    fn = call_chat_model
-                elif len(self.openai_turbo_models) > 0:
+                elif len(self.openai_turbo_models) > 0 and text_len < 3400:
+                    models = round_robin(self.openai_turbo_models)
                     model = next(models)
-                    fn = call_chat_model
-                elif len(self.openai_instruct_models) > 0:
+                elif len(self.openai_instruct_models) > 0 and text_len < 3400:
                     models = round_robin(self.openai_instruct_models)
                     model = next(models)
-                    fn = call_non_chat_model
                 else:
                     raise e
                 try:
                     return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys["openAIKey"])
-                except Exception as e:
+                except Exception as em:
+                    logger.error(f"Error in call_chat_model with model = {model} and text len = {text_len} and text = {text}\n{em}\n{traceback.format_exc()}")
                     raise e
         else:
             raise ValueError("No model use criteria met")
@@ -2132,8 +2131,8 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         text = link_title_context_apikeys[4]
         detailed = link_title_context_apikeys[5]
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        web_search_tmp_marker_name = args[1].pop("keep_going_marker", None) if len(args) > 1 else None
-        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), {}]
+        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
+        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), kwargs]
     def fn2(*args, **kwargs):
         link_data = args[0]
         link = link_data["link"]
@@ -2142,13 +2141,16 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
         exception = link_data["exception"]
         context = link_data["context"] if "context" in link_data else basic_context
         detailed = link_data["detailed"] if "detailed" in link_data else False
-        web_search_tmp_marker_name = args[1].pop("keep_going_marker", None) if len(args) > 1 else None
+        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         if exception:
             # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
             raise Exception(f"Exception raised for link: {link}")
-        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        summary = get_downloaded_data_summary(link_title_context_apikeys)
-        return summary
+        if exists_tmp_marker_file(web_search_tmp_marker_name):
+            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+            summary = get_downloaded_data_summary(link_title_context_apikeys)
+            return summary
+        else:
+            raise Exception(f"Web search stopped for link: {link}")
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
