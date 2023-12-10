@@ -283,28 +283,6 @@ def call_cohere(text, temperature=0.7, api_key=None):
     return response.generations[0].text
 
 
-easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-gpt4_enc = tiktoken.encoding_for_model("gpt-4")
-def call_chat_model(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"]
-    response = openai.ChatCompletion.create(
-        model=model,
-        api_key=api_key,
-        messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": text},
-            ],
-            temperature=temperature,
-            stream=True
-        )
-    for chunk in response:
-        if "content" in chunk["choices"][0]["delta"]:
-            yield chunk["choices"][0]["delta"]["content"]
-
-    if chunk["choices"][0]["finish_reason"]!="stop":
-        yield "\n Output truncated due to lack of context Length."
-
 
 import requests
 import json
@@ -375,22 +353,6 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
         yield text
 
 
-def call_non_chat_model(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"]
-    input_len = len(davinci_enc.encode(text))
-    assert 4000 - input_len > 0
-    completions = openai.Completion.create(
-        api_key=api_key,
-        engine=model,
-        prompt=text,
-        temperature=temperature,
-        max_tokens = 4000 - input_len,
-    )
-    message = completions.choices[0].text
-    finish_reason = completions.choices[0].finish_reason
-    if finish_reason != 'stop':
-        message = message + "\n Output truncated due to lack of context Length."
-    return message
 
 class CallLLmClaude:
     def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
@@ -474,6 +436,135 @@ class CallLLmClaude:
             modelId = next(round_robin(self.openai_turbo_models))
         return call_with_stream(self.call_claude, stream, modelId, body, backup_function=vllmBackup if vllmUrl is not None else None)
 
+openai_rate_limits = {
+    "gpt-3.5-turbo": (1000000, 10000),
+    "gpt-3.5-turbo-0301": (1000000, 10000),
+    "gpt-3.5-turbo-0613": (1000000, 10000),
+    "gpt-3.5-turbo-1106": (1000000, 10000),
+    "gpt-3.5-turbo-16k": (1000000, 10000),
+    "gpt-3.5-turbo-16k-0613": (1000000, 10000),
+    "gpt-3.5-turbo-instruct": (250000, 3000),
+    "gpt-3.5-turbo-instruct-0914": (250000, 3000),
+    "gpt-4": (300000, 10000),
+    "gpt-4-0314": (300000, 10000),
+    "gpt-4-0613": (300000, 10000),
+    "gpt-4-1106-preview": (450000, 10000)
+}
+
+openai_model_family = {
+    "gpt-3.5-turbo": ["gpt-3.5-turbo", "gpt-3.5-turbo-0301", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-1106"],
+    "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613"],
+    "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
+    "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613"],
+    "gpt-4-16k": ["gpt-4-1106-preview"]
+}
+
+import time
+from collections import deque
+from threading import Lock
+
+# create a new tokenlimit exception class
+class TokenLimitException(Exception):
+    pass
+
+class OpenAIRateLimitRollingTokenTracker:
+    def __init__(self):
+        self.token_counts = {model: 0 for model in openai_rate_limits.keys()}
+        self.token_time_queues = {model: deque() for model in openai_rate_limits.keys()}
+        self.locks = {model: Lock() for model in openai_rate_limits.keys()}  # Lock for each model
+
+    def add_tokens(self, model, token_count):
+        with self.locks[model]:  # Ensure only one thread modifies data for a model at a time
+            current_time = time.time()
+            self.token_counts[model] += token_count
+            self.token_time_queues[model].append((current_time, token_count))
+            self.cleanup_old_tokens(model)
+
+    def cleanup_old_tokens(self, model):
+        current_time = time.time()
+        while self.token_time_queues[model] and current_time - self.token_time_queues[model][0][0] > 60:
+            old_time, old_count = self.token_time_queues[model].popleft()
+            self.token_counts[model] -= old_count
+
+    def get_token_count(self, model):
+        with self.locks[model]:
+            self.cleanup_old_tokens(model)
+            return self.token_counts[model]
+
+    def select_model(self, family: str):
+        chosen_models = openai_model_family[family]
+        with Lock():  # Global lock for selecting model
+            model = min(chosen_models, key=self.get_token_count)
+            if self.get_token_count(model) >= openai_rate_limits[model][0] - 32000:
+                raise TokenLimitException("All models are rate limited")
+            logger.error(f"Selected model {model} with {self.get_token_count(model)} tokens for family {family}")
+            return model
+
+rate_limit_model_choice = OpenAIRateLimitRollingTokenTracker()
+
+easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
+gpt4_enc = tiktoken.encoding_for_model("gpt-4")
+
+encoders_map = {
+    "gpt-3.5-turbo": easy_enc,
+    "gpt-3.5-turbo-0301": easy_enc,
+    "gpt-3.5-turbo-0613": easy_enc,
+    "gpt-3.5-turbo-1106": easy_enc,
+    "gpt-3.5-turbo-16k": easy_enc,
+    "gpt-3.5-turbo-16k-0613": easy_enc,
+    "gpt-3.5-turbo-instruct": easy_enc,
+    "gpt-3.5-turbo-instruct-0914": easy_enc,
+    "gpt-4": gpt4_enc,
+    "gpt-4-0314": gpt4_enc,
+    "gpt-4-0613": gpt4_enc,
+    "gpt-4-1106-preview": gpt4_enc,
+    "text-davinci-003": davinci_enc,
+    "text-davinci-002": davinci_enc,
+}
+def call_chat_model(model, text, temperature, system, keys):
+    api_key = keys["openAIKey"]
+    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
+    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
+    response = openai.ChatCompletion.create(
+        model=model,
+        api_key=api_key,
+        messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": text},
+            ],
+            temperature=temperature,
+            stream=True
+        )
+    for chunk in response:
+        if "content" in chunk["choices"][0]["delta"]:
+            text_content = chunk["choices"][0]["delta"]["content"]
+            yield text_content
+            rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
+
+    if chunk["choices"][0]["finish_reason"]!="stop":
+        yield "\n Output truncated due to lack of context Length."
+
+
+def call_non_chat_model(model, text, temperature, system, keys):
+    api_key = keys["openAIKey"]
+    text = f"{system}\n\n{text}\n"
+    input_len = len(easy_enc.encode(text))
+    assert 3600 - input_len > 0
+    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
+    completions = openai.Completion.create(
+        api_key=api_key,
+        engine=model,
+        prompt=text,
+        temperature=temperature,
+        max_tokens = 4000 - input_len,
+    )
+    message = completions.choices[0].text
+    finish_reason = completions.choices[0].finish_reason
+    if finish_reason != 'stop':
+        message = message + "\n Output truncated due to lack of context Length."
+    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
+    return message
 
 class CallLLmGpt:
     def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
@@ -481,33 +572,16 @@ class CallLLmGpt:
         assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
         self.keys = keys
         self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\nDon't repeat what is given to you in the prompt.\n"
-        available_openai_models = self.keys["openai_models_list"]
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
-        openai_gpt4_models = [] if available_openai_models is None else [m for m in available_openai_models if "gpt-4" in m and "-preview" not in m]
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
-        self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
-        openai_turbo_models = ["gpt-3.5-turbo"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo" in m and "16k" not in m and "instruct" not in m]
-        openai_instruct_models = ["gpt-3.5-turbo-instruct"] if available_openai_models is None else [m for m in
-                                                                                         available_openai_models if
-                                                                                         "gpt-3.5-turbo-instruct" in m and "16k" not in m]
-        openai_16k_models = ["gpt-3.5-turbo-16k"] if available_openai_models is None else [m for m in available_openai_models if "gpt-3.5-turbo-16k" in m]
-        self.use_16k = use_16k and len(openai_16k_models) > 0
-        openai_basic_models = [
-            "text-davinci-003", "text-davinci-003", 
-            "text-davinci-002",]
-        
-        self.openai_basic_models = random.sample(openai_basic_models, len(openai_basic_models))
-        self.openai_turbo_models = random.sample(openai_turbo_models, len(openai_turbo_models))
-        self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
-        self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
-        self.openai_instruct_models = random.sample(openai_instruct_models, len(openai_instruct_models))
-        self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
-        self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-        self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
+        self.use_gpt4 = use_gpt4
+        self.use_16k = use_16k
+        self.gpt4_enc = encoders_map.get("gpt-4")
+        self.turbo_enc = encoders_map.get("gpt-3.5-turbo")
+        self.davinci_enc = encoders_map.get("text-davinci-003")
 
-        
-    @retry(wait=wait_random_exponential(min=30, max=90), stop=stop_after_attempt(3))
+    @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
         system = f"{self.system}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else self.system
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
@@ -519,82 +593,102 @@ class CallLLmGpt:
             assert self.keys["openAIKey"] is not None
             assert not self.use_small_models
 
-        if self.use_gpt4 and len(self.openai_gpt4_models) > 0:
+        if self.use_gpt4:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             try:
-                assert text_len < 8000
+                assert text_len < 7600
             except AssertionError as e:
                 text = get_first_last_parts(text, 4000, 3500, self.gpt4_enc)
-            models = round_robin(self.openai_gpt4_models)
             try:
-                model = next(models)
+                model = rate_limit_model_choice.select_model("gpt-4")
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            except TokenLimitException as e:
+                time.sleep(5)
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-4")
+                except:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    except:
+                        raise e
                 return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
-                    raise e
-                if len(self.openai_gpt4_models) > 1:
-                    model = next(models)
-                elif len(self.openai_16k_models) > 0:
-                    model = self.openai_16k_models[0]
-                else:
-                    raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-        elif not self.use_16k:
-            models = round_robin(self.openai_turbo_models + self.openai_instruct_models)
-            assert text_len < 3800
-            try:
-                model = next(models)
-#                 logger.info(f"Try turbo model with stream = {stream}")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
-                    raise e
-                if len(self.openai_turbo_models) > 1:
-                    model = next(models)
-                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
-                else:
-                    models = round_robin(self.openai_instruct_models)
-                    model = next(models)
-                    fn = call_non_chat_model
-                try:  
-                    return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
-                except Exception as e:
-                    if type(e).__name__ == 'AssertionError':
-                        raise e
-                    elif self.keys["ai21Key"] is not None:
-                        return call_with_stream(call_ai21, stream, text, temperature, self.keys)
-                    else:
-                        raise e
-        elif self.use_16k:
-            if text_len > 3400:
-                models = round_robin(self.openai_16k_models)
-                logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
-            else:
-                models = round_robin(self.openai_turbo_models)
-                logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
-            assert text_len < 15000
-            try:
-                model = next(models)
-#                 logger.info(f"Try 16k model with stream = {stream}")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
-                    raise e
-                if len(self.openai_16k_models) > 0 and text_len > 3400:
-                    model = next(models)
-                elif len(self.openai_turbo_models) > 0 and text_len < 3400:
-                    models = round_robin(self.openai_turbo_models)
-                    model = next(models)
-                elif len(self.openai_instruct_models) > 0 and text_len < 3400:
-                    models = round_robin(self.openai_instruct_models)
-                    model = next(models)
-                else:
                     raise e
                 try:
-                    return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys["openAIKey"])
-                except Exception as em:
-                    logger.error(f"Error in call_chat_model with model = {model} and text len = {text_len} and text = {text}\n{em}\n{traceback.format_exc()}")
+                    model = rate_limit_model_choice.select_model("gpt-4")
+                except:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    except:
+                        raise e
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+        elif not self.use_16k:
+            assert text_len < 3800
+            try:
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                except Exception as e:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
+            except TokenLimitException as e:
+                time.sleep(5)
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
+                except:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    fn = call_non_chat_model
+                return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
+            except Exception as e:
+                if type(e).__name__ == 'AssertionError':
                     raise e
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
+                except:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    fn = call_non_chat_model
+                return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
+        elif self.use_16k:
+            try:
+                if text_len > 3400:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
+                else:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    except TokenLimitException as e:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
+                assert text_len < 15000
+#                 logger.info(f"Try 16k model with stream = {stream}")
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
+            except TokenLimitException as e:
+                time.sleep(5)
+                if text_len > 3400:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
+                else:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    except TokenLimitException as e:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
+                                        model, text, temperature, system, self.keys)
+            except Exception as e:
+                if type(e).__name__ == 'AssertionError':
+                    raise e
+                if text_len > 3400:
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
+                else:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    except TokenLimitException as e:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
+                                        model, text, temperature, system, self.keys)
         else:
             raise ValueError("No model use criteria met")
 
@@ -1578,36 +1672,47 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     num_res = 10
-    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "two"
+    n_query = "three" if previous_search_results or len(extra_queries) > 0 else "three"
     n_query_num = 2
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
     doc_context = f"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
-    previous_answer = f"We also have the answer we have given till now for this question as '''{previous_answer}''', write new web search queries that can help expand and follow up on this answer." if previous_answer and len(
-            previous_answer.strip()) > 10 else ''
     if provide_detailed_answers > 1 and len(extra_queries) > 0:
         pqs.extend(extra_queries)
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
-    prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, previous_answer=previous_answer, pqs=pqs, n_query=n_query)
+    prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, pqs=pqs, n_query=n_query)
     if (len(extra_queries) < 1) or (len(extra_queries) <= 2 and provide_detailed_answers >= 1):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:n_query_num]]
+        query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
+        query_strings = [q.strip() for q in query_strings[:n_query_num]]
 
         if len(query_strings) == 0:
             query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
             query_strings.split("###END###")[0].strip()
-            query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:n_query_num]]
+            query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
+            query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
         query_strings = query_strings + extra_queries
     else:
         query_strings = extra_queries
-    
+    year = datetime.now().strftime("%Y")
+    month = datetime.now().strftime("%B")
+    for i, q in enumerate(query_strings):
+        if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
+            q = q + f" in {year}"
+        elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q:
+            if i % 2 == 0:
+                q = q + f" in {year} {month}"
+            else:
+                q = q + f" in {year}"
+        query_strings[i] = q
+
     rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
@@ -1630,7 +1735,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                  query_strings])
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
     elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
-        num_res = 10
+        num_res = 20
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:

@@ -314,13 +314,6 @@ def keyParser(session):
     }
     if keyStore["vllmUrl"].strip() != "" or keyStore["vllmLargeModelUrl"].strip() != "" or keyStore["vllmSmallModelUrl"].strip() != "":
         keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
-    else:
-        openai_api_key = session.get("openAIKey", keyStore["openAIKey"])
-        openai_api_key = openai_api_key if openai_api_key is not None and len(openai_api_key.strip()) > 0 else keyStore["openAIKey"]
-        keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
-        if keyStore["openai_models_list"] is None or not isinstance(keyStore["openai_models_list"], list) or len(keyStore["openai_models_list"]) == 0:
-            keyStore["openai_models_list"] = verify_openai_key_and_fetch_models(openai_api_key)
-            os.environ["openai_models_list"] = str(keyStore["openai_models_list"])
     for k, v in keyStore.items():
         key = session.get(k, v)
         if key is None or (isinstance(key, str) and key.strip() == "") or (isinstance(key, list) and len(key) == 0):

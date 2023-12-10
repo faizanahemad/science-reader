@@ -294,7 +294,7 @@ readability_script_content = readability_script_content_response.text
 # https://trafilatura.readthedocs.io/en/latest/
 # https://github.com/goose3/goose3
 
-def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
+def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=10):
     if playwright_cdp_link is None:
         playwright_cdp_link = os.environ.get("BRIGHTDATA_PLAYWRIGHT_CDP_LINK", None)
     text = ''
@@ -307,9 +307,8 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
             page.goto(url, timeout=timeout*1_000)
             page.add_script_tag(content=readability_script_content)
             page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined'",
-                # && (document.readyState === 'complete' || document.readyState === 'interactive')
-                timeout=6000)
+                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')",
+                timeout=12_000)
             result = page.evaluate(
                 """(function execute(){var article = new Readability(document).parse();return article})()""")
             if result is not None and "title" in result and "textContent" in result and result["textContent"] is not None and result["textContent"] != "":
@@ -325,7 +324,7 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=20):
             f"Error in browse_to_page_brightdata_playwright with exception = {str(e)}")
         return {"text": text, "title": title}
 
-def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
+def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=15):
     if brightdata_selenium_url is None:
         brightdata_selenium_url = os.environ.get("BRIGHTDATA_SELENIUM_URL", None)
     from selenium.webdriver import Remote, ChromeOptions
@@ -349,12 +348,12 @@ def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=20):
                         '''
         try:
             driver.execute_script(add_readability_to_selenium)
-            while driver.execute_script('return document.readyState;') != 'complete':
+            while driver.execute_script('return document.readyState;') != 'interactive':
                 time.sleep(0.1)
 
             def document_initialised(driver):
                 return driver.execute_script(
-                    """return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
+                    """return typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive');""")
 
             WebDriverWait(driver, timeout=timeout).until(document_initialised)
             result = driver.execute_script("""var article = new Readability(document).parse();return article""")
@@ -588,12 +587,12 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
         bright_data_playwright_result = None
         bright_data_selenium_result = None
 
-        if random.random() <= 0.75:
-            if random.random() <= 0.5:
-                bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
-            else:
-                bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+
+        if random.random() <= 0.5:
+            bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
         else:
+            bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+        if random.random() <= 0.4:
             zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
         # Also add bright data cdp fetch as a backup.
         result_from = "None"
@@ -601,7 +600,7 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
         zenrows_exception = False
         bright_data_playwright_exception = False
         bright_data_selenium_exception = False
-        while time.time() - st < 30 and exists_tmp_marker_file(web_search_tmp_marker_name):
+        while time.time() - st < 20 and exists_tmp_marker_file(web_search_tmp_marker_name):
 
             if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:
@@ -651,7 +650,7 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
                 if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "bright_data_selenium"
                     break
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st > 15:
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st >= 19:
                 try:
                     result = bright_data_result.result()
                     if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:

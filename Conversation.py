@@ -791,6 +791,8 @@ Write the extracted information concisely below:
             # web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
             full_web_string = ""
             for i, wta in enumerate(web_text_accumulator):
+                if i >= (12 if provide_detailed_answers else 6):
+                    break
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
                 if provide_detailed_answers >= 1:
@@ -816,35 +818,6 @@ Write the extracted information concisely below:
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
-        yield {"text": '', "status": "getting previous context"}
-        prior_chat_summary = ""
-        wt_prior_ctx = time.time()
-        while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
-            if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
-                prior_chat_summary = prior_chat_summary_future.result()
-                break
-            time.sleep(0.2)
-
-        summary_text = prior_chat_summary + "\n" + summary_text
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_method(
-            link_result_text, web_text, doc_answer, summary_text, previous_messages,
-            query["messageText"], conversation_docs_answer)
-        web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-            web_text, doc_answer, link_result_text, summary_text, previous_messages,
-            conversation_docs_answer)
-        doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
-            doc_answer.strip()) > 0 else ''
-        web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
-        link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
-            link_result_text.strip()) > 0 else ''
-        prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text,
-                                                       previous_messages=previous_messages,
-                                                       permanent_instructions='',
-                                                       doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text,
-                                                       conversation_docs_answer=conversation_docs_answer)
-        yield {"text": '', "status": "starting answer generation"}
         if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers and message_lookback==0):
             text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
@@ -869,6 +842,37 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
+        yield {"text": '', "status": "getting previous context"}
+        prior_chat_summary = ""
+        wt_prior_ctx = time.time()
+        while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
+            if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
+                prior_chat_summary = prior_chat_summary_future.result()
+                break
+            time.sleep(0.2)
+        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
+
+        summary_text = prior_chat_summary + "\n" + summary_text
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_method(
+            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            query["messageText"], conversation_docs_answer)
+        web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
+            web_text, doc_answer, link_result_text, summary_text, previous_messages,
+            conversation_docs_answer)
+        doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
+            doc_answer.strip()) > 0 else ''
+        web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+        link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
+            link_result_text.strip()) > 0 else ''
+        prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                       summary_text=summary_text,
+                                                       previous_messages=previous_messages,
+                                                       permanent_instructions='',
+                                                       doc_answer=doc_answer, web_text=web_text,
+                                                       link_result_text=link_result_text,
+                                                       conversation_docs_answer=conversation_docs_answer)
+        yield {"text": '', "status": "starting answer generation"}
+
 
         llm = CallLLm(self.get_api_keys(), use_gpt4=get_gpt4_word_count(prompt) < 7400, use_16k=get_gpt4_word_count(prompt) >= 7400)
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)

@@ -192,30 +192,6 @@ user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
             ),
-            web_search_prompt=PromptTemplate(
-                input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
-                template="""<task>Your task is to generate web search queries for a given document and conversation context.</task>
-You are given a question and conversation context as below.
-Current question: 
-'''{context}'''
-
-Earlier conversation context:
-'''{doc_context}'''
-
-Generate web search queries to search the web for more information about the current user query. {previous_answer}
-{pqs}
-Generate {n_query} well specified and diverse web search queries as a valid python list. 
-Instructions for how to generate the queries are given below.
-1. Generate diverse web search queries for the current question using the current question and conversation context. 
-2. Determine the subject domain of the current question from the context and the current question and mention the domain in your web search queries. 
-3. Your output will look like a python list of strings like below.
-["diverse google search query based on given document", "different_web_query based on the document and conversation"]
-
-Current question: 
-'''{context}'''
-Output only a valid python list of web search query strings for the current question.
-""",
-            ),
             document_search_prompt=PromptTemplate(
                 input_variables=["context", "doc_context"],
                 template="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
@@ -495,30 +471,7 @@ user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
             ),
-            web_search_prompt=PromptTemplate(
-                input_variables=["context", "doc_context", "previous_answer", "pqs", "n_query"],
-                template="""You are given a query or question or conversation context as below.
-Current question: 
-'''{context}'''
 
-Earlier conversation context:
-'''{doc_context}'''
-
-We want to generate {n_query} web search queries to search the web for more information about the current query.
-{previous_answer}
-{pqs}
-Instructions for how to generate the web search queries are given below.
-1. Generate {n_query} well specified and diverse web search queries using the current question and conversation context.
-2. Write one search query per line for a total of {n_query} queries.
-3. Only write the search queries. Don't write anything else.
-4. After writing the google web search queries write ###END### on a new line.
-5. End your response for queries with ###END###.
-
-Current question: 
-'''{context}'''
-Google Search Queries are written below.
-""",
-            ),
             document_search_prompt=PromptTemplate(
                 input_variables=["context", "doc_context"],
                 template="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
@@ -675,8 +628,74 @@ Read the document and provide information about "Limitations and Future Work" of
 
     @property
     def web_search_prompt(self):
-        prompts = self.prompts
-        return prompts["web_search_prompt"]
+        import datetime
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+        web_search_prompt = f"""Your task is to generate web search queries for given question and conversation context.
+You are given a question and conversation context as below. The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+Current question: 
+'''{{context}}'''
+
+Conversation context:
+'''{{doc_context}}'''
+
+Generate web search queries to search the web for more information about the current question. 
+If the current question or conversation context requires a date, use the current date provided above. If it is asking for latest information or information for certain years ago then use the current date or the year provided above. 
+{{pqs}}
+Generate {{n_query}} well specified and diverse web search queries as a valid python list. 
+
+Your output should look like a python list of strings like below example.
+Valid python list of web search query strings:
+["diverse google search query based on given document", "different_web_query based on the document and conversation", "search engine optimised query based on the question and conversation"]
+
+Few examples are given below.
+<example 1>
+question:
+'''What are the best ways to improve my health?'''
+
+conversation context:
+'''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
+
+Valid python list of web search query strings:
+["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising"]
+</example 1>
+
+<example 2>
+question:
+'''What are the recent developments in medical research for cancer cure?'''
+
+conversation context:
+'''I am working on a new painkiller drug which may help cancer patients and want to know what are the latest trends in the field. I can also use ideas from broader developments in medicine.'''
+
+Valid python list of web search query strings:
+["latest discoveries and research in cancer cure in {year}", "latest research works in painkiller for cancer patients in {year}", "Pioneering painkiller research works in {month} {year}.", "Using cancer cure for medical research in {year}"]
+
+# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+<example 3>
+question:
+'''What are the emerging trends in AI and large language models?'''
+
+conversation context:
+'''I am working on a new language model and want to know what are the latest trends in the field. I can also use ideas from broader developments in AI.'''
+
+Valid python list of web search query strings:
+["latest discoveries and research in AI in {year}", "research works in large language models {month} {year}", "Pioneering AI research works which can help improve large language models.", "Using large language models for AI research in {year}"]
+</example 3>
+
+# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+Current question: 
+'''{{context}}'''
+Output only a valid python list of web search query strings for the current question.
+Valid python list of web search query strings:
+"""
+        web_search_prompt = PromptTemplate(
+            input_variables=["context", "doc_context", "pqs", "n_query"],
+            template=web_search_prompt)
+        return web_search_prompt
 
     @property
     def web_search_question_answering_prompt(self):
