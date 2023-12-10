@@ -531,7 +531,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 20
+        return 8
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -667,6 +667,7 @@ Write the extracted information concisely below:
         new_line = "\n"
         summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
             prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
+        executed_partial_two_stage_answering = False
         if perform_web_search or google_scholar:
             if len(web_results.result()[0].result()['queries']) > 0:
                 yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
@@ -674,11 +675,21 @@ Write the extracted information concisely below:
                 queries = two_column_list(web_results.result()[0].result()['queries'])
                 answer += (queries + "\n")
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
+
             if len(web_results.result()[0].result()['search_results']) > 0:
                 query_results_part1 = web_results.result()[0].result()['search_results']
-                cut_off = ((6 if provide_detailed_answers <= 1 else 10) if provide_detailed_answers else 4)
-                seen_query_results = query_results_part1[:cut_off]
-                unseen_query_results = query_results_part1[cut_off:]
+                if provide_detailed_answers == 1:
+                    cut_off = 5
+                elif provide_detailed_answers == 2:
+                    cut_off = 10
+                elif provide_detailed_answers == 3:
+                    cut_off = 14
+                elif provide_detailed_answers == 4:
+                    cut_off = 18
+                else:
+                    cut_off = 6
+                seen_query_results = query_results_part1[:max(10, cut_off)]
+                unseen_query_results = query_results_part1[max(10, cut_off):]
                 answer += "\n#### Search Results: \n"
                 yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
@@ -700,7 +711,7 @@ Write the extracted information concisely below:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1) * (2 if google_scholar else 1)))
+                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 2) * (2 if google_scholar else 1))))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -719,47 +730,35 @@ Write the extracted information concisely below:
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                     full_info.append(one_web_result["full_info"])
                 time.sleep(0.2)
-            remove_tmp_marker_file(web_search_tmp_marker_name)
+
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             # Join the elements along with serial numbers.
-            web_ans_summary = ""
-            if len(web_text_accumulator) > 6 and provide_detailed_answers > 1 and False:
-                ws_st = time.time()
-                web_text = "\n\n".join([f"{i + 1}.\n{wta}" for i, wta in enumerate(web_text_accumulator[:len(web_text_accumulator)//2])])
+            if len(web_text_accumulator) >= 4 and provide_detailed_answers > 1:
+                qu_st = time.time()
+                first_stage_cut_off = 6
+                used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
+                full_web_string = ""
+                for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
+                    web_string = f"{i + 1}.\n{wta}"
+                    full_web_string = full_web_string + web_string + "\n\n"
+                    if get_gpt4_word_count(full_web_string) > 6000:
+                        break
+                web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
                 read_links = list(set([link.strip() for link in read_links]))
-                read_links = "\nWe read the below links:\n" + "\n".join(
-                    [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
+                if len(read_links) > 0:
+                    read_links = "\nWe read the below links:\n" + "\n".join(
+                        [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
+                    yield {"text": read_links, "status": "web search completed"}
+                else:
+                    read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+                    yield {"text": read_links, "status": "web search completed"}
+                yield {"text": "\n", "status": "Finished reading few links."}
                 web_text = read_links + "\n" + web_text
 
-                _, web_text, _, summary_text, _, _ = truncate_method(
-                    '', web_text, '', summary_text, '',
-                    query["messageText"],
-                    '')
-                web_text, _, _, summary_text, _, _ = format_llm_inputs(
-                    web_text, '', '', summary_text, '', '')
-                web_text = f"References and Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
-                prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                               summary_text=summary_text,
-                                                               previous_messages='',
-                                                               permanent_instructions='Answer concisely and briefly while covering all given references. Use only the provided references to give your answer.',
-                                                               doc_answer='', web_text=web_text,
-                                                               link_result_text='',
-                                                               conversation_docs_answer='')
-                gpt16k_used_in_p1 = get_gpt3_word_count(prompt) > 3400
-                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=gpt16k_used_in_p1)
-                web_ans_gen_p1 = get_async_future(llm, prompt, temperature=0.7, stream=False)
-
-                web_text = "\n\n".join(
-                    [f"{i + 1}.\n{wta}" for i, wta in enumerate(web_text_accumulator[len(web_text_accumulator) // 2:])])
-                read_links = re.findall(pattern, web_text)
-                read_links = list(set([link.strip() for link in read_links]))
-                read_links = "\nWe read the below links:\n" + "\n".join(
-                    [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
-                web_text = read_links + "\n" + web_text
                 _, web_text, _, summary_text, _, _ = truncate_method(
                     '', web_text, '', summary_text, '',
                     query["messageText"],
@@ -774,23 +773,55 @@ Write the extracted information concisely below:
                                                                doc_answer='', web_text=web_text,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                gpt16k_used_in_p2 = get_gpt3_word_count(prompt) > 3400
-                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=gpt16k_used_in_p2)
-                web_ans_gen_p2 = get_async_future(llm, prompt, temperature=0.7, stream=False)
-                web_ans_gen_p1 = web_ans_gen_p1.result()
-                web_ans_gen_p2 = web_ans_gen_p2.result()
-                web_ans_summary = f"\n\nSummary of web search results is as below.\n{web_ans_gen_p1}\n{web_ans_gen_p2}\n"
-                time_logger.info(
-                    f"Time to get web search summary: {(time.time() - st):.2f} and only sumary time: {(time.time() - ws_st):.2f}, gpt16k_used_in_p1: {gpt16k_used_in_p1}, gpt16k_used_in_p2: {gpt16k_used_in_p2}")
-            # web_text = "\n\n".join([f"{i+1}.\n{wta}" for i, wta in enumerate(web_text_accumulator)])
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+                if len(read_links) > 0:
+                    time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
+                    main_ans_gen = llm(prompt, temperature=0.3, stream=True)
+                    for txt in main_ans_gen:
+                        yield {"text": txt, "status": "stage 1 answering in progress"}
+                        answer += txt
+                        one_web_result = None
+                        if not result_queue.empty():
+                            one_web_result = result_queue.get()
+                        if one_web_result is not None and one_web_result != FINISHED_TASK:
+                            if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
+                                web_text_accumulator.append(one_web_result["text"])
+                                logger.info(
+                                    f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
+                            if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
+                                full_info.append(one_web_result["full_info"])
+
+                    executed_partial_two_stage_answering = True
+
+                while True:
+                    qu_wait = time.time()
+                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 2) * (2 if google_scholar else 1))))
+                    if break_condition and result_queue.empty():
+                        break
+                    one_web_result = None
+                    if not result_queue.empty():
+                        one_web_result = result_queue.get()
+                    qu_et = time.time()
+                    if one_web_result is None:
+                        time.sleep(0.2)
+                        continue
+                    if one_web_result == FINISHED_TASK:
+                        break
+
+                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                        web_text_accumulator.append(one_web_result["text"])
+                        logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
+                    if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
+                        full_info.append(one_web_result["full_info"])
+                    time.sleep(0.2)
+                web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
+                web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             full_web_string = ""
             for i, wta in enumerate(web_text_accumulator):
-                if i >= (12 if provide_detailed_answers else 6):
-                    break
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
                 if provide_detailed_answers >= 1:
-                    if get_gpt4_word_count(full_web_string) > 6000:
+                    if get_gpt4_word_count(full_web_string) > 6000 or (executed_partial_two_stage_answering and get_gpt4_word_count(full_web_string) > 5000):
                         break
                 if provide_detailed_answers == 0:
                     if get_gpt3_word_count(full_web_string) > 3000:
@@ -807,8 +838,12 @@ Write the extracted information concisely below:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "web search completed"}
             yield {"text": "\n", "status": "Finished reading your provided links."}
-            web_text = read_links + "\n" + web_text + web_ans_summary
+            web_text = read_links + "\n" + web_text
             time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
+            if len(read_links) == 0 and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
+                yield {"text": '', "status": "saving answer ..."}
+                get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+                return
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
@@ -858,6 +893,7 @@ Write the extracted information concisely below:
         web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
         link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
             link_result_text.strip()) > 0 else ''
+        partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,

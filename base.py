@@ -1734,6 +1734,23 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         serps.extend([get_async_future(gscholarapi, query + " recent research papers", api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                  query_strings])
         logger.debug(f"Using SERP for Google scholar search, serps len = {len(serps)}")
+    elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None and serp_available:
+        num_res = 20
+        serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                  our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                 query_strings]
+        serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
+        if gscholar:
+            serps.extend([get_async_future(brightdata_google_serp, query + " research paper",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(serpapi, query + " research paper",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
     elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
         num_res = 20
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
@@ -1771,7 +1788,15 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
     try:
         assert len(serps) > 0
-        serps = [s.result() if hasattr(s, "result") and hasattr(s, "exception") and s.exception() is None else s for s in serps if not hasattr(s, "result") or (hasattr(s, "exception") and s.exception() is None)]
+        deduped_results = set()
+        new_serps = []
+        for s in as_completed(serps):
+            if s.exception() is None and s.done():
+                deduped_results.update([r["link"] for r in s.result()])
+            if len(deduped_results) >= 35:
+                break
+            new_serps.append(s.result())
+        serps = new_serps
         assert len(serps[0]) > 0
         assert len([r for serp in serps for r in serp]) >= 15
         if provide_detailed_answers >= 2:
@@ -1816,10 +1841,19 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                                       only_pdf=None, only_science_sites=None) for query in
                                      query_strings])
                 logger.debug(f"Using BING for web search, serps len = {len(serps)}")
+            deduped_results = set()
+            new_serps = []
+            for s in as_completed(serps_v2):
+                if s.exception() is None and s.done():
+                    deduped_results.update([r["link"] for r in s.result()])
+                if len(deduped_results) >= 15:
+                    break
+                new_serps.append(s.result())
+            serps_v2 = new_serps
             if serps is not None:
-                serps.extend([s.result() for s in serps_v2 if s.exception() is None])
+                serps.extend(serps_v2)
             else:
-                serps = [s.result() for s in serps_v2]
+                serps = serps_v2
         except Exception as e:
             pass
 
