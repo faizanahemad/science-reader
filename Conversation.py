@@ -543,12 +543,6 @@ Write the extracted information concisely below:
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
-        lock_location = self._get_lock_location("reply")
-        lock = FileLock(f"{lock_location}.lock")
-        web_text_accumulator = []
-        with lock.acquire(timeout=600):
-            # Acquiring the lock so that we don't start another reply before previous is stored.
-            time.sleep(0.1)
         query["messageText"] = query["messageText"].strip()
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         query, attached_docs, attached_docs_names = attached_docs_future.result()
@@ -893,8 +887,6 @@ Write the extracted information concisely below:
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
-        with lock.acquire(timeout=600):
-            pass
 
     
     def get_last_ten_messages(self):
