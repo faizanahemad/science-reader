@@ -1752,15 +1752,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         query_strings[i] = q
 
     time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f}")
-    rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
-    rerank_query = "\n".join(query_strings)
-    if rerank_available:
-        import cohere
-        co = cohere.Client(api_keys["cohereKey"])
-        num_res = 10
     if len(extra_queries) > 0:
         num_res = 20
     else:
@@ -2007,42 +2001,6 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         
     len_after_dedup = len(dedup_results)
     logger.debug(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
-#     logger.info(f"Before Dedup = {len_before_dedup}, After = {len_after_dedup}, Link Counter = \n{link_counter}, title counter = \n{title_counter}")
-        
-    # Rerank here first
-
-    # if rerank_available:
-    #     st_rerank = time.time()
-    #     docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results]
-    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
-    #     pre_rerank = dedup_results
-    #     dedup_results = [dedup_results[r.index] for r in rerank_results]
-    #     tt_rerank = time.time() - st_rerank
-    #     logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} --- rerank len = {len(dedup_results)}")
-        # logger.info(f"--- Cohere Reranked in {tt_rerank:.2f} ---\nBefore Dedup len = {len_before_dedup}, rerank len = {len(dedup_results)},\nBefore Rerank = ```\n{pre_rerank}\n```, After Rerank = ```\n{dedup_results}\n```")
-        
-    # if rerank_available:
-    #     pdfs = [pdf_process_executor.submit(get_pdf_text, doc["link"]) for doc in dedup_results]
-    #     pdfs = [p.result() for p in pdfs]
-    #     docs = [r["snippet"] + " " + p["small_text"] for p, r in zip(pdfs, dedup_results)]
-    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=8, model='rerank-english-v2.0')
-    #     dedup_results = [dedup_results[r.index] for r in rerank_results]
-    #     pdfs = [pdfs[r.index] for r in rerank_results]
-    #     logger.info(f"--- Cohere PDF Reranked --- rerank len = {len(dedup_results)}")
-    #     logger.info(f"--- Cohere PDF Reranked ---\nBefore Dedup len = {len_before_dedup} \n rerank len = {len(dedup_results)}, After Rerank = ```\n{dedup_results}\n```")
-    texts = None
-    # if rerank_available:
-    #     texts = [p["text"] for p in pdfs]
-        
-    # if rerank_available:
-    #     for r in dedup_results_web:
-    #         if "snippet" not in r:
-    #             logger.warning(r)
-    #     docs = [r["title"] + " " + r.get("snippet", '') for r in dedup_results_web]
-    #     rerank_results = co.rerank(query=rerank_query, documents=docs, top_n=4, model='rerank-english-v2.0')
-    #     pre_rerank = dedup_results_web
-    #     dedup_results_web = [dedup_results_web[r.index] for r in rerank_results]
-
     dedup_results = list(round_robin_by_group(dedup_results, "query"))[:40]
     for r in dedup_results:
         cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
@@ -2053,53 +2011,42 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     titles = [r["title"] for r in dedup_results]
     contexts = [context +"? \n" + r["query"] for r in dedup_results] if len(dedup_results) > 0 else None
     all_results_doc = dedup_results
-    web_links = None
-    web_titles = None
-    web_contexts = None
     assert links is not None
     assert titles is not None
     assert contexts is not None
-    assert texts is None or len(texts) == len(links)
-    variables = [all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts]
-    variable_names = ["all_results_doc", "web_links", "web_titles", "web_contexts", "api_keys", "links", "titles", "contexts", "texts"]
+    variables = [all_results_doc, api_keys, links, titles, contexts, api_keys]
+    variable_names = ["all_results_doc", "api_keys", "links", "titles", "contexts"]
     cut_off = (30 if provide_detailed_answers > 2 else 20) if provide_detailed_answers > 1 else 10
     for i, (var, name) in enumerate(zip(variables, variable_names)):
         if not isinstance(var, (list, str)):
             pass
         else:
             variables[i] = var[:cut_off]
-    all_results_doc, web_links, web_titles, web_contexts, api_keys, links, titles, contexts, api_keys, texts = variables
+    all_results_doc, api_keys, links, titles, contexts, api_keys = variables
     time_logger.info(f"Time taken to get web search links via Search: {(time.time() - st):.2f}, Total links = {len(links)}")
-    return all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available
+    return all_results_doc, links, titles, contexts, query_strings
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
-    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1))
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
-    # all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
     part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1), web_search_tmp_marker_name=web_search_tmp_marker_name)
     return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    web_links = [] if web_links is None else web_links
-    web_titles = [] if web_titles is None else web_titles
-    web_contexts = [] if web_contexts is None else web_contexts
+    all_results_doc, links, titles, contexts,query_strings = part1_res.result()
     assert links is not None
     assert titles is not None
     assert contexts is not None
-    assert texts is None or len(texts) == len(links)
-    links, titles, contexts, texts = links + web_links, titles + web_titles, contexts + web_contexts, (texts + ([''] * len(web_links))) if texts is not None else None
-    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, texts, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
+    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
     return read_queue
 
 def get_part_1_results(part1_res):
     rs = part1_res.result()
-    return {"search_results": rs[0], "queries": rs[8]}
+    return {"search_results": rs[0], "queries": rs[-1]}
 
 
 def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
