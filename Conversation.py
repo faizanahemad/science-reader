@@ -531,7 +531,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 8
+        return 15
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -577,7 +577,6 @@ Write the extracted information concisely below:
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
             create_tmp_marker_file(web_search_tmp_marker_name)
-            # TODO: provide_detailed_answers addition
             logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
@@ -585,23 +584,23 @@ Write the extracted information concisely below:
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches,
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
 
-        if provide_detailed_answers == 0 and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+        if (provide_detailed_answers == 0 or provide_detailed_answers == 1) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
             searches) == 0):
-            provide_detailed_answers = 1
+            provide_detailed_answers = 2
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
-            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=provide_detailed_answers or len(links) <= 2)
+            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
 
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
-            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', provide_detailed_answers or len(attached_docs) <= 2, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
+            conversation_docs_future = get_async_future(get_multiple_answers, query["messageText"], attached_docs, summary if message_lookback >= 1 else '', max(0, int(provide_detailed_answers) - 1) or len(attached_docs) <= 2, len(additional_docs_to_read)==0 and len(links)==0 and len(searches)==0, True)
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', provide_detailed_answers, len(attached_docs)==0 and len(links)==0 and len(searches)==0)
+            doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', max(0, int(provide_detailed_answers) - 1), len(attached_docs)==0 and len(links)==0 and len(searches)==0)
         web_text = ''
         prior_context_future = get_async_future(self.retrieve_prior_context,
             query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
@@ -633,7 +632,7 @@ Write the extracted information concisely below:
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
             doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1)*4))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers)*4))):
                 if doc_future.done():
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
@@ -645,7 +644,7 @@ Write the extracted information concisely below:
                 yield {"text": '', "status": "document reading failed"}
         conversation_docs_answer = ''
         if len(attached_docs) > 0:
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 1)*4))):
+            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers)*4))):
                 if conversation_docs_future.done():
                     conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
                     conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
@@ -711,7 +710,7 @@ Write the extracted information concisely below:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 2) * (2 if google_scholar else 1))))
+                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -735,9 +734,11 @@ Write the extracted information concisely below:
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
+            web_text_accumulator = [ws for ws in web_text_accumulator if
+                                    len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
             # Join the elements along with serial numbers.
-            if len(web_text_accumulator) >= 4 and provide_detailed_answers > 1:
-                qu_st = time.time()
+            if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
+
                 first_stage_cut_off = 6
                 used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
                 full_web_string = ""
@@ -774,6 +775,7 @@ Write the extracted information concisely below:
                                                                link_result_text='',
                                                                conversation_docs_answer='')
                 llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+                qu_st = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
                     main_ans_gen = llm(prompt, temperature=0.3, stream=True)
@@ -795,7 +797,7 @@ Write the extracted information concisely below:
 
                 while True:
                     qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers + 2) * (2 if google_scholar else 1))))
+                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
                     if break_condition and result_queue.empty():
                         break
                     one_web_result = None
@@ -817,13 +819,14 @@ Write the extracted information concisely below:
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             full_web_string = ""
+            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
             for i, wta in enumerate(web_text_accumulator):
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
-                if provide_detailed_answers >= 1:
+                if provide_detailed_answers >= 2:
                     if get_gpt4_word_count(full_web_string) > 6000 or (executed_partial_two_stage_answering and get_gpt4_word_count(full_web_string) > 5000):
                         break
-                if provide_detailed_answers == 0:
+                if provide_detailed_answers <= 1:
                     if get_gpt3_word_count(full_web_string) > 3000:
                         break
             web_text = full_web_string
