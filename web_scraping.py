@@ -578,7 +578,7 @@ def soup_html_parser(html):
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
 def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
-    good_page_size = 300
+    good_page_size = 200
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     try:
@@ -672,7 +672,7 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
             result = {"text": "", "title": "", "link": link, "error": "No result"}
         time_logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, time = {et:.2f}, result sample = {result['text'][:100]}")
-        if len(result["text"].strip()) < good_page_size:
+        if len(result["text"].strip().split()) < good_page_size:
             result = {"text": "", "title": "", "link": link, "error": "Text too short"}
             logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
             raise Exception(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")

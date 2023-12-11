@@ -659,8 +659,10 @@ conversation context:
 '''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
 
 Valid python list of web search query strings:
-["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising"]
+["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising", "Ways to improve cardiovascular health in {year}"]
 </example 1>
+
+# Note: Each web search query is different and diverse and focuses on different aspects of the question and conversation context.
 
 <example 2>
 question:

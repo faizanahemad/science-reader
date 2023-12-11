@@ -735,11 +735,11 @@ Write the extracted information concisely below:
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             web_text_accumulator = [ws for ws in web_text_accumulator if
-                                    len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
+                                    len(ws.strip().split()) > 100 and "No relevant information found.".lower() not in ws.lower()]
             # Join the elements along with serial numbers.
             if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
 
-                first_stage_cut_off = 6
+                first_stage_cut_off = 8
                 used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
                 full_web_string = ""
                 for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
@@ -760,22 +760,23 @@ Write the extracted information concisely below:
                 yield {"text": "\n", "status": "Finished reading few links."}
                 web_text = read_links + "\n" + web_text
 
-                _, web_text, _, summary_text, _, _ = truncate_method(
-                    '', web_text, '', summary_text, '',
+                link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_16k(
+                    link_result_text, web_text, doc_answer, summary_text, previous_messages,
                     query["messageText"],
-                    '')
-                web_text, _, _, summary_text, _, _ = format_llm_inputs(
-                    web_text, '', '', summary_text, '', '')
-                web_text = f"References and Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+                    conversation_docs_answer)
+                web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
+                    web_text, doc_answer, link_result_text, summary_text, previous_messages,
+                    conversation_docs_answer)
+
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
-                                                               previous_messages='',
+                                                               previous_messages=previous_messages,
                                                                permanent_instructions='Answer concisely and briefly while covering all given references.',
-                                                               doc_answer='', web_text=web_text,
-                                                               link_result_text='',
-                                                               conversation_docs_answer='')
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-                qu_st = time.time()
+                                                               doc_answer=doc_answer, web_text=web_text,
+                                                               link_result_text=link_result_text,
+                                                               conversation_docs_answer=conversation_docs_answer)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                qu_mt = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
                     main_ans_gen = llm(prompt, temperature=0.3, stream=True)
@@ -794,10 +795,11 @@ Write the extracted information concisely below:
                                 full_info.append(one_web_result["full_info"])
 
                     executed_partial_two_stage_answering = True
+                    time_logger.info(f"Time taken to end replying (stage 1) for chatbot: {(time.time() - st):.2f}")
 
                 while True:
                     qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
+                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers - 1) * (2 if google_scholar else 1))))
                     if break_condition and result_queue.empty():
                         break
                     one_web_result = None
@@ -819,7 +821,7 @@ Write the extracted information concisely below:
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             full_web_string = ""
-            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
+            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > 100 and "No relevant information found.".lower() not in ws.lower()]
             for i, wta in enumerate(web_text_accumulator):
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
@@ -885,7 +887,7 @@ Write the extracted information concisely below:
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
 
         summary_text = prior_chat_summary + "\n" + summary_text
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_method(
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_16k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
         web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
@@ -900,14 +902,14 @@ Write the extracted information concisely below:
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions='',
+                                                       permanent_instructions=partial_answer_text,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
         yield {"text": '', "status": "starting answer generation"}
 
 
-        llm = CallLLm(self.get_api_keys(), use_gpt4=get_gpt4_word_count(prompt) < 7400, use_16k=get_gpt4_word_count(prompt) >= 7400)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
         main_ans_gen = llm(prompt, temperature=0.3, stream=True)
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
@@ -1015,12 +1017,19 @@ def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text,
 def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4")
 
+def truncate_text_for_gpt4_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
+    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-16k")
+
 def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4"):
     enc = tiktoken.encoding_for_model(model)
     if model == "gpt-4":
         l1 = 7000
         l2 = 1000
         l4 = 1250
+    elif model == "gpt-4-16k":
+        l1 = 14000
+        l2 = 2000
+        l4 = 2500
     else:
         l1 = 2000
         l2 = 500

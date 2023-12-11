@@ -569,7 +569,7 @@ def call_non_chat_model(model, text, temperature, system, keys):
 class CallLLmGpt:
     def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
         
-        assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
+
         self.keys = keys
         self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\nDon't repeat what is given to you in the prompt.\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
@@ -593,7 +593,38 @@ class CallLLmGpt:
             assert self.keys["openAIKey"] is not None
             assert not self.use_small_models
 
-        if self.use_gpt4:
+        if self.use_gpt4 and self.use_16k:
+            try:
+                assert text_len < 20000
+            except AssertionError as e:
+                text = get_first_last_parts(text, 12000, 3000, self.gpt4_enc)
+            try:
+                model = rate_limit_model_choice.select_model("gpt-4-16k")
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            except TokenLimitException as e:
+                time.sleep(5)
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-4-16k")
+                except:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    except:
+                        raise e
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            except Exception as e:
+                if type(e).__name__ == 'AssertionError':
+                    raise e
+                time.sleep(5)
+                try:
+                    model = rate_limit_model_choice.select_model("gpt-4-16k")
+                except:
+                    try:
+                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    except:
+                        raise e
+                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+
+        elif self.use_gpt4:
 #             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
             try:
                 assert text_len < 7600
@@ -615,6 +646,7 @@ class CallLLmGpt:
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
+                time.sleep(5)
                 try:
                     model = rate_limit_model_choice.select_model("gpt-4")
                 except:
@@ -1678,9 +1710,8 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
         extra_queries = []
-    num_res = 10
-    n_query = "three" if previous_search_results or len(extra_queries) > 0 else "three"
-    n_query_num = 2
+    n_query = "four" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query_num = 4
     pqs = []
     if previous_search_results:
         for r in previous_search_results:
@@ -1720,6 +1751,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 q = q + f" in {year}"
         query_strings[i] = q
 
+    time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f}")
     rerank_available = "cohereKey" in api_keys and api_keys["cohereKey"] is not None and len(api_keys["cohereKey"].strip()) > 0
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
@@ -1731,21 +1763,23 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         num_res = 10
     if len(extra_queries) > 0:
         num_res = 20
+    else:
+        num_res = 10
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
-    
+    search_st = time.time()
     if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None and serp_available and google_available:
-        num_res = 20
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                   our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                  query_strings]
         serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
         serps.extend([get_async_future(googleapi, query,
                                        dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                       10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                                       num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
                       query in query_strings])
         if gscholar:
+
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1769,12 +1803,13 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                           query in
                           query_strings])
     elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None and serp_available:
-        num_res = 20
+
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                   our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                  query_strings]
         serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
         if gscholar:
+
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1794,10 +1829,11 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                  query in
                  query_strings])
     elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
-        num_res = 20
+
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:
+
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None, only_science_sites=True if ix % 2 == 0 else None) for ix, query in
@@ -1808,7 +1844,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
     elif google_available:
-        num_res = 20
+
         # serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
         #         [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
         #                    num_res, our_datetime=year_month, only_pdf=True, only_science_sites=None) for query in
@@ -1819,6 +1855,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
 
         if gscholar:
+
             serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
                                            api_keys["serpApiKey"], 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1832,10 +1869,39 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
 
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
+
         serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        if gscholar:
+
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in
+                          query_strings])
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend(
+                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in
+                 query_strings])
         logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
     elif bing_available:
+
         serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+        if gscholar:
+
+            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=True, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
         logger.debug(f"Using BING for web search, serps len = {len(serps)}")
     else:
         serps = []
@@ -1845,10 +1911,11 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         assert len(serps) > 0
         deduped_results = set()
         new_serps = []
-        for s in as_completed(serps):
+        for ix, s in enumerate(as_completed(serps)):
+            time_logger.info(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
             if s.exception() is None and s.done():
                 deduped_results.update([convert_to_pdf_link_if_needed(r["link"]) for r in s.result()])
-            if len(deduped_results) > (provide_detailed_answers + 1) * 10:
+            if len(deduped_results) > (provide_detailed_answers) * 10:
                 break
             new_serps.append(s.result())
         serps = new_serps
@@ -1857,7 +1924,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         if provide_detailed_answers >= 2:
             assert len([r for serp in serps for r in serp]) >= 25
     except Exception as e:
-        num_res = 20
+        num_res = 10
         try:
             serps_v2 = []
             logger.error(f"Error in getting results from web search engines, error = {e}")
@@ -1912,7 +1979,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         except Exception as e:
             pass
 
-    
+    time_logger.info(f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
     assert serps is not None
     qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
     assert len(qres) > 0
