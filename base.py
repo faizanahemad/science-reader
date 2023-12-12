@@ -2053,7 +2053,7 @@ def get_arxiv_pdf_link(link):
         new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
         logger.debug(f"Converted arxiv link {link} to {new_link}")
         status = requests.head(new_link, timeout=10)
-        assert status.status_code == 200
+        assert status.status_code == 200, f"Error converting arxiv link {link} to ar5iv link with status code {status.status_code}"
         arxiv_text = requests.get(new_link, timeout=10).text
         soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
         element = soup.find(id='bib')
@@ -2075,14 +2075,14 @@ def get_arxiv_pdf_link(link):
         assert len(text.strip().split()) > 500, f"Extracted arxiv info is too short for link: {link}"
         return title, text
     except AssertionError as e:
-        logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
+        logger.warning(f"Error converting arxiv link {link} to ar5iv link with error {str(e)}")
         raise e
     except Exception as e:
-        logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
+        logger.warning(f"Error reading arxiv / ar5iv pdf {link} with error = {str(e)}\n{traceback.format_exc()}")
         raise e
 
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
-    link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    link, title, context, api_keys, _, detailed = link_title_context_apikeys
     key = f"read_pdf-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
@@ -2091,50 +2091,40 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     # Reading PDF
     extracted_info = ''
-    if len(text.strip()) == 0:
-        pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-        pdf_text_future = get_async_future(pdfReader, link)
-        convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
+
+    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    pdf_text_future = get_async_future(pdfReader, link)
+    convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
     get_arxiv_pdf_link_future = None
-    result_from = ""
-    if "arxiv.org" in link and len(text.strip()) == 0:
+    result_from = "TIMEOUT_PDF_READER"
+    if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
-    try:
-        while time.time() - st < (20 if detailed <= 1 else 40) and len(text.strip()) == 0 and exists_tmp_marker_file(web_search_tmp_marker_name):
-            if pdf_text_future.done() and pdf_text_future.exception() is None:
-                text = pdf_text_future.result()
-                result_from = "pdf_reader_tool"
+    text = ''
+    while time.time() - st < (20 if detailed <= 1 else 40) and exists_tmp_marker_file(web_search_tmp_marker_name):
+        if pdf_text_future.done() and pdf_text_future.exception() is None:
+            text = pdf_text_future.result()
+            result_from = "pdf_reader_tool"
+            break
+        if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
+            text = convert_api_pdf_future.result()
+            result_from = "convert_api"
+            break
+        if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
+            arxiv_title, arxiv_text = get_arxiv_pdf_link_future.result()
+            arxiv_text = normalize_whitespace(arxiv_text)
+            txt_len = len(arxiv_text.strip().split())
+            result_from = "arxiv"
+            if txt_len > 500:
+                text = arxiv_text
+                title = arxiv_title
                 break
-            if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
-                text = convert_api_pdf_future.result()
-                result_from = "convert_api"
-                break
-            if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
-                arxiv_title, arxiv_text = get_arxiv_pdf_link_future.result()
-                arxiv_text = normalize_whitespace(arxiv_text)
-                txt_len = len(arxiv_text.strip().split())
-                result_from = "arxiv"
-                if txt_len > 500:
-                    text = arxiv_text
-                    title = arxiv_title
-                    break
-            time.sleep(0.2)
-    except Exception as e:
-        exc = traceback.format_exc()
-        logger.error(f"Error reading PDF {link} with error {str(e)}\n{exc}")
-        return {"link": link, "title": title, "context": context, "detailed": detailed, "exception": True, "error": str(e),
-                "full_text": ''}
-    try:
-        txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-        time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
-        txt = normalize_whitespace(txt)
-        txt_len = len(txt.strip().split())
-        assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
-    except Exception as e:
-        exc = traceback.format_exc()
-        logger.error(f"Error reading PDF {link} with error {str(e)}\n{exc}")
-        txt = ''
-        return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": True, "error": str(e), "full_text": txt}
+        time.sleep(0.2)
+
+    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
+    txt = normalize_whitespace(txt)
+    txt_len = len(txt.strip().split())
+    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
     cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
               expire=cache_timeout)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
@@ -2144,27 +2134,18 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
-    extracted_info = ''
-    try:
-        if len(text.strip().split()) > 200:
-            # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
-            logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-            non_chunk_time = time.time()
-            extracted_info = call_contextual_reader(context, txt,
-                                                    api_keys, provide_short_responses=False,
-                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
-            tt = time.time() - st
-            tex_len = len(extracted_info.split())
-            input_len = len(txt.split())
-            time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
-            assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short, input len = {input_len}, ( Output len = {tex_len} ) for link: {link}"
-        else:
-            chunked_text = text
-            return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt,
-                    "error": f"Empty text with len = {text.strip().split()}"}
-    except Exception as e:
-        logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}\n{traceback.format_exc()}")
-        return {"link": link, "title": title, "text": extracted_info, "detailed": detailed, "context": context, "exception": True, "full_text": txt}
+    input_len = len(txt.split())
+    assert len(txt.strip().split()) > 200, f"Input length is too short, input len = {input_len}, for link: {link}"
+    # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
+    logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+    non_chunk_time = time.time()
+    extracted_info = call_contextual_reader(context, txt,
+                                            api_keys, provide_short_responses=False,
+                                            chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
+    tt = time.time() - st
+    tex_len = len(extracted_info.split())
+    time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
+    assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short, input len = {input_len}, ( Output len = {tex_len} ) for link: {link}"
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 

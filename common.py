@@ -781,10 +781,9 @@ class ProcessFnWithTimeout:
             try:
                 result = fn(*args, **kwargs)  # Call the original function with its args and kwargs
             except Exception as e:
-                traceback.print_exc()
                 exc = traceback.format_exc()
                 # Handle exceptions if needed
-                print(f"Exception processing function {fn.__name__}: {e}\n{exc}")
+                logger.error(f"Exception processing function {fn.__name__}: {e}\n{exc}")
             finally:
                 exception_event.set()
 
