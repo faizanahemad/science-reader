@@ -984,6 +984,111 @@ def thread_safe_tee(iterable, n=2):
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
 
 
+from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
+from typing import List, Optional
+import numpy as np
+class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
+    def _get_len_safe_embeddings(
+        self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
+    ) -> List[List[float]]:
+        embeddings: List[List[float]] = [[] for _ in range(len(texts))]
+        try:
+            import tiktoken
+        except ImportError:
+            raise ImportError(
+                "Could not import tiktoken python package. "
+                "This is needed in order to for OpenAIEmbeddings. "
+                "Please install it with `pip install tiktoken`."
+            )
+
+        tokens = []
+        indices = []
+        model_name = self.tiktoken_model_name or self.model
+        try:
+            encoding = tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            logger.warning("Warning: model not found. Using cl100k_base encoding.")
+            model = "cl100k_base"
+            encoding = tiktoken.get_encoding(model)
+        for i, text in enumerate(texts):
+            if self.model.endswith("001"):
+                # See: https://github.com/openai/openai-python/issues/418#issuecomment-1525939500
+                # replace newlines, which can negatively affect performance.
+                text = text.replace("\n", " ")
+            token = encoding.encode(
+                text,
+                allowed_special=self.allowed_special,
+                disallowed_special=self.disallowed_special,
+            )
+            for j in range(0, len(token), self.embedding_ctx_length):
+                tokens += [token[j : j + self.embedding_ctx_length]]
+                indices += [i]
+
+        batched_embeddings = []
+        _chunk_size = chunk_size or self.chunk_size
+
+        if self.show_progress_bar:
+            try:
+                import tqdm
+
+                _iter = tqdm.tqdm(range(0, len(tokens), _chunk_size))
+            except ImportError:
+                _iter = range(0, len(tokens), _chunk_size)
+        else:
+            _iter = range(0, len(tokens), _chunk_size)
+        _iter = list(_iter)
+        if len(_iter) <= 2:
+            for i in _iter:
+                response = embed_with_retry(
+                    self,
+                    input=tokens[i : i + _chunk_size],
+                    **self._invocation_params,
+                )
+                batched_embeddings += [r["embedding"] for r in response["data"]]
+        else:
+            # parallelize the above with a threadpool
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = []
+                for i in _iter:
+                    futures.append(executor.submit(embed_with_retry, self, input=tokens[i : i + _chunk_size], **self._invocation_params))
+                for future in futures:
+                    response = future.result()
+                    batched_embeddings += [r["embedding"] for r in response["data"]]
+
+        results: List[List[List[float]]] = [[] for _ in range(len(texts))]
+        num_tokens_in_batch: List[List[int]] = [[] for _ in range(len(texts))]
+        for i in range(len(indices)):
+            results[indices[i]].append(batched_embeddings[i])
+            num_tokens_in_batch[indices[i]].append(len(tokens[i]))
+        avg_const = embed_with_retry(
+                    self,
+                    input="",
+                    **self._invocation_params,
+                )[
+                    "data"
+                ][0]["embedding"]
+        for i in range(len(texts)):
+            _result = results[i]
+            if len(_result) == 0:
+                average = avg_const
+            else:
+                average = np.average(_result, axis=0, weights=num_tokens_in_batch[i])
+            embeddings[i] = (average / np.linalg.norm(average)).tolist()
+
+        return embeddings
+
+from langchain.embeddings.base import Embeddings
+def get_embedding_model(keys) -> Embeddings:
+    if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
+        from embedding_client_server import EmbeddingClient
+        return EmbeddingClient(keys["embeddingsUrl"])
+    openai_key = keys["openAIKey"]
+    assert openai_key
+    # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-ada-002', chunk_size=2048)
+    return openai_embed
+
+
 
 
 

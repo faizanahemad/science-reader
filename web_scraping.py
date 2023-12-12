@@ -105,12 +105,13 @@ def soup_parser(html):
 
 remove_script_tags = """
 const scriptElements = document.querySelectorAll('body script');scriptElements.forEach(scriptElement => scriptElement.remove());const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
-""".strip() + """var script=document.createElement("script");async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if("interactive"===document.readyState||"complete"===document.readyState){var t=document.createElement("script");t.src="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js",document.head.appendChild(t)}else setTimeout(e,200)}(),function e(){if("undefined"!=typeof Readability){const n=document.getElementsByTagName("body")[0];inner_html=n.innerHTML;try{var t=new Readability(document).parse();n.innerHTML="";const e=document.createElement("div");e.id="custom_content";const i=document.createElement("div");i.id="title",i.textContent=t.title;const c=document.createElement("div");return c.id="textContent",c.textContent=t.textContent,e.appendChild(i),e.appendChild(c),n.appendChild(e),t}catch(e){return console.log(e),e.innerHTML=inner_html,inner_html}}setTimeout(e,1e3)}()}script.src="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js",document.head.appendChild(script),myFunc();"""
-js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
-    remove_script_tags + '"}]}'
+""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,5e2))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,2e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
+
 
 
 def send_request_bee(url, apikey):
+    js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
+         remove_script_tags + '"}]}'
     st = time.time()
     response = requests.get(
         url='https://app.scrapingbee.com/api/v1/',
@@ -461,15 +462,15 @@ def fetch_content_brightdata(url, brightdata_proxy):
 
 import threading
 import time
-ZENROW_PARALLELISM = 10
+ZENROW_PARALLELISM = 25
 zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 
 def send_request_zenrows_html(url, apikey, readability=True):
     st = time.time()
     if readability:
-        js = '''[{"wait":100},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
+        js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
     else:
-        js = '''[{"wait":100},{"wait_for":"body"}]'''
+        js = '''[{"wait":500},{"wait_for":"body"}]'''
 
     params = {
         'url': url,
@@ -478,12 +479,14 @@ def send_request_zenrows_html(url, apikey, readability=True):
         'wait_for': 'body',
         'block_resources': 'image,media,stylesheet,font',
         'js_instructions': js,
+        'premium_proxy': 'true',
+        'antibot': 'true',
     }
     with zenrows_semaphore:
         response = requests.get('https://api.zenrows.com/v1/', params=params)
     if response.status_code != 200:
         raise Exception(
-            f"Error in zenrows with status code {response.status_code}")
+            f"Error in zenrows with status code {response.status_code} for url {url} with response {response.text}")
     if response is None or response.text is None:
         return {
             'title': "",
@@ -577,23 +580,24 @@ def soup_html_parser(html):
 
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
-def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
+from scipy import spatial
+def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     good_page_size = 200
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     try:
-        bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+        bright_data_result = None # get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         zenrows_service_result = None
         bright_data_playwright_result = None
         bright_data_selenium_result = None
 
-
-        if random.random() <= 0.5:
-            bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
-        else:
-            bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
-        if random.random() <= 0.6:
-            zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+        # if random.random() <= 0.5:
+        #     bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+        # else:
+        #     bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+        zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
+        embedding_model = get_embedding_model(apikeys)
+        query_embeddings_future = get_async_future(embedding_model.embed_query, context)
         # Also add bright data cdp fetch as a backup.
         result_from = "None"
         brightdata_exception = False
@@ -650,10 +654,13 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
                 if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "bright_data_selenium"
                     break
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st >= 19:
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st >= 15:
                 try:
                     result = bright_data_result.result()
-                    if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                    result_embedding = np.array(embedding_model.embed_documents([result["text"]])[0])
+                    query_embedding = np.array(query_embeddings_future.result())
+                    cosine_similarity = 1 - spatial.distance.cosine(result_embedding, query_embedding)
+                    if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR and cosine_similarity > 0.75:
                         result_from = "brightdata"
                         break
                     elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
@@ -697,7 +704,7 @@ if __name__=="__main__":
     # print(result)
     # result = fetch_content_brightdata("https://platform.openai.com/docs/guides/images/usage", "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225")
     # print(result)
-    result = web_scrape_page("https://towardsdatascience.com/clothes-classification-with-the-deepfashion-dataset-and-fast-ai-1e174cbf0cdc",
+    result = web_scrape_page("https://towardsdatascience.com/clothes-classification-with-the-deepfashion-dataset-and-fast-ai-1e174cbf0cdc", '',
                              {"brightdataUrl": "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225",
                               "zenrows": "0e1c6def95eadc85bf9eff4798f311231caca6b3"})
     print(result)
