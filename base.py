@@ -397,7 +397,7 @@ class OpenAIRateLimitRollingTokenTracker:
             model = min(chosen_models, key=self.get_token_count)
             if self.get_token_count(model) >= openai_rate_limits[model][0] - 32000:
                 raise TokenLimitException("All models are rate limited")
-            logger.error(f"Selected model {model} with {self.get_token_count(model)} tokens for family {family}")
+            logger.debug(f"Selected model {model} with {self.get_token_count(model)} tokens for family {family}")
             return model
 
 rate_limit_model_choice = OpenAIRateLimitRollingTokenTracker()
@@ -1644,7 +1644,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     for i, q in enumerate(query_strings):
         if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
             q = q + f" in {year}"
-        elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q:
+        elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
             if i % 2 == 0:
                 q = q + f" in {year} {month}"
             else:
@@ -1814,7 +1814,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     total_count = 0
     result_queue = Queue()
     for ix, s in enumerate(as_completed(serps)):
-        time_logger.info(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
+        time_logger.debug(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
         if s.exception() is None and s.done():
             for r in s.result():
                 query = r.get("query", "")
@@ -1836,7 +1836,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",}
                     query_vs_results_count[query] += 1
                     total_count += 1
-                    time_logger.info(f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                    time_logger.debug(f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
                 elif link not in deduped_results and title not in seen_titles:
                     result_queue.put({"query": query, "title": title, "link": link, "context": result_context, "type": "result",})
                 deduped_results.add(link)
@@ -1848,35 +1848,48 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
             continue
         query = r.get("query", "")
         min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
+        if total_count > (provide_detailed_answers) * 10:
+            time_logger.debug(
+                f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
+            break
         if query == min_key:
             query_vs_results_count[query] += 1
             total_count += 1
             yield r
-            time_logger.info(
+            time_logger.debug(
                 f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
-            if total_count > (provide_detailed_answers) * 10:
-                time_logger.info(
-                    f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
-                break
+
         else:
             break_outer = True
             result_queue.put("SENTINEL")
             while not result_queue.empty():
                 rs = result_queue.get()
-                if rs == "SENTINEL":
-                    break
-                if rs.get("query", "") == min_key:
+                if rs != "SENTINEL" and rs.get("query", "") == min_key:
+                    rsq = rs.get("query", "")
                     break_outer = False
-                    result_queue.put(rs)
+                    total_count += 1
+                    time_logger.debug(
+                        f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                    query_vs_results_count[rsq] += 1
+                    yield rs
+                elif rs == "SENTINEL":
                     break
-
+                else:
+                    result_queue.put(rs)
 
             if break_outer:
-                while total_count <= (provide_detailed_answers) * 10 and not result_queue.empty():
+                yield r
+                total_count += 1
+                query_vs_results_count[query] += 1
+                while total_count < ((provide_detailed_answers) * 10) and not result_queue.empty():
                     r = result_queue.get()
+                    if r == "SENTINEL":
+                        continue
+                    rq = r.get("query", "")
                     yield r
                     total_count += 1
-                    time_logger.info(
+                    query_vs_results_count[rq] += 1
+                    time_logger.debug(
                         f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
                 break
             result_queue.put(r)
@@ -2044,13 +2057,14 @@ def get_arxiv_pdf_link(link):
         arxiv_text = requests.get(new_link, timeout=10).text
         soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
         element = soup.find(id='bib')
+        title = ''
         # Remove the element
         if element is not None:
             element.decompose()
         try:
             title = soup.select("h1")[0].text
         except:
-            pass
+            title = ''
         try:
             text = soup.select("article")[0].text
         except:
@@ -2058,12 +2072,12 @@ def get_arxiv_pdf_link(link):
             text = soupy["text"]
             title = soupy["title"]
         text = re.sub('\n{3,}', '\n\n', text)
+        assert len(text.strip().split()) > 500, f"Extracted arxiv info is too short for link: {link}"
         return title, text
     except AssertionError as e:
-        text = ""
+        logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
         raise e
     except Exception as e:
-        text = ""
         logger.error(f"Error converting arxiv link {link} to ar5iv link with error {e}\n{traceback.format_exc()}")
         raise e
 
@@ -2082,30 +2096,45 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
         pdf_text_future = get_async_future(pdfReader, link)
         convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
     get_arxiv_pdf_link_future = None
+    result_from = ""
     if "arxiv.org" in link and len(text.strip()) == 0:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
     try:
-        while time.time() - st < 30 and len(text.strip()) == 0 and exists_tmp_marker_file(web_search_tmp_marker_name):
+        while time.time() - st < (20 if detailed <= 1 else 40) and len(text.strip()) == 0 and exists_tmp_marker_file(web_search_tmp_marker_name):
             if pdf_text_future.done() and pdf_text_future.exception() is None:
                 text = pdf_text_future.result()
+                result_from = "pdf_reader_tool"
                 break
             if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
                 text = convert_api_pdf_future.result()
+                result_from = "convert_api"
                 break
-            if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None:
-                title, text = get_arxiv_pdf_link_future.result()
-                break
+            if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
+                arxiv_title, arxiv_text = get_arxiv_pdf_link_future.result()
+                arxiv_text = normalize_whitespace(arxiv_text)
+                txt_len = len(arxiv_text.strip().split())
+                result_from = "arxiv"
+                if txt_len > 500:
+                    text = arxiv_text
+                    title = arxiv_title
+                    break
             time.sleep(0.2)
     except Exception as e:
-        logger.error(f"Error reading PDF {link} with error {e}")
+        exc = traceback.format_exc()
+        logger.error(f"Error reading PDF {link} with error {str(e)}\n{exc}")
+        return {"link": link, "title": title, "context": context, "detailed": detailed, "exception": True, "error": str(e),
+                "full_text": ''}
     try:
         txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
         time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
-        assert len(txt.strip()) > 0, f"Extracted pdf info is too short for link: {link}"
+        txt = normalize_whitespace(txt)
+        txt_len = len(txt.strip().split())
+        assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
     except Exception as e:
-        logger.error(f"Error reading PDF {link} with error {e}")
+        exc = traceback.format_exc()
+        logger.error(f"Error reading PDF {link} with error {str(e)}\n{exc}")
         txt = ''
-        return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": True, "full_text": txt}
+        return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": True, "error": str(e), "full_text": txt}
     cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
               expire=cache_timeout)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
@@ -2117,19 +2146,22 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     st = time.time()
     extracted_info = ''
     try:
-        if len(text.strip()) > 0:
+        if len(text.strip().split()) > 200:
             # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
             logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
             non_chunk_time = time.time()
             extracted_info = call_contextual_reader(context, txt,
                                                     api_keys, provide_short_responses=False,
-                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
+                                                    chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
             tt = time.time() - st
-            time_logger.info(f"Called contextual reader for link: {link}, Result length = {len(extracted_info.split())} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
-            assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short for link: {link}"
+            tex_len = len(extracted_info.split())
+            input_len = len(txt.split())
+            time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
+            assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short, input len = {input_len}, ( Output len = {tex_len} ) for link: {link}"
         else:
             chunked_text = text
-            return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt}
+            return {"link": link, "title": title, "text": extracted_info, "exception": True, "full_text": txt,
+                    "error": f"Empty text with len = {text.strip().split()}"}
     except Exception as e:
         logger.error(f"Exception `{str(e)}` raised on `process_pdf` with link: {link}\n{traceback.format_exc()}")
         return {"link": link, "title": title, "text": extracted_info, "detailed": detailed, "context": context, "exception": True, "full_text": txt}
@@ -2182,7 +2214,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
+    threads = 40 if provide_detailed_answers else 16
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(*args, **kwargs):
         link_title_context_apikeys = args[0]
@@ -2194,7 +2226,12 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         detailed = link_title_context_apikeys[5]
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
-        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), kwargs]
+        web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception", False) and "full_text" in web_res and len(web_res["full_text"].split()) > 0:
+            return [web_res, kwargs]
+        else:
+            error = web_res["error"] if "error" in web_res else None
+            raise Exception(f"fn1 Web search stopped for link: {link} due to {error}")
     def fn2(*args, **kwargs):
         link_data = args[0]
         link = link_data["link"]
@@ -2213,7 +2250,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             summary = get_downloaded_data_summary(link_title_context_apikeys)
             return summary
         else:
-            raise Exception(f"Web search stopped for link: {link}")
+            raise Exception(f"fn2 Web search stopped for link: {link}")
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
@@ -2223,124 +2260,6 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back, threads, 45, 75)
     return task_queue
 
-def queued_read_over_multiple_links_tmp(results_generator, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    def yeild_one():
-        for r in results_generator:
-            if isinstance(r, dict) and r["type"] == "result":
-                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers]]
-            else:
-                continue
-
-    def call_back_1(result, *args, **kwargs):
-        try:
-            link = args[0][0][0]
-        except:
-            link = ''
-        full_result = None
-        text = ''
-        try:
-            result, marker = result
-            web_search_tmp_marker_name = marker["keep_going_marker"]
-            # if exists_tmp_marker_file(web_search_tmp_marker_name):
-            #     pass
-            # else:
-            #     raise Exception(f"Web search stopped for link: {link}")
-            if result is not None:
-                assert isinstance(result, dict)
-                if "exception" in result and result["exception"]:
-                    logger.error(f"Exception raised for link: {link}")
-                    return [{"text": text, "title": '', "full_info": full_result, "link": link}, kwargs]
-
-                    # TODO: Raise the exception
-                if "text" not in result or len(result["text"].strip()) == 0:
-                    logger.error(f"Empty text for link: {link}")
-                    return {"text": text, "title": '', "full_info": full_result, "link": link}
-                result.pop("exception", None)
-                result.pop("detailed", None)
-                full_result = deepcopy(result)
-                result.pop("full_text", None)
-                text = f"[{result['title']}]({result['link']})\n{result['text']}"
-            return [{"text": text, "title": result['title'], "full_info": full_result, "link": link}, kwargs]
-        except Exception as e:
-            logger.error(f"Exception raised for link: {link}, {e}\n{traceback.format_exc()}")
-            return [{"text": text, "title": '', "full_info": full_result, "link": link}, kwargs]
-
-    def call_back_2(result, *args, **kwargs):
-        try:
-            link = args[0][0]
-        except:
-            link = ''
-        full_result = None
-        text = ''
-        try:
-            result, marker = result
-            web_search_tmp_marker_name = marker["keep_going_marker"]
-            # if exists_tmp_marker_file(web_search_tmp_marker_name):
-            #     pass
-            # else:
-            #     raise Exception(f"Web search stopped for link: {link}")
-            if result is not None:
-                assert isinstance(result, dict)
-                if "exception" in result and result["exception"]:
-                    logger.error(f"Exception raised for link: {link}, {result['error']}")
-                    return {"text": text, "title": '', "full_info": full_result, "link": link}
-
-                    # TODO: Raise the exception
-                if "text" not in result or len(result["text"].strip()) == 0:
-                    logger.error(f"Empty text for link: {link}")
-                    return {"text": text, "title": '', "full_info": full_result, "link": link}
-                result.pop("exception", None)
-                result.pop("detailed", None)
-                full_result = deepcopy(result)
-                result.pop("full_text", None)
-                text = f"[{result['title']}]({result['link']})\n{result['text']}"
-            return {"text": text, "title": result['title'], "full_info": full_result, "link": link}
-        except Exception as e:
-            logger.error(f"Exception raised for link: {link}, {e}\n{traceback.format_exc()}")
-            return {"text": text, "title": '', "full_info": full_result, "link": link}
-
-    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
-    # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
-    def fn1(*args, **kwargs):
-        link_title_context_apikeys = args[0]
-        link = link_title_context_apikeys[0]
-        title = link_title_context_apikeys[1]
-        context = link_title_context_apikeys[2]
-        api_keys = link_title_context_apikeys[3]
-        text = link_title_context_apikeys[4]
-        detailed = link_title_context_apikeys[5]
-        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
-        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), kwargs]
-    def fn2(*args, **kwargs):
-        link_data = args[0]
-        link = link_data["link"]
-        title = link_data["title"]
-        text = link_data["full_text"]
-        exception = link_data["exception"]
-        error = link_data["error"] if "error" in link_data else None
-        context = link_data["context"] if "context" in link_data else ""
-        detailed = link_data["detailed"] if "detailed" in link_data else False
-        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
-        if len(context.strip()) == 0:
-            raise Exception(f"Empty context for link: {link}")
-        if exception:
-            # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
-            raise Exception(f"Exception raised for link: {link}, {error}")
-        if exists_tmp_marker_file(web_search_tmp_marker_name):
-            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-            summary = get_downloaded_data_summary(link_title_context_apikeys)
-            return summary
-        else:
-            raise Exception(f"Web search stopped for link: {link}")
-    # def compute_timeout(link):
-    #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
-    # timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    def yield_timeout():
-        while True:
-            yield dict(keep_going_marker=web_search_tmp_marker_name)
-    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back_1, call_back_2, threads, 45, 75)
-    return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
     if texts is None:

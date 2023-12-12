@@ -104,10 +104,10 @@ def soup_parser(html):
     return my_dict
 
 remove_script_tags = """
-const scriptElements = document.querySelectorAll('body script');scriptElements.forEach(scriptElement => scriptElement.remove());const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
-""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,5e2))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,2e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
+const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
+""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,3e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
 
-
+new_script = "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,500))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,500)}(),function e(){if('undefined'!=typeof Readability){const e=document.getElementsByTagName('body')[0],n=e.innerHTML;e.innerHTML='';try{var t=new Readability(document).parse();if(t.textContent.split(' ').length<200)return void(e.innerHTML=n);const i=document.createElement('div');i.id='custom_content';const a=document.createElement('div');a.id='title',a.textContent=t.title;const c=document.createElement('div');return c.id='textContent',c.textContent=t.textContent,i.appendChild(a),i.appendChild(c),e.appendChild(i),t}catch(t){e.innerHTML=n}}setTimeout(e,2e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
 
 def send_request_bee(url, apikey):
     js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
@@ -479,8 +479,6 @@ def send_request_zenrows_html(url, apikey, readability=True):
         'wait_for': 'body',
         'block_resources': 'image,media,stylesheet,font',
         'js_instructions': js,
-        'premium_proxy': 'true',
-        'antibot': 'true',
     }
     with zenrows_semaphore:
         response = requests.get('https://api.zenrows.com/v1/', params=params)
@@ -517,7 +515,7 @@ def send_request_zenrows(url, apikey):
     except Exception as e:
         result = None
         exc = traceback.format_exc()
-        logger.error(
+        logger.debug(
             f"[fetch_content_zenrows] link = {url}, Error in soup_parser with exception = {str(e)}\n{exc}")
     if result is not None and "title" in result and "text" in result and result["text"] is not None and result["text"] != "":
         return result
@@ -533,19 +531,24 @@ def send_request_zenrows(url, apikey):
     except Exception as e:
         soup_html_parser_result = None
         exc = traceback.format_exc()
-        logger.error(
+        logger.debug(
             f"[fetch_content_brightdata] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
 
     # if local_result is not None and (result is None or len(result['text']) < len(local_result['text']) // 2):
     #     result = local_result
     if soup_html_parser_result is not None and (
-            result is None or len(result['text']) < len(soup_html_parser_result['text']) // 4):
+            result is None or len(result['text']) < len(soup_html_parser_result['text']) // 2):
         result = soup_html_parser_result
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = remove_bad_whitespaces(result["text"])
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
         result["title"] = remove_bad_whitespaces(result["title"])
+    if result is None:
+        result = {
+            'title': "",
+            'text': ""
+        }
     return result
 
 from bs4 import BeautifulSoup, NavigableString
@@ -580,13 +583,17 @@ def soup_html_parser(html):
 
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
+class ScrapingValidityException(Exception):
+    pass
+
+
 from scipy import spatial
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     good_page_size = 200
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     try:
-        bright_data_result = None # get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+        bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
         zenrows_service_result = None
         bright_data_playwright_result = None
         bright_data_selenium_result = None
@@ -604,7 +611,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         zenrows_exception = False
         bright_data_playwright_exception = False
         bright_data_selenium_exception = False
-        while time.time() - st < 20 and exists_tmp_marker_file(web_search_tmp_marker_name):
+        while time.time() - st < 25 and exists_tmp_marker_file(web_search_tmp_marker_name):
 
             if zenrows_service_result is not None and zenrows_service_result.done() and not zenrows_exception:
                 try:
@@ -654,16 +661,18 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
                 if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                     result_from = "bright_data_selenium"
                     break
-            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st >= 15:
+            if bright_data_result is not None and bright_data_result.done() and not brightdata_exception and time.time() - st >= 10:
                 try:
                     result = bright_data_result.result()
+                    # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
+                    result["text"] = normalize_whitespace(result["text"])
                     result_embedding = np.array(embedding_model.embed_documents([result["text"]])[0])
                     query_embedding = np.array(query_embeddings_future.result())
                     cosine_similarity = 1 - spatial.distance.cosine(result_embedding, query_embedding)
                     if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR and cosine_similarity > 0.75:
                         result_from = "brightdata"
                         break
-                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                    elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR or cosine_similarity <= 0.75:
                         brightdata_exception = True
                 except Exception as e:
                     brightdata_exception = True
@@ -676,21 +685,30 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             time.sleep(0.2)
         et = time.time() - st
         if result is None:
-            result = {"text": "", "title": "", "link": link, "error": "No result", "exception": True}
-        time_logger.info(
-            f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, time = {et:.2f}, result sample = {result['text'][:100]}")
-        if len(result["text"].strip().split()) < good_page_size:
+            raise ScrapingValidityException(f"No result for {link} from {result_from}")
+        result["text"] = normalize_whitespace(result["text"])
+        result["title"] = normalize_whitespace(result["title"])
+        # time_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
+        if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+            logger.info(
+                f"web_scrape_page:: Got result from {result_from} for link {link}, result len = {len(result['text'].split())}, time = {et:.2f}")
+
+        elif len(result["text"].strip().split()) < good_page_size:
             result = {"text": "", "title": "", "link": link, "error": "Text too short", "exception": True}
             logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-            raise Exception(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-        if result["text"].strip() == DDOS_PROTECTION_STR:
+            raise ScrapingValidityException(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+
+        elif result["text"].strip() == DDOS_PROTECTION_STR:
             result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR, "exception": True}
             logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-            raise Exception(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+            raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
+    except ScrapingValidityException as em:
+        logger.error(f"web_scrape_page:: failed with exception = {str(em)}")
+        result = {"text": "", "title": "", "link": link, "error": str(em), "exception": True}
     except Exception as e:
         exc = traceback.format_exc()
-        logger.info(f"web_scrape_page:: failed with exception = {str(e)}, \n {exc}")
+        logger.debug(f"web_scrape_page:: failed with exception = {str(e)}\n {exc}")
         # traceback.print_exc()
         result = {"text": "", "title": "", "link": link, "error": str(e), "exception": True}
         # result = send_request_zenrows(link, apikeys['zenrows'])

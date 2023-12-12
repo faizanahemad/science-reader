@@ -458,7 +458,16 @@ def parse_array_string(s):
 
 
 def normalize_whitespace(s):
-    return re.sub(r'\s+', ' ', s).strip()
+    # Replace multiple spaces with a single space
+    s = re.sub(r' {2,}', ' ', s)
+
+    # Replace multiple tabs with a single tab
+    s = re.sub(r'\t{2,}', '\t', s)
+
+    # Replace multiple blank lines with a single blank line
+    s = re.sub(r'\n\s*\n', '\n\n', s)
+
+    return s.strip()
 
 
 def verify_openai_key_and_fetch_models(api_key):
@@ -750,7 +759,7 @@ def is_pdf_link(link):
             logger.warning(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
             result = False
     et = time.time() - st
-    logger.info(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
+    logger.debug(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
     return result
 
 
@@ -812,8 +821,8 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                 result = callback(result, args, kwargs)
             task_queue.put(result)
         except Exception as e:
-            traceback.print_exc()
-            print(f"Exception in task_worker: {e}")
+            exc = traceback.format_exc()
+            logger.error(f"[orchestrator] Exception in task_worker with timeout = {timeout} : {e}\n{exc}")
             task_queue.put(None)  # Put None to indicate an error
 
     def run_tasks():
@@ -828,7 +837,8 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                 for future in futures:
                     future.result()
         except Exception as e:
-            print(f"Exception in run_tasks: {e}")
+            exc = traceback.format_exc()
+            logger.error(f"[orchestrator] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
         finally:
             # Signal the end of the task results
             task_queue.put(FINISHED_TASK)
@@ -858,8 +868,8 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                     new_result = callback(new_result, args, kwargs)
                 task_queue.put(new_result)
         except Exception as e:
-            traceback.print_exc()
-            print(f"Exception in task_worker: {e}")
+            exc = traceback.format_exc()
+            logger.error(f"[orchestrator_with_queue] Exception in task_worker with timeout = {timeout} : {e}\n{exc}")
             task_queue.put(None)  # Put None to indicate an error
 
     def run_tasks():
@@ -879,7 +889,8 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                 for future in futures:
                     future.result()
         except Exception as e:
-            print(f"Exception in run_tasks: {e}")
+            exc = traceback.format_exc()
+            logger.error(f"[orchestrator_with_queue] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
         finally:
             # Signal the end of the task results
             task_queue.put(TERMINATION_SIGNAL)
@@ -968,7 +979,7 @@ def thread_safe_tee(iterable, n=2):
         for item in iterable:
             for ix, q in enumerate(queues):
                 q.put(item)
-                logger.info(f"thread_safe_tee putting item for {ix}-th queue: {item}")
+                # logger.info(f"thread_safe_tee putting item for {ix}-th queue: {item}")
         for q in queues:
             q.put(StopIteration)
     threading.Thread(target=generator, args=(queues,)).start()
@@ -978,7 +989,7 @@ def thread_safe_tee(iterable, n=2):
             item = q.get()
             if item is StopIteration:
                 return
-            logger.info(f"thread_safe_tee yielding item for {ix}-th queue: {item}")
+            # logger.info(f"thread_safe_tee yielding item for {ix}-th queue: {item}")
             yield item
 
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
