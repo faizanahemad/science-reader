@@ -4,6 +4,9 @@ import random
 from functools import partial
 import glob
 import traceback
+from operator import itemgetter
+import itertools
+
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import re
@@ -1751,6 +1754,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 q = q + f" in {year}"
         query_strings[i] = q
 
+    yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
     time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f}")
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
@@ -1824,7 +1828,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                  query_strings])
     elif os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
 
-        serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+        serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res + 10,
                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:
 
@@ -1846,7 +1850,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         #         [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
         #                    num_res, our_datetime=year_month, only_pdf=False, only_science_sites=True) for query in
         #          query_strings]
-        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        serps = [get_async_future(googleapi, query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
 
         if gscholar:
 
@@ -1864,7 +1868,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
     elif serp_available:
 
-        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:
 
             serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
@@ -1887,7 +1891,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
     elif bing_available:
 
-        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
+        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:
 
             serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
@@ -1900,157 +1904,113 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     else:
         serps = []
         logger.warning(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
-        return {"text":'', "search_results": [], "queries": query_strings + ["Search Failed --- No API Keys worked"]}
+        yield {"type": "error", "error": "Neither GOOGLE, Bing nor SERP keys are given but Search option choosen."}
     try:
         assert len(serps) > 0
-        deduped_results = set()
-        new_serps = []
-        for ix, s in enumerate(as_completed(serps)):
-            time_logger.info(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
-            if s.exception() is None and s.done():
-                deduped_results.update([convert_to_pdf_link_if_needed(r["link"]) for r in s.result()])
-            if len(deduped_results) > (provide_detailed_answers) * 10:
-                break
-            new_serps.append(s.result())
-        serps = new_serps
-        assert len(serps[0]) > 0
-        assert len([r for serp in serps for r in serp]) >= 15
-        if provide_detailed_answers >= 2:
-            assert len([r for serp in serps for r in serp]) >= 25
-    except Exception as e:
-        num_res = 10
-        try:
-            serps_v2 = []
-            logger.error(f"Error in getting results from web search engines, error = {e}")
-            if gscholar and serp_available:
-                serps_v2.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                          only_pdf=None, only_science_sites=None) for query in
-                         query_strings])
-            if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
-                # use brightdata_google_serp
-                serps_v2.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
-                if gscholar:
-                    serps_v2.extend([get_async_future(brightdata_google_serp, query,
-                                                      os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
-                                                      our_datetime=year_month, only_pdf=True, only_science_sites=None)
-                                     for query in query_strings])
-                    serps_v2.extend([get_async_future(brightdata_google_serp, query + " research paper",
-                                                      os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
-                                                      our_datetime=year_month, only_pdf=None, only_science_sites=None)
-                                     for query in query_strings])
-            elif serp_available:
-                serps_v2.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
-                logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
-                if gscholar and serp_available:
-                    serps_v2.extend(
-                        [get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                          only_pdf=None, only_science_sites=None) for query in
-                         query_strings])
-            elif bing_available:
-                # TODO: Bing is not working debug this
-                serps_v2.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings])
-                if gscholar:
-                    serps_v2.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
-                                                      only_pdf=True, only_science_sites=None) for query in
-                                     query_strings])
-                    serps_v2.extend([get_async_future(bingapi, query + " research paper", api_keys["bingKey"], num_res, our_datetime=None,
-                                                      only_pdf=None, only_science_sites=None) for query in
-                                     query_strings])
-                logger.debug(f"Using BING for web search, serps len = {len(serps)}")
-            deduped_results = set()
-            new_serps = []
-            for s in as_completed(serps_v2):
-                if s.exception() is None and s.done():
-                    deduped_results.update([r["link"] for r in s.result()])
-                if len(deduped_results) >= 15:
-                    break
-                new_serps.append(s.result())
-            serps_v2 = new_serps
-            if serps is not None:
-                serps.extend(serps_v2)
-            else:
-                serps = serps_v2
-        except Exception as e:
-            pass
-
-    time_logger.info(f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
-    assert serps is not None
-    qres = [r for serp in serps for r in serp if r["link"] not in doc_source and doc_source not in r["link"]]
-    assert len(qres) > 0
-    logger.debug(f"Using Engine for web search, serps len = {len([r for s in serps for r in s])} Qres len = {len(qres)}")
-    dedup_results = []
+    except AssertionError:
+        logger.error(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
+        yield {"type": "error", "error": "Neither GOOGLE, Bing nor SERP keys are given but Search option choosen."}
+    deduped_results = set()
     seen_titles = set()
-    seen_links = set()
-    link_counter = Counter()
-    title_counter = Counter()
-    if previous_search_results:
-        for r in previous_search_results:
-            seen_links.add(r['link'])
-    len_before_dedup = len(qres)
-    for r in qres:
-        title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
-        link = convert_to_pdf_link_if_needed(link)
-        link_counter.update([link])
-        title_counter.update([title])
-        if title in seen_titles or len(title) == 0 or link in seen_links or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
-            continue
-        dedup_results.append(r)
-        seen_titles.add(title)
-        seen_links.add(link)
-        
-    len_after_dedup = len(dedup_results)
-    logger.debug(f"Web search:: Before Dedup = {len_before_dedup}, After = {len_after_dedup}")
-    dedup_results = list(round_robin_by_group(dedup_results, "query"))[:40]
-    for r in dedup_results:
-        cite_text = f"""{(f" Cited by {r['citations']}" ) if r['citations'] else ""}"""
-        r["title"] = r["title"] + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
 
-    assert len(dedup_results) > 0
-    links = [r["link"] for r in dedup_results]
-    titles = [r["title"] for r in dedup_results]
-    contexts = [context +"? \n" + r["query"] for r in dedup_results] if len(dedup_results) > 0 else None
-    all_results_doc = dedup_results
-    assert links is not None
-    assert titles is not None
-    assert contexts is not None
-    variables = [all_results_doc, api_keys, links, titles, contexts, api_keys]
-    variable_names = ["all_results_doc", "api_keys", "links", "titles", "contexts"]
-    cut_off = (30 if provide_detailed_answers > 2 else 20) if provide_detailed_answers > 1 else 10
-    for i, (var, name) in enumerate(zip(variables, variable_names)):
-        if not isinstance(var, (list, str)):
-            pass
+    query_vs_results_count = Counter()
+    total_count = 0
+    result_queue = Queue()
+    for ix, s in enumerate(as_completed(serps)):
+        time_logger.info(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
+        if s.exception() is None and s.done():
+            for r in s.result():
+                query = r.get("query", "")
+                title = r.get("title", "").lower()
+                cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
+                title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
+                link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
+                    "v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8",
+                                                                                                              '').replace(
+                    "v9", '')
+                link = convert_to_pdf_link_if_needed(link)
+                result_context = context + "? \n" + query
+                if title in seen_titles or len(
+                        title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
+                    deduped_results.add(link)
+                    seen_titles.add(title)
+                    continue
+                if link not in deduped_results and title not in seen_titles and (query not in query_vs_results_count or query_vs_results_count[query] < 4):
+                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",}
+                    query_vs_results_count[query] += 1
+                    total_count += 1
+                    time_logger.info(f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                elif link not in deduped_results and title not in seen_titles:
+                    result_queue.put({"query": query, "title": title, "link": link, "context": result_context, "type": "result",})
+                deduped_results.add(link)
+                seen_titles.add(title)
+
+    while not result_queue.empty():
+        r = result_queue.get()
+        if r == "SENTINEL":
+            continue
+        query = r.get("query", "")
+        min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
+        if query == min_key:
+            query_vs_results_count[query] += 1
+            total_count += 1
+            yield r
+            time_logger.info(
+                f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+            if total_count > (provide_detailed_answers) * 10:
+                time_logger.info(
+                    f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
+                break
         else:
-            variables[i] = var[:cut_off]
-    all_results_doc, api_keys, links, titles, contexts, api_keys = variables
-    time_logger.info(f"Time taken to get web search links via Search: {(time.time() - st):.2f}, Total links = {len(links)}")
-    return all_results_doc, links, titles, contexts, query_strings
+            break_outer = True
+            result_queue.put("SENTINEL")
+            while not result_queue.empty():
+                rs = result_queue.get()
+                if rs == "SENTINEL":
+                    break
+                if rs.get("query", "") == min_key:
+                    break_outer = False
+                    result_queue.put(rs)
+                    break
+
+
+            if break_outer:
+                while total_count <= (provide_detailed_answers) * 10 and not result_queue.empty():
+                    r = result_queue.get()
+                    yield r
+                    total_count += 1
+                    time_logger.info(
+                        f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                break
+            result_queue.put(r)
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
-    part2_res = get_async_future(web_search_part2, part1_res, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1))
-    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
+    gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
+    part2_res = get_async_future(web_search_part2, gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1))
+    return [wrap_in_future(get_part_1_results(gen1)), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
-    part2_res = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1), web_search_tmp_marker_name=web_search_tmp_marker_name)
-    return [wrap_in_future(get_part_1_results(part1_res)), part2_res] # get_async_future(get_part_1_results, part1_res)
-
-def web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    all_results_doc, links, titles, contexts,query_strings = part1_res.result()
-    assert links is not None
-    assert titles is not None
-    assert contexts is not None
-    read_queue = queued_read_over_multiple_links(links, titles, contexts, api_keys, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
-    return read_queue
+    gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
+    read_queue = queued_read_over_multiple_links(gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
+                                                 web_search_tmp_marker_name=web_search_tmp_marker_name)
+    return [get_async_future(get_part_1_results, gen1), read_queue] # get_async_future(get_part_1_results, part1_res)
 
 def get_part_1_results(part1_res):
-    rs = part1_res.result()
-    return {"search_results": rs[0], "queries": rs[-1]}
-
+    queries = next(part1_res)["query"]
+    results = []
+    for r in part1_res:
+        if isinstance(r, dict) and r["type"] == "result":
+            results.append(r)
+        if len(results) >= 10:
+            break
+    return {"search_results": results, "queries": queries}
 
 def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    result_queue = web_search_part2_queue(part1_res, api_keys, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
+    result_queue = queued_read_over_multiple_links(part1_res, api_keys,
+                                                 provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
+                                                 web_search_tmp_marker_name=web_search_tmp_marker_name)
     web_text_accumulator = []
     full_info = []
     qu_st = time.time()
@@ -2064,7 +2024,7 @@ def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_se
         qu_et = time.time()
         if one_web_result is None:
             continue
-        if one_web_result == FINISHED_TASK:
+        if one_web_result == TERMINATION_SIGNAL:
             break
 
         if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
@@ -2254,9 +2214,6 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
 
-
-
-
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
@@ -2303,14 +2260,13 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=64)
 
-def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    basic_context = contexts[0] if len(contexts) > 0 else ""
-    if texts is None:
-        texts = [''] * len(links)
-
-    link_title_context_apikeys = list(
-        zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
-    link_title_context_apikeys = [[l] for l in link_title_context_apikeys]
+def queued_read_over_multiple_links(results_generator, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
+    def yeild_one():
+        for r in results_generator:
+            if isinstance(r, dict) and r["type"] == "result":
+                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers]]
+            else:
+                continue
 
     def call_back(result, *args, **kwargs):
         try:
@@ -2364,8 +2320,129 @@ def queued_read_over_multiple_links(links, titles, contexts, api_keys, texts=Non
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
-    timeouts = [dict(keep_going_marker=web_search_tmp_marker_name)] * len(links)
-    task_queue = dual_orchestrator(fn1, fn2, list(zip(link_title_context_apikeys, timeouts)), call_back, threads, 45, 75)
+    def yield_timeout():
+        while True:
+            yield dict(keep_going_marker=web_search_tmp_marker_name)
+    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back, threads, 45, 75)
+    return task_queue
+
+def queued_read_over_multiple_links_tmp(results_generator, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
+    def yeild_one():
+        for r in results_generator:
+            if isinstance(r, dict) and r["type"] == "result":
+                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers]]
+            else:
+                continue
+
+    def call_back_1(result, *args, **kwargs):
+        try:
+            link = args[0][0][0]
+        except:
+            link = ''
+        full_result = None
+        text = ''
+        try:
+            result, marker = result
+            web_search_tmp_marker_name = marker["keep_going_marker"]
+            # if exists_tmp_marker_file(web_search_tmp_marker_name):
+            #     pass
+            # else:
+            #     raise Exception(f"Web search stopped for link: {link}")
+            if result is not None:
+                assert isinstance(result, dict)
+                if "exception" in result and result["exception"]:
+                    logger.error(f"Exception raised for link: {link}")
+                    return [{"text": text, "title": '', "full_info": full_result, "link": link}, kwargs]
+
+                    # TODO: Raise the exception
+                if "text" not in result or len(result["text"].strip()) == 0:
+                    logger.error(f"Empty text for link: {link}")
+                    return {"text": text, "title": '', "full_info": full_result, "link": link}
+                result.pop("exception", None)
+                result.pop("detailed", None)
+                full_result = deepcopy(result)
+                result.pop("full_text", None)
+                text = f"[{result['title']}]({result['link']})\n{result['text']}"
+            return [{"text": text, "title": result['title'], "full_info": full_result, "link": link}, kwargs]
+        except Exception as e:
+            logger.error(f"Exception raised for link: {link}, {e}\n{traceback.format_exc()}")
+            return [{"text": text, "title": '', "full_info": full_result, "link": link}, kwargs]
+
+    def call_back_2(result, *args, **kwargs):
+        try:
+            link = args[0][0]
+        except:
+            link = ''
+        full_result = None
+        text = ''
+        try:
+            result, marker = result
+            web_search_tmp_marker_name = marker["keep_going_marker"]
+            # if exists_tmp_marker_file(web_search_tmp_marker_name):
+            #     pass
+            # else:
+            #     raise Exception(f"Web search stopped for link: {link}")
+            if result is not None:
+                assert isinstance(result, dict)
+                if "exception" in result and result["exception"]:
+                    logger.error(f"Exception raised for link: {link}, {result['error']}")
+                    return {"text": text, "title": '', "full_info": full_result, "link": link}
+
+                    # TODO: Raise the exception
+                if "text" not in result or len(result["text"].strip()) == 0:
+                    logger.error(f"Empty text for link: {link}")
+                    return {"text": text, "title": '', "full_info": full_result, "link": link}
+                result.pop("exception", None)
+                result.pop("detailed", None)
+                full_result = deepcopy(result)
+                result.pop("full_text", None)
+                text = f"[{result['title']}]({result['link']})\n{result['text']}"
+            return {"text": text, "title": result['title'], "full_info": full_result, "link": link}
+        except Exception as e:
+            logger.error(f"Exception raised for link: {link}, {e}\n{traceback.format_exc()}")
+            return {"text": text, "title": '', "full_info": full_result, "link": link}
+
+    threads = min(32 if provide_detailed_answers else 16, os.cpu_count()*8)
+    # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
+    def fn1(*args, **kwargs):
+        link_title_context_apikeys = args[0]
+        link = link_title_context_apikeys[0]
+        title = link_title_context_apikeys[1]
+        context = link_title_context_apikeys[2]
+        api_keys = link_title_context_apikeys[3]
+        text = link_title_context_apikeys[4]
+        detailed = link_title_context_apikeys[5]
+        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
+        return [download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name), kwargs]
+    def fn2(*args, **kwargs):
+        link_data = args[0]
+        link = link_data["link"]
+        title = link_data["title"]
+        text = link_data["full_text"]
+        exception = link_data["exception"]
+        error = link_data["error"] if "error" in link_data else None
+        context = link_data["context"] if "context" in link_data else ""
+        detailed = link_data["detailed"] if "detailed" in link_data else False
+        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
+        if len(context.strip()) == 0:
+            raise Exception(f"Empty context for link: {link}")
+        if exception:
+            # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
+            raise Exception(f"Exception raised for link: {link}, {error}")
+        if exists_tmp_marker_file(web_search_tmp_marker_name):
+            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+            summary = get_downloaded_data_summary(link_title_context_apikeys)
+            return summary
+        else:
+            raise Exception(f"Web search stopped for link: {link}")
+    # def compute_timeout(link):
+    #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
+    # timeouts = list(pdf_process_executor.map(compute_timeout, links))
+    def yield_timeout():
+        while True:
+            yield dict(keep_going_marker=web_search_tmp_marker_name)
+    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back_1, call_back_2, threads, 45, 75)
     return task_queue
 
 def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):

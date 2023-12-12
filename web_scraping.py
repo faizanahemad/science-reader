@@ -467,9 +467,9 @@ zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 def send_request_zenrows_html(url, apikey, readability=True):
     st = time.time()
     if readability:
-        js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
+        js = '''[{"wait":100},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
     else:
-        js = '''[{"wait":500},{"wait_for":"body"}]'''
+        js = '''[{"wait":100},{"wait_for":"body"}]'''
 
     params = {
         'url': url,
@@ -669,15 +669,15 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
             time.sleep(0.2)
         et = time.time() - st
         if result is None:
-            result = {"text": "", "title": "", "link": link, "error": "No result"}
+            result = {"text": "", "title": "", "link": link, "error": "No result", "exception": True}
         time_logger.info(
             f"web_scrape_page:: Got result from local browser for link {link}, result len = {len(result['text'])}, time = {et:.2f}, result sample = {result['text'][:100]}")
         if len(result["text"].strip().split()) < good_page_size:
-            result = {"text": "", "title": "", "link": link, "error": "Text too short"}
+            result = {"text": "", "title": "", "link": link, "error": "Text too short", "exception": True}
             logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
             raise Exception(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         if result["text"].strip() == DDOS_PROTECTION_STR:
-            result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR}
+            result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR, "exception": True}
             logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
             raise Exception(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
@@ -685,7 +685,7 @@ def web_scrape_page(link, apikeys, web_search_tmp_marker_name=None):
         exc = traceback.format_exc()
         logger.info(f"web_scrape_page:: failed with exception = {str(e)}, \n {exc}")
         # traceback.print_exc()
-        result = {"text": "", "title": "", "link": link, "error": str(e)}
+        result = {"text": "", "title": "", "link": link, "error": str(e), "exception": True}
         # result = send_request_zenrows(link, apikeys['zenrows'])
 
     return result

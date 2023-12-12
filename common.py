@@ -70,13 +70,13 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
+    level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
@@ -798,8 +798,6 @@ from queue import Queue
 
 
 def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
-    if not isinstance(args_list, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in args_list):
-        raise ValueError("args_list must be a list of tuples containing (*args, **kwargs)")
 
     if timeout < 0:
         raise ValueError("Timeout must be non-negative")
@@ -896,8 +894,6 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
 
 
 def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeout1=60, timeout2=60):
-    if not isinstance(args_list, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in args_list):
-        raise ValueError("args_list must be a list of tuples containing (*args, **kwargs)")
 
     task_queue1 = orchestrator(fn1, args_list, max_workers=max_workers, timeout=timeout1)
     task_queue2 = orchestrator_with_queue(task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout2)
@@ -962,6 +958,30 @@ def find_nearest_divisible_by_three(arr):
             return arr[i]
     # Return a message if no such element is found
     return "No element found with index divisible by 3"
+
+import queue
+import threading
+
+def thread_safe_tee(iterable, n=2):
+    queues = [queue.Queue() for _ in range(n)]
+    def generator(queues):
+        for item in iterable:
+            for ix, q in enumerate(queues):
+                q.put(item)
+                logger.info(f"thread_safe_tee putting item for {ix}-th queue: {item}")
+        for q in queues:
+            q.put(StopIteration)
+    threading.Thread(target=generator, args=(queues,)).start()
+
+    def gen(ix, q):
+        while True:
+            item = q.get()
+            if item is StopIteration:
+                return
+            logger.info(f"thread_safe_tee yielding item for {ix}-th queue: {item}")
+            yield item
+
+    return tuple(gen(ix, q) for ix, q in enumerate(queues))
 
 
 

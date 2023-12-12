@@ -676,7 +676,7 @@ Write the extracted information concisely below:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
 
             if len(web_results.result()[0].result()['search_results']) > 0:
-                query_results_part1 = web_results.result()[0].result()['search_results']
+                cut_off = 10
                 if provide_detailed_answers == 1:
                     cut_off = 5
                 elif provide_detailed_answers == 2:
@@ -687,6 +687,7 @@ Write the extracted information concisely below:
                     cut_off = 18
                 else:
                     cut_off = 6
+                query_results_part1 = web_results.result()[0].result()['search_results']
                 seen_query_results = query_results_part1[:max(10, cut_off)]
                 unseen_query_results = query_results_part1[max(10, cut_off):]
                 answer += "\n#### Search Results: \n"
@@ -720,7 +721,7 @@ Write the extracted information concisely below:
                 if one_web_result is None:
                     time.sleep(0.2)
                     continue
-                if one_web_result == FINISHED_TASK:
+                if one_web_result == TERMINATION_SIGNAL:
                     break
 
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
@@ -786,7 +787,7 @@ Write the extracted information concisely below:
                         one_web_result = None
                         if not result_queue.empty():
                             one_web_result = result_queue.get()
-                        if one_web_result is not None and one_web_result != FINISHED_TASK:
+                        if one_web_result is not None and one_web_result != TERMINATION_SIGNAL:
                             if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
                                 web_text_accumulator.append(one_web_result["text"])
                                 logger.info(
@@ -809,7 +810,7 @@ Write the extracted information concisely below:
                     if one_web_result is None:
                         time.sleep(0.2)
                         continue
-                    if one_web_result == FINISHED_TASK:
+                    if one_web_result == TERMINATION_SIGNAL:
                         break
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
