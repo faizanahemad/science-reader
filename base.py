@@ -1611,7 +1611,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
         extra_queries = []
-    n_query = "four" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "four"
     n_query = n_query if provide_detailed_answers >= 3 else "two"
     n_query_num = 4
     pqs = []
@@ -1623,13 +1623,13 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         pqs.extend(extra_queries)
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, pqs=pqs, n_query=n_query)
-    if (len(extra_queries) < 1) or (len(extra_queries) <= 2 and provide_detailed_answers >= 2):
+    if (len(extra_queries) < 1) or (len(extra_queries) < 2 and provide_detailed_answers >= 2):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
         query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
-        query_strings = [q.strip() for q in query_strings[:n_query_num]]
+        query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
 
         if len(query_strings) == 0:
             query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
@@ -1638,12 +1638,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
             query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
-        query_strings = query_strings + extra_queries
+        query_strings = (query_strings if len(extra_queries) == 0 else query_strings[:1]) + extra_queries
     else:
         query_strings = extra_queries
     year = datetime.now().strftime("%Y")
     month = datetime.now().strftime("%B")
     for i, q in enumerate(query_strings):
+        if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
+            continue
         if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
             q = q + f" in {year}"
         elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
@@ -1813,7 +1815,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
 
     query_vs_results_count = Counter()
     total_count = 0
-    full_queue = Queue()
+    full_queue = []
     deduped_results = set()
     seen_titles = set()
     temp_queue = Queue()
@@ -1832,7 +1834,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
                 result_context = context + "? \n" + query
-                full_queue.put({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
+                full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
                         title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
                     deduped_results.add(link)
@@ -1884,6 +1886,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         query_vs_results_count[r.get("query", "")] += 1
         time_logger.debug(
             f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+    yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
@@ -1901,12 +1904,44 @@ def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None
 def get_part_1_results(part1_res):
     queries = next(part1_res)["query"]
     results = []
+    end_result = None
     for r in part1_res:
-        if isinstance(r, dict) and r["type"] == "result":
+        if isinstance(r, dict) and r["type"] == "result" and len(results) <= 10:
             results.append(r)
-        if len(results) >= 10:
-            break
-    return {"search_results": results, "queries": queries}
+        if len(results) == 10:
+            yield {"search_results": results, "queries": queries}
+        if r["type"] == "end":
+            end_result = r
+
+            def deduplicate_and_sort(link_data):
+                aggregated_data = {}
+
+                # Parsing and Aggregating Data
+                for entry in link_data:
+                    link = entry["link"]
+                    rank = entry["rank"]
+                    title = entry["title"]
+                    if link in aggregated_data:
+                        aggregated_data[link]["ranks"].append(rank)
+                        aggregated_data[link]["count"] += 1
+                    else:
+                        aggregated_data[link] = {"title": title, "ranks": [rank], "count": 1}
+
+                # Calculating Average Rank
+                for data in aggregated_data.values():
+                    data["rank"] = sum(data["ranks"]) / len(data["ranks"])
+                    del data["ranks"]  # Remove the ranks list as it's no longer needed
+
+                # Creating the Final List
+                final_list = [{"link": link, **data} for link, data in aggregated_data.items()]
+
+                # Sorting the List
+                final_list.sort(key=lambda x: (-x["count"], x["rank"]))
+
+                return final_list
+
+            end_result["full_results"] = deduplicate_and_sort(end_result["full_results"])
+    yield end_result
 
 def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     result_queue = queued_read_over_multiple_links(part1_res, api_keys,
@@ -2091,7 +2126,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
     text = ''
-    while time.time() - st < (20 if detailed <= 1 else 40) and exists_tmp_marker_file(web_search_tmp_marker_name):
+    while time.time() - st < (20 if detailed <= 1 else 45) and exists_tmp_marker_file(web_search_tmp_marker_name):
         if pdf_text_future.done() and pdf_text_future.exception() is None:
             text = pdf_text_future.result()
             result_from = "pdf_reader_tool"

@@ -602,15 +602,16 @@ Write answer below.
             txc = ''
             if mode == "web_search":
                 # TODO: Render search results like in chat interface
-                if len(web_results.result()[0].result()['queries'])>0:
+                search_res = next(web_results.result()[0].result())
+                if len(['queries'])>0:
                     answer += "\n### Web searched with Queries: \n"
                     yield "\n### Web searched with Queries: \n"
-                queries = two_column_list(web_results.result()[0].result()['queries'])
+                queries = two_column_list(search_res['queries'])
                 answer += (queries + "\n")
                 yield (queries + "\n")
                 answer += "\n\n### Search Results: \n"
                 yield "\n\n### Search Results: \n"
-                search_results = web_results.result()[0].result()['search_results']
+                search_results = search_res['search_results']
                 query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in search_results]
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
@@ -847,7 +848,7 @@ Detailed and comprehensive summary:
             answer = get_first_last_parts(answer, 300, 500)
             web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.get_doc_data("raw_data", "chunks")[:2]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
             prev_answer = answer
-            additional_info = web_results.result()[0].result()
+            additional_info = next(web_results.result()[0].result())
             answer = ''
             answer += "\n### Web searched with Queries: \n"
             yield "\n### Web searched with Queries: \n"

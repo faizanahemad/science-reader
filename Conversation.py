@@ -335,7 +335,11 @@ class Conversation:
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices")]
         memory, messages, indices = [f.result() for f in futures]
         previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
-        previous_messages = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n\n" for m in previous_messages])
+        previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
+        previous_messages_text = ""
+        while get_gpt3_word_count(previous_messages_text) < 1250:
+            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+        previous_messages = previous_messages_text
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         if len(memory["running_summary"]) > 4:
@@ -392,6 +396,7 @@ Title of the conversation:
 
         while get_gpt3_word_count(previous_messages_text) < 1250 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
+            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m)} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
         msg_set = get_async_future(self.set_field, "messages", [
@@ -400,7 +405,7 @@ Title of the conversation:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
 
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
         prompt = get_first_last_parts(prompt, 1000, 2500)
         if get_gpt3_word_count(prompt) > 3700:
             prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text="",
@@ -409,7 +414,7 @@ Title of the conversation:
                                                                                                            "running_summary"][
                                                                                                        -1:]), 0, 1000))
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
-        title = self.create_title(query, response)
+        title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         title = title.result()
         summary = summary.result()
@@ -439,6 +444,7 @@ Title of the conversation:
 
         while get_gpt4_word_count(previous_messages_text) < 5000 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
+            previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
         assert get_gpt4_word_count(previous_messages_text) > 0
@@ -486,6 +492,7 @@ Title of the conversation:
                    get_async_future(self.get_field, "indices")]
         memory, messages, indices = [f.result() for f in futures]
         previous_messages = messages[-10:]
+        previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
         prev_msg_text = []
         for m in reversed(previous_messages):
             prev_msg_text.append(f"{m['sender']}:\n'''{m['text']}'''")
@@ -668,14 +675,15 @@ Write the extracted information concisely below:
             prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
         executed_partial_two_stage_answering = False
         if perform_web_search or google_scholar:
-            if len(web_results.result()[0].result()['queries']) > 0:
+            search_results = next(web_results.result()[0].result())
+            if len(search_results['queries']) > 0:
                 yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
                 answer += "#### Web searched with Queries: \n"
-                queries = two_column_list(web_results.result()[0].result()['queries'])
+                queries = two_column_list(search_results['queries'])
                 answer += (queries + "\n")
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
 
-            if len(web_results.result()[0].result()['search_results']) > 0:
+            if len(search_results['search_results']) > 0:
                 cut_off = 10
                 if provide_detailed_answers == 1:
                     cut_off = 5
@@ -687,7 +695,7 @@ Write the extracted information concisely below:
                     cut_off = 18
                 else:
                     cut_off = 6
-                query_results_part1 = web_results.result()[0].result()['search_results']
+                query_results_part1 = search_results['search_results']
                 seen_query_results = query_results_part1[:max(10, cut_off)]
                 unseen_query_results = query_results_part1[max(10, cut_off):]
                 answer += "\n#### Search Results: \n"
@@ -771,7 +779,7 @@ Write the extracted information concisely below:
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
                                                                previous_messages=previous_messages,
-                                                               permanent_instructions='Answer concisely and briefly while covering all given references.',
+                                                               permanent_instructions='Answer concisely and briefly while covering all given references. Keep your answer short, concise and succinct. We will expand the answer later',
                                                                doc_answer=doc_answer, web_text=web_text,
                                                                link_result_text=link_result_text,
                                                                conversation_docs_answer=conversation_docs_answer)
@@ -780,6 +788,8 @@ Write the extracted information concisely below:
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
                     main_ans_gen = llm(prompt, temperature=0.3, stream=True)
+                    answer += "<answer>\n"
+                    yield {"text": "<answer>\n", "status": "stage 1 answering in progress"}
                     for txt in main_ans_gen:
                         yield {"text": txt, "status": "stage 1 answering in progress"}
                         answer += txt
@@ -792,6 +802,8 @@ Write the extracted information concisely below:
                                 logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                             if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
                                 full_info.append(one_web_result["full_info"])
+                    answer += "</answer>\n"
+                    yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
 
                     executed_partial_two_stage_answering = True
                     time_logger.info(f"Time taken to end replying (stage 1) for chatbot: {(time.time() - st):.2f}")
@@ -949,14 +961,27 @@ Write the extracted information concisely below:
             logger.debug(f"Doc Answer: {doc_answer}")
         if len(web_text) > 0:
             logger.debug(f"Web text: {web_text}")
-
+        answer += "<answer>\n"
+        yield {"text": "<answer>\n", "status": "stage 1 answering in progress"}
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
+        answer += "</answer>\n"
+        yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+        if perform_web_search or google_scholar:
+            search_results = next(web_results.result()[0].result())
+            if search_results["type"] == "end":
+                full_results = search_results["full_results"]
+                answer += "\n#### All Search Results: \n"
+                yield {"text": "\n#### All Search Results: \n", "status": "displaying web search results ... "}
+                query_results = [f"<a href='{qr['link']}'>{qr['title']} [{qr['count']}]</a>" for qr in full_results]
+                query_results = two_column_list(query_results)
+                answer += (query_results + "\n")
+                yield {"text": query_results + "\n", "status": "Showing all results ... "}
 
     
     def get_last_ten_messages(self):
@@ -1073,3 +1098,20 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer
 
 truncate_text_for_others = truncate_text_for_gpt4
+
+import re
+
+def extract_user_answer(text):
+    # Pattern to find <answer>...</answer> segments
+    pattern = r'<answer>(.*?)</answer>'
+
+    # Find all occurrences of the pattern
+    answers = re.findall(pattern, text, re.DOTALL)
+
+    # Check if any answers were found within tags
+    if answers:
+        # Joining all extracted answers (in case there are multiple <answer> segments)
+        return ' '.join(answers).strip()
+    else:
+        # If no <answer> tags are found, return the entire text
+        return text.strip()

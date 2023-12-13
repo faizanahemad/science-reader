@@ -589,7 +589,7 @@ class ScrapingValidityException(Exception):
 
 from scipy import spatial
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
-    # TODO: implement pre-emptive site blocking here.
+    # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
     good_page_size = 200
     result = dict(text="", title="", link=link, error="")
     st = time.time()

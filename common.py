@@ -751,13 +751,9 @@ def is_pdf_link(link):
     if science_doc or ends_with_pdf:
         result = True
     else:
-        try:
-            response = ProcessFnWithTimeout(Queue())(requests.head, 15, link)
-            content_type = response.headers.get('Content-Type')
-            result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
-        except Exception as e:
-            logger.warning(f"Exception getting if pdf for {link} in is_pdf_link: {e}")
-            result = False
+        response = ProcessFnWithTimeout(Queue())(requests.head, 10, link)
+        content_type = response.headers.get('Content-Type')
+        result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
     et = time.time() - st
     logger.debug(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
     return result
