@@ -6,6 +6,7 @@ import glob
 import traceback
 from operator import itemgetter
 import itertools
+from queue import Empty
 
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -1611,6 +1612,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if extra_queries is None:
         extra_queries = []
     n_query = "four" if previous_search_results or len(extra_queries) > 0 else "four"
+    n_query = n_query if provide_detailed_answers >= 3 else "two"
     n_query_num = 4
     pqs = []
     if previous_search_results:
@@ -1807,17 +1809,20 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     except AssertionError:
         logger.error(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
         yield {"type": "error", "error": "Neither GOOGLE, Bing nor SERP keys are given but Search option choosen."}
-    deduped_results = set()
-    seen_titles = set()
+
 
     query_vs_results_count = Counter()
     total_count = 0
-    result_queue = Queue()
+    full_queue = Queue()
+    deduped_results = set()
+    seen_titles = set()
+    temp_queue = Queue()
+    # logger.error(f"Total number of queries = {len(query_strings)} and total serps = {len(serps)}")
     for ix, s in enumerate(as_completed(serps)):
         time_logger.debug(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
         if s.exception() is None and s.done():
-            for r in s.result():
-                query = r.get("query", "")
+            for iqx, r in enumerate(s.result()):
+                query = remove_year_month_substring(r.get("query", "").lower())
                 title = r.get("title", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
@@ -1827,78 +1832,64 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
                 result_context = context + "? \n" + query
+                full_queue.put({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
                         title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
                     deduped_results.add(link)
                     seen_titles.add(title)
                     continue
-                if link not in deduped_results and title not in seen_titles and (query not in query_vs_results_count or query_vs_results_count[query] < 4):
-                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",}
+
+                if link not in deduped_results and title not in seen_titles and (
+                        query not in query_vs_results_count or query_vs_results_count[query] <= (4 if provide_detailed_answers <= 2 else 6)):
+                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+                         "rank": iqx}
                     query_vs_results_count[query] += 1
                     total_count += 1
-                    time_logger.debug(f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                    time_logger.debug(
+                        f"Time taken for getting search results n= {total_count}-th in web search part 1 [Main Loop] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
                 elif link not in deduped_results and title not in seen_titles:
-                    result_queue.put({"query": query, "title": title, "link": link, "context": result_context, "type": "result",})
+                    temp_queue.put(
+                        {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+                         "rank": iqx})
+
+                try:
+                    min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
+                except (ValueError, AssertionError):
+                    min_key = query
+                    min_count = 0
+                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 1) * 10):
+                    keys, _ = zip(*query_vs_results_count.most_common()[:-3:-1])
+                    qs = temp_queue.qsize()
+                    iter_times = 0
+                    put_times = 0
+                    while not temp_queue.empty() and iter_times < qs and put_times < 2:
+                        iter_times += 1
+                        r = temp_queue.get()
+                        rq = r.get("query", "")
+                        if rq == min_key or rq in keys:
+                            put_times += 1
+                            yield r
+                            total_count += 1
+                            query_vs_results_count[rq] += 1
+                            time_logger.debug(
+                                f"Time taken for getting search results n= {total_count}-th in web search part 1 [Sub Loop] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                        else:
+                            temp_queue.put(r)
                 deduped_results.add(link)
                 seen_titles.add(title)
-
-    while not result_queue.empty():
-        r = result_queue.get()
-        if r == "SENTINEL":
-            continue
-        query = r.get("query", "")
-        min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
-        if total_count > (provide_detailed_answers) * 10:
-            time_logger.debug(
-                f"Time taken for getting search results in web search part 1 = {(time.time() - search_st):.2f}")
-            break
-        if query == min_key:
-            query_vs_results_count[query] += 1
-            total_count += 1
-            yield r
-            time_logger.debug(
-                f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
-
-        else:
-            break_outer = True
-            result_queue.put("SENTINEL")
-            while not result_queue.empty():
-                rs = result_queue.get()
-                if rs != "SENTINEL" and rs.get("query", "") == min_key:
-                    rsq = rs.get("query", "")
-                    break_outer = False
-                    total_count += 1
-                    time_logger.debug(
-                        f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
-                    query_vs_results_count[rsq] += 1
-                    yield rs
-                elif rs == "SENTINEL":
-                    break
-                else:
-                    result_queue.put(rs)
-
-            if break_outer:
-                yield r
-                total_count += 1
-                query_vs_results_count[query] += 1
-                while total_count < ((provide_detailed_answers) * 10) and not result_queue.empty():
-                    r = result_queue.get()
-                    if r == "SENTINEL":
-                        continue
-                    rq = r.get("query", "")
-                    yield r
-                    total_count += 1
-                    query_vs_results_count[rq] += 1
-                    time_logger.debug(
-                        f"Time taken for getting {total_count}-th search results in web search part 1 = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
-                break
-            result_queue.put(r)
+    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 1) * 10):
+        r = temp_queue.get()
+        yield r
+        total_count += 1
+        query_vs_results_count[r.get("query", "")] += 1
+        time_logger.debug(
+            f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
 
 def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
     gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
     part2_res = get_async_future(web_search_part2, gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1))
-    return [wrap_in_future(get_part_1_results(gen1)), part2_res] # get_async_future(get_part_1_results, part1_res)
+    return [get_async_future(get_part_1_results, gen1), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)

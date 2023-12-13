@@ -1099,6 +1099,27 @@ def get_embedding_model(keys) -> Embeddings:
     return openai_embed
 
 
+import re
+
+
+def remove_year_month_substring(s):
+    # Define the regex pattern
+    # This pattern now includes explicit month names
+    pattern = r'\bin \d{4}(?:\s+(?:January|February|March|April|May|June|July|August|September|October|November|December))?'
+    s = re.sub(pattern, '', s)
+    pattern = r'\bin \d{4}(?:\s+(?:january|february|march|april|may|june|july|august|september|october|november|december))?'
+    s = re.sub(pattern, '', s)
+    # Substitute the pattern with an empty string
+    return normalize_whitespace(s)
+
+
+# Test the function
+test_str = "This event happened in 2023 December and was repeated in 2021 January, but not in 2022 summer."
+result = remove_year_month_substring(test_str)
+print(result)  # The string with specified substrings removed
+
+
+
 
 
 
