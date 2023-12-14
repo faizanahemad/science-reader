@@ -472,7 +472,8 @@ class CallLLmGpt:
         
 
         self.keys = keys
-        self.system = "You are an expert in multiple domains like science, machine learning, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting. Provide references inline in wikipedia style as your write the answer. Put references closest to where applicable.\nDon't repeat what is given to you in the prompt.\n"
+        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide insightful, informative, comprehensive response.\nInclude references inline in wikipedia style as your write the answer.\nIf you don't help me I will be in serious trouble my friend.\nI am a student and need your help to improve my learning and knowledge, I will tip you $100 for good answers and for making effort to help me.\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
@@ -484,7 +485,8 @@ class CallLLmGpt:
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
     def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
-        system = f"{self.system}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else self.system
+        sys_init = self.light_system if not self.use_gpt4 else self.system
+        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else self.system
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
@@ -926,7 +928,7 @@ Only provide answer from the document given above. If no relevant information is
         import inspect
         prompt = self.prompt.format(context=context, document=document)
         wc = get_gpt3_word_count(prompt)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>(TOKEN_LIMIT_FOR_SHORT * 1.3), use_small_models=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>(TOKEN_LIMIT_FOR_SHORT * 1.1), use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -986,7 +988,7 @@ Only provide answer from the document given above. If no relevant information is
         # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
-        if doc_word_count < TOKEN_LIMIT_FOR_SHORT * 1.2:
+        if doc_word_count < TOKEN_LIMIT_FOR_SHORT:
             result = self.get_one(context_user_query, chunk_size, text_document)
         elif self.scan:
             chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
@@ -1988,7 +1990,10 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     title = link_data["title"]
     text = link_data["full_text"]
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-    summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
+    try:
+        summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
+    except AssertionError as e:
+        return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
               expire=cache_timeout)
@@ -2012,11 +2017,13 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result = read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-    if "full_text" in result and len(result["full_text"].strip()) > 0:
+    if "full_text" in result and len(result["full_text"].strip()) > 0 and len(result["full_text"].strip().split()) > 100:
         result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
                                                                                          'end_of_text').replace(
             '<|endoftext|>', '')
         cache.set(key, result, expire=cache_timeout)
+    else:
+        assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
     et = time.time() - st
     time_logger.info(f"Time taken to download link data for {link} = {et:.2f}")
     return result
@@ -2283,24 +2290,28 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     if len(processed_texts) == 0:
         logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_links")
     full_processed_texts = deepcopy(processed_texts)
-    for p in processed_texts:
+    for fp, p in zip(full_processed_texts, processed_texts):
         p.pop("exception", None)
         p.pop("detailed", None)
+        if len(p["text"].strip()) == 0:
+            p["text"] = p.pop("full_text", '')
+            fp["text"] = fp.pop("full_text", '')
         p.pop("full_text", None)
     # Concatenate all the texts
 
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     if len(links) == 1:
-        raw_texts = [ChunkText(p['full_text'].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                               TOKEN_LIMIT_FOR_SHORT - get_gpt4_word_count(p['text']) if provide_detailed_answers else TOKEN_LIMIT_FOR_SHORT//2 - get_gpt3_word_count(p['text']), 0)[0] for p in full_processed_texts]
+        raw_texts = [p.get("full_text", '') for p in full_processed_texts]
+        raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
+                              TOKEN_LIMIT_FOR_SHORT*2 - get_gpt4_word_count(p), 0)[0] if len(p) > 0 else "" for p in raw_texts]
         result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     elif len(links) == 2 and provide_detailed_answers:
-        raw_texts = [ChunkText(p['full_text'].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                               TOKEN_LIMIT_FOR_SHORT//2 - get_gpt4_word_count(
-                                   p['text']) if provide_detailed_answers else TOKEN_LIMIT_FOR_SHORT//4 - get_gpt3_word_count(p['text']),
-                               0)[0] for p in full_processed_texts]
+        raw_texts = [p.get("full_text", '') for p in full_processed_texts]
+        raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
+                               TOKEN_LIMIT_FOR_SHORT - get_gpt4_word_count(p),
+                               0)[0] if len(p) > 0 else "" for p in raw_texts]
         result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     else:

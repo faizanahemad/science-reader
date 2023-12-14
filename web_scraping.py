@@ -295,7 +295,7 @@ readability_script_content = readability_script_content_response.text
 # https://trafilatura.readthedocs.io/en/latest/
 # https://github.com/goose3/goose3
 
-def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=10):
+def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=5, get_html=False):
     if playwright_cdp_link is None:
         playwright_cdp_link = os.environ.get("BRIGHTDATA_PLAYWRIGHT_CDP_LINK", None)
     text = ''
@@ -306,18 +306,31 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=10):
             browser = pw.chromium.connect_over_cdp(playwright_cdp_link)
             page = browser.new_page(user_agent=random.choice(user_agents), ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
             page.goto(url, timeout=timeout*1_000)
-            page.add_script_tag(content=readability_script_content)
-            page.wait_for_function(
-                "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')",
-                timeout=12_000)
-            result = page.evaluate(
-                """(function execute(){var article = new Readability(document).parse();return article})()""")
+            if get_html:
+                page.wait_for_function(
+                    "() => document.readyState === 'complete' || document.readyState === 'interactive'",
+                    timeout=8_000)
+                result = page.content()
+                page.close()
+                browser.close()
+                return result
+            else:
+                page.add_script_tag(content=readability_script_content)
+                page.wait_for_function(
+                    "() => typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')",
+                    timeout=8_000)
+                result = page.evaluate(
+                    """(function execute(){var article = new Readability(document).parse();return article})()""")
             if result is not None and "title" in result and "textContent" in result and result["textContent"] is not None and result["textContent"] != "":
                 title = normalize_whitespace(result['title'])
                 text = normalize_whitespace(result['textContent'])
+                page.close()
+                browser.close()
                 return {"text": text, "title": title}
             else:
                 html = page.content()
+                page.close()
+                browser.close()
                 return soup_html_parser(html)
     except Exception as e:
         exc = traceback.format_exc()
@@ -325,7 +338,7 @@ def browse_to_page_playwright(url, playwright_cdp_link=None, timeout=10):
             f"Error in browse_to_page_brightdata_playwright with exception = {str(e)}")
         return {"text": text, "title": title}
 
-def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=15):
+def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=10):
     if brightdata_selenium_url is None:
         brightdata_selenium_url = os.environ.get("BRIGHTDATA_SELENIUM_URL", None)
     from selenium.webdriver import Remote, ChromeOptions
@@ -361,9 +374,11 @@ def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=15):
             if result is not None and "title" in result and "textContent" in result and result["textContent"] is not None and result["textContent"] != "":
                 title = normalize_whitespace(result['title'])
                 text = normalize_whitespace(result['textContent'])
+                driver.close()
                 return {"text": text, "title": title}
             else:
                 init_html = driver.execute_script("""return document.body.innerHTML;""")
+                driver.close()
                 return soup_html_parser(init_html)
         except Exception as e:
             exc = traceback.format_exc()
@@ -420,6 +435,15 @@ import re
 def remove_script_tags_from_html(html):
     # This regex looks for <script> tags and their content and removes them
     cleaned_html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
+    soup = BeautifulSoup(cleaned_html, 'html.parser')
+    for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
+        header.decompose()
+    element = soup.find(id='bib')
+    # Remove the element
+    if element is not None:
+        element.decompose()
+    # get html back from soup
+    cleaned_html = str(soup)
     return cleaned_html
 
 
@@ -433,15 +457,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
         return None
     html = remove_script_tags_from_html(html)
     result = None
-    soup_html_parser_result = None
-    # result = get_async_future(local_browser_reader, html)
     soup_html_parser_result = get_async_future(soup_html_parser, html)
-    try:
-        result = result.result()
-    except Exception as e:
-        result = None
-        exc = traceback.format_exc()
-        logger.warning(f"[fetch_content_brightdata] link = {url}, Error in fetch_content_brightdata with exception = {str(e)}")
     try:
         soup_html_parser_result = soup_html_parser_result.result()
     except Exception as e:
@@ -497,12 +513,57 @@ def send_request_zenrows_html(url, apikey, readability=True):
     return html
 
 def fetch_html(url, apikey=None, brightdata_proxy=None):
+    # TODO: add brightdata selenium and playwright backup as well.
     html = ''
-    if brightdata_proxy is not None:
-        html = fetch_content_brightdata_html(url, brightdata_proxy)
-    js_need = check_js_needed(html)
-    if (js_need or brightdata_proxy is None or brightdata_proxy == '' or html == '') and apikey is not None:
-        html = send_request_zenrows_html(url, apikey, readability=False)
+    js_need = True
+    soup_html_parser_result = ''
+    zenrows_html = get_async_future(send_request_zenrows_html, url, apikey, readability=False)
+    browse_to_page_playwright_result = get_async_future(browse_to_page_playwright, url, timeout=10, get_html=True)
+    brightdata_scrape = get_async_future(fetch_content_brightdata, url, brightdata_proxy)
+    st = time.time()
+    while not zenrows_html.done() or not browse_to_page_playwright_result.done() or not brightdata_scrape.done():
+        time.sleep(0.2)
+    while True and time.time() - st < 60:
+        if zenrows_html.done() and zenrows_html.exception() is None:
+            html = zenrows_html.result() if zenrows_html.exception() is None else ''
+            html = remove_script_tags_from_html(html)
+            soup_html_parser_result = get_async_future(soup_html_parser, html)
+            soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
+            if soup_html_parser_result != '':
+                break
+        if brightdata_scrape.done() and brightdata_scrape.exception() is None:
+            html = brightdata_scrape.result() if brightdata_scrape.exception() is None else ''
+            js_need = check_js_needed(html)
+            html = remove_script_tags_from_html(html)
+            soup_html_parser_result = get_async_future(soup_html_parser, html)
+            soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
+            if not js_need and soup_html_parser_result != '':
+                break
+
+        if browse_to_page_playwright_result.done() and browse_to_page_playwright_result.exception() is None:
+            html = browse_to_page_playwright_result.result() if browse_to_page_playwright_result.exception() is None else ''
+            html = remove_script_tags_from_html(html)
+            soup_html_parser_result = get_async_future(soup_html_parser, html)
+            soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
+            if soup_html_parser_result != '':
+                break
+
+    # if brightdata_proxy is not None and brightdata_scrape is not None:
+    #     html = brightdata_scrape.result() if brightdata_scrape.exception() is None else ''
+    #     js_need = check_js_needed(html)
+    #     html = remove_script_tags_from_html(html)
+    #     soup_html_parser_result = get_async_future(soup_html_parser, html)
+    #     soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
+    #
+    # if (js_need or brightdata_proxy is None or brightdata_proxy == '' or html == '' or soup_html_parser_result == '') and apikey is not None:
+    #     html = zenrows_html.result() if zenrows_html.exception() is None else ''
+    #     html = remove_script_tags_from_html(html)
+    #     soup_html_parser_result = get_async_future(soup_html_parser, html)
+    #     soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
+    #
+    # if html == '' or soup_html_parser_result == '':
+    #     html = browse_to_page_playwright_result.result() if browse_to_page_playwright_result.exception() is None else ''
+    #     html = remove_script_tags_from_html(html)
     return html
 
 def send_request_zenrows(url, apikey):
@@ -594,7 +655,6 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
-    zenrows_service_result = None
     bright_data_playwright_result = None
     bright_data_selenium_result = None
 
@@ -611,10 +671,19 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     zenrows_exception = False
     bright_data_playwright_exception = False
     bright_data_selenium_exception = False
+    # TODO: Change timeout based on whether it is a single page link read or multiple pages.
+    # TODO: use the cache module with a lock based on url to ensure error is noted and attempts + success rates are noted.
     while time.time() - st < 30 and exists_tmp_marker_file(web_search_tmp_marker_name):
-
+        if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception:
+            break
+        if zenrows_exception and brightdata_exception:
+            if random.random() <= 0.5:
+                bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+            else:
+                bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
         if zenrows_service_result is not None and zenrows_service_result.done() and zenrows_service_result.exception() is None and not zenrows_exception:
             result = zenrows_service_result.result()
+            result_from = "zenrows_tentative"
             if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "zenrows"
                 break
@@ -623,6 +692,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
 
         if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
             result = bright_data_playwright_result.result()
+            result_from = "bright_data_playwright_tentative"
             if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "bright_data_playwright"
                 break
@@ -631,6 +701,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
 
         if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
             result = bright_data_selenium_result.result()
+            result_from = "bright_data_selenium_tentative"
             if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "bright_data_selenium"
                 break
@@ -639,6 +710,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
 
         if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 10:
             result = bright_data_result.result()
+            result_from = "brightdata_tentative"
             # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
             try:
                 result["text"] = normalize_whitespace(result["text"])

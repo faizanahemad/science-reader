@@ -334,16 +334,19 @@ class Conversation:
 
 
     @timer
-    def retrieve_prior_context(self, query, links=None, message_lookback=6):
+    def retrieve_prior_context(self, query, links=None, required_message_lookback=6):
         # Lets get the previous 2 messages, upto 1000 tokens
         summary_lookback = 4
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices")]
         memory, messages, indices = [f.result() for f in futures]
-        previous_messages = messages[-message_lookback:] if message_lookback != 0 else []
-        previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
+        previous_messages = messages[-required_message_lookback:] if required_message_lookback != 0 else []
+        message_lookback = 2
         previous_messages_text = ""
-        while get_gpt3_word_count(previous_messages_text) < 1250:
+        while get_gpt4_word_count(previous_messages_text) < 2500 and message_lookback <= required_message_lookback and required_message_lookback != 0:
+            previous_messages = messages[-message_lookback:]
+            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+            message_lookback += 2
         previous_messages = previous_messages_text
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
@@ -401,7 +404,7 @@ Title of the conversation:
 
         while get_gpt3_word_count(previous_messages_text) < 1250 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m)} for m in previous_messages]
+            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
         msg_set = get_async_future(self.set_field, "messages", [
@@ -584,7 +587,7 @@ Write the extracted information concisely below:
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
                 additional_docs_to_read) > 0) and message_lookback >= 1 and provide_detailed_answers >=2:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
-            message_lookback = 1
+            message_lookback = min(4, message_lookback)
         web_search_tmp_marker_name = None
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
@@ -615,7 +618,7 @@ Write the extracted information concisely below:
             doc_future = get_async_future(get_multiple_answers, query["messageText"], additional_docs_to_read, summary if message_lookback >= 1 else '', max(0, int(provide_detailed_answers) - 1), len(attached_docs)==0 and len(links)==0 and len(searches)==0)
         web_text = ''
         prior_context_future = get_async_future(self.retrieve_prior_context,
-            query["messageText"], links=links if len(links) > 0 else None, message_lookback=message_lookback)
+            query["messageText"], links=links if len(links) > 0 else None, required_message_lookback=message_lookback)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -628,9 +631,8 @@ Write the extracted information concisely below:
                     break
                 time.sleep(0.2)
 
-            full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in all_docs_info})
             read_links = re.findall(pattern, link_result_text)
-            read_links = list(set([link.strip() for link in read_links]))
+            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
             if len(all_docs_info) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
@@ -761,7 +763,7 @@ Write the extracted information concisely below:
                         break
                 web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
-                read_links = list(set([link.strip() for link in read_links]))
+                read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
                 if len(read_links) > 0:
                     read_links = "\nWe read the below links:\n" + "\n".join(
                         [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
@@ -871,7 +873,7 @@ Write the extracted information concisely below:
             # web_text = "\n\n".join(web_text_accumulator)
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
-            read_links = list(set([link.strip() for link in read_links]))
+            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
             if len(read_links) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "web search completed"}
@@ -888,7 +890,7 @@ Write the extracted information concisely below:
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
-        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers and message_lookback==0):
+        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and message_lookback==0):
             text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -896,7 +898,7 @@ Write the extracted information concisely below:
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
-        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers and message_lookback==0):
+        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and message_lookback==0):
             text = doc_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -904,7 +906,7 @@ Write the extracted information concisely below:
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
-        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers and message_lookback==0):
+        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and message_lookback==0):
             text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
             yield {"text": text, "status": "answering in progress"}
@@ -1049,12 +1051,12 @@ Write the extracted information concisely below:
 
 
 def format_llm_inputs(web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer):
-    web_text = f"""Relevant additional information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+    web_text = f"""Relevant information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
     Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
         web_text) > 0 else ""
-    doc_answer = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
+    doc_answer = f"""Results from user provided documents are given below. Questions user has asked usually pertain to these documents. Relevant information from user given documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
         doc_answer) > 0 else ""
-    link_result_text = f"""Relevant additional information from other documents with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
+    link_result_text = f"""Results from user provided links are given below. Questions user has asked usually pertain to these links. Relevant information from user given links with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
         link_result_text) > 0 else ""
     summary_text = f"""The summary of the conversation is as follows:
     '''{summary_text}'''""" if len(summary_text) > 0 else ''
