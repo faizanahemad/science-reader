@@ -446,41 +446,26 @@ class DocIndex:
     @streaming_timer
     def streaming_get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
         ent_time = time.time()
-
-        scan = False
         detail_level = 1
-        if mode["perform_web_search"]:
-            mode = "web_search"
-        elif mode["provide_detailed_answers"]:
+        if mode["provide_detailed_answers"]:
             detail_level = int(mode["provide_detailed_answers"])
             mode = "detailed"
             query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
-        elif mode["use_references_and_citations"]:
-            mode = "use_references_and_citations"
-        elif mode["use_multiple_docs"]:
-            additional_docs = mode["additional_docs_to_read"]
-            mode = "use_multiple_docs"
         elif mode["review"]:
-            mode = "review"
-            detail_level = 2
-        elif mode["scan"]:
             mode = "detailed"
-            detail_level = 2
-            scan = True
-            query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
+            detail_level = 1
         else:
             mode = None
+            detail_level = 1
+
+        # Sequential + RAG approach -> then combine.
+        # For level 1, 2 both approaches use gpt3.5-16k -> gpt4-16k
+        # For level 3, 4 both approaches use gpt3.5-16k + gpt4-16k
 
         brief_summary = self.title + "\n" + self.short_summary
         brief_summary = ("Summary:\n"+ brief_summary +"\n\n") if len(brief_summary.strip()) > 0 else ""
-        if mode == "web_search":
-            web_results = get_async_future(web_search, query, self.doc_source, "\n".join([brief_summary] + self.get_doc_data("raw_data", "chunks")[:1]), self.get_api_keys(), self.get_date())
-            
-        if mode == "use_multiple_docs":
-            web_results = get_async_future(get_multiple_answers, query, additional_docs, brief_summary)
-            mode = "web_search"
         additional_info = None
-        if (mode == "detailed" or mode == "review"):
+        if mode == "detailed" or mode == "review":
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
             if tex_len < 7000:
@@ -498,9 +483,9 @@ Write answer below.
             else:
                 additional_info = get_async_future(call_contextual_reader, query,
                                                    brief_summary + self.get_doc_data("static_data", "doc_text"),
-                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500, scan=detail_level >= 3)
+                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500, scan=detail_level >= 2)
 
-            if detail_level > 1 and tex_len >= 6000:
+            if detail_level >= 2 and tex_len >= 7000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
                                                                                                      4200//LARGE_CHUNK_LEN))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
@@ -508,37 +493,21 @@ Write answer below.
                     self.result_cutoff, 1200//SMALL_CHUNK_LEN))
                 small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
                 raw_text = raw_text + " \n\n " + small_chunk_text
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text,
-                                                                   summary='',
-                                                                   questions_answers='',
-                                                                   full_summary='')
+                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
-                    ad_info = get_async_future(llm, prompt, temperature=0.5)
+                    ad_info = get_async_future(llm, prompt, temperature=0.8)
                     init_add_info = additional_info_v1.result()
                     return init_add_info + "\n\n" + ad_info.result()
                 additional_info = get_async_future(get_additional_info)
 
         answer = ''
-        if not scan:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=((mode == "detailed" and detail_level > 1) or mode == "review") and not scan, use_16k=True)
-            self_hosted = llm.self_hosted_model_url is not None
-            if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
-                rem_init_len = LARGE_CHUNK_LEN * 6 + 1
-            elif scan:
-                rem_init_len = LARGE_CHUNK_LEN * 16 + 1
-            else:
-                rem_init_len = LARGE_CHUNK_LEN * 8 + 1
-            dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)
-            summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff*2)
-            summary_text = "\n".join([n.page_content for n in summary_nodes]) # + "\n" + additional_text_qna
-            summary_text = f"You are also given summaries of certain parts of document below:\n'''{summary_text}'''" if len(summary_text.strip()) > 0 else ""
-            qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
-            qna_text = f"Next, You are given few question and answer pairs from the document below:\n'''{qna_text}'''" if len(qna_text.strip()) > 0 else ""
-            rem_word_len = min(5200 if detail_level > 1 else 6200, ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(summary_text + qna_text + brief_summary))
+        if detail_level < 2 or additional_info is None or mode=="review":
+            llm = CallLLm(self.get_api_keys(), use_gpt4=mode == "detailed" and detail_level > 1, use_16k=True)
+            rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(brief_summary) - 2000
             rem_tokens = rem_word_len // LARGE_CHUNK_LEN
             raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
             raw_text = "\n\n".join([n.page_content for n in raw_nodes])
@@ -546,94 +515,40 @@ Write answer below.
             while (additional_info is not None and time.time() - st_wt < 45 and not additional_info.done()):
                 time.sleep(0.5)
             full_summary = ""
-            if additional_info is not None and additional_info.done():
+            if additional_info.done():
                 full_summary = additional_info.result() if additional_info is not None else ""
             full_summary = f"Short summary of the document is given below. \n'''{full_summary}'''" if len(full_summary.strip()) > 0 else ""
-            if mode == "web_search":
-                pass
-            elif llm.use_gpt4 or scan:
-                rem_word_len = min((rem_init_len * 2 + 1000), 7000) - get_gpt4_word_count(summary_text + qna_text + brief_summary + raw_text)
-                if rem_word_len > SMALL_CHUNK_LEN:
-                    rem_tokens = rem_word_len // SMALL_CHUNK_LEN
-                    small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-                    small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
-                    raw_text = raw_text + " \n\n " + small_chunk_text
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
-                                                questions_answers=qna_text, full_summary=full_summary)
-            else:
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, summary=summary_text,
-                                                questions_answers="", full_summary=full_summary)
+            rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(brief_summary + raw_text) - 500
+            if rem_word_len > SMALL_CHUNK_LEN:
+                rem_tokens = rem_word_len // SMALL_CHUNK_LEN
+                small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+                small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
+                raw_text = raw_text + " \n\n " + small_chunk_text
+            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, full_summary=full_summary)
 
-            if mode == "web_search":
-                pass
+            if llm.use_gpt4 and llm.use_16k:
+                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART*2 - 1000)
             elif llm.use_gpt4:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 1000)
-            elif scan:
-                prompt = get_first_last_parts(prompt, 2000, TOKEN_LIMIT_FOR_DETAILED - 2000)
+                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 500)
+            elif llm.use_16k:
+                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART * 2 - 1000)
             else:
                 prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_DUMB - 1000)
 
             ans_begin_time = time.time()
             logger.info(f"streaming_get_short_answer:: Start to answer by {(ans_begin_time-ent_time):4f}s")
-            web_generator_1 = None
-            if mode == "web_search":
-                pass
-                # web_text = web_results.result()[1].result()['text']
-                # web_generator_1 = self.streaming_web_search_answering(query, prompt,
-                #                                                       web_text)  # TODO: async this as well
-                # web_generator_1 = get_async_future(get_peekable_iterator, web_generator_1)
-            else:
-                main_ans_gen = llm(prompt, temperature=0.7, stream=True)
-                for txt in main_ans_gen:
-                    if mode == "web_search":
-                        if web_results.done():
-                            if web_results.result()[1].done():
-                                web_res_1 = web_results.result()[1].result()
-                                web_generator_1 = self.streaming_web_search_answering(query, brief_summary + answer, web_res_1["text"]) # TODO: async this as well
-                                web_generator_1 = get_async_future(get_peekable_iterator, web_generator_1)
 
-                    yield txt
-                    answer += txt
-        else:
-            pass
+            main_ans_gen = llm(prompt, temperature=0.7, stream=True)
+            for txt in main_ans_gen:
+                yield txt
+                answer += txt
 
-        yield "</br> \n"
-        if mode == "detailed" or mode == "web_search":
-            txc = ''
-            if mode == "web_search":
-                # TODO: Render search results like in chat interface
-                search_res = next(web_results.result()[0].result())
-                if len(['queries'])>0:
-                    answer += "\n### Web searched with Queries: \n"
-                    yield "\n### Web searched with Queries: \n"
-                queries = two_column_list(search_res['queries'])
-                answer += (queries + "\n")
-                yield (queries + "\n")
-                answer += "\n\n### Search Results: \n"
-                yield "\n\n### Search Results: \n"
-                search_results = search_res['search_results']
-                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in search_results]
-                query_results = two_column_list(query_results)
-                answer += (query_results + "\n")
-                yield (query_results + "\n")
-                txc = web_results.result()[1].result()['text']
-            elif mode == "detailed" and scan:
-                additional_info = additional_info.result()
-                for t in additional_info:
-                    txc += t
-                    yield t
-                    answer += t
-            if mode == "web_search":
-                if web_generator_1 is None:
-                    web_generator_1 = self.streaming_web_search_answering(query, brief_summary + answer, txc)
-                else:
-                    web_generator_1 = web_generator_1.result()
-                generator = web_generator_1
-                for txt in generator:
-                    yield txt
-                    answer += txt
-            else:
-                pass
+            yield "</br> \n"
+        if mode == "detailed" and detail_level >= 2 and additional_info is not None:
+            additional_info = additional_info.result()
+            for t in additional_info:
+                yield t
+                answer += t
 
         if save_answer:
             get_async_future(self.put_answer, query, answer, mode=mode)
@@ -788,36 +703,18 @@ Detailed and comprehensive summary:
     
     def streaming_ask_follow_up(self, query, previous_answer, mode=defaultdict(lambda: False)):
     
-        if mode["perform_web_search"]:
-            mode = "web_search"
-        elif mode["provide_detailed_answers"]:
+        if mode["provide_detailed_answers"]:
             mode = "detailed"
-        elif mode["use_references_and_citations"]:
-            mode = "use_references_and_citations"
-        elif mode["use_multiple_docs"]:
-            additional_docs = mode["additional_docs_to_read"]
-            mode = "use_multiple_docs"
-        elif mode["review"]:
-            mode = "review"
         else:
             mode = None
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        self_hosted = llm.self_hosted_model_url is not None
-        if mode == "use_multiple_docs" or mode == "web_search" or mode == "review":
-            rem_init_len = 512 * (2 if self_hosted else 3) + 1
-        else:
-            rem_init_len = 512 * (4 if self_hosted else 6) + 1
-        summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff)
-        summary_text = "\n".join([n.page_content for n in summary_nodes])
         answer = previous_answer["answer"] + "\n" + (
             previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
-        dqna_nodes = self.get_doc_data("indices", "dqna_index").similarity_search(query, k=self.result_cutoff)[:1]
-        qna_text = "\n".join([n.page_content for n in list(dqna_nodes)])
-        rem_word_len = ((rem_init_len * 2) if llm.use_gpt4 else rem_init_len) - get_gpt4_word_count(qna_text + summary_text + answer)
+        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer) - 2000
         rem_tokens = rem_word_len // LARGE_CHUNK_LEN
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
         raw_text = "\n".join([n.page_content for n in raw_nodes])
-        rem_word_len = ((rem_init_len * 2 + 1000) if llm.use_gpt4 else (rem_init_len + 500)) - get_gpt4_word_count(qna_text + summary_text + answer + raw_text)
+        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer + raw_text) - 500
         rem_tokens = rem_word_len // SMALL_CHUNK_LEN
         small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff * 2, rem_tokens))
 
@@ -832,57 +729,18 @@ Detailed and comprehensive summary:
         small_chunk_nodes = small_chunk_nodes + additional_small_chunk_nodes[:2]
         
         raw_text = raw_text + "\n".join([n.page_content for n in small_chunk_nodes])
-        small_text = "\n".join([n.page_content for n in small_chunk_nodes])
-        if llm.use_gpt4 and mode != "web_search":
-            prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
-                                          answer=answer, summary=summary_text, 
-                                          fragment=raw_text,
-                                          full_summary=self.get_doc_data("qna_data", "running_summary"), questions_answers=qna_text)
-        else:
-            prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"], 
-                                          answer=answer, summary="", 
-                                          fragment=get_first_n_words(raw_text, LARGE_CHUNK_LEN) + " \n " + small_text,
-                                          full_summary=self.get_doc_data("qna_data", "running_summary"), questions_answers="")
-        if mode == "web_search":
-            # answer = CallLLm(self.get_api_keys(), use_gpt4=False)(f"Given the question: {previous_answer['query']}, Summarise this answer: '''{answer}''' \n ")
-            answer = get_first_last_parts(answer, 300, 500)
-            web_results = get_async_future(web_search, query, self.doc_source, "\n ".join(self.get_doc_data("raw_data", "chunks")[:2]), self.get_api_keys(), datetime.now().strftime("%Y-%m"), answer)
-            prev_answer = answer
-            additional_info = next(web_results.result()[0].result())
-            answer = ''
-            answer += "\n### Web searched with Queries: \n"
-            yield "\n### Web searched with Queries: \n"
-            queries = two_column_list(additional_info['queries'])
-            answer += (queries + "\n")
-            yield (queries + "\n")
-                
-            answer += "\n\n### Search Results: \n"
-            yield "\n\n### Search Results: \n"
-            search_results = additional_info['search_results']
-            query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in search_results]
-            query_results = two_column_list(query_results)
-            answer += (query_results + "\n")
-            yield (query_results + "\n")
-            
-            generator = self.streaming_web_search_answering(query, prev_answer, web_results.result()[1].result()['text'] + "\n\n " + f" Answer the followup question: {query} \n\n Additional Instructions: '''{prompt}'''")
-            
-        else:
-            prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 1000) if llm.use_gpt4 else get_first_last_parts(prompt, 1000,
-                                                                                                        MODEL_TOKENS_DUMB - 1000)
-            generator = llm(prompt, temperature=0.7, stream=True)
-            answer = ''
+        prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"],
+                                      answer=answer,
+                                      fragment=raw_text)
+
+        prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 1000)
+        generator = llm(prompt, temperature=0.7, stream=True)
+        answer = ''
         
         for txt in generator:
             yield txt
             answer += txt
         self.put_answer(previous_answer["query"], answer, query, mode)
-
-    def streaming_web_search_answering(self, query, answer, additional_info):
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        prompt = prompts.web_search_question_answering_prompt.format(query=query, answer=answer, additional_info=additional_info)
-        prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 1000) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, MODEL_TOKENS_DUMB-1000)
-        for txt in llm(prompt, temperature=0.7, stream=True):
-            yield txt
 
     def streaming_get_more_details(self, query, answer, additional_info):
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)

@@ -21,24 +21,14 @@ class CustomPrompts:
 2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
         self.gpt4_prompts = dict(
             streaming_followup=PromptTemplate(
-                input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
-                                 "questions_answers"],
+                input_variables=["followup", "query", "answer", "fragment"],
                 template=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
 Followup question or information request is given below.
 "{{followup}}"
 
-Summary of the document is given below.
-"{{full_summary}}"
-
 Few text chunks from within the document to answer this follow up question as below.
 "{{fragment}}"
-
-Few question and answer pairs from the document are given below.
-"{{questions_answers}}"
-
-Summaries of certain parts of document below:
-"{{summary}}"
-
+Keep the earlier question in consideration while answering.
 Previous question or earlier question and its answer is provided below:
 
 Earlier Question: "{{query}}"
@@ -54,16 +44,15 @@ Answer:
 """,
             ),
             short_streaming_answer_prompt=PromptTemplate(
-                input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
+                input_variables=["query", "fragment", "full_summary"],
                 template=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
+
+Summary of the document is given below:
 {{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
-{{questions_answers}}
-{{summary}}
-
 {self.complex_output_instructions}
 
 Question or Query is given below.
@@ -304,24 +293,14 @@ Cover the below points while answering and also add other necessary points as ne
         )
         self.llama_prompts  = dict(
             streaming_followup=PromptTemplate(
-                input_variables=["followup", "query", "answer", "fragment", "summary", "full_summary",
-                                 "questions_answers"],
+                input_variables=["followup", "query", "answer", "fragment"],
                 template=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
 Followup question or information request is given below.
 "{{followup}}"
 
-Summary of the document is given below.
-"{{full_summary}}"
-
 Few text chunks from within the document to answer this follow up question as below.
 "{{fragment}}"
-
-Few question and answer pairs from the document are given below.
-"{{questions_answers}}"
-
-Summaries of certain parts of document below:
-"{{summary}}"
-
+Keep the earlier question in consideration while answering.
 Previous question or earlier question and its answer is provided below:
 
 Earlier Question: "{{query}}"
@@ -337,15 +316,15 @@ Answer:
 """,
             ),
             short_streaming_answer_prompt=PromptTemplate(
-                input_variables=["query", "fragment", "summary", "questions_answers", "full_summary"],
+                input_variables=["query", "fragment", "full_summary"],
                 template=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
+
+Summary of the document is given below:
 {{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
-{{questions_answers}}
-{{summary}}
 {self.simple_output_instructions}
 
 Question or Query is given below.

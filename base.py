@@ -2340,7 +2340,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
     query_string = (f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(current_doc_summary.strip())>0 else '')+f"Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
 
-    futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:False, {"scan": provide_detailed_answers}), True)  for doc in additional_docs]
+    futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": provide_detailed_answers}), True)  for doc in additional_docs]
     answers = [future.result() for future in futures]
     answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
     new_line = '\n\n'
