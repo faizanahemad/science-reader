@@ -45,10 +45,8 @@ from concurrent.futures import Future
 
 import openai
 import tiktoken
-try:
-    import ujson as json
-except ImportError:
-    import json
+
+
 
 
 from langchain.agents import Tool
@@ -122,6 +120,8 @@ logger.setLevel(logging.ERROR)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
+LEN_CUTOFF_WEB_TEXT = 50
+
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -141,6 +141,11 @@ from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
 import secrets
 import string
 import tiktoken
+# try:
+#     import ujson as json
+# except ImportError:
+#     import json
+import json
 alphabet = string.ascii_letters + string.digits
 
 class Conversation:
@@ -577,7 +582,7 @@ Write the extracted information concisely below:
 
         prior_chat_summary_future = None
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0) and message_lookback >= 1:
+                additional_docs_to_read) > 0) and message_lookback >= 1 and provide_detailed_answers >=2:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             message_lookback = 1
         web_search_tmp_marker_name = None
@@ -684,15 +689,14 @@ Write the extracted information concisely below:
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
 
             if len(search_results['search_results']) > 0:
-                cut_off = 10
                 if provide_detailed_answers == 1:
-                    cut_off = 5
+                    cut_off = 6
                 elif provide_detailed_answers == 2:
-                    cut_off = 10
+                    cut_off = 12
                 elif provide_detailed_answers == 3:
-                    cut_off = 14
+                    cut_off = 16
                 elif provide_detailed_answers == 4:
-                    cut_off = 18
+                    cut_off = 20
                 else:
                     cut_off = 6
                 query_results_part1 = search_results['search_results']
@@ -719,7 +723,7 @@ Write the extracted information concisely below:
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
+                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -732,7 +736,7 @@ Write the extracted information concisely below:
                 if one_web_result == TERMINATION_SIGNAL:
                     break
 
-                if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append(one_web_result["text"])
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                 if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
@@ -743,7 +747,7 @@ Write the extracted information concisely below:
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
-            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
+            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
             # Join the elements along with serial numbers.
             if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
 
@@ -753,7 +757,7 @@ Write the extracted information concisely below:
                 for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
                     web_string = f"{i + 1}.\n{wta}"
                     full_web_string = full_web_string + web_string + "\n\n"
-                    if get_gpt4_word_count(full_web_string) > 6000:
+                    if get_gpt4_word_count(full_web_string) > 8000:
                         break
                 web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
@@ -779,11 +783,11 @@ Write the extracted information concisely below:
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
                                                                previous_messages=previous_messages,
-                                                               permanent_instructions='Answer concisely and briefly while covering all given references. Keep your answer short, concise and succinct. We will expand the answer later',
+                                                               permanent_instructions='Include references inline in wikipedia format. Answer concisely and briefly while covering all given references. Keep your answer short, concise and succinct. We will expand the answer later',
                                                                doc_answer=doc_answer, web_text=web_text,
                                                                link_result_text=link_result_text,
                                                                conversation_docs_answer=conversation_docs_answer)
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=provide_detailed_answers > 3, use_16k=True)
                 qu_mt = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
@@ -797,7 +801,7 @@ Write the extracted information concisely below:
                         if not result_queue.empty():
                             one_web_result = result_queue.get()
                         if one_web_result is not None and one_web_result != TERMINATION_SIGNAL:
-                            if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
+                            if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                                 web_text_accumulator.append(one_web_result["text"])
                                 logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                             if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
@@ -823,7 +827,7 @@ Write the extracted information concisely below:
                     if one_web_result == TERMINATION_SIGNAL:
                         break
 
-                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
@@ -848,7 +852,7 @@ Write the extracted information concisely below:
                     if one_web_result == TERMINATION_SIGNAL:
                         break
 
-                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="":
+                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
@@ -857,16 +861,12 @@ Write the extracted information concisely below:
 
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             full_web_string = ""
-            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > 50 and "No relevant information found.".lower() not in ws.lower()]
+            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
             for i, wta in enumerate(web_text_accumulator):
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
-                if provide_detailed_answers >= 2:
-                    if get_gpt4_word_count(full_web_string) > 6000 or (executed_partial_two_stage_answering and get_gpt4_word_count(full_web_string) > 5000):
-                        break
-                if provide_detailed_answers <= 1:
-                    if get_gpt3_word_count(full_web_string) > 3000:
-                        break
+                if get_gpt4_word_count(full_web_string) > 12000:
+                    break
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
             # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
@@ -928,7 +928,7 @@ Write the extracted information concisely below:
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
 
         summary_text = prior_chat_summary + "\n" + summary_text
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_16k(
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_32k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
         web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
@@ -1074,6 +1074,9 @@ def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text,
 def truncate_text_for_gpt4_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-16k")
 
+def truncate_text_for_gpt4_32k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
+    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-32k")
+
 def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4"):
     enc = tiktoken.encoding_for_model(model)
     if model == "gpt-4":
@@ -1084,6 +1087,10 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l1 = 14000
         l2 = 2000
         l4 = 2500
+    elif model == "gpt-4-32k":
+        l1 = 28000
+        l2 = 4000
+        l4 = 5000
     else:
         l1 = 2000
         l2 = 500

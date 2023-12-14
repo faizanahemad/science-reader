@@ -611,7 +611,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     zenrows_exception = False
     bright_data_playwright_exception = False
     bright_data_selenium_exception = False
-    while time.time() - st < 20 and exists_tmp_marker_file(web_search_tmp_marker_name):
+    while time.time() - st < 30 and exists_tmp_marker_file(web_search_tmp_marker_name):
 
         if zenrows_service_result is not None and zenrows_service_result.done() and zenrows_service_result.exception() is None and not zenrows_exception:
             result = zenrows_service_result.result()

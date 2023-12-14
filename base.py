@@ -2126,7 +2126,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
     text = ''
-    while time.time() - st < (20 if detailed <= 1 else 45) and exists_tmp_marker_file(web_search_tmp_marker_name):
+    while time.time() - st < (30 if detailed <= 1 else 60) and exists_tmp_marker_file(web_search_tmp_marker_name):
         if pdf_text_future.done() and pdf_text_future.exception() is None:
             text = pdf_text_future.result()
             result_from = "pdf_reader_tool"
