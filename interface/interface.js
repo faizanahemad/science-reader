@@ -604,7 +604,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
-    var checkboxOneText = type==="assistant"?"Google Scholar":"References and Citations";
+    var checkboxOneText = type==="assistant"?"Research":"References and Citations";
     var disabled = type==="assistant"?"":"disabled";
 
     

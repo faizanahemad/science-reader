@@ -444,7 +444,6 @@ var ChatManager = {
             },
             body: JSON.stringify({
                 'messageText': messageText,
-                'permanentMessageText': $('#permanentMessageText').val(),
                 'checkboxes': checkboxes,
                 'links': links,
                 'search': search
@@ -596,7 +595,6 @@ $(document).ready(function() {
         ConversationManager.createConversation();
     });
     setMaxHeightForTextbox('messageText', 10);
-    setMaxHeightForTextbox('permanentMessageText', 8);
     setMaxHeightForTextbox("linkInput", 4);
     setMaxHeightForTextbox("searchInput", 4);
     function textboxCallBack(e) { // Add this block to submit the question on enter
