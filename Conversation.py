@@ -708,9 +708,9 @@ Write the extracted information concisely below:
                 elif provide_detailed_answers == 2:
                     cut_off = 12
                 elif provide_detailed_answers == 3:
-                    cut_off = 16
+                    cut_off = 18
                 elif provide_detailed_answers == 4:
-                    cut_off = 20
+                    cut_off = 24
                 else:
                     cut_off = 6
                 query_results_part1 = search_results['search_results']
@@ -765,7 +765,7 @@ Write the extracted information concisely below:
             # Join the elements along with serial numbers.
             if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
 
-                first_stage_cut_off = 8
+                first_stage_cut_off = 8 if provide_detailed_answers == 3 else 12
                 used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
                 full_web_string = ""
                 for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
@@ -796,7 +796,7 @@ Write the extracted information concisely below:
 
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
-                                                               previous_messages=previous_messages,
+                                                               previous_messages=previous_messages if provide_detailed_answers > 3 else '',
                                                                permanent_instructions='Include references inline in wikipedia format. Answer concisely and briefly while covering all given references. Keep your answer short, concise and succinct. We will expand the answer later',
                                                                doc_answer=doc_answer, web_text=web_text,
                                                                link_result_text=link_result_text,
