@@ -442,7 +442,7 @@ Title of the conversation:
         indices = get_async_future(self.get_field, "indices")
         memory = get_async_future(self.get_field, "memory")
         messages = self.get_field("messages")
-        if len(messages) % 6 != 0:
+        if len(messages) % 6 != 0 or len(messages) < 6:
             return
         memory = memory.result()
         recent_summary = "".join(memory["running_summary"][-1:])
@@ -450,7 +450,7 @@ Title of the conversation:
         message_lookback = 2
         previous_messages_text = ""
 
-        while get_gpt4_word_count(previous_messages_text) < 5000 and message_lookback < 6:
+        while get_gpt4_word_count(previous_messages_text) < 4000 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])

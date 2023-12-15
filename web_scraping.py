@@ -625,6 +625,9 @@ def soup_html_parser(html):
     # Remove the element
     if element is not None:
         element.decompose()
+    elements = soup.find_all('div', {'class': 'arxiv-vanity-wrapper'})
+    for element in elements:
+        element.decompose()
 
     def extract_text(element):
         # If the element is a string, return it as is
