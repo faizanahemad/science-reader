@@ -546,7 +546,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 15
+        return 20
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -732,7 +732,6 @@ Write the extracted information concisely below:
                 #     yield {"text": query_results + "\n", "status": "Reading web search results ... "}
             result_queue = web_results.result()[1]
             web_text_accumulator = []
-            full_info = []
             qu_st = time.time()
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
@@ -753,8 +752,6 @@ Write the extracted information concisely below:
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append(one_web_result["text"])
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-                    full_info.append(one_web_result["full_info"])
                 time.sleep(0.2)
 
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
@@ -818,8 +815,6 @@ Write the extracted information concisely below:
                             if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                                 web_text_accumulator.append(one_web_result["text"])
                                 logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                            if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-                                full_info.append(one_web_result["full_info"])
                     answer += "</answer>\n"
                     yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
 
@@ -844,8 +839,6 @@ Write the extracted information concisely below:
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-                        full_info.append(one_web_result["full_info"])
                     time.sleep(0.2)
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
@@ -869,8 +862,6 @@ Write the extracted information concisely below:
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-                        full_info.append(one_web_result["full_info"])
                     time.sleep(0.2)
 
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
@@ -883,7 +874,6 @@ Write the extracted information concisely below:
                     break
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
-            # full_doc_texts.update({dinfo["link"].strip(): dinfo["full_text"] for dinfo in full_info})
             read_links = re.findall(pattern, web_text)
             read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
             if len(read_links) > 0:
