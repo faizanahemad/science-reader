@@ -676,7 +676,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     bright_data_selenium_exception = False
     # TODO: Change timeout based on whether it is a single page link read or multiple pages.
     # TODO: use the cache module with a lock based on url to ensure error is noted and attempts + success rates are noted.
-    while time.time() - st < 30 and exists_tmp_marker_file(web_search_tmp_marker_name):
+    while time.time() - st < 60 and exists_tmp_marker_file(web_search_tmp_marker_name):
         if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception:
             break
         if zenrows_exception and brightdata_exception:
@@ -711,7 +711,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 bright_data_selenium_exception = True
 
-        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 10:
+        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 15:
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
             # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
@@ -723,7 +723,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             except Exception as e:
                 cosine_similarity = 1.0
 
-            if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR and cosine_similarity > 0.75:
+            if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR and ((cosine_similarity > 0.75 and time.time() - st >= 25) or (cosine_similarity > 0.8 and time.time() - st >= 15)):
                 result_from = "brightdata"
                 break
             elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR or cosine_similarity <= 0.75:

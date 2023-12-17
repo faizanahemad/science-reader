@@ -905,8 +905,8 @@ ContextualReader:
 
     """
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide brief, concise, comprehensive and informative response. \n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Remember to write brief, concise, comprehensive and informative"
+        long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
+        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an information retrieval agent. {long_or_short}
@@ -918,7 +918,6 @@ Document to read and extract information from is given below.
 {{document}}
 '''
 
-Output any relevant equations if found in latex format. 
 Only provide answer from the document given above. If no relevant information is found in given context, then output "No relevant information found." only.
 {response_prompt} response below.
 """,
@@ -1606,10 +1605,11 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 # TODO: Add caching
 def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None,
                      previous_answer=None, previous_search_results=None, extra_queries=None,
-                     gscholar=False, provide_detailed_answers=False):
+                     gscholar=False, provide_detailed_answers=False, start_time=None,):
 
     # TODO: if it is scientific or knowledge based question, then use google scholar api, use filetype:pdf and site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
     st = time.time()
+    start_time = start_time if start_time is not None else st
     provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
         extra_queries = []
@@ -1835,7 +1835,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                                                                                               '').replace(
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
-                result_context = context + "? \n" + query
+                result_context = context + "?\n" + query
                 full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
                         title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
@@ -1844,9 +1844,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                     continue
 
                 if link not in deduped_results and title not in seen_titles and (
-                        query not in query_vs_results_count or query_vs_results_count[query] <= (4 if provide_detailed_answers <= 2 else 6)):
+                        query not in query_vs_results_count or query_vs_results_count[query] <= (4 if provide_detailed_answers <= 2 else 5)):
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx}
+                         "rank": iqx, "start_time": start_time}
                     query_vs_results_count[query] += 1
                     total_count += 1
                     time_logger.debug(
@@ -1854,14 +1854,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 elif link not in deduped_results and title not in seen_titles:
                     temp_queue.put(
                         {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx})
+                         "rank": iqx, "start_time": start_time})
 
                 try:
                     min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
                 except (ValueError, AssertionError):
                     min_key = query
                     min_count = 0
-                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 1) * 10):
+                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 2) * 10):
                     keys, _ = zip(*query_vs_results_count.most_common()[:-3:-1])
                     qs = temp_queue.qsize()
                     iter_times = 0
@@ -1881,7 +1881,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                             temp_queue.put(r)
                 deduped_results.add(link)
                 seen_titles.add(title)
-    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 1) * 10):
+    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 2) * 10):
         r = temp_queue.get()
         yield r
         total_count += 1
@@ -2157,7 +2157,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
         get_arxiv_pdf_link_future_v2 = get_async_future(get_arxiv_pdf_link_v2, link)
     text = ''
-    while time.time() - st < (30 if detailed <= 1 else 60) and exists_tmp_marker_file(web_search_tmp_marker_name):
+    while time.time() - st < (45 if detailed <= 1 else 75) and exists_tmp_marker_file(web_search_tmp_marker_name):
         if pdf_text_future.done() and pdf_text_future.exception() is None:
             text = pdf_text_future.result()
             result_from = "pdf_reader_tool"
@@ -2196,7 +2196,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
     non_chunk_time = time.time()
     extracted_info = call_contextual_reader(context, txt,
-                                            api_keys, provide_short_responses=False,
+                                            api_keys, provide_short_responses=not detailed and not use_large_context,
                                             chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
     tt = time.time() - st
     tex_len = len(extracted_info.split())
@@ -2230,7 +2230,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yeild_one():
         for r in results_generator:
             if isinstance(r, dict) and r["type"] == "result":
-                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers]]
+                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time())]]
             else:
                 continue
 
@@ -2251,7 +2251,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
         return {"text": text, "full_info": full_result, "link": link}
 
-    threads = 40 if provide_detailed_answers else 16
+    threads = 64 if provide_detailed_answers else 16
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn1(*args, **kwargs):
         link_title_context_apikeys = args[0]
@@ -2261,9 +2261,11 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         api_keys = link_title_context_apikeys[3]
         text = link_title_context_apikeys[4]
         detailed = link_title_context_apikeys[5]
+        start_time = link_title_context_apikeys[6]
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        web_res["start_time"] = start_time
         if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception", False) and "full_text" in web_res and len(web_res["full_text"].split()) > 0:
             return [web_res, kwargs]
         else:
@@ -2275,9 +2277,10 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         title = link_data["title"]
         text = link_data["full_text"]
         exception = link_data["exception"]
+        elapsed = link_data["start_time"] - time.time()
         error = link_data["error"] if "error" in link_data else None
-        context = link_data["context"] if "context" in link_data else basic_context
-        detailed = link_data["detailed"] if "detailed" in link_data else False
+        context = link_data["context"]
+        detailed = link_data["detailed"] if "detailed" in link_data and elapsed <= 30 else False
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         if exception:
             # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
