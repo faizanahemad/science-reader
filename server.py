@@ -50,10 +50,12 @@ from flask_limiter.util import get_remote_address
 import tiktoken
 alphabet = string.ascii_letters + string.digits
 import typing as t
-try:
-    import ujson as json
-except ImportError:
-    import json
+# try:
+#     import ujson as json
+# except ImportError:
+#     import json
+
+import json
 
 class FlaskJSONProvider(JSONProvider):
     def dumps(self, obj: t.Any, **kwargs: t.Any) -> str:
