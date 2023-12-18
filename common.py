@@ -156,7 +156,7 @@ def run_async_process(func, *args, **kwargs):
     else:
         return asyncio.run(func(*args, **kwargs))
 
-executor = ThreadPoolExecutor(max_workers=128)
+executor = ThreadPoolExecutor(max_workers=256)
 
 def make_async(fn):
     def async_fn(*args, **kwargs):
@@ -178,14 +178,27 @@ def wrap_in_future(s):
     future.set_result(s)
     return future
 
-def execute_in_thread(function, *args, **kwargs):
+def execute_in_new_process(function, *args, **kwargs):
     logger.debug(f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
     submit_st = time.time()
-    with ProcessPoolExecutor(max_workers=2) as executor:
+    with ProcessPoolExecutor(max_workers=1) as executor:
         future = executor.submit(function, *args, **kwargs)
     
     submit_et = time.time()
     logger.info(f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}")
+    return future
+
+
+def execute_in_new_thread(function, *args, **kwargs):
+    logger.debug(
+        f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
+    submit_st = time.time()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(function, *args, **kwargs)
+
+    submit_et = time.time()
+    logger.info(
+        f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}")
     return future
 
 def call_api_parallel(api_calls, fn, max_workers=4):
@@ -751,7 +764,7 @@ def is_pdf_link(link):
     if science_doc or ends_with_pdf:
         result = True
     else:
-        response = ProcessFnWithTimeout(Queue())(requests.head, 10, link)
+        response = ProcessFnWithTimeout(Queue())(requests.head, 8, link)
         content_type = response.headers.get('Content-Type')
         result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
     et = time.time() - st

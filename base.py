@@ -1676,6 +1676,52 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     search_st = time.time()
+    if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None and serp_available and google_available and bing_available:
+        serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                  our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                 query_strings]
+        serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                       only_pdf=None, only_science_sites=None) for query in query_strings])
+        serps.extend([get_async_future(googleapi, query,
+                                       dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                       num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                      query in query_strings])
+        serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None,
+                                       only_pdf=None, only_science_sites=None) for query in query_strings])
+        if gscholar:
+            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=True, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res,
+                                           our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year - 1)}",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], 10,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(gscholarapi, query + f" in {year}", api_keys["serpApiKey"],
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in
+                          query_strings])
     if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None and serp_available and google_available:
         serps = [get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                   our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
@@ -1692,6 +1738,9 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper", os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                  our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                 query_strings])
             serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
                                            api_keys["serpApiKey"], num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1705,7 +1754,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
             serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
                                       only_pdf=None, only_science_sites=None) for query in
                      query_strings])
-            serps.extend([get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+            serps.extend([get_async_future(gscholarapi, query + f" in {year}", api_keys["serpApiKey"],
                                            num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
                           query in
                           query_strings])
@@ -1722,6 +1771,10 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
             serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
                                            api_keys["serpApiKey"], num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1731,7 +1784,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            only_pdf=None, only_science_sites=None) for query in
                           query_strings])
             serps.extend(
-                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+                [get_async_future(gscholarapi, query + f" in {year}", api_keys["serpApiKey"],
                                   num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
                  query in
                  query_strings])
@@ -1745,11 +1798,129 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None, only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                  enumerate(query_strings)])
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
+    elif google_available and serp_available:
+        serps = [get_async_future(googleapi, query,
+                                  dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                  num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in query_strings]
+        serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
+        if gscholar:
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in
+                          query_strings])
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend(
+                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in
+                 query_strings])
+            serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], 10,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
+                                           api_keys["serpApiKey"], 10,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+
+    elif google_available and bing_available:
+        serps = [get_async_future(googleapi, query,
+                                  dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                  num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in query_strings]
+        serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings])
+
+        if gscholar:
+            serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], 10,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
+                                           api_keys["serpApiKey"], 10,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=True, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res,
+                                           our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+
+        logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
+
+    elif serp_available and bing_available:
+        serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None, only_pdf=None,
+                          only_science_sites=None) for query in query_strings]
+        serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
+        if gscholar:
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in
+                          query_strings])
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend(
+                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in
+                 query_strings])
+            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=True, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res,
+                                           our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+    elif serp_available:
+        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
+        if gscholar:
+
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in
+                          query_strings])
+            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                          enumerate(query_strings)])
+            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend(
+                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
+                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                 query in
+                 query_strings])
+        logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
     elif google_available:
 
         # serps = [googleapi(query, dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings] + \
@@ -1775,29 +1946,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                           enumerate(query_strings)])
 
         logger.debug(f"Using GOOGLE for web search, serps len = {len(serps)}")
-    elif serp_available:
 
-        serps = [get_async_future(serpapi, query, api_keys["serpApiKey"], num_res + 10, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
-        if gscholar:
-
-            serps.extend([get_async_future(serpapi, query + f" research paper in {year}", api_keys["serpApiKey"],
-                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
-                          query in
-                          query_strings])
-            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
-                                           api_keys["serpApiKey"], num_res,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                          enumerate(query_strings)])
-            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend(
-                [get_async_future(gscholarapi, query + f" recent research papers in {year}", api_keys["serpApiKey"],
-                                  num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
-                 query in
-                 query_strings])
-        logger.debug(f"Using SERP for web search, serps len = {len(serps)}")
     elif bing_available:
 
         serps = [get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None, only_pdf=None, only_science_sites=None) for query in query_strings]
@@ -1832,7 +1981,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         time_logger.debug(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
         if s.exception() is None and s.done():
             for iqx, r in enumerate(s.result()):
-                query = remove_year_month_substring(r.get("query", "").lower())
+                query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
