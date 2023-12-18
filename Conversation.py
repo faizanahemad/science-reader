@@ -885,7 +885,7 @@ Write the extracted information concisely below:
             yield {"text": "\n", "status": "Finished reading your provided links."}
             web_text = read_links + "\n" + web_text
             time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
-            if (len(read_links) <= 2 or len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
+            if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
                 get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)

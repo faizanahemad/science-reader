@@ -918,10 +918,11 @@ Document to read and extract information from is given below.
 {{document}}
 '''
 
-Only provide answer from the document given above. If no relevant information is found in given context, then output "No relevant information found." only.
+Only provide answer from the document given above.
 {response_prompt} response below.
 """,
         )
+        # If no relevant information is found in given context, then output "No relevant information found." only.
         
     def get_one(self, context, chunk_size, document,):
         import inspect
