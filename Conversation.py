@@ -821,9 +821,10 @@ Write the extracted information concisely below:
                     executed_partial_two_stage_answering = True
                     time_logger.info(f"Time taken to end replying (stage 1) for chatbot: {(time.time() - st):.2f}")
 
+                web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 while True:
                     qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers - 1) * (2 if google_scholar else 1))))
+                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
                     if break_condition and result_queue.empty():
                         break
                     one_web_result = None
@@ -840,7 +841,6 @@ Write the extracted information concisely below:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     time.sleep(0.2)
-                web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             elif provide_detailed_answers > 2:
                 qu_mt = time.time()

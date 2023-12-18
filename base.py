@@ -1002,10 +1002,15 @@ Only provide answer from the document given above. If no relevant information is
             if len(chunks) > 2:
                 rag_result = get_async_future(self.get_one_with_rag, context_user_query, TOKEN_LIMIT_FOR_DETAILED, "\n\n".join(chunks[2:]))
             result = self.get_one(context_user_query, TOKEN_LIMIT_FOR_DETAILED, first_chunk)
-            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None else "")
+            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "")
         else:
-            result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
-        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.4)
+            try:
+                result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
+            except Exception as e:
+                logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
+                chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
+                result = self.get_one(context_user_query, chunk_size, chunks[0])
+        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.0)
         result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 1024 if self.scan else 256, 512 if self.scan else 256)
         assert isinstance(result, str)
         et = time.time()
@@ -1643,7 +1648,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         query_strings = (query_strings if len(extra_queries) == 0 else query_strings[:1]) + extra_queries
     else:
         query_strings = extra_queries
-    year = datetime.now().strftime("%Y")
+    year = int(datetime.now().strftime("%Y"))
     month = datetime.now().strftime("%B")
     for i, q in enumerate(query_strings):
         if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
@@ -1681,7 +1686,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                       query in query_strings])
         if gscholar:
 
-            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year-1)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
@@ -1711,7 +1716,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
         serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings])
         if gscholar:
 
-            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year-1)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
@@ -1735,7 +1740,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in query_strings]
         if gscholar:
 
-            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {year-1}",
+            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year-1)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None, only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                  enumerate(query_strings)])
@@ -1762,7 +1767,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
-            serps.extend([get_async_future(googleapi, query + f" research paper in {year - 1}",
+            serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
                                            api_keys["serpApiKey"], 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
@@ -2152,6 +2157,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     pdf_text_future = get_async_future(pdfReader, link)
     convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
     get_arxiv_pdf_link_future = None
+    get_arxiv_pdf_link_future_v2 = None
     result_from = "TIMEOUT_PDF_READER"
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
