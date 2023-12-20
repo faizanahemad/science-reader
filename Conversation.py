@@ -733,16 +733,19 @@ Write the extracted information concisely below:
             result_queue = web_results.result()[1]
             web_text_accumulator = []
             qu_st = time.time()
+            qu_mt = time.time()
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
             while True:
                 qu_wait = time.time()
-                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
+                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
                 if not result_queue.empty():
                     one_web_result = result_queue.get()
                 qu_et = time.time()
+                if one_web_result is None and break_condition:
+                    break
                 if one_web_result is None:
                     time.sleep(0.2)
                     continue
@@ -824,13 +827,15 @@ Write the extracted information concisely below:
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 while True:
                     qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers) * (2 if google_scholar else 1))))
+                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
                     if break_condition and result_queue.empty():
                         break
                     one_web_result = None
                     if not result_queue.empty():
                         one_web_result = result_queue.get()
                     qu_et = time.time()
+                    if one_web_result is None and break_condition:
+                        break
                     if one_web_result is None:
                         time.sleep(0.2)
                         continue
@@ -843,16 +848,17 @@ Write the extracted information concisely below:
                     time.sleep(0.2)
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             elif provide_detailed_answers > 2:
-                qu_mt = time.time()
                 while True:
                     qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= cut_off) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * ((provide_detailed_answers - 1) * (2 if google_scholar else 1))))
+                    break_condition = (len(web_text_accumulator) >= cut_off) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
                     if break_condition and result_queue.empty():
                         break
                     one_web_result = None
                     if not result_queue.empty():
                         one_web_result = result_queue.get()
                     qu_et = time.time()
+                    if one_web_result is None and break_condition:
+                        break
                     if one_web_result is None:
                         time.sleep(0.2)
                         continue
