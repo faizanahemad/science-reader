@@ -982,7 +982,6 @@ Write the extracted information concisely below:
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
-        get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
             if search_results["type"] == "end":
@@ -993,6 +992,7 @@ Write the extracted information concisely below:
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
+        get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
 
     
     def get_last_ten_messages(self):
