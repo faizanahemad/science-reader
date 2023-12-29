@@ -942,6 +942,7 @@ Write the extracted information concisely below:
         all_expert_answers = ""
         if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
             logger.info(f"Trying MOE at {(time.time() - st):.2f}")
+            yield {"text": '', "status": "Asking experts to answer ..."}
             link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
@@ -986,6 +987,7 @@ Write the extracted information concisely below:
             all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
             
+        yield {"text": '', "status": "Preparing prompt context ..."}
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_32k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
@@ -997,9 +999,10 @@ Write the extracted information concisely below:
         web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
         link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
             link_result_text.strip()) > 0 else ''
+        yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer concisely and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new option, choose from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
-        
+        partial_answer_text = (f"We have answers from three different weak experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer concisely and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new option, choose from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
@@ -1022,17 +1025,18 @@ Write the extracted information concisely below:
         if len(web_text) > 0:
             logger.debug(f"Web text: {web_text}")
         answer += "<answer>\n"
-        yield {"text": "<answer>\n", "status": "stage 1 answering in progress"}
+        yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
         answer += "</answer>\n"
-        yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
+        yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
+            yield {"text": query_results + "\n", "status": "Showing all results ... "}
             if search_results["type"] == "end":
                 full_results = search_results["full_results"]
                 answer += "\n#### All Search Results: \n"
@@ -1041,6 +1045,7 @@ Write the extracted information concisely below:
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
+        yield {"text": '', "status": "saving answer ..."}
         get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
 
     
