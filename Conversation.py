@@ -956,7 +956,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an expert in literature, history and philosophy. Answer the query in a way that is understandable to a layman. Answer concisely and briefly. Explain your reasoning and thought process.",
+                                                       permanent_instructions="You are an expert in literature, history and philosophy. Answer the query in a way that is understandable to a layman. Answer concisely and briefly. Explain your reasoning, approach and thought process before writing your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
@@ -966,7 +966,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an expert in mathematics, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer concisely and briefly. Explain your reasoning and thought process.",
+                                                       permanent_instructions="You are an expert in mathematics, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer concisely. Explain your logic, reasoning and problem solving process first before you mention your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
@@ -976,7 +976,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. Put forth your reasoning and thought process.",
+                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
@@ -998,7 +998,7 @@ Write the extracted information concisely below:
         link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
             link_result_text.strip()) > 0 else ''
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer briefly and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer concisely and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new option, choose from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
