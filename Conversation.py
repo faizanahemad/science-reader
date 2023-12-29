@@ -110,13 +110,13 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
+    level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
@@ -941,18 +941,18 @@ Write the extracted information concisely below:
         summary_text = prior_chat_summary + "\n" + summary_text
         all_expert_answers = ""
         if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
-            # MOE
-            link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4(
+            logger.info(f"Trying MOE at {(time.time() - st):.2f}")
+            link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
-            web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-                web_text, doc_answer, link_result_text, summary_text, previous_messages,
-                conversation_docs_answer)
-            doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
-                doc_answer.strip()) > 0 else ''
-            web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
-            link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
-                link_result_text.strip()) > 0 else ''
+            web_text_expert, doc_answer_expert, link_result_text_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = format_llm_inputs(
+                web_text_expert, doc_answer_expert, link_result_text_expert, summary_text_expert, previous_messages_expert,
+                conversation_docs_answer_expert)
+            doc_answer_expert = f"Answers from user's stored documents:\n'''{doc_answer_expert}'''\n" if len(
+                doc_answer_expert.strip()) > 0 else ''
+            web_text_expert = f"Answers from web search:\n'''{web_text_expert}'''\n" if len(web_text_expert.strip()) > 0 else ''
+            link_result_text_expert = f"Answers from web links provided by the user:\n'''{link_result_text_expert}'''\n" if len(
+                link_result_text_expert.strip()) > 0 else ''
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
@@ -971,7 +971,7 @@ Write the extracted information concisely below:
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
@@ -983,7 +983,8 @@ Write the extracted information concisely below:
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
             ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
-            all_expert_answers = f"First expert's answer: ```{ans_gen_1_future.result()}```" + "\n\n" + f"Second expert's answer: ```{ans_gen_2_future.result()}```" + "\n\n" + f"Third expert's answer: ```{ans_gen_3_future.result()}```"
+            all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
+            logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
             
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_32k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
@@ -997,8 +998,7 @@ Write the extracted information concisely below:
         link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
             link_result_text.strip()) > 0 else ''
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer briefly and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\n" + partial_answer_text if len(all_expert_answers.strip()) > 0 else partial_answer_text
-            
+        partial_answer_text = (f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer briefly and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
