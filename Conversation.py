@@ -339,10 +339,10 @@ class Conversation:
         summary_lookback = 4
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices")]
         memory, messages, indices = [f.result() for f in futures]
-        previous_messages = messages[-required_message_lookback:] if required_message_lookback != 0 else []
+        previous_messages = messages[-required_message_lookback:] if required_message_lookback > 0 else []
         message_lookback = 2
         previous_messages_text = ""
-        while get_gpt4_word_count(previous_messages_text) < 2500 and message_lookback <= required_message_lookback and required_message_lookback != 0:
+        while get_gpt4_word_count(previous_messages_text) < 2500 and message_lookback <= required_message_lookback and required_message_lookback > 0:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
@@ -401,8 +401,8 @@ Title of the conversation:
         messages = messages.result()
         message_lookback = 2
         previous_messages_text = ""
-
-        while get_gpt3_word_count(previous_messages_text) < 1250 and message_lookback < 6:
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
+        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 3000 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
@@ -415,7 +415,7 @@ Title of the conversation:
 
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
         prompt = get_first_last_parts(prompt, 1000, 2500)
-        if get_gpt3_word_count(prompt) > 3700:
+        if get_gpt3_word_count(prompt) > 3500:
             prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text="",
                                                                 previous_summary=get_first_last_parts("".join(
                                                                     memory["running_summary"][-4:-3] + memory[
@@ -449,8 +449,8 @@ Title of the conversation:
         old_summary = "\n\n".join(memory["running_summary"][-4:-3] + memory["running_summary"][-7:-6])
         message_lookback = 2
         previous_messages_text = ""
-
-        while get_gpt4_word_count(previous_messages_text) < 4000 and message_lookback < 6:
+        prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
+        while get_gpt4_word_count(previous_messages_text + "\n\n" + prompt) < 6500 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
@@ -615,7 +615,7 @@ Write the extracted information concisely below:
             conversation_docs_future = get_async_future(get_multiple_answers,
                                                         query["messageText"],
                                                         attached_docs,
-                                                        summary if message_lookback >= 1 else '',
+                                                        summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers) - 1),
                                                         False,
                                                         True)
@@ -625,7 +625,7 @@ Write the extracted information concisely below:
             doc_future = get_async_future(get_multiple_answers,
                                           query["messageText"],
                                           additional_docs_to_read,
-                                          summary if message_lookback >= 1 else '',
+                                          summary if message_lookback >= 0 else '',
                                           max(0, int(provide_detailed_answers) - 1),
                                           False)
         web_text = ''
@@ -899,7 +899,7 @@ Write the extracted information concisely below:
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
-        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback==0):
+        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -907,7 +907,7 @@ Write the extracted information concisely below:
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
-        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback==0):
+        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = doc_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -915,7 +915,7 @@ Write the extracted information concisely below:
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
 
-        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback==0):
+        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
             yield {"text": text, "status": "answering in progress"}

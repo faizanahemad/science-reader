@@ -650,6 +650,10 @@ function addOptions(parentElementId, type, activeDocId=null) {
     <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
         <div style="margin-left: auto; margin-right: 5px;">History</div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="historyBan" value="-1" autocomplete="off">
+            <label for="historyBan"><small><i class="fas fa-ban"></i></small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
             <input type="radio" name="historyOptions" id="history0" value="0" autocomplete="off">
             <label for="history0"><small>0</small></label>
         </div>
