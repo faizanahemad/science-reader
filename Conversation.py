@@ -586,7 +586,7 @@ Write the extracted information concisely below:
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0) and message_lookback >= 1 and provide_detailed_answers >=2:
+                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=2:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             message_lookback = min(4, message_lookback)
         web_search_tmp_marker_name = None
