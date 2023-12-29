@@ -691,7 +691,7 @@ Write the extracted information concisely below:
         previous_messages = prior_context["previous_messages"]
         new_line = "\n"
         summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
-            prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["1", "2"] else [])
+            prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["0", "1", "2"] else [])
         executed_partial_two_stage_answering = False
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
