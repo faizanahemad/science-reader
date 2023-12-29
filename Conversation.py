@@ -933,6 +933,7 @@ Write the extracted information concisely below:
         yield {"text": '', "status": "getting previous context"}
         all_expert_answers = ""
         if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
+            expert_st = time.time()
             logger.info(f"Trying MOE at {(time.time() - st):.2f}")
             yield {"text": '', "status": "Asking experts to answer ..."}
             link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
@@ -991,7 +992,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text,
                                                            previous_messages=previous_messages,
-                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
+                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear, short and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
                                                            doc_answer=doc_answer, web_text=web_text,
                                                            link_result_text=link_result_text,
                                                            conversation_docs_answer=conversation_docs_answer)
@@ -1001,15 +1002,28 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text,
                                                            previous_messages=previous_messages,
-                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
                                                            doc_answer=doc_answer, web_text=web_text,
                                                            link_result_text=link_result_text,
                                                            conversation_docs_answer=conversation_docs_answer)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
             ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
-            
-            all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
-            all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
+            while True:
+                qu_wait = time.time()
+                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0)
+                break_condition = num_done >= 5 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
+                if break_condition:
+                    break
+                time.sleep(0.2)
+            # Get results of those experts that are done by now.
+            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future]
+            for ix, future in enumerate(futures):
+                if future.done() and future.exception() is None:
+                    all_expert_answers += "\n\n" + f"Expert #{ix + 1} answer: ```{future.result()}```"
+
+            # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
+            # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
+
             logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
 
         prior_chat_summary = ""
@@ -1036,7 +1050,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from six different experts:\n```\n{all_expert_answers}\n```\nFirst please mention their answers and their reasoning comprehensively, along with your analysis of each expert's answer and reasons in detail. Then provide your own answer which combines the expert's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from different experts:\n```\n{all_expert_answers}\n```\nFirst please mention and discuss their answers along with the reasoning of each experts' answer comprehensively. Provide your own analysis of each expert's answer and reasons in detail as well. Then provide your own answer which combines the expert's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
