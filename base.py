@@ -349,7 +349,8 @@ openai_rate_limits = {
     "gpt-4": (300000, 10000),
     "gpt-4-0314": (300000, 10000),
     "gpt-4-0613": (300000, 10000),
-    "gpt-4-1106-preview": (450000, 10000)
+    "gpt-4-1106-preview": (450000, 10000),
+    "gpt-4-vision-preview": (150000, 100),
 }
 
 openai_model_family = {
@@ -357,7 +358,10 @@ openai_model_family = {
     "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613"],
     "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
     "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613"],
-    "gpt-4-16k": ["gpt-4-1106-preview"]
+    "gpt-4-16k": ["gpt-4-1106-preview", "gpt-4-vision-preview"],
+    "gpt-4-0314": ["gpt-4-0314"],
+    "gpt-4-0613": ["gpt-4-0613"],
+    "gpt-4-vision-preview": ["gpt-4-vision-preview"],
 }
 
 import time
@@ -472,8 +476,8 @@ class CallLLmGpt:
         
 
         self.keys = keys
-        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
-        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide insightful, informative, comprehensive response.\nInclude references inline in wikipedia style as your write the answer.\nIf you don't help me I will be in serious trouble my friend.\nI am a student and need your help to improve my learning and knowledge, I will tip you $100 for good answers and for making effort to help me.\n"
+        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown bold, italics, lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide concise and informative response.\nInclude references inline in wikipedia style as your write the answer.\nIf you don't help me I will be in serious trouble my friend.\nI am a student and need your help to improve my learning and knowledge, I will tip you $100 for good answers and for making effort to help me.\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
@@ -484,9 +488,9 @@ class CallLLmGpt:
         self.davinci_enc = encoders_map.get("text-davinci-003")
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, model_family=None):
         sys_init = self.light_system if not self.use_gpt4 else self.system
-        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else self.system
+        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
@@ -534,12 +538,12 @@ class CallLLmGpt:
             except AssertionError as e:
                 text = get_first_last_parts(text, 4000, 3500, self.gpt4_enc)
             try:
-                model = rate_limit_model_choice.select_model("gpt-4")
+                model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
                 return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
             except TokenLimitException as e:
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4")
+                    model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
                 except:
                     try:
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
@@ -551,7 +555,7 @@ class CallLLmGpt:
                     raise e
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4")
+                    model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
                 except:
                     try:
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
@@ -562,39 +566,39 @@ class CallLLmGpt:
             assert text_len < 3800
             try:
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                 except Exception as e:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
             except TokenLimitException as e:
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                     fn = call_chat_model if "instruct" not in model else call_non_chat_model
                 except:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                     fn = call_non_chat_model
                 return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                     fn = call_chat_model if "instruct" not in model else call_non_chat_model
                 except:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                     fn = call_non_chat_model
                 return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
         elif self.use_16k:
             try:
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
                     try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                     except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                     logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
                 assert text_len < 15000
 #                 logger.info(f"Try 16k model with stream = {stream}")
@@ -602,26 +606,26 @@ class CallLLmGpt:
             except TokenLimitException as e:
                 time.sleep(5)
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
                     try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                     except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
                                         model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
                     try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
                     except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct")
+                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
                                         model, text, temperature, system, self.keys)
         else:

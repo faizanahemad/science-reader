@@ -501,6 +501,8 @@ Title of the conversation:
         memory, messages, indices = [f.result() for f in futures]
         previous_messages = messages[-10:]
         previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
+        if len(previous_messages) < 2:
+            return ""
         prev_msg_text = []
         for m in reversed(previous_messages):
             prev_msg_text.append(f"{m['sender']}:\n'''{m['text']}'''")
@@ -929,16 +931,6 @@ Write the extracted information concisely below:
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
             return
         yield {"text": '', "status": "getting previous context"}
-        prior_chat_summary = ""
-        wt_prior_ctx = time.time()
-        while time.time() - wt_prior_ctx < 30 and prior_chat_summary_future is not None:
-            if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
-                prior_chat_summary = prior_chat_summary_future.result()
-                break
-            time.sleep(0.2)
-        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
-
-        summary_text = prior_chat_summary + "\n" + summary_text
         all_expert_answers = ""
         if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
             logger.info(f"Trying MOE at {(time.time() - st):.2f}")
@@ -957,36 +949,79 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an expert in literature, history and philosophy. Answer the query in a way that is understandable to a layman. Answer concisely and briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                       permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Explain your reasoning, approach and thought process before writing your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an expert in mathematics, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer concisely. Explain your logic, reasoning and problem solving process first before you mention your answer.",
+                                                       permanent_instructions="You are an expert in mathematics, logical reasoning, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
+            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False, model_family="gpt-4-0613")
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
+                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4")
+
+            ####
+
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text,
+                                                           previous_messages=previous_messages,
+                                                           permanent_instructions="You are an expert in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Answer briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                           doc_answer=doc_answer, web_text=web_text,
+                                                           link_result_text=link_result_text,
+                                                           conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
+
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text,
+                                                           previous_messages=previous_messages,
+                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
+                                                           doc_answer=doc_answer, web_text=web_text,
+                                                           link_result_text=link_result_text,
+                                                           conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False, model_family="gpt-4-0613")
+
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text,
+                                                           previous_messages=previous_messages,
+                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
+                                                           doc_answer=doc_answer, web_text=web_text,
+                                                           link_result_text=link_result_text,
+                                                           conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4")
             
             all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
+            all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
             logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
-            
+
+        prior_chat_summary = ""
+        wt_prior_ctx = time.time()
+        while time.time() - wt_prior_ctx < 30 and prior_chat_summary_future is not None:
+            if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
+                prior_chat_summary = prior_chat_summary_future.result()
+                break
+            time.sleep(0.2)
+        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
+
+        summary_text = prior_chat_summary + "\n" + summary_text
         yield {"text": '', "status": "Preparing prompt context ..."}
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_32k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
@@ -1001,7 +1036,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from three different weak experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer concisely and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new option, choose from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from six different experts:\n```\n{all_expert_answers}\n```\nFirst please mention their answers and their reasoning along with your analysis of each expert's answer in detail. Then provide your own answer which combines the expert's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
