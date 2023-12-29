@@ -561,7 +561,7 @@ function sendMessageCallback() {
     let options = getOptions('chat-options', 'assistant');
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
     const allFalse = booleanKeys.every(key => options[key] === false);
-    if ((wordCount > 1000 && !allFalse) || (wordCount > 3000)) {
+    if ((wordCount > 4000 && !allFalse) || (wordCount > 8000)) {
         alert('Please enter a message with less words');
         return;
     }
