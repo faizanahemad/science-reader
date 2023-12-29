@@ -939,6 +939,52 @@ Write the extracted information concisely below:
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
 
         summary_text = prior_chat_summary + "\n" + summary_text
+        all_expert_answers = ""
+        if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
+            # MOE
+            link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4(
+            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            query["messageText"], conversation_docs_answer)
+            web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
+                web_text, doc_answer, link_result_text, summary_text, previous_messages,
+                conversation_docs_answer)
+            doc_answer = f"Answers from user's stored documents:\n'''{doc_answer}'''\n" if len(
+                doc_answer.strip()) > 0 else ''
+            web_text = f"Answers from web search:\n'''{web_text}'''\n" if len(web_text.strip()) > 0 else ''
+            link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
+                link_result_text.strip()) > 0 else ''
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                       summary_text=summary_text,
+                                                       previous_messages=previous_messages,
+                                                       permanent_instructions="You are an expert in literature, history and philosophy. Answer the query in a way that is understandable to a layman. Answer concisely and briefly. Explain your reasoning and thought process.",
+                                                       doc_answer=doc_answer, web_text=web_text,
+                                                       link_result_text=link_result_text,
+                                                       conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                       summary_text=summary_text,
+                                                       previous_messages=previous_messages,
+                                                       permanent_instructions="You are an expert in mathematics, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer concisely and briefly. Explain your reasoning and thought process.",
+                                                       doc_answer=doc_answer, web_text=web_text,
+                                                       link_result_text=link_result_text,
+                                                       conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                       summary_text=summary_text,
+                                                       previous_messages=previous_messages,
+                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. Put forth your reasoning and thought process.",
+                                                       doc_answer=doc_answer, web_text=web_text,
+                                                       link_result_text=link_result_text,
+                                                       conversation_docs_answer=conversation_docs_answer)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            
+            all_expert_answers = f"First expert's answer: ```{ans_gen_1_future.result()}```" + "\n\n" + f"Second expert's answer: ```{ans_gen_2_future.result()}```" + "\n\n" + f"Third expert's answer: ```{ans_gen_3_future.result()}```"
+            
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_32k(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
@@ -951,6 +997,9 @@ Write the extracted information concisely below:
         link_result_text = f"Answers from web links provided by the user:\n'''{link_result_text}'''\n" if len(
             link_result_text.strip()) > 0 else ''
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
+        partial_answer_text = f"We have answers from three different experts:\n{all_expert_answers}\nPlease mention and then critic each expert's answer briefly and then provide your own answer which improves upon the expert's opinions and provides a better more appropriate answer.\n" + partial_answer_text if len(all_expert_answers.strip()) > 0 else partial_answer_text
+            
+        
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
@@ -1095,12 +1144,12 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 1000
         l4 = 1250
     elif model == "gpt-4-16k":
-        l1 = 14000
-        l2 = 2000
+        l1 = 12000
+        l2 = 4000
         l4 = 2500
     elif model == "gpt-4-32k":
-        l1 = 28000
-        l2 = 4000
+        l1 = 24000
+        l2 = 8000
         l4 = 5000
     else:
         l1 = 2000
