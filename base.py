@@ -149,42 +149,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 import time
-
-@retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
-def call_ai21(text, temperature=0.7, api_key=None):
-    if get_gpt4_word_count(text) > 3600:
-        logger.warning(f"call_ai21 Text too long, taking only first 3600 tokens")
-        text = get_first_last_parts(text, 3600, 0)
-    response_grande = ai21.Completion.execute(
-          model="j2-jumbo-instruct",
-          prompt=text,
-          numResults=1,
-          maxTokens=4000 - get_gpt4_word_count(text),
-          temperature=temperature,
-          topKReturn=0,
-          topP=0.9,
-          stopSequences=["##"],
-          api_key=api_key["ai21Key"],
-    )
-    result = response_grande["completions"][0]["data"]["text"]
-    return result
-@retry(wait=wait_random_exponential(min=15, max=45), stop=stop_after_attempt(2))
-def call_cohere(text, temperature=0.7, api_key=None):
-    import cohere
-    co = cohere.Client(api_key["cohereKey"])
-    logger.debug(f"Calling Cohere with text: {text[:100]} and length: {len(text.split())}")
-    if get_gpt4_word_count(text) > 3400:
-        logger.warning(f"call_cohere Text too long, taking only first 3400 tokens")
-        text = get_first_last_parts(text, 3400, 0)
-    response = co.generate(
-        model='command-nightly',
-        prompt=text,
-        max_tokens=3800 - get_gpt4_word_count(text),
-        temperature=temperature)
-    return response.generations[0].text
-
-
-
 import requests
 import json
 import random
@@ -337,7 +301,7 @@ class CallLLmClaude:
             modelId = next(round_robin(self.openai_turbo_models))
         return call_with_stream(self.call_claude, stream, modelId, body, backup_function=vllmBackup if vllmUrl is not None else None)
 
-openai_rate_limits = {
+openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-3.5-turbo": (1000000, 10000),
     "gpt-3.5-turbo-0301": (1000000, 10000),
     "gpt-3.5-turbo-0613": (1000000, 10000),
@@ -351,11 +315,11 @@ openai_rate_limits = {
     "gpt-4-0613": (300000, 10000),
     "gpt-4-1106-preview": (450000, 10000),
     "gpt-4-vision-preview": (150000, 100),
-}
+})
 
 openai_model_family = {
     "gpt-3.5-turbo": ["gpt-3.5-turbo", "gpt-3.5-turbo-0301", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-1106"],
-    "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613"],
+    "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-1106"],
     "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
     "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613"],
     "gpt-4-16k": ["gpt-4-1106-preview", "gpt-4-vision-preview"],
@@ -411,7 +375,7 @@ easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
 davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
-encoders_map = {
+encoders_map = defaultdict(lambda: easy_enc, {
     "gpt-3.5-turbo": easy_enc,
     "gpt-3.5-turbo-0301": easy_enc,
     "gpt-3.5-turbo-0613": easy_enc,
@@ -426,28 +390,33 @@ encoders_map = {
     "gpt-4-1106-preview": gpt4_enc,
     "text-davinci-003": davinci_enc,
     "text-davinci-002": davinci_enc,
-}
+})
 def call_chat_model(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"]
-    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
-    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
+    api_key = keys["openAIKey"] if "gpt" in model or "davinci" in model else keys["OPENROUTER_API_KEY"]
+    if "gpt" in model or "davinci" in model:
+        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
+        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
+    extras = dict(api_base="https://openrouter.ai/api/v1", base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) else dict()
     response = openai.ChatCompletion.create(
         model=model,
         api_key=api_key,
+        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"] if "claude" in model else ["</s>",],
         messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
-            temperature=temperature,
-            stream=True
-        )
+        temperature=temperature,
+        stream=True,
+        **extras
+    )
     for chunk in response:
         if "content" in chunk["choices"][0]["delta"]:
             text_content = chunk["choices"][0]["delta"]["content"]
             yield text_content
-            rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
+            if "gpt" in model or "davinci" in model:
+                rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if chunk["choices"][0]["finish_reason"]!="stop":
+    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"]!="stop":
         yield "\n Output truncated due to lack of context Length."
 
 
@@ -630,6 +599,19 @@ class CallLLmGpt:
                                         model, text, temperature, system, self.keys)
         else:
             raise ValueError("No model use criteria met")
+
+class CallLLmOpenRouter(CallLLmGpt):
+    def __init__(self, keys, model_name="anthropic/claude-2.0", *args, **kwargs):
+        super().__init__(keys=keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None)
+        self.model_name = model_name
+
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        sys_init = self.light_system if not self.use_gpt4 else self.system
+        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
+        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
+        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
+        assert get_gpt3_word_count(system + text) < 14000
+        return call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
 
 CallLLm = CallLLmGpt if prompts.llm == "gpt4" else (CallLLmClaude if prompts.llm == "claude" else CallLLmGpt)
         

@@ -313,6 +313,7 @@ def keyParser(session):
         "embeddingsUrl": os.getenv("embeddingsUrl", ''),
         "zenrows": os.getenv("zenrows", ''),
         "brightdataUrl": os.getenv("brightdataUrl", ''),
+        "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", ''),
     }
     if keyStore["vllmUrl"].strip() != "" or keyStore["vllmLargeModelUrl"].strip() != "" or keyStore["vllmSmallModelUrl"].strip() != "":
         keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
