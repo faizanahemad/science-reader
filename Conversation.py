@@ -931,7 +931,7 @@ Write the extracted information concisely below:
         yield {"text": '', "status": "getting previous context"}
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
-        while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 30 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 break

@@ -113,6 +113,7 @@ Please summarize the conversation very informatively, in great detail and depth.
 Format your summary using markdown, starting with a long comprehensive overview paragraph. Follow this with in depth bullet points with good detailing highlighting about all the details of the conversation. Finally, conclude with an extensive final remark about the overall conversation including any plans or action items. Mention all solutions, suggestions, references, methods and techniques we discussed in depth and proper detail. Capture any solutions, ideas, thoughts, suggestions, action items we had discussed in depth and comprehensively.
 
 Prioritise clarity, informativeness, wide coverage, density and depth in your summary to fully represent the conversation and all its smaller details. Keep your response dense in information and details.
+Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
 
 Conversation Summary:
 """,
@@ -123,6 +124,7 @@ Conversation Summary:
 Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. Your summary should be detailed, comprehensive and in-depth.
 Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references.
+Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
@@ -380,6 +382,7 @@ Please summarize the conversation very informatively, in great detail and depth.
 Format your summary using markdown, starting with a long comprehensive overview paragraph. Follow this with in depth bullet points with good detailing highlighting about all the details of the conversation. Finally, conclude with an extensive final remark about the overall conversation including any plans or action items. Mention all solutions, suggestions, references, methods and techniques we discussed in depth and proper detail. Capture any solutions, ideas, thoughts, suggestions, action items we had discussed in depth and comprehensively.
 
 Prioritise clarity, informativeness, wide coverage, density and depth in your summary to fully represent the conversation and all its smaller details. Keep your response dense in information and details.
+Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
 
 Conversation Summary:
 """,
@@ -388,6 +391,7 @@ Conversation Summary:
                 input_variables=["query", "response", "previous_summary", "previous_messages_text"],
                 template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 Write a new summary of the conversation. Capture all important details in your summary including code, factual details, links and references, named entities and other details mentioned by the human and the AI. Your summary should be detailed, comprehensive and in-depth.
+Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
