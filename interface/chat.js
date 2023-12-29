@@ -563,6 +563,7 @@ function sendMessageCallback() {
     const allFalse = booleanKeys.every(key => options[key] === false);
     if ((wordCount > 4000 && !allFalse) || (wordCount > 8000)) {
         alert('Please enter a message with less words');
+        $('#messageText').prop('working', false);
         return;
     }
 
