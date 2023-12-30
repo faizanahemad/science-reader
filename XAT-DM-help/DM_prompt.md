@@ -162,16 +162,5 @@ What can our own reasoning and any other reasoning we saw tell us about the exam
 Can we infer any new rules or thought process they use besides the ones we already know of? Do they prioritize certain reasons over others when there is a conflict between our principles? 
 Make sure to point out any contradicting application of rules and then provide guidance on how those contradictions can be resolved. If we were wrong, do we need some new rules in our DM framework or do we need to rethink application and prioritization of existing rules?
 ```
-
--------
-## Case 3: We are combining various rules we have learning till now. 
-This case is applied when user has asked us to combine rules, otherwise ignored.
-
-Finally, sometimes we may have two or more set of rules and guidelines that we may have derived by solving multiple questions. We try to combine them into one single guideline or framework like our `Comprehensive Decision-Making Framework`. To do that you can use the below process.
-```
-Deduplicate any redundant rules and write these rules in a bullet point fashion in concise manner so that we can use them later to guide our decision making process. Try to write more descriptive and more clearly with any caveats or nuances about the rules. Also capture all rules we need to list to answer future questions easily. Finally make sure to point out any contradicting rules and then provide guidance on how those contradictions can be resolved. Some rules may have nuances or maybe applicable in nuanced scenarios and unacceptable in other scenarios, capture such nuances as well. Some rules also have priority order, like ethics takes higher priority over profits, identify if our rule sets have such rules where prioritization among rules may need to be done.
-Please provide your output in a code block with markdown syntax so that I can copy it easily.
-```
-------------------
-
+-----------------
 
