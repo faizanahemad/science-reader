@@ -361,12 +361,22 @@ class Conversation:
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         if len(memory["running_summary"]) > 4:
-            summary_nodes = indices["summary_index"].similarity_search(query, k=6)
-            summary_nodes = [n.page_content for n in summary_nodes]
-            not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
-            summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
-            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0][-2:]
-            # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
+            summary_nodes = get_async_future(indices["summary_index"].similarity_search, query, k=6)
+            st_retr = time.time()
+            got_summary_nodes = False
+            while time.time() - st_retr < 6:
+                if summary_nodes.done() and summary_nodes.exception() is None:
+                    got_summary_nodes = True
+                    break
+                time.sleep(0.1)
+            if got_summary_nodes:
+                summary_nodes = [n.page_content for n in summary_nodes.result()]
+                not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
+                summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
+                summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0][-2:]
+                # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
+            else:
+                summary_nodes = []
         else:
             summary_nodes = []
 
