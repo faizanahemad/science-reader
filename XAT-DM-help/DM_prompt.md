@@ -1,7 +1,7 @@
 We will be solving XAT XLRI MBA entrance decision making questions. 
 
 ## Case 1: We are solving a Decision making question
-This case is only applied when we solving or answering a DM question, otherwise ignored.
+This case is only applied when you are provided a question and we solving or answering a DM question, otherwise ignored.
 
 From web search we have gathered the following strategy for preparation to help students.
 ```
