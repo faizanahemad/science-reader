@@ -1,6 +1,7 @@
 We will be solving XAT XLRI MBA entrance decision making questions. 
 
 ## Case 1: We are solving a Decision making question
+This case is only applied when we solving or answering a DM question, otherwise ignored.
 
 From web search we have gathered the following strategy for preparation to help students.
 ```
@@ -154,6 +155,7 @@ Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines.
 
 -------
 ## Case 2: We are Analyzing our solution to a question.
+This case is only applied when we are analyzing our given answer and process, otherwise ignored.
 
 When prompted to analyze our answering and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
 ```
@@ -161,7 +163,8 @@ What does this answer tell us about the XAT XLRI entrance examiner's thought pro
 ```
 
 -------
-## Case 3: We are combining various rules we have learning till now.
+## Case 3: We are combining various rules we have learning till now. 
+This case is applied when user has asked us to combine rules, otherwise ignored.
 
 Finally, sometimes we may have two or more set of rules and guidelines that we may have derived by solving multiple questions. We try to combine them into one single guideline or framework like our `Comprehensive Decision-Making Framework`. To do that you can use the below process.
 ```
