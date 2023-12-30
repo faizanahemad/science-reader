@@ -936,6 +936,7 @@ Write the extracted information concisely below:
             expert_st = time.time()
             logger.info(f"Trying MOE at {(time.time() - st):.2f}")
             yield {"text": '', "status": "Asking experts to answer ..."}
+            
             link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
@@ -947,76 +948,117 @@ Write the extracted information concisely below:
             web_text_expert = f"Answers from web search:\n'''{web_text_expert}'''\n" if len(web_text_expert.strip()) > 0 else ''
             link_result_text_expert = f"Answers from web links provided by the user:\n'''{link_result_text_expert}'''\n" if len(
                 link_result_text_expert.strip()) > 0 else ''
+            
+            link_result_text_expert_16k, web_text_expert_16k, doc_answer_expert_16k, summary_text_expert_16k, previous_messages_expert_16k, conversation_docs_answer_expert_16k = truncate_text_for_gpt4_16k(
+            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            query["messageText"], conversation_docs_answer)
+            web_text_expert_16k, doc_answer_expert_16k, link_result_text_expert_16k, summary_text_expert_16k, previous_messages_expert_16k, conversation_docs_answer_expert_16k = format_llm_inputs(
+                web_text_expert_16k, doc_answer_expert_16k, link_result_text_expert_16k, summary_text_expert_16k, previous_messages_expert_16k,
+                conversation_docs_answer_expert_16k)
+            doc_answer_expert_16k = f"Answers from user's stored documents:\n'''{doc_answer_expert_16k}'''\n" if len(
+                doc_answer_expert_16k.strip()) > 0 else ''
+            web_text_expert_16k = f"Answers from web search:\n'''{web_text_expert_16k}'''\n" if len(web_text_expert_16k.strip()) > 0 else ''
+            link_result_text_expert_16k = f"Answers from web links provided by the user:\n'''{link_result_text_expert_16k}'''\n" if len(
+                link_result_text_expert_16k.strip()) > 0 else ''
+            
+            
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text,
-                                                       previous_messages=previous_messages,
+                                                       summary_text=summary_text_expert_16k,
+                                                       previous_messages=previous_messages_expert_16k,
                                                        permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Explain your reasoning, approach and thought process before writing your answer.",
-                                                       doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text,
-                                                       conversation_docs_answer=conversation_docs_answer)
+                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                       link_result_text=link_result_text_expert_16k,
+                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=True, use_16k=False)
-            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
+            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text,
-                                                       previous_messages=previous_messages,
+                                                       summary_text=summary_text_expert_16k,
+                                                       previous_messages=previous_messages_expert_16k,
                                                        permanent_instructions="You are an expert in mathematics, logical reasoning, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
-                                                       doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text,
-                                                       conversation_docs_answer=conversation_docs_answer)
+                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                       link_result_text=link_result_text_expert_16k,
+                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-2.0", use_gpt4=True, use_16k=False)
-            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False, model_family="gpt-4-0613")
+            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text,
-                                                       previous_messages=previous_messages,
+                                                       summary_text=summary_text_expert_16k,
+                                                       previous_messages=previous_messages_expert_16k,
                                                        permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
-                                                       doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text,
-                                                       conversation_docs_answer=conversation_docs_answer)
+                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                       link_result_text=link_result_text_expert_16k,
+                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=True, use_16k=False)
-            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4")
+            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             ####
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text,
-                                                           previous_messages=previous_messages,
+                                                           summary_text=summary_text_expert_16k,
+                                                           previous_messages=previous_messages_expert_16k,
                                                            permanent_instructions="You are an expert in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Answer briefly. Explain your reasoning, approach and thought process before writing your answer.",
-                                                           doc_answer=doc_answer, web_text=web_text,
-                                                           link_result_text=link_result_text,
-                                                           conversation_docs_answer=conversation_docs_answer)
+                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                           link_result_text=link_result_text_expert_16k,
+                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="cognitivecomputations/dolphin-mixtral-8x7b", use_gpt4=True, use_16k=False)
-            ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
+            ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text,
-                                                           previous_messages=previous_messages,
+                                                           summary_text=summary_text_expert,
+                                                           previous_messages=previous_messages_expert,
                                                            permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear, short and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
-                                                           doc_answer=doc_answer, web_text=web_text,
-                                                           link_result_text=link_result_text,
-                                                           conversation_docs_answer=conversation_docs_answer)
+                                                           doc_answer=doc_answer_expert, web_text=web_text_expert,
+                                                           link_result_text=link_result_text_expert,
+                                                           conversation_docs_answer=conversation_docs_answer_expert)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
             ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False, model_family="gpt-4-0613")
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text,
-                                                           previous_messages=previous_messages,
+                                                           summary_text=summary_text_expert,
+                                                           previous_messages=previous_messages_expert,
                                                            permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
-                                                           doc_answer=doc_answer, web_text=web_text,
-                                                           link_result_text=link_result_text,
-                                                           conversation_docs_answer=conversation_docs_answer)
+                                                           doc_answer=doc_answer_expert, web_text=web_text_expert,
+                                                           link_result_text=link_result_text_expert,
+                                                           conversation_docs_answer=conversation_docs_answer_expert)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
             ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
+            
+            ###
+            
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text_expert_16k,
+                                                           previous_messages=previous_messages_expert_16k,
+                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. First, put forward your reasoning and decision making process, then write your answer.",
+                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                           link_result_text=link_result_text_expert_16k,
+                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=True, use_16k=False)
+            ans_gen_7_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            
+            
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text_expert_16k,
+                                                           previous_messages=previous_messages_expert_16k,
+                                                           permanent_instructions="You are an research scholar in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Answer briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
+                                                           link_result_text=link_result_text_expert_16k,
+                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-2", use_gpt4=True, use_16k=False)
+            ans_gen_8_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+            
+            
+
+            
             while True:
                 qu_wait = time.time()
-                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0)
+                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0)
                 break_condition = num_done >= 5 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
                 if break_condition:
                     break
                 time.sleep(0.2)
             # Get results of those experts that are done by now.
-            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future]
+            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future]
             for ix, future in enumerate(futures):
                 if future.done() and future.exception() is None:
                     all_expert_answers += "\n\n" + f"Expert #{ix + 1} answer: ```{future.result()}```"
@@ -1201,8 +1243,8 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 1000
         l4 = 1250
     elif model == "gpt-4-16k":
-        l1 = 12000
-        l2 = 4000
+        l1 = 10000
+        l2 = 2000
         l4 = 2500
     elif model == "gpt-3.5-turbo-16k":
         l1 = 10000
