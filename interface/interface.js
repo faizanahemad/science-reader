@@ -639,6 +639,15 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <input type="radio" name="${slow_fast}Options" id="${slow_fast}4" value="4" autocomplete="off">
             <label for="${slow_fast}4"><small>4</small></label>
         </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}5" value="5" autocomplete="off">
+            <label for="${slow_fast}5"><small>5</small></label>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}6" value="6" autocomplete="off">
+            <label for="${slow_fast}6"><small>6</small></label>
+        </div>
     </div>
     </div>
 

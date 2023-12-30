@@ -589,6 +589,14 @@ Write the extracted information concisely below:
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
+
+        if provide_detailed_answers == 5:
+            with open(os.path.join("XAT-DM-help", "DM_prompt.md"), "r") as f:
+                dm_msg = f.read()
+            query['messageText'] = dm_msg + "\n\n" + query['messageText']
+            user_query = query['messageText']
+            provide_detailed_answers = 4
+
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         links = [l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
