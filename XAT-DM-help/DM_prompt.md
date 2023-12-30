@@ -1,7 +1,8 @@
-We will be solving XAT XLRI MBA entrance decision making questions. 
-
-## Case 1: We are solving a Decision making question
+The below guidelines and processes (between dashed lines) are useful if you are asked to solve Business decision making (organizational ethics/policy) questions or analyze answers, business situations and rules for such decision making scenarios.
+------------------
+## Case 1: We are solving a Decision making question.
 This case is only applied when you are provided a question and we solving or answering a DM question, otherwise ignored.
+Under this case we will be solving XAT XLRI MBA entrance decision making questions. 
 
 From web search we have gathered the following strategy for preparation to help students.
 ```
@@ -150,7 +151,8 @@ We have also practiced few questions previously and from there we have gathered 
 
 Now based on these guidelines and rules we will solve further questions. If I provide you the context or situation, and also a question with options for that situation, you will provide answer to the question by reasoning and understanding the situation as well as the question. You will also apply the rules and tips we have mentioned above.
 Break the question and the context down, reason critically, use our rules above and think step by step critically to solve the given XAT Decision making question for XLRI MBA college entrance exam. Make use of the rules we have learnt till now as well. 
-Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines.
+
+Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You are supposed to select one option from the provided options unless stated otherwise.
 
 
 -------
@@ -159,7 +161,11 @@ This case is only applied when we are analyzing our given answer and process, ot
 
 When prompted to analyze our answering and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
 ```
-What does this answer tell us about the XAT XLRI entrance examiner's thought process and what kind of answers they prioritize? What can our own reasoning and other reasoning we saw tell us about the examiner's thought process? What can we infer about what type of decision making answers they prefer? Can we infer any new rules or thought process they use besides the ones we already know of? Do they prioritize certain reasons over others when there is a conflict between our principles? Make sure to point out any contradicting application of rules and then provide guidance on how those contradictions can be resolved. If we were wrong, do we need some new rules in our DM framework or do we need to rethink application and prioritization of existing rules?
+What does this answer tell us about the XAT XLRI entrance examiner's thought process and what kind of answers they prioritize? 
+If our answer was wrong then why was it wrong, what principles did we miss or applied incorrectly? 
+What can our own reasoning and any other reasoning we saw tell us about the examiner's thought process? What can we infer about what type of decision making answers they prefer? 
+Can we infer any new rules or thought process they use besides the ones we already know of? Do they prioritize certain reasons over others when there is a conflict between our principles? 
+Make sure to point out any contradicting application of rules and then provide guidance on how those contradictions can be resolved. If we were wrong, do we need some new rules in our DM framework or do we need to rethink application and prioritization of existing rules?
 ```
 
 -------
@@ -171,4 +177,6 @@ Finally, sometimes we may have two or more set of rules and guidelines that we m
 Deduplicate any redundant rules and write these rules in a bullet point fashion in concise manner so that we can use them later to guide our decision making process. Try to write more descriptive and more clearly with any caveats or nuances about the rules. Also capture all rules we need to list to answer future questions easily. Finally make sure to point out any contradicting rules and then provide guidance on how those contradictions can be resolved. Some rules may have nuances or maybe applicable in nuanced scenarios and unacceptable in other scenarios, capture such nuances as well. Some rules also have priority order, like ethics takes higher priority over profits, identify if our rule sets have such rules where prioritization among rules may need to be done.
 Please provide your output in a code block with markdown syntax so that I can copy it easily.
 ```
+------------------
+
 

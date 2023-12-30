@@ -628,7 +628,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <label for="${slow_fast}1"><small>1</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-            <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off" checked>
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off">
             <label for="${slow_fast}2"><small>2</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
@@ -641,12 +641,22 @@ function addOptions(parentElementId, type, activeDocId=null) {
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
             <input type="radio" name="${slow_fast}Options" id="${slow_fast}5" value="5" autocomplete="off">
-            <label for="${slow_fast}5"><small>5</small></label>
+            <label for="${slow_fast}5"><small>DM</small></label>
         </div>
 
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-            <input type="radio" name="${slow_fast}Options" id="${slow_fast}6" value="6" autocomplete="off">
-            <label for="${slow_fast}6"><small>6</small></label>
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}6" value="6" autocomplete="off" checked>
+            <label for="${slow_fast}6"><small>DM-2</small></label>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}7" value="7" autocomplete="off">
+            <label for="${slow_fast}7"><small>VA</small></label>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="${slow_fast}Options" id="${slow_fast}8" value="8" autocomplete="off">
+            <label for="${slow_fast}8"><small>VA-2</small></label>
         </div>
     </div>
     </div>

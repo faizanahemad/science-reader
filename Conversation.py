@@ -589,13 +589,18 @@ Write the extracted information concisely below:
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
-
-        if provide_detailed_answers == 5:
+        original_user_query = user_query
+        if provide_detailed_answers == 5 or provide_detailed_answers == 6:
             with open(os.path.join("XAT-DM-help", "DM_prompt.md"), "r") as f:
                 dm_msg = f.read()
             query['messageText'] = dm_msg + "\n\n" + query['messageText']
             user_query = query['messageText']
-            provide_detailed_answers = 4
+
+        if provide_detailed_answers == 7 or provide_detailed_answers == 8:
+            with open(os.path.join("XAT-DM-help", "VA_prompt.md"), "r") as f:
+                dm_msg = f.read()
+            query['messageText'] = dm_msg + "\n\n" + query['messageText']
+            user_query = query['messageText']
 
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         links = [l.strip() for l in query["links"] if
@@ -949,7 +954,7 @@ Write the extracted information concisely below:
             return
         yield {"text": '', "status": "getting previous context"}
         all_expert_answers = ""
-        if provide_detailed_answers >= 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
+        if provide_detailed_answers in [4, 6, 8] and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
             expert_st = time.time()
             logger.info(f"Trying MOE at {(time.time() - st):.2f}")
             yield {"text": '', "status": "Asking experts to answer ..."}
@@ -1078,7 +1083,7 @@ Write the extracted information concisely below:
             futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future]
             model_names = ["mistralai/mixtral-8x7b-instruct", "anthropic/claude-2.0", "anthropic/claude-v1", "cognitivecomputations/dolphin-mixtral-8x7b", "gpt-4-0613", "gpt-4-0314", "google/gemini-pro", "anthropic/claude-2"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
-                if future.done() and future.exception() is None:
+                if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 10:
                     all_expert_answers += "\n\n" + f"Expert `#{ix + 1}: name: {mdn}` answer: ```{future.result()}```"
 
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
@@ -1110,7 +1115,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from different experts:\n```\n{all_expert_answers}\n```\nFirst mention their names and discuss their answers (with their names) along with the reasoning of each experts' answer comprehensively. Provide your own analysis of each expert's answer and reasons in detail as well. Then provide your own answer which combines the expert's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from different experts:\n```\n{all_expert_answers}\n```\nFirst mention their names and discuss their answers (with their names) thoroughly, along with the reasoning of each experts' answer comprehensively. Provide your own analysis of each expert's answer and reasons in detail as well. Then provide your own answer which combines the expert's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the expert's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
@@ -1155,7 +1160,7 @@ Write the extracted information concisely below:
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+        get_async_future(self.persist_current_turn, original_user_query, answer, full_doc_texts)
 
     
     def get_last_ten_messages(self):
