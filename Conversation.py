@@ -600,16 +600,17 @@ Write the extracted information concisely below:
         google_scholar = checkboxes["googleScholar"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         original_user_query = user_query
+        from bs4 import BeautifulSoup
         if provide_detailed_answers == 5 or provide_detailed_answers == 6:
             with open(os.path.join("XAT-DM-help", "DM_prompt.md"), "r") as f:
                 dm_msg = f.read()
-            query['messageText'] = dm_msg + "\n\n" + query['messageText']
+            query['messageText'] = dm_msg + "\n\n" + remove_bad_whitespaces(BeautifulSoup(query['messageText'], "lxml").text)
             user_query = query['messageText']
 
         if provide_detailed_answers == 7 or provide_detailed_answers == 8:
             with open(os.path.join("XAT-DM-help", "VA_prompt.md"), "r") as f:
                 dm_msg = f.read()
-            query['messageText'] = dm_msg + "\n\n" + query['messageText']
+            query['messageText'] = dm_msg + "\n\n" + remove_bad_whitespaces(BeautifulSoup(query['messageText'], "lxml").text)
             user_query = query['messageText']
 
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
