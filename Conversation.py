@@ -390,7 +390,7 @@ class Conversation:
     def create_title(self, query, response):
         llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         memory = self.get_field("memory")
-        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0) or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1):
+        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
             llm = CallLLm(self.get_api_keys(), use_gpt4=False)
             running_summary = memory["running_summary"][-1:]
             running_summary = "".join(running_summary)
