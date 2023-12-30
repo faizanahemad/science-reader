@@ -1091,7 +1091,7 @@ Write the extracted information concisely below:
                 time.sleep(0.2)
             # Get results of those experts that are done by now.
             futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future]
-            model_names = ["mistralai/mixtral-8x7b-instruct", "anthropic/claude-2.0", "anthropic/claude-v1", "cognitivecomputations/dolphin-mixtral-8x7b", "gpt-4-0613", "gpt-4-0314", "google/gemini-pro", "anthropic/claude-2"]
+            model_names = ["mixtral", "claude-2.0", "claude-v1", "dolphin-mixtral", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
                 if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 10:
                     all_expert_answers += "\n\n" + f"Student `#{ix + 1}: name: {mdn}` answer: ```{future.result()}```"
