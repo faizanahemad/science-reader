@@ -1094,7 +1094,7 @@ Write the extracted information concisely below:
             model_names = ["mistralai/mixtral-8x7b-instruct", "anthropic/claude-2.0", "anthropic/claude-v1", "cognitivecomputations/dolphin-mixtral-8x7b", "gpt-4-0613", "gpt-4-0314", "google/gemini-pro", "anthropic/claude-2"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
                 if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 10:
-                    all_expert_answers += "\n\n" + f"Expert `#{ix + 1}: name: {mdn}` answer: ```{future.result()}```"
+                    all_expert_answers += "\n\n" + f"Student `#{ix + 1}: name: {mdn}` answer: ```{future.result()}```"
 
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
