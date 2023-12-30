@@ -1209,8 +1209,11 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l1 = 2000
         l2 = 500
         l4 = 500
-    previous_messages = get_first_last_parts(previous_messages, 0, l2)
-    summary_text = get_first_last_parts(summary_text, 0, l4)
+
+    message_space = max(l2, l1 - len(enc.encode(user_message + conversation_docs_answer + link_result_text + doc_answer + web_text + summary_text)) - 750)
+    previous_messages = get_first_last_parts(previous_messages, 0, message_space)
+    summary_space = max(l4, l1 - len(enc.encode(user_message + previous_messages + conversation_docs_answer + link_result_text + doc_answer + web_text)) - 750)
+    summary_text = get_first_last_parts(summary_text, 0, summary_space)
     ctx_len_allowed = l1 - len(enc.encode(user_message + previous_messages + summary_text))
     conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
     link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(conversation_docs_answer)))
