@@ -1147,8 +1147,7 @@ Write the extracted information concisely below:
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        self.persist_current_turn(query["messageText"], answer, full_doc_texts)
-        yield {"text": '', "status": "saved message ..."}
+        get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
 
     
     def get_last_ten_messages(self):
