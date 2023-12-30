@@ -434,19 +434,19 @@ Title of the conversation:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True) if get_gpt3_word_count(prompt) > 3200 else CallLLm(self.get_api_keys(), use_gpt4=False)
+        llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True) if get_gpt3_word_count(prompt) > 3300 else CallLLm(self.get_api_keys(), use_gpt4=False)
         prompt = get_first_last_parts(prompt, 4000, 7500)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        summary = summary.result()
+        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
+        memory["running_summary"].append(summary)
         try:
             title = title.result()
             memory["title"] = title
         except Exception as e:
             pass
-        summary = summary.result()
-        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
-        memory["running_summary"].append(summary)
         mem_set = get_async_future(self.set_field, "memory", memory)
         # self.set_field("memory", memory)
         indices = indices.result()
@@ -454,7 +454,6 @@ Title of the conversation:
         self.set_field("indices", indices)
         msg_set.result()
         mem_set.result()
-        self.create_deep_summary()
 
     def create_deep_summary(self):
         indices = get_async_future(self.get_field, "indices")
@@ -576,6 +575,7 @@ Write the extracted information concisely below:
         # TODO: get prior messages and use gpt-3.5 16K for getting a good prior long context for current message. Do this asynchronously.
         # query payload below, actual query is the messageText
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        get_async_future(self.create_deep_summary)
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         query["messageText"] = query["messageText"].strip()
