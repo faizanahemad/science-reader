@@ -1191,6 +1191,9 @@ def truncate_text_for_gpt4_16k(link_result_text, web_text, doc_answer, summary_t
 def truncate_text_for_gpt4_32k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-32k")
 
+def truncate_text_for_gpt3_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
+    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-3.5-turbo-16k")
+
 def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4"):
     enc = tiktoken.encoding_for_model(model)
     if model == "gpt-4":
@@ -1200,6 +1203,10 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
     elif model == "gpt-4-16k":
         l1 = 12000
         l2 = 4000
+        l4 = 2500
+    elif model == "gpt-3.5-turbo-16k":
+        l1 = 10000
+        l2 = 2000
         l4 = 2500
     elif model == "gpt-4-32k":
         l1 = 24000
