@@ -394,6 +394,7 @@ System response: '''{response}'''
 Now lets write a title of the conversation.
 Title of the conversation:
 """
+            prompt = get_first_last_parts(prompt, 1000, 2200)
             title = get_async_future(llm, prompt, temperature=0.2, stream=False)
         else:
             title = wrap_in_future(self.get_field("memory")["title"])
@@ -406,7 +407,7 @@ Title of the conversation:
         messages = get_async_future(self.get_field, "messages")
         memory = get_async_future(self.get_field, "memory")
         indices = get_async_future(self.get_field, "indices")
-        llm = CallLLm(self.get_api_keys(), use_gpt4=False)
+
         memory = memory.result()
         messages = messages.result()
         message_lookback = 2
@@ -422,22 +423,19 @@ Title of the conversation:
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
-
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        prompt = get_first_last_parts(prompt, 1000, 2500)
-        if get_gpt3_word_count(prompt) > 3500:
-            prompt = prompts.persist_current_turn_prompt.format(query=query, response=response, previous_messages_text="",
-                                                                previous_summary=get_first_last_parts("".join(
-                                                                    memory["running_summary"][-4:-3] + memory[
-                                                                                                           "running_summary"][
-                                                                                                       -1:]), 0, 1000))
+        llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True) if get_gpt3_word_count(prompt) > 3200 else CallLLm(self.get_api_keys(), use_gpt4=False)
+        prompt = get_first_last_parts(prompt, 4000, 7500)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        title = title.result()
+        try:
+            title = title.result()
+            memory["title"] = title
+        except Exception as e:
+            pass
         summary = summary.result()
         summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
-        memory["title"] = title
         memory["running_summary"].append(summary)
         mem_set = get_async_future(self.set_field, "memory", memory)
         # self.set_field("memory", memory)
