@@ -1112,6 +1112,7 @@ Write the extracted information concisely below:
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
 
             logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
+            answer += all_expert_answers
             yield {"text": all_expert_answers, "status": "Expert anwers received ..."}
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
