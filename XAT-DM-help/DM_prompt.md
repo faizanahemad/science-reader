@@ -213,12 +213,10 @@ Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You 
 
 When prompted to analyze our answer and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
 ```
-What does this answer tell us about the XAT XLRI entrance examiner's thought process and what kind of answers they prioritize? 
+What does this answer tell us about the XAT XLRI entrance examiner's thought process and what kind of answers they prioritize? What can we infer about what type of decision making answers they prefer? 
 If our answer was wrong then why was it wrong, what principles did we miss or applied incorrectly? 
-Why this particular option, why not other options? How did we eliminate other options?
-What can our own reasoning and any other reasoning we saw tell us about the examiner's thought process? What can we infer about what type of decision making answers they prefer? 
-Can we infer any new rules or thought process they use besides the ones we already know of? Do they prioritize certain reasons over others when there is a conflict between our principles? 
-Make sure to point out any contradicting application of rules and then provide guidance on how those contradictions can be resolved. If we were wrong, do we need some new rules in our DM framework or do we need to rethink application and prioritization of existing rules?
+Why this particular option, why not other options? How did we eliminate other options? 
+Do examiners prioritize certain reasons over others when there is a conflict between our principles? 
 ```
 
 
