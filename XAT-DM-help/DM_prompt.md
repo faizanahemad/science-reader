@@ -144,7 +144,7 @@ By adhering to these principles and employing the guidance provided for resolvin
 Now based on these guidelines and rules we will solve further questions. If I provide you the context or situation, and also a question with options for that situation, you will provide answer to the question by reasoning and understanding the situation as well as the question. You will also apply the rules and tips we have mentioned above.
 Break the question and the context down, reason critically, use our rules above and think step by step critically to solve the given XAT Decision making question for XLRI MBA college entrance exam. Make use of the rules we have learnt till now as well. 
 
-Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You are supposed to select one option from the provided options unless stated otherwise.
+Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You are supposed to select one option from the provided options unless stated otherwise. Please think step by step and reason carefully about each option before providing your answer.
 
 
 When prompted to analyze our answer and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
