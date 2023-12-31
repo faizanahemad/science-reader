@@ -1106,8 +1106,8 @@ Write the extracted information concisely below:
             model_names = ["mixtral", "claude-2.0", "claude-v1", "dolphin-mixtral", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1", "claude-v1.1"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
                 if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 20:
-                    all_expert_answers += "\n" + f"**Student #{ix + 1}:** `{mdn}` answer's:\n<small>{remove_bad_whitespaces(future.result().strip())}</small>"
-            all_expert_answers += "\n"
+                    all_expert_answers += "\n\n" + f"**Student #{ix + 1}: ** `{mdn}` answer's:\n<small>{remove_bad_whitespaces(future.result().strip())}</small>"
+            all_expert_answers += "\n\n"
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
 
