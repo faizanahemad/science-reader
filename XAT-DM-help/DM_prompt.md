@@ -58,7 +58,33 @@ We have also practiced few questions previously and from there we have gathered 
 - **Ethical Reasoning and Integrity**:   
   - Uphold high ethical standards, ensuring decisions are morally sound, respect fairness, and prioritize ethics over other considerations when conflicts arise.  
   - Ethical considerations should guide the decision-making process, implementation, and communication, with a focus on integrity and respect for personal boundaries.  
+  - Focus on solutions that reflect the true experience and maintain the integrity of the overall system, considering the emotional state and motivations of individuals.
+
+- **Direct Relevance to Decision Context**:  
+    - Every fact presented must have a clear and direct connection to the decision to be made, directly addressing the question's context.  
+    - Irrelevant information should be excluded to maintain focus on the decision's core objectives. 
+    - Give more weight to specific facts that directly support the decision, and prioritize statements based on their direct relevance and impact.  
+    - Address the core problem, considering the impact on stakeholders, and align with long-term strategic planning. This includes prioritizing market potential, practicality, future trends, and eliminating irrelevant information. 
+
+- **Business-Centric and Market-Oriented Approach**:  
+    - Decisions should be supported by clear market opportunities and have a direct positive impact on the business's potential success.  
+    - Consider the practicality and feasibility of the decision, especially in the Indian context, and align with market trends and customer behavior. 
+    - Aligning decisions with market trends and customer behavior.
+
+- **Inclusivity, Objectivity, and Authority Respect**:  
+    - Balance respect for authority with the need for inclusivity and objectivity, promoting a comprehensive understanding of stakeholder experiences.  
+    - Avoid biases in decision-making and navigate complex situations with integrity and professionalism.  
   
+- **Honest Feedback and Accountability**:  
+    - Emphasize the role of honest feedback in informing other customers and holding sellers accountable for their service.  
+    - Transparency and the individual's emotional well-being should be prioritized when there is a conflict between principles.  
+
+- **Resolving Contradictions and Prioritizing Principles**:  
+    - When ethical considerations conflict with profitability, prioritize ethics and long-term sustainability over short-term profits.  
+    - In scenarios with conflicting community and business interests, seek a balanced solution that respects both the social fabric of the community and the business's growth objectives.  
+    - For decisions with both personal and broader market implications, focus on direct and immediate outcomes that reflect the true experience and maintain the integrity of the overall system.  
+
+
 - **Objective and Evidence-Based Decision-Making**:   
   - Base decisions on objective, quantifiable, and verifiable evidence while distinguishing clearly between facts and assumptions.  
   - Utilize evidence-based reasoning and analytical processes to critically evaluate options, ensuring consistency and credibility.  
@@ -136,8 +162,46 @@ We have also practiced few questions previously and from there we have gathered 
 - **Identify Core Values**:   
   - Determine which ethical standards and business values are at play and prioritize decisions that uphold these values.  
   - Establish checks and balances to ensure decisions are made with integrity and transparency, even amidst conflicting principles.  
-  
-By adhering to these principles and employing the guidance provided for resolving contradictions, decision-makers can navigate complex scenarios with a balanced and ethical approach.  
+
+
+# Keywords
+- Direct Relevance or Identify Core Values
+- Ethical Reasoning and Integrity
+- Stakeholder Consideration and Impact
+- Transparency and Justification
+- Adaptability and Innovation
+- Long-Term Perspective and Sustainability
+- Professionalism vs. Innovation
+- Immediate Action vs. Strategic Planning
+- Risk Management
+- Methodical Analysis
+- Fact-Oriented
+- Strategic Rationale
+- Long-Term Focus
+- Market-Oriented or Market Dynamics
+- Stakeholder Impact
+- Ethical Considerations
+- Inclusivity
+- Objectivity
+- Authority Respect
+- Honest Feedback
+- Accountability
+- Resolving Contradictions
+- Prioritizing Principles
+- Customer Satisfaction
+- Sustainability
+- Transparency
+- Growth Potential
+- Community-Oriented
+- Pragmatism
+- Conflict Mitigation
+- Practicality and Feasibility
+- Unique value proposition and Competitive advantage.
+- Educational and Empowering Solutions
+- Alignment with External Policies and Pragmatism
+- Ethical and Cultural Sensitivity
+- Facilitation of Business Transactions and Customer-Centricity
+- Strategic Use of Resources and Cost-Effectiveness
 
 ```
 
