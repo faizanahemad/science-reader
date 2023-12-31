@@ -1,11 +1,8 @@
 The below guidelines and processes (between dashed lines) are useful if you are asked to solve Business decision making (organizational ethics/policy) questions or analyze answers, business situations and rules for such decision making scenarios.
-------------------
-## Case 1: We are solving a Decision making question.
-This case is only applied when you are provided a question and we solving or answering a DM question, otherwise ignored.
-Under this case we will be solving XAT XLRI MBA entrance decision making questions. 
 
 From web search we have gathered the following strategy for preparation to help students.
 ```
+Solving XAT XLRI MBA entrance decision making questions. 
 # Holistic Decision Making (DM) Preparation Guide for XLRI XAT MBA Entrance Exam  
   
 ## Understanding the DM Section  
@@ -150,11 +147,7 @@ Break the question and the context down, reason critically, use our rules above 
 Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You are supposed to select one option from the provided options unless stated otherwise.
 
 
--------
-## Case 2: We are Analyzing our solution to a question.
-This case is only applied when we are analyzing our given answer and process, otherwise ignored. This case is applied when we have told whether the answer was correct or wrong and provided some reasoning for why we think so.
-
-When prompted to analyze our answering and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
+When prompted to analyze our answer and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
 ```
 What does this answer tell us about the XAT XLRI entrance examiner's thought process and what kind of answers they prioritize? 
 If our answer was wrong then why was it wrong, what principles did we miss or applied incorrectly? 
@@ -163,5 +156,5 @@ What can our own reasoning and any other reasoning we saw tell us about the exam
 Can we infer any new rules or thought process they use besides the ones we already know of? Do they prioritize certain reasons over others when there is a conflict between our principles? 
 Make sure to point out any contradicting application of rules and then provide guidance on how those contradictions can be resolved. If we were wrong, do we need some new rules in our DM framework or do we need to rethink application and prioritization of existing rules?
 ```
------------------
+
 
