@@ -998,7 +998,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text_expert_16k,
                                                        previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                       permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Write your reasoning and approach in short before writing your answer.",
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1008,7 +1008,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text_expert_16k,
                                                        previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an expert in mathematics, logical reasoning, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
+                                                       permanent_instructions="You are an expert in mathematics, logical reasoning, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer shortly and simply. Write your logic, reasoning and problem solving process first before you mention your answer.",
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1018,7 +1018,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text_expert_16k,
                                                        previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
+                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process in short, then write your answer.",
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1030,7 +1030,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an expert in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Provide your reasoning, approach and thought process before writing your answer.",
+                                                           permanent_instructions="You are an expert in social sciences, simplicity, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Provide your reasoning, approach and thought process in short before writing your answer.",
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1040,7 +1040,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert,
                                                            previous_messages=previous_messages_expert,
-                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear, short and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process first before you mention your answer.",
+                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear, short and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process shortly before you mention your answer.",
                                                            doc_answer=doc_answer_expert, web_text=web_text_expert,
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
@@ -1050,7 +1050,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert,
                                                            previous_messages=previous_messages_expert,
-                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. We are in a hurry so put forth your reasoning and decision making process in short, then write your answer.",
                                                            doc_answer=doc_answer_expert, web_text=web_text_expert,
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
@@ -1062,7 +1062,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process very shortly, then write your answer.",
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1073,7 +1073,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an research scholar in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Answer briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                           permanent_instructions="You are an research scholar in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Explain your reasoning, approach and thought process briefly before writing your answer.",
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1083,7 +1083,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process in short, then write your answer.",
                                                            doc_answer=doc_answer_expert_16k,
                                                            web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
@@ -1112,7 +1112,7 @@ Write the extracted information concisely below:
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
 
             logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
-
+            yield {"text": all_expert_answers, "status": "Expert anwers received ..."}
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         while time.time() - wt_prior_ctx < 30 and prior_chat_summary_future is not None:
@@ -1137,7 +1137,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst comprehensively discuss their answers (with their names) thoroughly, along with the reasoning of each student provided for their answer. Then provide your own thoughts and answer which combines the student's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis while using the student's opinion to improve your own thought process.\nIf you are asked to select one option from multiple options in the question then do not create new options, choose one option from existing options.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst discuss their answers (with their names) comprehensively, along with the reasoning of each student provided for their answer. Then provide your own thoughts and answer which combines the student's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis independently.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
