@@ -1137,7 +1137,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst discuss their answers (with their names) comprehensively, along with the reasoning of each student provided for their answer. Then provide your own thoughts and answer which combines the student's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis independently.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst discuss their answers (with their names) comprehensively, along with the reasoning that each student provided for their answer. Then provide your own thoughts and answer which combines the student's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis independently.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
