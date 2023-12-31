@@ -400,7 +400,7 @@ def call_chat_model(model, text, temperature, system, keys):
     response = openai.ChatCompletion.create(
         model=model,
         api_key=api_key,
-        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"] if "claude" in model else ["</s>",],
+        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"] if "claude" in model else [],
         messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": text},

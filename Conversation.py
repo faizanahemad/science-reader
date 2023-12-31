@@ -1028,12 +1028,12 @@ Write the extracted information concisely below:
             ####
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
+                                                           summary_text=summary_text_expert,
+                                                           previous_messages=previous_messages_expert,
                                                            permanent_instructions="You are an expert in social sciences, simplicity, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Provide your reasoning, approach and thought process in short before writing your answer.",
-                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
+                                                           doc_answer=doc_answer_expert, web_text=web_text_expert,
+                                                           link_result_text=link_result_text_expert,
+                                                           conversation_docs_answer=conversation_docs_answer_expert)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="cognitivecomputations/dolphin-mixtral-8x7b", use_gpt4=False, use_16k=False)
             ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
