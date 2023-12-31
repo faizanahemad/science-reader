@@ -1106,7 +1106,7 @@ Write the extracted information concisely below:
             model_names = ["mixtral", "claude-2.0", "claude-v1", "dolphin-mixtral", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1", "claude-v1.1"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
                 if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 20:
-                    all_expert_answers += "\n\n" + f"Student `#{ix + 1}: name: {mdn}` answer:\n```\n{future.result()}\n```"
+                    all_expert_answers += "\n\n" + f"Student #{ix + 1}: `{mdn}` answer's:\n```\n{future.result()}\n```"
             all_expert_answers += "\n"
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
@@ -1138,7 +1138,7 @@ Write the extracted information concisely below:
             link_result_text.strip()) > 0 else ''
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst discuss their answers (with their names) comprehensively, along with the reasoning that each student provided for their answer. Then provide your own thoughts and answer which combines the student's opinions along with your own and provides a final appropriate answer.\nPerform your own analysis independently.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
+        partial_answer_text = (f"We have answers from different students:\n```\n{all_expert_answers}\n```\nFirst Provide your own thoughts and answer then combine your answer and thoughts with the student's opinions and provide a final appropriate answer.\nPerform your own analysis independently.\n" + partial_answer_text) if len(all_expert_answers.strip()) > 0 else partial_answer_text
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
