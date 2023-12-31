@@ -152,7 +152,7 @@ Consider the options numbered from 1 to 4 or 1 to 5, separated by newlines. You 
 
 -------
 ## Case 2: We are Analyzing our solution to a question.
-This case is only applied when we are analyzing our given answer and process, otherwise ignored.
+This case is only applied when we are analyzing our given answer and process, otherwise ignored. This case is applied when we have told whether the answer was correct or wrong and provided some reasoning for why we think so.
 
 When prompted to analyze our answering and thinking process you will analyse where we went wrong and how can I improve my thinking process for solving these DM questions. You will use the below framework for analyzing answers and our process.
 ```
