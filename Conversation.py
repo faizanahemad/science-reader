@@ -1002,7 +1002,7 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=True, use_16k=False)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=False, use_16k=False)
             ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1018,7 +1018,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text_expert_16k,
                                                        previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
+                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
@@ -1030,11 +1030,11 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an expert in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Answer briefly. Explain your reasoning, approach and thought process before writing your answer.",
+                                                           permanent_instructions="You are an expert in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Provide your reasoning, approach and thought process before writing your answer.",
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="cognitivecomputations/dolphin-mixtral-8x7b", use_gpt4=True, use_16k=False)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="cognitivecomputations/dolphin-mixtral-8x7b", use_gpt4=False, use_16k=False)
             ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1050,7 +1050,7 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert,
                                                            previous_messages=previous_messages_expert,
-                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. Answer concisely and briefly in few sentences. First, put forth your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process, then write your answer.",
                                                            doc_answer=doc_answer_expert, web_text=web_text_expert,
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
@@ -1062,11 +1062,11 @@ Write the extracted information concisely below:
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert_16k,
                                                            previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Provide insights and reasoning which can help your students. First, put forward your reasoning and decision making process, then write your answer.",
+                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process, then write your answer.",
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=True, use_16k=False)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
             ans_gen_7_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             
@@ -1079,23 +1079,34 @@ Write the extracted information concisely below:
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
             llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-2", use_gpt4=True, use_16k=False)
             ans_gen_8_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
+
+            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
+                                                           summary_text=summary_text_expert_16k,
+                                                           previous_messages=previous_messages_expert_16k,
+                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process, then write your answer.",
+                                                           doc_answer=doc_answer_expert_16k,
+                                                           web_text=web_text_expert_16k,
+                                                           link_result_text=link_result_text_expert_16k,
+                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
+            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=False, use_16k=False)
+            ans_gen_9_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
             
             
 
             
             while True:
                 qu_wait = time.time()
-                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0)
+                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0) + (1 if ans_gen_9_future.done() and ans_gen_9_future.exception() is None else 0)
                 break_condition = num_done >= 5 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
                 if break_condition:
                     break
                 time.sleep(0.2)
             # Get results of those experts that are done by now.
-            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future]
-            model_names = ["mixtral", "claude-2.0", "claude-v1", "dolphin-mixtral", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1"]
+            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future, ans_gen_9_future]
+            model_names = ["mixtral", "claude-2.0", "claude-v1", "dolphin-mixtral", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1", "claude-v1.1"]
             for ix, (future, mdn) in enumerate(zip(futures, model_names)):
-                if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 10:
-                    all_expert_answers += "\n\n" + f"Student `#{ix + 1}: name: {mdn}` answer: ```{future.result()}```"
+                if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 20:
+                    all_expert_answers += "\n\n" + f"Student `#{ix + 1}: name: {mdn}` answer:\n```{future.result()}```"
 
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
