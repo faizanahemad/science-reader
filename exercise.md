@@ -73,6 +73,7 @@ Leg Exercises are as below.
 | Overhead Shoulder Press | Deltoids, Triceps, Upper Pectorals | Dumbbells/Barbell + Bench |
 | Shoulder Shrugs | Trapezius | Dumbbells/Barbell |
 | Planks, Side Planks | Core, Obliques | Bodyweight/Machine |
+| Dumbbell rows | Latissimus Dorsi, Biceps | Dumbbells |
 | *Day 7 - Upper Body* | | |
 | Pull ups | Latissimus Dorsi, Biceps | Pull up bar or Assisted |
 | Seated Wide Grip Lat Pull Downs | Latissimus Dorsi, Biceps | Cable Machine + Wide Grip bar |
@@ -81,6 +82,5 @@ Leg Exercises are as below.
 | Overhead Tricep Extension | Triceps | Cable Machine |
 | Face Pull | Rear Deltoids, Trapezius, Rhomboids | Cable Machine |
 
-
-
-
+Others ( not includes in main program)
+- Russian Twists
