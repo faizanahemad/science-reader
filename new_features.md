@@ -1,3 +1,21 @@
+# Next
+- Mobile Friendly Website
+- Per page pdf reading
+- Word doc without any unstructured
+- Reliability and Exception Handling and Exception capture to separate file.
+- Use gpt4-turbo and mixtral-medium and mixtral-8x7B more
+- Use larger contexts everywhere
+- Enable copy of raw message.
+- Enable use of gpt-4V for vision queries.
+- Prompt preambles or simpler system messages set which can be selected from a dropdown.
+- Better separation between prior messages and current message/instruction.
+- Improve Document RAG by generating follow up queries based on document summary and current query and running them in parallel.
+  - Retrieve more chunks if you have space.
+- Read more of the link by using the 16K api twice.
+- Allow additional context to be added to the prompt. (Permananet instructions)
+- Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
+- support seeing raw text from the model.
+- Block list and whitelist domains for web search for any single chat and global.
 # Up next
 - Links to visit [Done]
 - Use Google scholar [Done]
@@ -20,34 +38,94 @@
 - If arxiv pdf url then only get citations from semantic scholar. [Done]
 - If link is PDF, or link is arxiv or openreview then invoke pdf reading, don't invoke web search with pdf search. [Done]
 - Parallel Rejection sampling? [Nope]
-- Temperature, Top-P, Samplers like Muse/Microstat and Response length control. [Nope]
-- 
-- Convert Chat rendered of javascript to a generic renderer and then use it in DocIndex QnA.
+- If main url for add doc is an arxiv url or openreview url then convert it pdf url. [Done]
+- Shift + Enter for newline. [Done]
+- Context pollution , enable-disable button/slider for including previous chat messages, including previous documents [Done]
+- Upload pdf/word file without indexing, read the file and answer directly. [Done]
+- When link for reading is given use both brightdata and zenrows. [Done]
+- Delete messages from a chat randomly. [Done]
+- Review tab simplify and speed-up. [Done]
+- Use downloaded version of readability. [Done]
+- Stop using example.com for scraping. [Done]
+- Link Reading, if only one link then inject into gpt4 prompt itself. Document Reading Also. [Done]
+- On UI keep the input chat box valid but prevent send and show a regret model if user tries to send while previous answer is rendering [Done]
+- Make rate limit on send_message api as 3 per minute per username. [Done]
+- Hide the document sidebar in conversations. Open conversation first. [Done]
+- Download full chat , use API call for this. Or chat shareable link which is available as non-login based link but is obscure and rate limited. [Done]
+- Stop using brightdata browser, use zenrows and other hosted scrapers.
+- separate current query and past messages using xml clearly in the prompt.
+- Go deeper by seeing more results for the same search term.
+- Replying with previous history in chat is wrong. BUG. [Done]
+- When we want to use only one doc but with history then we need to use the main LLM not just the Contextual reader. [Done]
+- Search query formulation with history is bad. BUG. [Done]
+- Allow fully tunable prompts with jinja templates. Allow modification of all prompts in prompts.py file. We need a separate UI for this as a tab where get prompts and set prompts are available. [Nope]
+- Access Control.
+- Agent based style of operation for more useful answers.
+- Focus on Quality of responses rather than speed since speed game is won by perplexity.
+- Proper readable link to chat. Send rendered html from browser to server which can then be saved as html file [Nope]. 
+- Add Try catch in zenrows js code and return normal html if Readability throws exception. Use selenium instead of nodejs and playwright. Recreate playwright browser on every call.
+- Don't auto-minimise chat text. [Done]
+- Dockerise and create a container which has the full python runtime and just needs keys in commandline
+- Deactivate web search checkboxes if no web search keys are provided.
+- Deactivate link reading and search text box if no zenrows or brightdata key provided.
+- Launch as self-hosted RAG solution. With tunable prompts.
+- Scroll to bottom button.
+- Keep permanent instructions for a chat stored so user needs to change it only when they want.
+- Use permanent instructions for a chat in the preamble or system text.
+- Suggest a role and instruction text as preamble for the LLM.
 
+- Data given to prompts has uncanny breaks in it since the data is broken based on tokens. Break data on sentences or newlines or entire messages. Similarly chunking also needs logical breaking.
+- Regenerate answer with new guidance but else remaining same.
+- Log user full query from api in conversations, log the prompt sent to llm and log individual variables sent for formatting to the prompt.
+- Writing Tool with infill and select and change ability.
+- Surf the web and personal favorite sites and then filter and make a feed for me.
+- Prompt configurability, allow prompts to be configured.
+
+
+- Handle server errors and faults and don't let server hangs to hang the UI input box.
+- Stop Generation support at least on UI. Stop answer rendering from the backend and also send signal to backend to stop. [Nope]
+- Remove file upload from mathpix. PDFs which come in search do not get uploaded to mathpix anyway.
+- Use a pool of chromiums already open.
+- Enable power search features like letting user ignore a site for later or creating trusted site lists. Let users specify what kind of sites might be more likely to contain what they are looking for. Perplexity Focus mode.
+- Ask user a clarification question if needed, if original question is not well specified. Clarification can be a input type list select, free-form text or numeric. Do web search before clarification but use clarification to generate better answer. [Nope]
+- Fast and Slow mode for chat. In fast mode use 4 docs or 30s wait with gpt-3.5, in slow mode use gpt-4 and 45s wait and 8 docs. [Done]
+- Prompt xml style like claude.
+- Temperature, Top-P, Samplers like Muse/Microstat and Response length control. Only for writing tool. [Nope]
+- PDF annotations and highlights. or at least notes. [Nope]
+- Convert Chat rendered of javascript to a generic renderer and then use it in DocIndex QnA.
+- Social threads like twitter and reddit threads and blogs or videos about the paper. Use SERP or crawl based services for these.
+- GPT researcher where we can say a research idea and then break it down to multiple sequential questions and then perform survey.
+- UI length check
+- Mark doc as starred / bookmarked / Read later.
+- Home view with all papers from the selected folder or tag.
 - First load doesn't show chats in correct order.
 - Don't show Cites and References tab if there are no cites and references or if the doc source is not arxiv.
 - BufferMemory for chat history and summary history.
 - Pay all bills on time.
 
-
-- Collections/Folders and Tags.
+- Load any model and prompt it. [Nope]
+- Use code model llama-code vs actual llama text model. [Nope]
+- Code scrap book. [Nope]
+- 
+- Collections/Folders and Tags. [Nope]
   - User, Doc, Tags, Folders
   - Sort by date added, date modified, alphabetically, arxiv date
-- Increase pages read but decrease timeout.
+- Increase pages read but decrease timeout. [Done]
 - You are an AI expert in "XYZ task".
 
-- lite local version without web page search
+- lite local version without web page search [Nope]
   - What all do we need to do for Local version?
   - Can we do full doc read always?
+  - Enable system prompt for local version.
   - Prompt lib which separates various prompts for llm during server init based on an env variable. Prompt also by persona -> programmer, researcher, marketer, machine learning expert, configurable. etc.
   - Disable web search and other features like key store via a environment flag, Fetch the flag using api from flask into JS.
-  - Local mode with no google login.
-  - Don't call semantic scholar if it is not arxiv.
-- support seeing raw text from the model.
+  - Local mode with no google login. [Done]
+  - Don't call semantic scholar if it is not arxiv. [Done]
+
 - Other account See via Root dev account.
 - Browser pool.
 - HTML code rendering bug in streaming.
-- Retrieve more chunks if you have space.
+
 - Use a bigger LLM for search query generation.
 - Write a set of sample queries which test each of chat functionalities and then run them on the server to see if they are working.
 - Write a set of use cases.
@@ -67,7 +145,7 @@
 
 - Red data support with data deletion facility.
 - Add few HF tools or our own tools.
-- Manage the number of papers in the list using paperpile or readcube style arrangement or just show most recent top N.
+- Manage the number of papers in the list using paperpile or readcube style arrangement or just show most recent top N. [Nope]
 - Serve static files from nginx
 - Spin up multiple servers and shard by user id / user email for workers.
 - POE .com style multiple persona bots
@@ -127,7 +205,6 @@
     -  Multiple user's doc for review page
     -  Multiple user's doc for chat page
     -  Multi-doc search by automatic clustering of user docs and finding similar docs to current doc
-    -  Social threads like twitter and reddit threads and blogs or videos about the paper. Use SERP or crawl based services for these.
     -  Ability to look at and use diagrams from the paper.
     -  Ability to create diagrams and then display them for an answer.
     -  Bring Your own 8k model
@@ -207,3 +284,20 @@
 
 - Oobabooga
 - Text-generation-ui
+
+Zenrows
+50$ - 250000 - 10 - 5 // 50K // 1$ per K
+
+Scraping ant
+20$ - 100000 - Inf - 10 // 10K // 2$ per K [XX]
+
+Scraping Bee
+50$ - 150000 - 5 - 5 // 30K // 1.66$ per K
+
+
+Scrape-it cloud
+30$ - 50000 - 5 - 10 // 5K // 6$ per K
+
+
+
+

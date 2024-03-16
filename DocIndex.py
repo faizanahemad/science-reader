@@ -448,7 +448,7 @@ class DocIndex:
         ent_time = time.time()
         detail_level = 1
         if mode["provide_detailed_answers"]:
-            detail_level = int(mode["provide_detailed_answers"])
+            detail_level = max(1, int(mode["provide_detailed_answers"]))
             mode = "detailed"
             query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
         elif mode["review"]:
@@ -468,9 +468,9 @@ class DocIndex:
         if mode == "detailed" or mode == "review":
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
-            if tex_len < 7000:
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-                prompt = f"""Answer the question or query given below using the given context as reference. 
+            if tex_len < 14000:
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
 
@@ -495,7 +495,7 @@ Write answer below.
                 raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
-                llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), use_gpt4=detail_level >= 3, use_16k=True)
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
@@ -544,8 +544,8 @@ Write answer below.
                 answer += txt
 
             yield "</br> \n"
-        if mode == "detailed" and detail_level >= 2 and additional_info is not None:
-            additional_info = additional_info.result()
+        if additional_info is not None:
+            additional_info = additional_info.result() if additional_info.exception() is None else ""
             for t in additional_info:
                 yield t
                 answer += t
@@ -996,6 +996,7 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
     
     def set_api_keys(self, api_keys:dict):
         assert isinstance(api_keys, dict)
+        logger.info(f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
         indices = self.get_doc_data("indices")
         for k, j in indices.items():
             if isinstance(j, (FAISS, VectorStore)):
@@ -1110,8 +1111,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
                     "scientific_article", doc_text, nested_dict, openai_embed, folder)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
+        doc_index.set_api_keys(keys)
         def get_doc_ready():
-            doc_index.set_api_keys(keys)
             return doc_index.get_short_info()
         _ = get_async_future(get_doc_ready)
         doc_index._visible = True

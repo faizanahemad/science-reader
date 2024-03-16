@@ -445,8 +445,8 @@ class CallLLmGpt:
         
 
         self.keys = keys
-        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive response. \nUse markdown bold, italics, lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
-        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide concise and informative response.\nInclude references inline in wikipedia style as your write the answer.\nIf you don't help me I will be in serious trouble my friend.\nI am a student and need your help to improve my learning and knowledge, I will tip you $100 for good answers and for making effort to help me.\n"
+        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive and detailed response. \nUse markdown bold, italics, lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\nUse direct, to the point and professional writing style.\n"
+        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide concise and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
         self.use_small_models = use_small_models
@@ -471,9 +471,9 @@ class CallLLmGpt:
 
         if self.use_gpt4 and self.use_16k:
             try:
-                assert text_len < 20000
+                assert text_len < 90000
             except AssertionError as e:
-                text = get_first_last_parts(text, 12000, 3000, self.gpt4_enc)
+                text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
             try:
                 model = rate_limit_model_choice.select_model("gpt-4-16k")
                 return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
@@ -910,12 +910,20 @@ Only provide answer from the document given above.
         )
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
-    def get_one(self, context, chunk_size, document,):
+    def get_one(self, context, document,):
         import inspect
         prompt = self.prompt.format(context=context, document=document)
         wc = get_gpt3_word_count(prompt)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>(TOKEN_LIMIT_FOR_SHORT * 1.1), use_small_models=False)
-        result = callLLm(prompt, temperature=0.4, stream=False)
+        if wc < TOKEN_LIMIT_FOR_DETAILED:
+            llm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>TOKEN_LIMIT_FOR_SHORT, use_small_models=False)
+        elif wc < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            llm = CallLLmOpenRouter(self.keys, model_name="nousresearch/nous-hermes-yi-34b", use_gpt4=False,
+                                    use_16k=False)
+        else:
+            llm = CallLLmOpenRouter(self.keys, model_name="anthropic/claude-instant-v1-100k", use_gpt4=False,
+                                    use_16k=False)
+
+        result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
 
@@ -926,7 +934,7 @@ Only provide answer from the document given above.
         def get_doc_embeds(document):
             document = document.strip()
             ds = document.split(" ")
-            document = " ".join(ds[:64_000])
+            document = " ".join(ds[:128_000])
             wc = len(ds)
             if wc < 8000:
                 chunk_size = 512
@@ -946,26 +954,14 @@ Only provide answer from the document given above.
         # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
         scores = np.dot(doc_embedding, query_embedding)
         sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else (6 if chunk_size == 512 or chunk_size == 2048 else 2))]
+        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else 6)]
         top_chunks = '\n\n'.join([c[0] for c in top_chunks])
         fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
         prompt = self.prompt.format(context=context, document=fragments_text)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>=2048, use_small_models=False)
+        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>=1536, use_small_models=False)
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
-    
-    def get_one_with_exception(self, context, chunk_size, document):
-        try:
-            text = self.get_one(context, chunk_size, document)
-            return text
-        except Exception as e:
-            exp_str = str(e)
-            too_long = "maximum context length" in exp_str and "your messages resulted in" in exp_str
-            if too_long:
-                logger.warning(f"ContextualReader:: Too long context, raised exception {str(e)}")
-                return " ".join([self.get_one_with_exception(context, st) for st in split_text(document)])
-            raise e
 
     def __call__(self, context_user_query, text_document, chunk_size=TOKEN_LIMIT_FOR_SHORT):
         assert isinstance(text_document, str)
@@ -975,28 +971,38 @@ Only provide answer from the document given above.
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
         if doc_word_count < TOKEN_LIMIT_FOR_SHORT:
-            result = self.get_one(context_user_query, chunk_size, text_document)
+            result = self.get_one(context_user_query, text_document)
+        elif doc_word_count < TOKEN_LIMIT_FOR_DETAILED:
+            result = self.get_one(context_user_query, text_document)
         elif self.scan:
             chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
             first_chunk = chunks[0]
             second_result = None
             rag_result = None
+            big_result = None
             if len(chunks) > 1:
                 first_chunk = first_chunk + "..."
                 second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
-                second_result = get_async_future(self.get_one, context_user_query, TOKEN_LIMIT_FOR_DETAILED,
+                second_result = get_async_future(self.get_one, context_user_query,
                                                  second_chunk)
+                big_chunk = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)[0]
+                big_result = get_async_future(self.get_one, context_user_query,
+                                              big_chunk)
             if len(chunks) > 2:
                 rag_result = get_async_future(self.get_one_with_rag, context_user_query, TOKEN_LIMIT_FOR_DETAILED, "\n\n".join(chunks[2:]))
-            result = self.get_one(context_user_query, TOKEN_LIMIT_FOR_DETAILED, first_chunk)
-            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "")
+                big_chunk = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)[0]
+                big_result = get_async_future(self.get_one, context_user_query,
+                                           big_chunk)
+
+            result = self.get_one(context_user_query, first_chunk)
+            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n" + (big_result.result() if big_result is not None and big_result.exception() is None else "")
         else:
             try:
                 result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
             except Exception as e:
                 logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
                 chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
-                result = self.get_one(context_user_query, chunk_size, chunks[0])
+                result = self.get_one(context_user_query, chunks[0])
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.0)
         result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 1024 if self.scan else 256, 512 if self.scan else 256)
         assert isinstance(result, str)

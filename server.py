@@ -314,6 +314,7 @@ def keyParser(session):
         "zenrows": os.getenv("zenrows", ''),
         "brightdataUrl": os.getenv("brightdataUrl", ''),
         "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", ''),
+        "LOGIN_BEARER_AUTH": os.getenv("LOGIN_BEARER_AUTH", ''),
     }
     if keyStore["vllmUrl"].strip() != "" or keyStore["vllmLargeModelUrl"].strip() != "" or keyStore["vllmSmallModelUrl"].strip() != "":
         keyStore["openai_models_list"] = ast.literal_eval(keyStore["openai_models_list"])
@@ -1128,6 +1129,7 @@ def list_documents_by_conversation(conversation_id):
     conversation = set_keys_on_docs(conversation, keys)
     if conversation:
         docs:List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
+        docs = set_keys_on_docs(docs, keys)
         docs = [d.get_short_info() for d in docs]
         # sort by doc_id
         # docs = sorted(docs, key=lambda x: x['doc_id'], reverse=True)
@@ -1374,6 +1376,82 @@ def delete_last_message(conversation_id):
     conversation.delete_last_turn()
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
+
+
+@app.route('/web_search', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def web_search():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    query = request.json.get("query")
+    context = request.json.get("context")
+    research = request.json.get("research")
+    return jsonify({"error": "No query provided"}), 400
+
+@app.route('/web_search_specific_query', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def web_search_specific_query():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    query = request.json.get("query")
+    context = request.json.get("context")
+    research = request.json.get("research")
+    return jsonify({"error": "No query provided"}), 400
+
+# Next we build - get_link_text, get_link_text_and_summary_and_title, get_link_summary_and_title, get_link_summary, get_link_title, ask_question_to_link_with_context
+@app.route('/get_link_text', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def get_link_text():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    link = request.json.get("link")
+    return jsonify({"error": "No query provided"}), 400
+
+@app.route('/get_link_summary_and_title', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def get_link_summary_and_title():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    link = request.json.get("link")
+    return jsonify({"error": "No query provided"}), 400
+
+@app.route('/get_link_text_and_summary_and_title', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def get_link_text_and_summary_and_title():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    link = request.json.get("link")
+    return jsonify({"error": "No query provided"}), 400
+
+@app.route('/ask_question_to_link_with_context', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def ask_question_to_link_with_context():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    link = request.json.get("link")
+    query = request.json.get("question")
+    context = request.json.get("context")
+    return jsonify({"error": "No query provided"}), 400
+
+@app.route('/ask_question_to_multiple_link_with_context', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def ask_question_to_multiple_link_with_context():
+    keys = keyParser(session)
+    email, name, loggedin = check_login(session)
+    links = request.json.get("links")
+    query = request.json.get("question")
+    context = request.json.get("context")
+    return jsonify({"error": "No query provided"}), 400
+
+# Next we build - create_session,
+# Within session the below API can be used - create_document_from_link, create_document_from_link_and_ask_question, list_created_documents, delete_created_document, get_created_document_details
 
 def open_browser(url):
     import webbrowser
