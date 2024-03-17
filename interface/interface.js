@@ -679,7 +679,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
 
 ` : '') +
         (type === "assistant" ?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill d-none d-md-block" style="margin-left: 10px;">Del Last Turn</button>`:'') + 
-        (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 10px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
+        (type==="assistant"?``:'') + 
         `</div>`
     );
 

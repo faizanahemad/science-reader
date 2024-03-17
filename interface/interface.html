@@ -288,11 +288,20 @@
                               </div>
                               <div id="chat-controls">
                                 <div class="row mb-1"> <!-- Reduced margin bottom -->
-                                    <div class="col p-0"> <!-- Removed padding -->
-                                        <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here."></textarea>
+                                    
+                                    <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here."></textarea>
+                                    
+                                    <div class="input-group-append" style="margin-left: 5px;">
+                                        <button id="sendMessageButton" class="btn btn-success rounded-pill d-md-none">
+                                            <i class="fas fa-paper-plane"></i> <!-- You can also add "Send" text here if needed -->
+                                        </button>
+                                    </div>
+                                    <div class="input-group-append" style="margin-right: -25px;margin-left: 5px;">
+                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill d-md-none">^</button>
                                     </div>
                                 </div>
-                                <div class="row mb-1"> <!-- Reduced margin bottom -->
+                                
+                                <div class="row mb-1 d-none d-md-flex" id="chat-search-links-input"> <!-- Reduced margin bottom -->
                                     <div class="col p-0" style="padding-right: 10px !important;"> <!-- Removed padding -->
                                         <textarea id="linkInput" class="dynamic-textarea form-control" placeholder="Links to Visit, each in a new line"></textarea>
                                     </div>
@@ -300,7 +309,7 @@
                                         <textarea id="searchInput" class="dynamic-textarea form-control" placeholder="Search Phrases, each in a new line"></textarea>
                                     </div>
                                 </div>
-                                <div id="chat-options" class="mt-0 mb-0"> <!-- Removed top and bottom margin -->
+                                <div id="chat-options" class="mt-0 mb-0 d-none d-md-block"> <!-- Removed top and bottom margin -->
                                     
                                 </div>
                               </div>

@@ -634,6 +634,10 @@ $(document).ready(function() {
           this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
       }
     });
+    $('#toggleChatControls').click(function () {
+        $('#chat-search-links-input').toggleClass('d-none');
+        $('#chat-options').toggleClass('d-none');
+    });
     
 
 })
