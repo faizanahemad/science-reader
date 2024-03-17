@@ -221,7 +221,7 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     copyBtn.click(function() {
         // Here we get the card text and copy it to the clipboard
         // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
-        copyToClipboard(cardElem);
+        copyToClipboard(cardElem, text);
     });
     
     let voteBox = $('<div>').addClass('vote-box').css({
@@ -517,7 +517,7 @@ function addDocumentTags(tagsAreaId, data){
     });
 }
 
-function copyToClipboard(textElem, mode="text") {
+function copyToClipboard(textElem, textToCopy, mode="text") {
     // var text = textElem.text().replace(/\[show\]|\[hide\]/g, '');
     if (mode === "text") {
         var textElements = $(textElem);
@@ -531,15 +531,19 @@ function copyToClipboard(textElem, mode="text") {
         var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em, input');
     }
     
-    var textToCopy = "";
-    textElements.each(function() {
-        var $this = $(this);
-        if ($this.is("input, textarea")) {
-            textToCopy += $this.val().replace(/\[show\]|\[hide\]/g, '') + "\n";
-        } else {
-            textToCopy += $this.text().replace(/\[show\]|\[hide\]/g, '') + "\n";
-        }
-    });
+    // if textToCopy is undefined, then we will copy the text from the textElem
+
+    if (textToCopy === undefined) {
+        var textToCopy = "";
+        textElements.each(function() {
+            var $this = $(this);
+            if ($this.is("input, textarea")) {
+                textToCopy += $this.val().replace(/\[show\]|\[hide\]/g, '') + "\n";
+            } else {
+                textToCopy += $this.text().replace(/\[show\]|\[hide\]/g, '') + "\n";
+            }
+        });
+    }
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         // New Clipboard API
@@ -604,7 +608,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
-    var checkboxOneText = type==="assistant"?"Research":"References and Citations";
+    var checkboxOneText = type==="assistant"?"Scholar":"References and Citations";
     var disabled = type==="assistant"?"":"disabled";
 
     
@@ -614,9 +618,9 @@ function addOptions(parentElementId, type, activeDocId=null) {
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Web Search</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Your Docs</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
         
         (type === "assistant" ? `
         
@@ -674,7 +678,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
     </div>
 
 ` : '') +
-        (type==="assistant"?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill" style="margin-left: 10px;">Del Last Turn</button>`:'') + 
+        (type === "assistant" ?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill d-none d-md-block" style="margin-left: 10px;">Del Last Turn</button>`:'') + 
         (type==="assistant"?`<div class="input-group-append"><button id="sendMessageButton" class="btn btn-success rounded-pill" style="margin-left: 10px;"><i class="fas fa-paper-plane"></i></button></div>`:'') + 
         `</div>`
     );
