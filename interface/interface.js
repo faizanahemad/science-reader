@@ -1302,28 +1302,34 @@ $(document).ready(function() {
     }
 
     function toggleSidebar() {
-        var sidebar = $('.sidebar');
-        var sidebar = $('#doc-keys-sidebar');
-        var contentCol = $('#content-col');
-        var hideSidebarButton = $('#hide-sidebar');
-        var showSidebarButton = $('#show-sidebar');
+        function getActiveTabName() {
+            var activeTab = $('#pdf-details-tab .nav-link.active').attr('id');
+            return activeTab;
+        }
+        var activeTabName = getActiveTabName();
 
+        if (activeTabName === 'assistant-tab') {
+            var sidebar = $('#chat-assistant-sidebar');
+            var otherSidebar = $('#doc-keys-sidebar');
+            var contentCol = $('#chat-assistant');
+        } else if ((activeTabName === 'review-assistant-tab') || (activeTabName === 'pdf-tab') || (activeTabName === 'details-tab') || (activeTabName === 'details-tab')) {
+            var sidebar = $('#doc-keys-sidebar');
+            var otherSidebar = $('#chat-assistant-sidebar');
+            var contentCol = $('#content-col');
+        }
         if (sidebar.is(':visible')) {
             // If the sidebar is currently visible, hide it
             sidebar.addClass('d-none');
-            hideSidebarButton.hide();
-            showSidebarButton.show();
 
             // Adjust the width of the content column
-            contentCol.removeClass('col-10').addClass('col-12');
+            contentCol.removeClass('col-md-10').addClass('col-md-12');
         } else {
             // If the sidebar is currently hidden, show it
             sidebar.removeClass('d-none');
-            hideSidebarButton.show();
-            showSidebarButton.hide();
+            otherSidebar.addClass('d-none');
 
             // Adjust the width of the content column
-            contentCol.removeClass('col-12').addClass('col-10');
+            contentCol.removeClass('col-md-12').addClass('col-md-10');
         }
 
         // Trigger the resize event to adjust the size of the PDF viewer
@@ -2246,6 +2252,7 @@ $(document).ready(function() {
 
         loadCitationsAndReferences();
         pdfTabIsActive();
+        toggleSidebar();
     });
 
     $('#review-assistant-tab').on('shown.bs.tab', function (e) {
@@ -2255,10 +2262,8 @@ $(document).ready(function() {
         $('#review-assistant-view').show();
         $('#chat-assistant-view').hide();
         pdfTabIsActive();
-        var sidebar = $('.sidebar');
-        if (!sidebar.is(':visible')) {
-            toggleSidebar();
-        }
+        toggleSidebar();
+        
         
     });
     
@@ -2269,10 +2274,8 @@ $(document).ready(function() {
         $('#pdf-view').show();
         $('#chat-assistant-view').hide();
         pdfTabIsActive();
-        var sidebar = $('.sidebar');
-        if (!sidebar.is(':visible')) {
-            toggleSidebar();
-        }
+        toggleSidebar();
+        
         
     });
 
@@ -2287,14 +2290,10 @@ $(document).ready(function() {
         chatView.scrollTop(chatView.prop('scrollHeight'));
         $('#messageText').focus();
         pdfTabIsActive();
-        var sidebar = $('.sidebar');
-        if (sidebar.is(':visible')) {
-            toggleSidebar();
-        }
+        toggleSidebar();
 
     });
     
-    $('#hide-sidebar').on('click', toggleSidebar);
     $('#show-sidebar').on('click', toggleSidebar);
     
     document.getElementById('toggle-tab-content').addEventListener('click', function() {

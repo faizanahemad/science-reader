@@ -634,18 +634,6 @@ $(document).ready(function() {
           this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
       }
     });
-  $('#show-chat-sidebar').hide(); // Hide the "show-chat-sidebar" button
-  $('#hide-chat-sidebar').click(function() {
-        $('#chat-assistant-sidebar').hide(); // Hide the sidebar
-        $('#show-chat-sidebar').show(); // Show the "show-chat-sidebar" button
-        $('#chat-assistant').removeClass('col-9').addClass('col-12'); // Change the class to col-12
-    });
-
-    $('#show-chat-sidebar').click(function() {
-        $('#chat-assistant-sidebar').show(); // Show the sidebar
-        $('#show-chat-sidebar').hide(); // Hide the "show-chat-sidebar" button
-        $('#chat-assistant').removeClass('col-12').addClass('col-9'); // Change the class back to col-9
-    });
     
 
 })
