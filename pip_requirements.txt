@@ -21,7 +21,6 @@ coloredlogs==15.0.1
 commonmark==0.9.1
 cryptography==38.0.4
 cssselect==1.1.0
-cytoolz==0.11.0
 dataclasses-json==0.5.9
 dateparser==1.1.8
 Deprecated==1.2.14
