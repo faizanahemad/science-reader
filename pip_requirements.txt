@@ -154,15 +154,5 @@ uc-micro-py==1.0.1
 unstructured==0.6.10
 unstructured-inference==0.4.4
 uritemplate==4.1.1
-urllib3==2.0.3
 uvicorn==0.20.0
 waitress==2.1.2
-Wand==0.6.11
-webencodings==0.5.1
-websockets==10.4
-Werkzeug==2.3.6
-wikipedia==1.4.0
-wrapt==1.14.1
-wsproto==1.2.0
-yarl==1.9.2
-zict==2.0.0
