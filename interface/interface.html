@@ -277,10 +277,15 @@
                         </div>
                         <div class="col-md-10" id="chat-assistant">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
-                              <div id="chat-doc-view" class="row">
+                              <div class="row d-md-none">
+                                  <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill d-md-none">
+                                    ▼
+                                  </button>
+                              </div>
+                              <div id="chat-doc-view" class="row d-none d-md-flex">
                                   <!-- Chat Docs will be populated here -->
-                                  <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm"><i class="fa fa-download">&nbsp;</i></button>
-                                  <button id="add-document-button-chat" type="button" class="btn btn-primary mr-2 btn-sm"><i class="fa fa-plus">&nbsp; Add Doc</i></button>
+                                  <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
+                                  <button id="add-document-button-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-plus">&nbsp; Add Doc</i></button>
 
                               </div>
                               <div id="chatView" class="row flex-grow-1 overflow-auto">
@@ -297,7 +302,7 @@
                                         </button>
                                     </div>
                                     <div class="input-group-append" style="margin-right: -25px;margin-left: 5px;">
-                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill d-md-none">^</button>
+                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill d-md-none">▲</button>
                                     </div>
                                 </div>
                                 

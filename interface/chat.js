@@ -299,7 +299,7 @@ var ChatManager = {
         documents.forEach(function(doc, index) {
             // Create buttons for each document
             var docButton = $('<button></button>')
-                .addClass('btn btn-outline-primary btn-sm mr-2')
+                .addClass('btn btn-outline-primary btn-sm mr-2 mb-1')
                 .text(`#doc_${index + 1}`)
                 .attr('data-doc-id', doc.doc_id)
                 .attr('data-toggle', 'tooltip')
@@ -371,7 +371,7 @@ var ChatManager = {
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-          var messageElement = $('<div class="card w-100 my-2 d-flex flex-column"></div>');
+            var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column"></div>');
           var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
           var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}><small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
           var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
@@ -637,7 +637,22 @@ $(document).ready(function() {
     $('#toggleChatControls').click(function () {
         $('#chat-search-links-input').toggleClass('d-none');
         $('#chat-options').toggleClass('d-none');
+        // ▲ ▼
+        // change inner content of the button based on current content
+        var currentContent = $(this).text();
+        var newContent = currentContent === '▲' ? '▼' : '▲';
+        $(this).text(newContent);
     });
+
+    $('#toggleChatDocsView').click(function () {
+        $('#chat-doc-view').toggleClass('d-none');
+        // ▲ ▼
+        // change inner content of the button based on current content
+        var currentContent = $(this).text();
+        var newContent = currentContent === '▲' ? '▼' : '▲';
+        $(this).text(newContent);
+    });
+    // $('#toggleChatDocsView').click();
     
 
 })

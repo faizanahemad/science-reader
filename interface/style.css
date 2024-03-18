@@ -405,6 +405,13 @@ textarea.form-control.dynamic-textarea {
     color: red;
 }
 
+.btn-xs {
+    padding: 0.25rem 0.5rem;
+    font-size: .75rem;
+    line-height: 1;
+    border-radius: 0.2rem;
+}
+
 /* Make the 'Send Message' button smaller and inline with the input on mobile screens */
 @media (max-width: 767.98px) {
     #deleteLastTurn {

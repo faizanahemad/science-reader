@@ -227,7 +227,7 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
     let voteBox = $('<div>').addClass('vote-box').css({
         'position': 'absolute',
         'top': '5px',
-        'right': '20px'
+        'right': '30px'
     });
     voteBox.append(copyBtn, upvoteBtn, voteCountElem, downvoteBtn);
     cardElem.append(voteBox);
