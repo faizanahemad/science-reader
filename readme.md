@@ -1,3 +1,6 @@
+# Install GCC
+`sudo apt install build-essential`
+
 # Ngingx config
 `sudo vi /etc/nginx/sites-available/science-reader`
 
@@ -6,8 +9,8 @@ server {
     listen 443 ssl;
     server_name sci-tldr.pro;
 
-    ssl_certificate /root/science-reader/cert-ext.pem;
-    ssl_certificate_key /root/science-reader/key-ext.pem;
+    ssl_certificate /etc/letsencrypt/live/sci-tldr.pro/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sci-tldr.pro/privkey.pem;
 
     location / { 
         proxy_pass http://localhost:5000;

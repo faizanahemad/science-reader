@@ -56,6 +56,8 @@ import typing as t
 #     import json
 
 import json
+from flask import Flask, redirect, url_for
+from flask_dance.contrib.google import make_google_blueprint, google
 
 class FlaskJSONProvider(JSONProvider):
     def dumps(self, obj: t.Any, **kwargs: t.Any) -> str:
@@ -372,6 +374,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
 app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+app.secret_key = os.environ.get("SECRET_KEY")
 app.config["RATELIMIT_STRATEGY"] = "moving-window"
 app.config["RATELIMIT_STORAGE_URL"] = "memory://"
 
@@ -391,7 +394,6 @@ limiter = Limiter(
 )
 # app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
 Session(app)
-oauth = OAuth(app)
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.INFO)
 log = logging.getLogger('__main__')
@@ -404,19 +406,6 @@ log = logging.getLogger('base')
 log.setLevel(logging.INFO)
 log = logging.getLogger('faiss.loader')
 log.setLevel(logging.INFO)
-google = oauth.register(
-    name='google',
-    client_id=app.config.get("GOOGLE_CLIENT_ID"),
-    client_secret=app.config.get("GOOGLE_CLIENT_SECRET"),
-    access_token_url='https://accounts.google.com/o/oauth2/token',
-    access_token_params=None,
-    authorize_url='https://accounts.google.com/o/oauth2/auth',
-    authorize_params=None,
-    api_base_url='https://www.googleapis.com/oauth2/v1/',
-    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',  # This is only needed if using openId to fetch user info
-    client_kwargs={'scope': 'email profile'},
-    server_metadata_url= 'https://accounts.google.com/.well-known/openid-configuration',
-)
 os.makedirs(os.path.join(os.getcwd(), folder), exist_ok=True)
 cache_dir = os.path.join(os.getcwd(), folder, "cache")
 users_dir = os.path.join(os.getcwd(), folder, "users")
@@ -573,58 +562,42 @@ def get_all_reviews(doc_id):
     reviews = set_keys_on_docs(indexed_docs[doc_id], keys).get_all_reviews()
     # lets send json response
     return jsonify(reviews)
-    
-    
-@app.route('/login')
-@limiter.limit("5 per minute")
+
+def check_credentials(username, password):
+    return os.getenv("PASSWORD", "XXXX") == password
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    scheme_is_https = request.headers.get('X-Forwarded-Proto', 'http') == "https"
-    redirect_uri = url_for('authorize', _external=True)
-    redirect_uri = convert_http_to_https(redirect_uri) if scheme_is_https else redirect_uri
-    if login_not_needed:
-        logger.info(f"Login not needed send login.html")
-        email = request.args.get('email')
-        if email is None:
-            return send_from_directory('interface', 'login.html', max_age=0)
-        session['email'] = email
-        session['name'] = email
-        addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
-        return redirect('/interface', code=302)
-    else:
-        logger.info(f"Login needed with redirect authorize uri = {redirect_uri}")
-        return google.authorize_redirect(redirect_uri)
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        if check_credentials(email, password):
+            session['email'] = email
+            session['name'] = email
+            addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
+            return redirect(url_for('interface'))
+        else:
+            return "Invalid credentials", 401
+    return '''
+        <form method="post">
+            Username: <input type="text" name="email"><br>
+            Password: <input type="password" name="password"><br>
+            <input type="submit" value="Login">
+        </form>
+    '''
+
 
 @app.route('/logout')
 @limiter.limit("1 per minute")
 @login_required
 def logout():
-    
-    if 'token' in session: 
-        access_token = session['token']['access_token'] 
-        requests.post('https://accounts.google.com/o/oauth2/revoke',
-            params={'token': access_token},
-            headers = {'content-type': 'application/x-www-form-urlencoded'})
-    
-    session.clear() # clears the session
+    session.pop('name', None)
+    session.pop('email', None)
     return render_template_string("""
-        <h1>Logged out</h1>
-        <p><a href="{{ url_for('login') }}">Click here</a> to log in again. You can now close this Tab/Window.</p>
-    """)
+            <h1>Logged out</h1>
+            <p><a href="{{ url_for('login') }}">Click here</a> to log in again. You can now close this Tab/Window.</p>
+        """)
 
-@app.route('/authorize')
-@limiter.limit("15 per minute")
-def authorize():
-    logger.info(f"Authorize for email {session.get('email')} and name {session.get('name')}")
-    token = google.authorize_access_token()
-    resp = google.get('userinfo')
-    if resp.ok:
-        user_info = resp.json()
-        session['email'] = user_info['email']
-        session['name'] = user_info['name']
-        session['token'] = token
-        return redirect('/interface')
-    else:
-        return "Failed to log in", 401
 
 @app.route('/get_user_info')
 @limiter.limit("15 per minute")
@@ -632,12 +605,6 @@ def authorize():
 def get_user_info():
     if 'email' in session and "name" in session:
         return jsonify(name=session['name'], email=session['email'])
-    elif google.authorized:
-        resp = google.get('userinfo')
-        if resp.ok:
-            session['email'] = resp.json()['email']
-            session['name'] = resp.json()['name']
-            return jsonify(name=resp.json()["name"], email=resp.json()["email"])
     else:
         return "Not logged in", 401
 
@@ -1479,5 +1446,5 @@ if __name__ == '__main__':
     
     port = 443
    # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
-    app.run(host="0.0.0.0", port=5000,threaded=True)
+    app.run(host="0.0.0.0", port=5000,threaded=True) # ssl_context="adhoc"
 

@@ -126,6 +126,7 @@ selenium==4.10.0
 semanticscholar==0.4.1
 sentence-transformers==2.2.2
 sgmllib3k==1.0.0
+spacy==3.6.0
 SQLAlchemy==2.0.18
 starlette==0.22.0
 tabulate==0.8.9

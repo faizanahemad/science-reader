@@ -102,7 +102,6 @@ from langchain.prompts import PromptTemplate
 
 from common import *
 from base import *
-import ai21
 from langchain.schema import Document
 
 pd.options.display.float_format = '{:,.2f}'.format

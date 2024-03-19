@@ -110,9 +110,6 @@ except ImportError:
         "Please install it with `pip install google-api-python-client`"
     )
 
-
-import ai21
-
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)

@@ -1,22 +1,31 @@
 # Next
+- Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
+- Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level.
+- Keep a 15 sec timeout for web scraping zenrows calls for any page.
+- Give option to call other LLM like Mistral Large and Claude Opus as well.
+- Fix remove last turn to remove the last summary as well.
+- Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
+- Search across chats.
 - Mobile Friendly Website
-- Per page pdf reading
-- Word doc without any unstructured
+- Per page pdf reading [Nope]
+- Word doc without any unstructured [Nope]
 - Reliability and Exception Handling and Exception capture to separate file.
-- Use gpt4-turbo and mixtral-medium and mixtral-8x7B more
-- Use larger contexts everywhere
-- Enable copy of raw message.
-- Enable use of gpt-4V for vision queries.
+- Use gpt4-turbo and mixtral-medium and mixtral-8x7B more.
+- Use larger contexts everywhere.
+- Enable copy of raw message. [Done]
+- Enable use of gpt-4V for vision queries or image inputs. [Nope]
 - Prompt preambles or simpler system messages set which can be selected from a dropdown.
+- System Message stored on UI and passed to backend.
+- Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc.
 - Better separation between prior messages and current message/instruction.
 - Improve Document RAG by generating follow up queries based on document summary and current query and running them in parallel.
   - Retrieve more chunks if you have space.
-- Read more of the link by using the 16K api twice.
+- Read more of the link by using the 16K api twice. or just use 32K model once.
 - Allow additional context to be added to the prompt. (Permananet instructions)
-- Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
-- support seeing raw text from the model.
 - Block list and whitelist domains for web search for any single chat and global.
+- 
 # Up next
+- Create edit and input images in chat. [Nope]
 - Links to visit [Done]
 - Use Google scholar [Done]
 - Store doc results from PDFs and Links we read in the conversation DB [Done].
