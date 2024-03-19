@@ -1280,18 +1280,16 @@ Write the extracted information concisely below:
 
 
 def format_llm_inputs(web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer):
-    web_text = f"""Relevant information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
-    Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).""" if len(
-        web_text) > 0 else ""
-    doc_answer = f"""Results from user provided documents are given below. Questions user has asked usually pertain to these documents. Relevant information from user given documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''""" if len(
-        doc_answer) > 0 else ""
-    link_result_text = f"""Results from user provided links are given below. Questions user has asked usually pertain to these links. Relevant information from user given links with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''""" if len(
-        link_result_text) > 0 else ""
-    summary_text = f"""The summary of the conversation is as follows:
-    '''{summary_text}'''""" if len(summary_text) > 0 else ''
-    previous_messages = f"""Previous chat history between user and assistant:\n'''{previous_messages}'''""" if len(previous_messages) > 0 else ''
-    conversation_docs_answer = f"""The documents that were read are as follows:
-    '''{conversation_docs_answer}'''""" if len(conversation_docs_answer) > 0 else ''
+    web_text = f"""\nRelevant information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+    Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).\n""" if len(
+        web_text.strip()) > 0 else ""
+    doc_answer = f"""\nResults from user provided documents are given below. Questions user has asked usually pertain to these documents. Relevant information from user given documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''\n""" if len(
+        doc_answer.strip()) > 0 else ""
+    link_result_text = f"""\nResults from user provided links are given below. Questions user has asked usually pertain to these links. Relevant information from user given links with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''\n""" if len(
+        link_result_text.strip()) > 0 else ""
+    summary_text = f"""\nThe summary of the conversation is as follows:\n'''{summary_text}'''\n""" if len(summary_text.strip()) > 0 else ''
+    previous_messages = f"""\nPrevious chat history between user and assistant:\n'''{previous_messages}'''\n""" if len(previous_messages.strip()) > 0 else ''
+    conversation_docs_answer = f"""\nThe documents that were read are as follows:\n'''{conversation_docs_answer}'''\n""" if len(conversation_docs_answer) > 0 else ''
     return web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer
 
 

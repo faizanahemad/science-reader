@@ -11,10 +11,9 @@ class CustomPrompts:
         # 4. Provide code in python if asked for code or implementation.
         # Use markdown formatting to typeset and format your answer better.
         self.complex_output_instructions = """Use the below rules while providing response.
-1. Use markdown lists and paragraphs for formatting. This is part of my assignment so please help me with in depth answer covering any references provided.
+1. Use markdown lists and paragraphs for formatting.
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
-3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
-4. Answer the question with creativity and deep insight as well as you can by combining given references (if any) with your own knowledge."""
+3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
 1. Use markdown lists and paragraphs for formatting.
@@ -166,21 +165,13 @@ Response to the user's query:
             ),
             chat_slow_reply_prompt=PromptTemplate(
                 input_variables=["query", "summary_text", "previous_messages", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
-                template=f"""You are given conversation details between human and AI. You are also given a summary of how the conversation has progressed till now.
+                template=f"""You are given conversation details between human and AI.
 {self.complex_output_instructions} 
 Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query:\n'''{{query}}'''
-
-{{conversation_docs_answer}}
-{{doc_answer}}
-{{web_text}}
-{{link_result_text}}
-
-{{summary_text}}
-{{previous_messages}}
+We will be replying to the user's query or message given.
+{{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}{{summary_text}}{{previous_messages}}
 {{permanent_instructions}}
-Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's query.
+Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message given below.
 user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
