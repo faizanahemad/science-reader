@@ -621,7 +621,8 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
-        
+        `</div>` +
+        `<div style="display: flex;">` +
         (type === "assistant" ? `
         
     <div class="form-check form-check-inline" id="${slow_fast}" style="line-height: 0.9;">
