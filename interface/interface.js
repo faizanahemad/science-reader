@@ -614,17 +614,16 @@ function addOptions(parentElementId, type, activeDocId=null) {
     
 
     $(`#${parentElementId}`).append(
-        `<div style="display: flex;">` +
-
+        `<div class="row">` +
+        `<div class="col-md-auto">` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
         `</div>` +
-        `<div style="display: flex;">` +
         (type === "assistant" ? `
-        
+    <div class="col-md-auto">
     <div class="form-check form-check-inline" id="${slow_fast}" style="line-height: 0.9;">
     <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
         <div style="margin-left: auto; margin-right: 5px;">Depth</div>
@@ -646,10 +645,6 @@ function addOptions(parentElementId, type, activeDocId=null) {
         </div>
     </div>
     </div>
-
-` : '') +
-
-        (type === "assistant" ? `
         
     <div class="form-check form-check-inline" id="enablePreviousMessagesContainer" style="line-height: 0.9;">
     <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
@@ -677,11 +672,11 @@ function addOptions(parentElementId, type, activeDocId=null) {
         
     </div>
     </div>
+    
 
-` : '') +
-        (type === "assistant" ?`<button id="deleteLastTurn" class="btn btn-danger rounded-pill d-none d-md-block" style="margin-left: 10px;">Del Last Turn</button>`:'') + 
-        (type==="assistant"?``:'') + 
-        `</div>`
+    <div class="d-none d-md-block"><button id="deleteLastTurn" class="btn btn-danger rounded-pill d-none d-md-block" style="margin-left: 10px;">Del Last Turn</button></div>
+    </div>`:'') + 
+    `</div>`
     );
 
 
