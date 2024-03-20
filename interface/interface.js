@@ -675,7 +675,58 @@ function addOptions(parentElementId, type, activeDocId=null) {
     
 
     <div class="form-check form-check-inline"><button id="deleteLastTurn" class="btn btn-danger rounded-pill mt-1">Del Last Turn</button></div>
-    </div>`:'') + 
+    </div>
+    <div class="col-md-auto mt-1">
+        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+            <label for="preamble-selector" class="mr-1">Preambles</label>
+            <select class="form-control selectpicker" id="preamble-selector" multiple>
+                <option selected>md format</option>
+                <option selected>better formatting</option>
+                <option>Easy Copy</option>
+                <option>Short reply</option>
+                <option>Long reply</option>
+                <option>CoT</option>
+                <option selected>Short references</option>
+                <option selected>Latex Eqn</option>
+                <option>Explore</option>
+                <option>Creative</option>
+                <option>Argumentative</option>
+                <option>Blackmail</option>
+            </select>
+        </div>
+        
+        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+            <label for="main-model-selector" class="mr-1">Model</label>
+            <select class="form-control" id="main-model-selector">
+                <option selected>gpt-4-turbo</option>
+                <option>Claude Opus</option>
+                <option>Mistral Large</option>
+                <option>Mixtral</option>
+                <option>Gemini</option>
+            </select>
+        </div>
+        
+        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+            <label for="field-selector" class="mr-1">Field</label>
+            <select class="form-control" id="field-selector">
+                <option selected>None</option>
+                <option>Science</option>
+                <option>Arts</option>
+                <option>Medicine</option>
+                <option>Fitness</option>
+                <option>Psychology</option>
+                <option>Finance</option>
+                <option>Economics</option>
+                <option>Mathematics</option>
+                <option>QnA</option>
+                <option>AI</option>
+                <option>Software (Python)</option>
+                <option>Software (UI)</option>
+            </select>
+        </div>
+    </div>
+    `:'') + 
+    
     `</div></small>`
     );
 
@@ -755,6 +806,11 @@ function getOptions(parentElementId, type) {
         documentIds.push($(this).attr('data-doc-id'));
     });
     values['additional_docs_to_read'] = documentIds;
+    if (type==="assistant") {
+        values['preamble_options'] = $('#preamble-selector').val();
+        values['main_model'] = $('#main-model-selector').val();
+        values['field'] = $('#field-selector').val();
+    }
     return values
 }
 

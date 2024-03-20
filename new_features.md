@@ -1,13 +1,18 @@
 # Next
-- Why zenrows was not used?
-- Debug if SERPAPI is used?
 - Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
 - Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
+- Allow additional context to be added to the prompt. (Permanent instructions or Session level instructions)
+- Give option to call other LLM like Mistral Large and Claude Opus as well.
+- Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
+- Prompt preambles or simpler system messages set which can be selected from a dropdown.
+- Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc.
+- Debug if SERPAPI is used? [Done] Brightdata is used.
 - Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level.
 - Keep a 15 sec timeout for web scraping zenrows calls for any page.
-- Give option to call other LLM like Mistral Large and Claude Opus as well.
-- Fix remove last turn to remove the last summary as well.
-- Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
+- Block list and whitelist domains for web search for any single chat and global.
+- Targetted site search like reddit or arxiv only.
+- Fix remove last turn to remove the last summary as well. [Done]
+
 - Search across chats.
 - Mobile Friendly Website
 - Per page pdf reading [Nope]
@@ -16,16 +21,14 @@
 - Use gpt4-turbo and mixtral-medium and mixtral-8x7B more.
 - Use larger contexts everywhere.
 - Enable copy of raw message. [Done]
-- Enable use of gpt-4V for vision queries or image inputs. [Nope]
-- Prompt preambles or simpler system messages set which can be selected from a dropdown.
-- System Message stored on UI and passed to backend.
-- Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc.
-- Better separation between prior messages and current message/instruction.
+- Enable use of gpt-4V or Claude or gemini for vision queries or image inputs. [Nope]
+
+
+- Better separation between prior messages and current message/instruction. [Done]
 - Improve Document RAG by generating follow up queries based on document summary and current query and running them in parallel.
   - Retrieve more chunks if you have space.
-- Read more of the link by using the 16K api twice. or just use 32K model once.
-- Allow additional context to be added to the prompt. (Permananet instructions)
-- Block list and whitelist domains for web search for any single chat and global.
+- Read more of the link by using the 16K api twice. or just use 32K model once. [Done]
+
 - 
 # Up next
 - Create edit and input images in chat. [Nope]

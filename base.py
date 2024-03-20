@@ -310,7 +310,8 @@ openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-4": (300000, 10000),
     "gpt-4-0314": (300000, 10000),
     "gpt-4-0613": (300000, 10000),
-    "gpt-4-1106-preview": (450000, 10000),
+    "gpt-4-turbo-preview": (800000, 10000),
+    "gpt-4-32k-0314": (150000, 100),
     "gpt-4-vision-preview": (150000, 100),
 })
 
@@ -318,8 +319,8 @@ openai_model_family = {
     "gpt-3.5-turbo": ["gpt-3.5-turbo", "gpt-3.5-turbo-0301", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-1106"],
     "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-1106"],
     "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
-    "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613"],
-    "gpt-4-16k": ["gpt-4-1106-preview", "gpt-4-vision-preview"],
+    "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613", "gpt-4-32k-0314"],
+    "gpt-4-turbo": ["gpt-4-turbo-preview", "gpt-4-vision-preview"],
     "gpt-4-0314": ["gpt-4-0314"],
     "gpt-4-0613": ["gpt-4-0613"],
     "gpt-4-vision-preview": ["gpt-4-vision-preview"],
@@ -379,12 +380,11 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "gpt-3.5-turbo-1106": easy_enc,
     "gpt-3.5-turbo-16k": easy_enc,
     "gpt-3.5-turbo-16k-0613": easy_enc,
-    "gpt-3.5-turbo-instruct": easy_enc,
-    "gpt-3.5-turbo-instruct-0914": easy_enc,
     "gpt-4": gpt4_enc,
     "gpt-4-0314": gpt4_enc,
     "gpt-4-0613": gpt4_enc,
-    "gpt-4-1106-preview": gpt4_enc,
+    "gpt-4-32k-0314": gpt4_enc,
+    "gpt-4-turbo-preview": gpt4_enc,
     "text-davinci-003": davinci_enc,
     "text-davinci-002": davinci_enc,
 })
@@ -437,26 +437,44 @@ def call_non_chat_model(model, text, temperature, system, keys):
     rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
     return message
 
-class CallLLmGpt:
-    def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
-        
+class CallLLm:
+    def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
 
         self.keys = keys
-        self.system = "You are an expert in multiple domains like science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, ideation, programming, writing, question answering and many others. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow.\nAlways provide insightful, informative, comprehensive and detailed response. \nUse markdown bold, italics, lists and paragraphs for formatting.\nWhen multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Don't give references at the end.\nDon't repeat what is given to you in the prompt.\nI am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\nUse direct, to the point and professional writing style.\n"
         self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide concise and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
-        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4", True) and not use_small_models and self.self_hosted_model_url is None
-        self.use_small_models = use_small_models
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
         self.gpt4_enc = encoders_map.get("gpt-4")
         self.turbo_enc = encoders_map.get("gpt-3.5-turbo")
-        self.davinci_enc = encoders_map.get("text-davinci-003")
+        self.model_name = model_name
+        self.model_type = "openai" if model_name is None or model_name.startswith("gpt") else "openrouter"
+
+
+    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        if self.model_type == "openai":
+            return self.__call_openai_models(text, temperature, stream, max_tokens, system, *args, **kwargs)
+        else:
+            return self.__call_openrouter_models(text, temperature, stream, max_tokens, system, *args, **kwargs)
+
+
+    def __call_openrouter_models(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        sys_init = self.light_system
+        system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
+        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
+        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
+        if "mistralai" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 26000
+        if "claude-3" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 90_000
+        else:
+            assert get_gpt3_word_count(system + text) < 14000
+        return call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, model_family=None):
-        sys_init = self.light_system if not self.use_gpt4 else self.system
-        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
+    def __call_openai_models(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        sys_init = self.light_system
+        system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
@@ -464,7 +482,7 @@ class CallLLmGpt:
                                          max_tokens=max_tokens)
         else:
             assert self.keys["openAIKey"] is not None
-            assert not self.use_small_models
+
 
         if self.use_gpt4 and self.use_16k:
             try:
@@ -472,14 +490,15 @@ class CallLLmGpt:
             except AssertionError as e:
                 text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
             try:
-                model = rate_limit_model_choice.select_model("gpt-4-16k")
+                model = rate_limit_model_choice.select_model("gpt-4-turbo")
                 return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
             except TokenLimitException as e:
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4-16k")
+                    model = rate_limit_model_choice.select_model("gpt-4-turbo")
                 except:
                     try:
+                        text = get_first_last_parts(text, 7000, 6000, self.turbo_enc)
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
                     except:
                         raise e
@@ -489,7 +508,7 @@ class CallLLmGpt:
                     raise e
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4-16k")
+                    model = rate_limit_model_choice.select_model("gpt-4-turbo")
                 except:
                     try:
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
@@ -504,12 +523,12 @@ class CallLLmGpt:
             except AssertionError as e:
                 text = get_first_last_parts(text, 4000, 3500, self.gpt4_enc)
             try:
-                model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
+                model = rate_limit_model_choice.select_model("gpt-4")
                 return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
             except TokenLimitException as e:
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-4")
                 except:
                     try:
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
@@ -521,7 +540,7 @@ class CallLLmGpt:
                     raise e
                 time.sleep(5)
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-4")
                 except:
                     try:
                         model = rate_limit_model_choice.select_model("gpt-3.5-16k")
@@ -531,40 +550,30 @@ class CallLLmGpt:
         elif not self.use_16k:
             assert text_len < 3800
             try:
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                except Exception as e:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
+
+                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
             except TokenLimitException as e:
                 time.sleep(5)
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
-                except:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
-                    fn = call_non_chat_model
+                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                fn = call_chat_model if "instruct" not in model else call_non_chat_model
+
                 return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                    fn = call_chat_model if "instruct" not in model else call_non_chat_model
-                except:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
-                    fn = call_non_chat_model
+                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+                fn = call_chat_model if "instruct" not in model else call_non_chat_model
+
                 return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
         elif self.use_16k:
             try:
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                    except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+
                     logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
                 assert text_len < 15000
 #                 logger.info(f"Try 16k model with stream = {stream}")
@@ -572,45 +581,28 @@ class CallLLmGpt:
             except TokenLimitException as e:
                 time.sleep(5)
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                    except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
+
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
                                         model, text, temperature, system, self.keys)
             except Exception as e:
                 if type(e).__name__ == 'AssertionError':
                     raise e
                 if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
                     logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
                 else:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo" if model_family is None else model_family)
-                    except TokenLimitException as e:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-turbo-instruct" if model_family is None else model_family)
+                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
                 return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
                                         model, text, temperature, system, self.keys)
         else:
             raise ValueError("No model use criteria met")
 
-class CallLLmOpenRouter(CallLLmGpt):
-    def __init__(self, keys, model_name="anthropic/claude-2.0", *args, **kwargs):
-        super().__init__(keys=keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None)
-        self.model_name = model_name
 
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
-        sys_init = self.light_system if not self.use_gpt4 else self.system
-        system = f"{sys_init}\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
-        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
-        logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-        assert get_gpt3_word_count(system + text) < 14000
-        return call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
 
-CallLLm = CallLLmGpt if prompts.llm == "gpt4" else (CallLLmClaude if prompts.llm == "claude" else CallLLmGpt)
         
 def split_text(text):
     # Split the text by spaces, newlines, and HTML tags
@@ -771,41 +763,8 @@ Write {"detailed and informational " if is_detailed else ""}Summary below.
     @timer
     def __call__(self, text_document):
         prompt = self.prompt.format(document=text_document)
-        return CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.5)
+        return CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False)(prompt, temperature=0.5)
     
-class ReduceRepeatTool:
-    def __init__(self, keys):
-        self.keys = keys
-        self.name = "ReduceRepeatTool"
-        self.description = """       
-ReduceRepeatTool:
-    This tool takes a text document reduces repeated content in the document. Useful when document has a lot of repeated content or ideas which can be mentioned in a shorter version.
-
-    Input params/args: 
-        text_document (str): document to summarize.
-
-    Returns: 
-        str: non_repeat_document.
-
-    Usage:
-        `non_repeat_document = ReduceRepeatTool()(text_document="document to to reduce repeats") # Note: this tool needs to be initialized first.`
-        
-    """
-        self.prompt = PromptTemplate(
-            input_variables=["document"],
-            template=""" 
-Reduce repeated content in the document given. Remove redundant information. Some ideas or phrases or points are repeated with no variation, remove them, output non-repeated parts verbatim without any modification, do not miss any important details.
-Document is given below.
-'''{document}'''
-
-Write reduced document after removing duplicate or redundant information below.
-""",
-        )
-    def __call__(self, text_document):
-        prompt = self.prompt.format(document=text_document)
-        result = CallLLm(self.keys, use_gpt4=False)(prompt, temperature=0.4)
-        logger.info(f"ReduceRepeatTool with input as \n {text_document} and output as \n {result}")
-        return result
 
 process_text_executor = ThreadPoolExecutor(max_workers=1)
 def contrain_text_length_by_summary(text, keys, threshold=2000):
@@ -826,7 +785,6 @@ def process_text(text, chunk_size, my_function, keys):
         results = [my_function(chunk) for chunk in chunks]
 
     threshold = 512*3
-    tlc = partial(TextLengthCheck, threshold=threshold)
     
     while len(results) > 1:
         logger.warning(f"--- process_text --- Multiple chunks as result. Results len = {len(results)} and type of results =  {type(results[0])}")
@@ -911,13 +869,11 @@ Only provide answer from the document given above.
         import inspect
         prompt = self.prompt.format(context=context, document=document)
         wc = get_gpt3_word_count(prompt)
-        if wc < TOKEN_LIMIT_FOR_DETAILED:
-            llm = CallLLm(self.keys, use_gpt4=False, use_16k=wc>TOKEN_LIMIT_FOR_SHORT, use_small_models=False)
-        elif wc < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            llm = CallLLmOpenRouter(self.keys, model_name="nousresearch/nous-hermes-yi-34b", use_gpt4=False,
+        if wc < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            llm = CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False,
                                     use_16k=False)
         else:
-            llm = CallLLmOpenRouter(self.keys, model_name="anthropic/claude-instant-v1-100k", use_gpt4=False,
+            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False,
                                     use_16k=False)
 
         result = llm(prompt, temperature=0.4, stream=False)
@@ -951,11 +907,14 @@ Only provide answer from the document given above.
         # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
         scores = np.dot(doc_embedding, query_embedding)
         sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-        top_chunks = sorted_chunks[:(3 if chunk_size == 1024 else 6)]
-        top_chunks = '\n\n'.join([c[0] for c in top_chunks])
+        top_chunks = sorted_chunks[:8]
+        top_chunks_text = ""
+        for idx, tc in enumerate(top_chunks):
+            top_chunks_text += f"Retrieved text relevant chunk {idx+1}:\n{tc[0]}\n\n"
+        top_chunks = top_chunks_text
         fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
         prompt = self.prompt.format(context=context, document=fragments_text)
-        callLLm = CallLLm(self.keys, use_gpt4=False, use_16k=chunk_size>=1536, use_small_models=False)
+        callLLm = CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro")
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -967,10 +926,12 @@ Only provide answer from the document given above.
         # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
-        if doc_word_count < TOKEN_LIMIT_FOR_SHORT:
+        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0)
+        if doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document) if not short else None
             result = self.get_one(context_user_query, text_document)
-        elif doc_word_count < TOKEN_LIMIT_FOR_DETAILED:
-            result = self.get_one(context_user_query, text_document)
+            rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
+            result = result + "\nMore Details:\n" + rag_result
         elif self.scan:
             chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
             first_chunk = chunks[0]
@@ -995,13 +956,13 @@ Only provide answer from the document given above.
             result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n" + (big_result.result() if big_result is not None and big_result.exception() is None else "")
         else:
             try:
-                result = self.get_one_with_rag(context_user_query, chunk_size, text_document)
+                result = self.get_one_with_rag(context_user_query, None, text_document)
             except Exception as e:
                 logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
                 chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
                 result = self.get_one(context_user_query, chunks[0])
-        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT*1.0)
-        result = get_first_last_parts(result, 256, 128) if short else get_first_last_parts(result, 1024 if self.scan else 256, 512 if self.scan else 256)
+
+        result = get_first_last_parts(result, 384, 256) if short else get_first_last_parts(result, 1536 if self.scan else 384, 1024 if self.scan else 384)
         assert isinstance(result, str)
         et = time.time()
         time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")

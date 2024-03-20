@@ -400,10 +400,9 @@ class Conversation:
                     summary_nodes=summary_nodes + running_summary)
 
     def create_title(self, query, response):
-        llm = CallLLm(self.get_api_keys(), use_gpt4=False)
         memory = self.get_field("memory")
         if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
-            llm = CallLLm(self.get_api_keys(), use_gpt4=False)
+            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False)
             running_summary = memory["running_summary"][-1:]
             running_summary = "".join(running_summary)
             running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
@@ -446,8 +445,8 @@ Title of the conversation:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True) if get_gpt3_word_count(prompt) > 3300 else CallLLm(self.get_api_keys(), use_gpt4=False)
-        prompt = get_first_last_parts(prompt, 4000, 7500)
+        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False, use_16k=True)
+        prompt = get_first_last_parts(prompt, 8000, 10_000)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -485,7 +484,7 @@ Title of the conversation:
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
         assert get_gpt3_word_count(previous_messages_text) > 0
-        llm = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-large", use_gpt4=False, use_16k=True)
         prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
         summary = llm(prompt, temperature=0.2, stream=False)
         memory["running_summary"][-1] = summary
@@ -574,13 +573,75 @@ Extract and copy relevant information verbatim from the above conversation messa
 Write the extracted information concisely below:
 """
         # final_information = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(prompt, temperature=0.2, stream=False)
-        final_information = CallLLmOpenRouter(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False,
                                 use_16k=False)(prompt, temperature=0.2, stream=False)
         # We return a string
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
         return 20
+
+    def get_preamble(self, preamble_options, field):
+        preamble = ""
+        if "md format" in preamble_options:
+            preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting.\n"
+        if "better formatting" in preamble_options:
+            preamble += "\nUse good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. Use tables to provide extensive comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response.\n"
+        if "Easy Copy" in preamble_options:
+            preamble += "\nProvide the answer in a format that can be easily copied and pasted. Provide answer inside a code block so that I can copy it.\n"
+        if "Short reply" in preamble_options:
+            preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
+        if "Long reply" in preamble_options:
+            preamble += "\nProvide a long and detailed answer. Think from all angles about what is asked and use all resources to provide an extensive and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+        if "CoT" in preamble_options:
+            preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+        if "Short references" in preamble_options:
+            preamble += "\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format. Don't give references at the end.\n"
+        if "Latex Eqn" in preamble_options:
+            preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment.\n"
+        if "Explore" in preamble_options:
+            preamble += "\nSprinkle interesting tidbits of knowledge around the topic we discuss as well to help me explore and learn more. Provide interesting and stimulating information around the topic we discuss.\n"
+        if "Creative" in preamble_options:
+            preamble += "\nBe creative and think out of the box. Think creatively and provide a creative answer. Always provide insightful, stimulating and informative response. When multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\n"
+        if "Argumentative" in preamble_options:
+            preamble += "\nProvide an argumentative answer. Provide an answer that is argumentative and provides a strong argument. Present views that stimulate and contradict the views of the user.\n"
+        if "Blackmail" in preamble_options:
+            preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+
+        field_text = ""
+        if field == "None":
+            pass
+        if field == "Science":
+            field_text += "\nYou are an expert in science, scientific literature, and scientific methodology. This is a science question. Provide a scientific answer\n"
+        if field == "Arts":
+            field_text += "\nYou are an expert in arts, literature, and artistic methodology. This is an arts question. Provide an answer as a humanities and arts professor would.\n"
+        if field == "Medicine":
+            field_text += "\nYou are an expert in medicine, medical literature, and modern medical methods. This is a medical question. Provide a medical answer.\n"
+        if field == "Fitness":
+            field_text += "\nYou are an expert in fitness, exercise, and physical health. This is a fitness and general health question.\n"
+        if field == "Psychology":
+            field_text += "\nYou are an expert in psychology, mental health, and human behavior. This is a psychology question.\n"
+        if field == "Finance":
+            field_text += "\nYou are an expert in finance, economics, and financial markets. This is a finance and economics question.\n"
+        if field == "Economics":
+            field_text += "\nYou are an expert in economics, micro and macro economics, governance, fiscal policy, finance, and financial markets. This is an economics and finance related question.\n"
+        if field == "Mathematics":
+            field_text += "\nYou are an expert in mathematics, mathematical literature, and mathematical methods and critical logic and thinking. This is a mathematics question.\n"
+        if field == "QnA":
+            field_text += "\nYou are an expert in question answering, information retrieval, and information extraction. This is a question answering and information retrieval task. You provide accurate, grounded and relevant information from provided sources.\n"
+        if field == "AI":
+            field_text += "\nYou are an expert in AI, machine learning, and deep learning. This is an AI and machine learning question.\n"
+        if field == "Software (Python)":
+            field_text += "\nYou are an expert in software development, programming, and software engineering. This is a software development and programming question. You have very good knowledge of python, pytorch, pandas, numpy, matplotlib and other python libraries. You are thorough in your answers and provide code snippets and examples.\n"
+        if field == "Software (UI)":
+            field_text += "\nYou are an expert in software development, programming, and software engineering. This is a software development and programming question. You have very good knowledge of UI/UX design, web development, and front end development. You are thorough in your answers and provide code snippets and examples.\n"
+        final_preamble = preamble + field_text
+        if final_preamble.strip() == "":
+            final_preamble = None
+        else:
+            final_preamble = final_preamble.strip()
+        return final_preamble
+
     def reply(self, query):
         # Get prior context
         # Get document context
@@ -719,12 +780,6 @@ Write the extracted information concisely below:
             else:
                 yield {"text": '', "status": "document reading failed"}
 
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        truncate_method = truncate_text_for_gpt4
-        if llm.self_hosted_model_url is not None:
-            truncate_method = truncate_text_for_others
-        elif not llm.use_gpt4:
-            truncate_method = truncate_text_for_gpt3
         prior_context = prior_context_future.result()
         previous_messages = prior_context["previous_messages"]
         previous_messages_long = prior_context["previous_messages_long"]
@@ -848,7 +903,7 @@ Write the extracted information concisely below:
                                                                doc_answer=doc_answer, web_text=web_text,
                                                                link_result_text=link_result_text,
                                                                conversation_docs_answer=conversation_docs_answer)
-                llm = CallLLm(self.get_api_keys(), use_gpt4=provide_detailed_answers > 2, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-large")
                 qu_mt = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
@@ -1014,7 +1069,7 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=False, use_16k=False)
             ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1024,7 +1079,7 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-2.0", use_gpt4=True, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-2.0", use_gpt4=True, use_16k=False)
             ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1034,7 +1089,7 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=True, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=True, use_16k=False)
             ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             ####
@@ -1046,7 +1101,7 @@ Write the extracted information concisely below:
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="google/palm-2-chat-bison", use_gpt4=False, use_16k=False) # cognitivecomputations/dolphin-mixtral-8x7b
+            llm = CallLLm(self.get_api_keys(), model_name="google/palm-2-chat-bison", use_gpt4=False, use_16k=False) # cognitivecomputations/dolphin-mixtral-8x7b
             ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1057,7 +1112,7 @@ Write the extracted information concisely below:
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False, model_family="gpt-4-0613")
+            ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                            summary_text=summary_text_expert,
@@ -1067,7 +1122,7 @@ Write the extracted information concisely below:
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False, model_family="gpt-4-0314")
+            ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             ###
             
@@ -1078,7 +1133,7 @@ Write the extracted information concisely below:
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
             ans_gen_7_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             
@@ -1089,7 +1144,7 @@ Write the extracted information concisely below:
                                                            doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-2", use_gpt4=True, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-2", use_gpt4=True, use_16k=False)
             ans_gen_8_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1100,7 +1155,7 @@ Write the extracted information concisely below:
                                                            web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=False, use_16k=False)
             ans_gen_9_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1111,7 +1166,7 @@ Write the extracted information concisely below:
                                                            web_text=web_text_expert_16k,
                                                            link_result_text=link_result_text_expert_16k,
                                                            conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLmOpenRouter(self.get_api_keys(), model_name="nousresearch/nous-capybara-34b", use_gpt4=False,
+            llm = CallLLm(self.get_api_keys(), model_name="nousresearch/nous-capybara-34b", use_gpt4=False,
                                     use_16k=False)
             ans_gen_10_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
             
@@ -1156,13 +1211,31 @@ Write the extracted information concisely below:
                     f"We have answers from different students:\n```\n{all_expert_answers}\n```\nPerform your own analysis independently. First Provide your own thoughts and answer then combine your answer and thoughts with the student's opinions and provide a final appropriate answer.\n" + partial_answer_text) if len(
             all_expert_answers.strip()) > 0 else partial_answer_text
 
+        # TODO: add capability to use mistral-large, Claude OPUS models for answering.
+        model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
+        if model_name == "gpt-4-turbo":
+            model_name = None
+        elif model_name == "Claude Opus":
+            model_name = "anthropic/claude-3-opus:beta"
+        elif model_name == "Mistral Large":
+            model_name = "mistralai/mistral-large"
+        elif model_name == "Mixtral":
+            model_name = "mistralai/mixtral-8x7b-instruct:nitro"
+        elif model_name == "Gemini":
+            model_name = "google/gemini-pro"
+        else:
+            model_name = None
+        yield {"text": f"Using model = {model_name}", "status": "starting answer generation"}
+
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
-        if probable_prompt_length < 48000:
+        if probable_prompt_length < 48000 and (model_name is None or not model_name.startswith("mistralai")):
             previous_messages = previous_messages_very_long
+            truncate_text = truncate_text_for_gpt4_64k
         else:
             previous_messages = previous_messages_long
+            truncate_text = truncate_text_for_gpt4_16k
 
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_64k(
+        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
         web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
@@ -1176,11 +1249,10 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
-        yield {"text": '', "status": "starting answer generation"}
 
-
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-        main_ans_gen = llm(prompt, temperature=0.3, stream=True)
+        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+        preamble = self.get_preamble(checkboxes["preamble_options"] if "preamble_options" in checkboxes else [], checkboxes["field"] if "field" in checkboxes else None)
+        main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
         last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, conversation_docs_answer length: {len(enc.encode(conversation_docs_answer))},  web text length: {len(enc.encode(web_text))}, link result text length: {len(enc.encode(link_result_text))}""")

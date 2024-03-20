@@ -467,8 +467,8 @@ class DocIndex:
         if mode == "detailed" or mode == "review":
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
-            if tex_len < 14000:
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+            if tex_len < 24000:
+                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=True, use_16k=True)
                 prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
@@ -482,7 +482,7 @@ Write answer below.
             else:
                 additional_info = get_async_future(call_contextual_reader, query,
                                                    brief_summary + self.get_doc_data("static_data", "doc_text"),
-                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_DETAILED + 500, scan=detail_level >= 2)
+                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 2)
 
             if detail_level >= 2 and tex_len >= 7000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
@@ -494,7 +494,7 @@ Write answer below.
                 raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
-                llm = CallLLm(self.get_api_keys(), use_gpt4=detail_level >= 3, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro" if detail_level<=2 else ("mistralai/mistral-medium" if detail_level==3 else None), use_gpt4=detail_level >= 4, use_16k=True)
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
@@ -526,7 +526,7 @@ Write answer below.
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, full_summary=full_summary)
 
             if llm.use_gpt4 and llm.use_16k:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART*2 - 1000)
+                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART*4 - 1000)
             elif llm.use_gpt4:
                 prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 500)
             elif llm.use_16k:
