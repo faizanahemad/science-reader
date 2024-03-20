@@ -1,10 +1,10 @@
 # Next
 - Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
 - Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
-- Allow additional context to be added to the prompt. (Permanent instructions or Session level instructions)
-- Give option to call other LLM like Mistral Large and Claude Opus as well.
+- Allow additional context to be added to the prompt. (Permanent instructions or Session level instructions) [Done]
+- Give option to call other LLM like Mistral Large and Claude Opus as well. [Done]
 - Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
-- Prompt preambles or simpler system messages set which can be selected from a dropdown.
+- Prompt preambles or simpler system messages set which can be selected from a dropdown. [Done]
 - Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc.
 - Debug if SERPAPI is used? [Done] Brightdata is used.
 - Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level.

@@ -677,7 +677,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
     <div class="form-check form-check-inline"><button id="deleteLastTurn" class="btn btn-danger rounded-pill mt-1">Del Last Turn</button></div>
     </div>
     <div class="col-md-auto mt-1">
-        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+        <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option selected>md format</option>
@@ -695,7 +695,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
             </select>
         </div>
         
-        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+        <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>
@@ -706,7 +706,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
             </select>
         </div>
         
-        <div class="form-check form-check-inline" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+        <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="field-selector" class="mr-1">Field</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
@@ -723,6 +723,12 @@ function addOptions(parentElementId, type, activeDocId=null) {
                 <option>Software (Python)</option>
                 <option>Software (UI)</option>
             </select>
+        </div>
+        
+    </div>
+    <div class="col-md-auto mt-1">
+        <div class="mt-1">
+            <textarea id="permanentText" class="dynamic-textarea form-control" placeholder="Permanent Instruction."></textarea>
         </div>
     </div>
     `:'') + 
@@ -810,6 +816,7 @@ function getOptions(parentElementId, type) {
         values['preamble_options'] = $('#preamble-selector').val();
         values['main_model'] = $('#main-model-selector').val();
         values['field'] = $('#field-selector').val();
+        values["permanentText"] = $("#permanentText").val();
     }
     return values
 }

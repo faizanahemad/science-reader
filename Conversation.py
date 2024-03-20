@@ -1242,10 +1242,11 @@ Write the extracted information concisely below:
             web_text, doc_answer, link_result_text, summary_text, previous_messages,
             conversation_docs_answer)
         yield {"text": '', "status": "Preparing prompt ..."}
+        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes else ""
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions=partial_answer_text,
+                                                       permanent_instructions=permanent_instructions + partial_answer_text,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
