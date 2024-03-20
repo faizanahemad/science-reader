@@ -1,4 +1,7 @@
 # Next
+- Why zenrows was not used?
+- Debug if SERPAPI is used?
+- Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
 - Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
 - Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level.
 - Keep a 15 sec timeout for web scraping zenrows calls for any page.

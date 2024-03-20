@@ -2220,27 +2220,6 @@ def convert_pdf_to_txt(file_url, secret_key):
         raise Exception(f"Failed to convert PDF: {response.status_code} {response.text}")
 
 
-def get_arxiv_pdf_link_v2(link):
-    try:
-        assert "arxiv.org" in link
-        import re
-        from bs4 import BeautifulSoup, SoupStrainer
-        # convert to ar5iv link
-        arxiv_id = link.replace(".pdf", "").split("/")[-1]
-        new_link = f"https://www.arxiv-vanity.com/papers/{arxiv_id}/"
-        arxiv_text = requests.get(new_link, timeout=10).text
-        contents = soup_html_parser(arxiv_text)
-        text = contents["text"]
-        text = normalize_whitespace(text)
-        assert len(text.strip().split()) > 500, f"Extracted pdf arxiv info is too short for link: {link}"
-        return contents["title"], text
-    except AssertionError as e:
-        logger.warning(f"Error converting arxiv link {link} to ar5iv link with error {str(e)}")
-        raise e
-    except Exception as e:
-        logger.warning(f"Error reading arxiv / ar5iv pdf {link} with error = {str(e)}\n{traceback.format_exc()}")
-        raise e
-
 def get_arxiv_pdf_link(link):
     try:
         assert "arxiv.org" in link
@@ -2293,14 +2272,12 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     extracted_info = ''
 
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    pdf_text_future = get_async_future(pdfReader, link)
     convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
+    pdf_text_future = get_async_future(pdfReader, link)
     get_arxiv_pdf_link_future = None
-    get_arxiv_pdf_link_future_v2 = None
     result_from = "TIMEOUT_PDF_READER"
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
-        get_arxiv_pdf_link_future_v2 = get_async_future(get_arxiv_pdf_link_v2, link)
     text = ''
     while time.time() - st < (45 if detailed <= 1 else 75) and exists_tmp_marker_file(web_search_tmp_marker_name):
         if pdf_text_future.done() and pdf_text_future.exception() is None:
@@ -2314,10 +2291,6 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
         if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
             title, text = get_arxiv_pdf_link_future.result()
             result_from = "arxiv"
-            break
-        if get_arxiv_pdf_link_future_v2 is not None and get_arxiv_pdf_link_future_v2.done() and get_arxiv_pdf_link_future_v2.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
-            title, text = get_arxiv_pdf_link_future_v2.result()
-            result_from = "arxiv_v2"
             break
         time.sleep(0.2)
 

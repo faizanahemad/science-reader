@@ -652,8 +652,7 @@ $(document).ready(function() {
         var newContent = currentContent === '▲' ? '▼' : '▲';
         $(this).text(newContent);
     });
+    $(window).scrollTop(0);
     // $('#toggleChatDocsView').click();
-    
-
 })
 

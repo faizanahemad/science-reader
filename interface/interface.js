@@ -614,7 +614,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
     
 
     $(`#${parentElementId}`).append(
-        `<div class="row">` +
+        `<small><div class="row">` +
         `<div class="col-md-auto">` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
@@ -651,7 +651,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         <div style="margin-left: auto; margin-right: 5px;">History</div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
             <input type="radio" name="historyOptions" id="historyBan" value="-1" autocomplete="off">
-            <label for="historyBan"><small><i class="fas fa-ban"></i></small></label>
+            <label for="historyBan"><small>∅</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
             <input type="radio" name="historyOptions" id="history0" value="0" autocomplete="off">
@@ -674,9 +674,9 @@ function addOptions(parentElementId, type, activeDocId=null) {
     </div>
     
 
-    <div class="d-none d-md-block"><button id="deleteLastTurn" class="btn btn-danger rounded-pill d-none d-md-block" style="margin-left: 10px;">Del Last Turn</button></div>
+    <div class="form-check form-check-inline"><button id="deleteLastTurn" class="btn btn-danger rounded-pill mt-1">Del Last Turn</button></div>
     </div>`:'') + 
-    `</div>`
+    `</div></small>`
     );
 
 
