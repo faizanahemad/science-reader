@@ -1252,7 +1252,16 @@ Write the extracted information concisely below:
                                                        conversation_docs_answer=conversation_docs_answer)
 
         prompt = remove_bad_whitespaces_easy(prompt)
-        logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
+        # Lets log all things that went into making the prompt.
+        logger.info(f"query: {query['messageText']}")
+        logger.info(f"summary_text: {summary_text}")
+        logger.info(f"previous_messages: {previous_messages}")
+        logger.info(f"permanent_instructions: {permanent_instructions}")
+        logger.info(f"doc_answer: {doc_answer}")
+        logger.info(f"web_text: {web_text}")
+        logger.info(f"link_result_text: {link_result_text}")
+        logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
+        # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
         preamble = self.get_preamble(checkboxes["preamble_options"] if "preamble_options" in checkboxes else [], checkboxes["field"] if "field" in checkboxes else None)
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
