@@ -213,7 +213,7 @@ function verifyOpenAIKeyAndFetchModels(apiKey) {
         }
     });
 }
-function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
+function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null, disable_voting=false) {
     let voteCountElem = $('<p>').addClass('vote-count');
     let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
     let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
@@ -229,6 +229,11 @@ function initialiseVoteBank(cardElem, text, contentId=null, activeDocId=null) {
         'top': '5px',
         'right': '30px'
     });
+    if (disable_voting) {
+        voteBox.append(copyBtn);
+        cardElem.append(voteBox);
+        return
+    }
     voteBox.append(copyBtn, upvoteBtn, voteCountElem, downvoteBtn);
     cardElem.append(voteBox);
 
@@ -2384,7 +2389,7 @@ $(document).ready(function() {
     });
 
     $(document).on('click', '.copy-code-btn', function() {
-        copyToClipboard($(this), "code");
+        copyToClipboard($(this), undefined,  "code");
     });
     hljs.initHighlightingOnLoad();
 

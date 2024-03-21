@@ -386,6 +386,9 @@ var ChatManager = {
           if (message.sender == 'user') {
             // messageElement.addClass('ml-md-auto');  // For right alignment
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
+            if (message.text.trim().length > 0) {
+                initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId);
+            }
           } else {
             if (message.text.trim().length > 0) {
                 initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
