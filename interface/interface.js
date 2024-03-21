@@ -671,6 +671,10 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <label for="history2"><small>2</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
+            <input type="radio" name="historyOptions" id="history3" value="3" autocomplete="off">
+            <label for="history3"><small>3</small></label>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
             <input type="radio" name="historyOptions" id="historyInfinite" value="infinite" autocomplete="off" checked>
             <label for="historyInfinite"><small>∞</small></label>
         </div>
