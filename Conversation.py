@@ -335,7 +335,7 @@ class Conversation:
     @timer
     def retrieve_prior_context(self, query, links=None, required_message_lookback=16):
         # Lets get the previous 2 messages, upto 1000 tokens
-        token_limit_short = 2500
+        token_limit_short = 3500
         token_limit_long = 7500
         token_limit_very_long = 24000
         summary_lookback = 4
@@ -782,6 +782,7 @@ Write the extracted information concisely below:
 
         prior_context = prior_context_future.result()
         previous_messages = prior_context["previous_messages"]
+        previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         new_line = "\n"
@@ -1228,11 +1229,16 @@ Write the extracted information concisely below:
         yield {"text": f"Using model = {model_name}", "status": "starting answer generation"}
 
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
+        logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
+
         if probable_prompt_length < 48000 and (model_name is None or not model_name.startswith("mistralai")):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_64k
-        else:
+        elif probable_prompt_length < 28000 and (model_name is None or not model_name.startswith("mistralai")):
             previous_messages = previous_messages_long
+            truncate_text = truncate_text_for_gpt4_32k
+        else:
+            previous_messages = previous_messages_short
             truncate_text = truncate_text_for_gpt4_16k
 
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
@@ -1253,14 +1259,14 @@ Write the extracted information concisely below:
 
         prompt = remove_bad_whitespaces_easy(prompt)
         # Lets log all things that went into making the prompt.
-        logger.info(f"query: {query['messageText']}")
-        logger.info(f"summary_text: {summary_text}")
+        # logger.info(f"query: {query['messageText']}")
+        # logger.info(f"summary_text: {summary_text}")
         logger.info(f"previous_messages: {previous_messages}")
-        logger.info(f"permanent_instructions: {permanent_instructions}")
-        logger.info(f"doc_answer: {doc_answer}")
-        logger.info(f"web_text: {web_text}")
-        logger.info(f"link_result_text: {link_result_text}")
-        logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
+        # logger.info(f"permanent_instructions: {permanent_instructions}")
+        # logger.info(f"doc_answer: {doc_answer}")
+        # logger.info(f"web_text: {web_text}")
+        # logger.info(f"link_result_text: {link_result_text}")
+        # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
         preamble = self.get_preamble(checkboxes["preamble_options"] if "preamble_options" in checkboxes else [], checkboxes["field"] if "field" in checkboxes else None)
@@ -1427,7 +1433,7 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 2000
         l4 = 2500
     elif model == "gpt-4-32k":
-        l1 = 24000
+        l1 = 20000
         l2 = 8000
         l4 = 5000
     elif model == "gpt-4-64k":
