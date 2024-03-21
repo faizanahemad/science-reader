@@ -726,7 +726,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         </div>
         
     </div>
-    <div class="col-md-auto mt-1">
+    <div class="col-md-auto mt-1" style="width: 100%;">
         <div class="mt-1">
             <textarea id="permanentText" class="dynamic-textarea form-control" placeholder="Permanent Instruction."></textarea>
         </div>

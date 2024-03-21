@@ -947,6 +947,15 @@ def remove_bad_whitespaces(s):
     s = remove_leading_spaces(s)
     return s
 
+def remove_bad_whitespaces_easy(s):
+    s = re.sub("\n{2,}", "\n", s)
+    s = re.sub("\r+", "\n", s)
+    s = s.strip()
+    lines = s.splitlines(keepends=False)
+    lines = [line.rstrip() for line in lines if line.strip()!='']
+    s = '\n'.join(lines)
+    return s.strip()
+
 def reformat_string(input_str):
     words = input_str.split("\n")
     corrected_words = []
