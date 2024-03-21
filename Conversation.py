@@ -402,7 +402,7 @@ class Conversation:
     def create_title(self, query, response):
         memory = self.get_field("memory")
         if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
-            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False)
+            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False)
             running_summary = memory["running_summary"][-1:]
             running_summary = "".join(running_summary)
             running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
@@ -445,7 +445,7 @@ Title of the conversation:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 8000, 10_000)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, extract_user_answer(response))

@@ -494,7 +494,7 @@ Write answer below.
                 raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
-                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro" if detail_level<=2 else ("mistralai/mistral-medium" if detail_level==3 else None), use_gpt4=detail_level >= 4, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium" if detail_level<=2 else None, use_gpt4=detail_level >= 4, use_16k=True)
                 additional_info_v1 = additional_info
 
                 def get_additional_info():

@@ -763,7 +763,7 @@ Write {"detailed and informational " if is_detailed else ""}Summary below.
     @timer
     def __call__(self, text_document):
         prompt = self.prompt.format(document=text_document)
-        return CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False)(prompt, temperature=0.5)
+        return CallLLm(self.keys, model_name="mistralai/mistral-medium", use_gpt4=False)(prompt, temperature=0.5)
     
 
 process_text_executor = ThreadPoolExecutor(max_workers=1)
@@ -869,14 +869,12 @@ Only provide answer from the document given above.
         import inspect
         prompt = self.prompt.format(context=context, document=document)
         wc = get_gpt3_word_count(prompt)
-        if wc < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            llm = CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False,
-                                    use_16k=False)
-        else:
-            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False,
-                                    use_16k=False)
-
-        result = llm(prompt, temperature=0.4, stream=False)
+        try:
+            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
+            result = llm(prompt, temperature=0.4, stream=False)
+        except:
+            llm = CallLLm(self.keys, model_name="anthropic/claude-instant-1.2", use_gpt4=False, use_16k=False)
+            result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
 
