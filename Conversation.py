@@ -350,6 +350,7 @@ class Conversation:
             message_lookback += 2
         previous_messages_short = previous_messages_text
 
+        message_lookback = 2
         previous_messages_text = ""
         while get_gpt4_word_count(
                 previous_messages_text) < token_limit_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
@@ -360,6 +361,7 @@ class Conversation:
             message_lookback += 2
         previous_messages_long = previous_messages_text
 
+        message_lookback = 2
         previous_messages_text = ""
         while get_gpt4_word_count(
                 previous_messages_text) < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
@@ -396,8 +398,11 @@ class Conversation:
             running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
-        return dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long,
+        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long,
                     summary_nodes=summary_nodes + running_summary)
+        # lets log the length of each of the above in a single log statement
+        logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
+        return results
 
     def create_title(self, query, response):
         memory = self.get_field("memory")
@@ -607,6 +612,8 @@ Write the extracted information concisely below:
             preamble += "\nProvide an argumentative answer. Provide an answer that is argumentative and provides a strong argument. Present views that stimulate and contradict the views of the user.\n"
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+        if "No Lazy" in preamble_options:
+            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer.\n"
 
         field_text = ""
         if field == "None":
