@@ -697,6 +697,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
                 <option>Creative</option>
                 <option>Argumentative</option>
                 <option>Blackmail</option>
+                <option selected>No Lazy</option>
             </select>
         </div>
         
