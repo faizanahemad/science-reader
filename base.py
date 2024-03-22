@@ -465,7 +465,7 @@ class CallLLm:
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if "mistralai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 26000
-        if "claude-3" in self.model_name:
+        elif "claude-3" in self.model_name:
             assert get_gpt3_word_count(system + text) < 90_000
         else:
             assert get_gpt3_word_count(system + text) < 14000
@@ -924,7 +924,7 @@ Only provide answer from the document given above.
         # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
-        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0)
+        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
         if doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
             rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document) if not short else None
             result = self.get_one(context_user_query, text_document)

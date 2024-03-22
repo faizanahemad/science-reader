@@ -335,7 +335,7 @@ class Conversation:
     @timer
     def retrieve_prior_context(self, query, links=None, required_message_lookback=16):
         # Lets get the previous 2 messages, upto 1000 tokens
-        token_limit_short = 3500
+        token_limit_short = 3000
         token_limit_long = 7500
         token_limit_very_long = 24000
         summary_lookback = 4
@@ -506,6 +506,8 @@ Title of the conversation:
         messages = self.get_field("messages")
         messages = [m for i, m in enumerate(messages) if m["message_id"] != message_id and i != index]
         self.set_field("messages", messages, overwrite=True)
+        self.save_local()
+
     def __call__(self, query):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query):
@@ -609,7 +611,7 @@ Write the extracted information concisely below:
         if "Creative" in preamble_options:
             preamble += "\nBe creative and think out of the box. Think creatively and provide a creative answer. Always provide insightful, stimulating and informative response. When multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\n"
         if "Argumentative" in preamble_options:
-            preamble += "\nProvide an argumentative answer. Provide an answer that is argumentative and provides a strong argument. Present views that stimulate and contradict the views of the user.\n"
+            preamble += "\nProvide an argumentative answer. Disagree and Disprove respectfully. Answer with a strong argument using a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian viewpoint in a respectful manner.\n"
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
@@ -1280,7 +1282,11 @@ Write the extracted information concisely below:
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
-        last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, conversation_docs_answer length: {len(enc.encode(conversation_docs_answer))},  web text length: {len(enc.encode(web_text))}, link result text length: {len(enc.encode(link_result_text))}""")
+        last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, 
+        conversation_docs_answer length: {len(enc.encode(conversation_docs_answer))},  
+        web text length: {len(enc.encode(web_text))}, 
+        link result text length: {len(enc.encode(link_result_text))}, 
+        final prompt len: {len(enc.encode(prompt))}""")
         et = time.time()
         time_logger.info(f"Time taken to start replying for chatbot: {(et - st):.2f}")
         if len(doc_answer) > 0:

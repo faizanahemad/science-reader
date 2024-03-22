@@ -449,7 +449,8 @@ class DocIndex:
         if mode["provide_detailed_answers"]:
             detail_level = max(1, int(mode["provide_detailed_answers"]))
             mode = "detailed"
-            query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide as much detail, information and depth as possible.\n\n"
+            if detail_level >= 3:
+                query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.\n\n"
         elif mode["review"]:
             mode = "detailed"
             detail_level = 1
@@ -468,7 +469,6 @@ class DocIndex:
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
             if tex_len < 24000:
-                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=True, use_16k=True)
                 prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
@@ -478,23 +478,56 @@ Context is given below.
 
 Write answer below.
 """
-                additional_info = get_async_future(llm, prompt, temperature=0.5)
             else:
-                additional_info = get_async_future(call_contextual_reader, query,
-                                                   brief_summary + self.get_doc_data("static_data", "doc_text"),
-                                                   self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 2)
+                chunked_text = ChunkText(text, 45000)[0]
+                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
+Question or Query is given below.
+{query}
 
-            if detail_level >= 2 and tex_len >= 7000:
+Context is given below.
+{chunked_text}
+
+Write answer below.
+                """
+            if tex_len < 24000:
+                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro" if detail_level <= 2 else "mistralai/mistral-medium", use_gpt4=True, use_16k=True)
+                additional_info_ld = get_async_future(llm, prompt, temperature=0.3)
+                if detail_level >= 2:
+                    def get_additional_info_high_detail():
+                        llm = CallLLm(self.get_api_keys(),
+                                      model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta",)
+                        ad_info = get_async_future(llm, prompt, temperature=0.3)
+                        init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
+                        return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
+                    additional_info = get_async_future(get_additional_info_high_detail)
+                else:
+                    additional_info = additional_info_ld
+            else:
+                additional_info_ld = get_async_future(call_contextual_reader, query,
+                                                      brief_summary + self.get_doc_data("static_data", "doc_text"),
+                                                      self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 2)
+                if detail_level >= 2:
+                    def get_additional_info_high_detail():
+                        llm = CallLLm(self.get_api_keys(),
+                                      model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta",)
+                        ad_info = get_async_future(llm, prompt, temperature=0.3)
+                        init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
+                        return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
+                    additional_info = get_async_future(get_additional_info_high_detail)
+                else:
+                    additional_info = additional_info_ld
+
+            if detail_level >= 4 and tex_len >= 8000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
-                                                                                                     4200//LARGE_CHUNK_LEN))
+                                                                                                     8200//LARGE_CHUNK_LEN))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
                 small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(
-                    self.result_cutoff, 1200//SMALL_CHUNK_LEN))
+                    self.result_cutoff, 3200//SMALL_CHUNK_LEN))
                 small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
                 raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
-                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium" if detail_level<=2 else None, use_gpt4=detail_level >= 4, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-sonnet:beta", use_gpt4=False, use_16k=True)
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
@@ -504,7 +537,7 @@ Write answer below.
                 additional_info = get_async_future(get_additional_info)
 
         answer = ''
-        if detail_level < 2 or additional_info is None or mode=="review":
+        if additional_info is None or mode=="review":
             llm = CallLLm(self.get_api_keys(), use_gpt4=mode == "detailed" and detail_level > 1, use_16k=True)
             rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(brief_summary) - 2000
             rem_tokens = rem_word_len // LARGE_CHUNK_LEN
@@ -545,6 +578,8 @@ Write answer below.
             yield "</br> \n"
         if additional_info is not None:
             additional_info = additional_info.result() if additional_info.exception() is None else ""
+            additional_info = remove_bad_whitespaces(additional_info)
+            logger.info(f"streaming_get_short_answer:: Answered by {(time.time()-ent_time):4f}s for additional info with additional_info_len = {len(additional_info.split())}")
             for t in additional_info:
                 yield t
                 answer += t
