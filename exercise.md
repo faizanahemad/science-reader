@@ -27,24 +27,22 @@ Indoor Cardio
 
 Leg Exercises are as below.
 
-| **Exercise** | **Primary Muscle Groups Targeted** | **Equipment** |
-| --- | --- | --- |
-| *Day 1 - Leg 1st variant* | | |
-| Hip Abduction (Machine 1) | Gluteus Medius, Tensor Fasciae Latae | Hip Abductor Machine |
-| Hip Adduction (Machine 1) | Adductors (Inner Thigh Muscles) | Hip Adductor Machine |
-| Leg Extension (Machine 2) | Quadriceps | Leg Extension Machine |
-| Leg Curl (Machine 3) | Hamstrings | Leg Curl Machine |
-| Stepper Climb with Weights | Quadriceps, Calves, Glutes | Stepper Machine |
+| **Exercise** | **Primary Muscle Groups Targeted** | **Equipment**            |
+| --- | --- |--------------------------|
+| *Day 1 - Leg 1st variant* | |                          |
+| Hip Abduction (Machine 1) | Gluteus Medius, Tensor Fasciae Latae | Hip Abductor Machine     |
+| Hip Adduction (Machine 1) | Adductors (Inner Thigh Muscles) | Hip Adductor Machine     |
+| Leg Extension (Machine 2) | Quadriceps | Leg Extension Machine    |
+| Leg Curl (Machine 3) | Hamstrings | Leg Curl Machine         |
 | Ankle/Calf Raises | Calves | Bodyweight/Added Weights |
 | Tibialis Raises | Tibialis Anterior | Bodyweight/Added Weights |
-| *Day 5 - Leg 2nd variant* | | |
-| Bulgarian Split Squat | Quadriceps, Hamstrings, Glutes | Bench |
-| Hip Thrust | Glutes, Hamstrings | Bench/Barbell |
-| Squats | Quadriceps, Hamstrings, Glutes, Core | Squat Rack |
-| Deadlifts | Lower Back, Hamstrings, Glutes | Barbell |
-| Cable Machine Back Kick | Glutes | Cable Machine |
-| Cable Machine Side Leg Raise | Gluteus Medius, Tensor Fasciae Latae | Cable Machine |
-| Front Lunges | Quadriceps, Hamstrings, Glutes | Bodyweight/Added Weights |
+| *Day 5 - Leg 2nd variant* | |                          |
+| Bulgarian Split Squat | Quadriceps, Hamstrings, Glutes | Bench                    |
+| Hip Thrust | Glutes, Hamstrings | Bench/Barbell            |
+| Squats | Quadriceps, Hamstrings, Glutes, Core | Squat Rack               |
+| Deadlifts | Lower Back, Hamstrings, Glutes | Barbell or Cable machine |
+| Cable Machine Back Kick | Glutes | Cable Machine            |
+| Cable Machine Side Leg Raise | Gluteus Medius, Tensor Fasciae Latae | Cable Machine            |
 | Side Lunges | Quadriceps, Hamstrings, Glutes | Bodyweight/Added Weights |
 
 
@@ -62,7 +60,6 @@ Leg Exercises are as below.
 | *Day 3 - Upper Body* | | |
 | Chest Wide Hands Inward Pull | Pectorals, Anterior Deltoids | Chest and Back Machine |
 | Back Exercise (Front to Back) | Upper Back, Posterior Deltoids | Chest and Back Machine |
-| Plank Dumbbell Rows | Core, Obliques, Latissimus Dorsi | Dumbbells |
 | Lat Pull Down | Latissimus Dorsi, Biceps | Image 8 Lat Cable Machine |
 | Seated Cable Row (angle machine in highest and lowest positions) | Middle and Lower Trapezius, Rhomboids, Latissimus Dorsi | Cable Machine |
 | Wood Chopper (Adjust cable at upper and lower angles) | Obliques, Transverse Abdominis | Cable Machine |
@@ -84,3 +81,11 @@ Leg Exercises are as below.
 
 Others ( not includes in main program)
 - Russian Twists
+
+## Rejected
+
+| **Exercise** | **Primary Muscle Groups Targeted** | **Equipment/Image Reference** |
+| --- | --- | --- |
+| Front Lunges | Quadriceps, Hamstrings, Glutes | Bodyweight/Added Weights |
+| Plank Dumbbell Rows | Core, Obliques, Latissimus Dorsi | Dumbbells |
+| Stepper Climb with Weights | Quadriceps, Calves, Glutes | Stepper Machine          |

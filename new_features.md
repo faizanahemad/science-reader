@@ -1,6 +1,20 @@
 # Next
 - Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
 - Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
+  - Clear current checkboxes once a message is sent by user.
+  - Prioritize this over message length checkbox.
+  - We use selected messages by running over all messages in chat and seeing if any is selected, if yes then we use this otherwise we don't.
+- Upload image, do ocr, and then use the text in the image
+- Move to chat message api based system for past messages.
+- For Doc Qna, Create question and follow up question based on the document summary and then ask them in parallel. Use this in L4. [Nope] it will write too much.
+- For multi-doc do a criss cross two layer calling strategy. First call all docs and then call all docs again. Use this in L4 as well.
+- For Doc Qna, use two models to create answers.
+- Make async calls to brightdata and zenrows and then show the results as they come in using a polling mechanism.
+- 
+- Use cheaper means of web scraping
+- Scrape arxiv also using zenrows and brightdata.
+- Scale by money not by programming and compute.
+- 
 - Allow additional context to be added to the prompt. (Permanent instructions or Session level instructions) [Done]
 - Give option to call other LLM like Mistral Large and Claude Opus as well. [Done]
 - Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
