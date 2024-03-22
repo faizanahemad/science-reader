@@ -599,7 +599,7 @@ Write the extracted information concisely below:
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "Long reply" in preamble_options:
-            preamble += "\nProvide a long and detailed answer. Think from all angles about what is asked and use all resources to provide an extensive and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+            preamble += "\nProvide a long and detailed answer like an essay. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "Short references" in preamble_options:
