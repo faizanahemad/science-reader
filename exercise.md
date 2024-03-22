@@ -51,8 +51,8 @@ Leg Exercises are as below.
 | **Exercise** | **Primary Muscle Groups Targeted** | **Equipment/Image Reference** |
 | --- | --- | --- |
 | *Day 2 - Upper Body* | | |
-| Internal Rotation | Subscapularis (Rotator Cuff) | Cable Machine |
-| External Rotation | Infraspinatus and Teres Minor (Rotator Cuff) | Cable Machine |
+| Arms Internal Rotation | Subscapularis (Rotator Cuff) | Cable Machine |
+| Arms External Rotation | Infraspinatus and Teres Minor (Rotator Cuff) | Cable Machine |
 | Tricep Pushdown | Triceps | Cable Machine |
 | Chest Press | Pectorals, Triceps, Anterior Deltoids | Chest press machine |
 | Machine Lateral Raises | Lateral Deltoids | Shoulder machine |
