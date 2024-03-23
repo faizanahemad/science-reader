@@ -1138,6 +1138,132 @@ test_str = "This event happened in 2023 December and was repeated in 2021 Januar
 result = remove_year_month_substring(test_str)
 print(result)  # The string with specified substrings removed
 
+import re
+
+
+def enhanced_robust_url_extractor_v0(text):
+    # Regex pattern to capture URLs, allowing for punctuation and parentheses
+    pattern = r'(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))'
+    raw_urls = re.findall(pattern, text, re.IGNORECASE)
+
+    # Post-processing to clean up URLs
+    cleaned_urls = []
+    for url in raw_urls:
+        # Remove surrounding parentheses and trailing punctuation
+        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
+
+        # Split URLs separated by pipe (|), semicolon (;), or comma (,)
+        split_urls = re.split(r'[|;,]', cleaned_url)
+
+        for split_url in split_urls:
+            # Avoid appending empty or duplicate URLs
+            if split_url and split_url not in cleaned_urls:
+                cleaned_urls.append(split_url)
+
+    return cleaned_urls
+
+
+import re
+
+def extract_code_blocks(text):
+    code_block_pattern = re.compile(r'(?s)(```.*?```|`.*?`|<code>.*?</code>)')
+    code_blocks = code_block_pattern.findall(text)
+    modified_text = code_block_pattern.sub('CODE_BLOCK_{}', text)
+    return modified_text, code_blocks
+
+
+def restore_code_blocks(modified_text, code_blocks):
+    restored_text = modified_text
+    for i, code_block in enumerate(code_blocks):
+        restored_text = restored_text.replace(f'CODE_BLOCK_{i}', code_block)
+    return restored_text
+
+def enhanced_robust_url_extractor(text):
+    modified_text, code_blocks = extract_code_blocks(text)
+    # Regex pattern to capture URLs, allowing for punctuation and parentheses
+    pattern = r'(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))'
+    raw_urls = re.findall(pattern, modified_text, re.IGNORECASE)
+    # Post-processing to clean up URLs
+    cleaned_urls = []
+    for url in raw_urls:
+        # Remove surrounding parentheses and trailing punctuation
+        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
+        # Split URLs separated by pipe (|), semicolon (;), or comma (,)
+        split_urls = re.split(r'[|;,]', cleaned_url)
+        for split_url in split_urls:
+            # Avoid appending empty or duplicate URLs
+            if split_url and split_url not in cleaned_urls:
+                cleaned_urls.append(split_url)
+    restored_text = restore_code_blocks(modified_text, code_blocks)
+    return cleaned_urls
+
+
+def test_enhanced_robust_url_extraction():
+    import pandas as pd
+    # Execute the updated tests with the enhanced robust URL extractor
+    # Define the test cases with expected URLs
+    test_cases_with_expected_urls = [
+        ("the url is (www.example.com)", ["www.example.com"]),
+        ("the url is www.example.com/path", ["www.example.com/path"]),
+        ("the url is www.example.au/path", ["www.example.au/path"]),
+        ("the urls are http://example.com/path|http://example.com/alternate",
+         ["http://example.com/path", "http://example.com/alternate"]),
+        (
+        "Check out this website: https://www.example.com, and this one: http://another-example.com. Sometimes you might encounter www.without-https.com.",
+        ["https://www.example.com", "http://another-example.com", "www.without-https.com"]),
+        ("Visit https://site.io for more info.", ["https://site.io"]),
+        ("Here's a tricky one: https://example.com/path,https://another-example.com/path.",
+         ["https://example.com/path", "https://another-example.com/path"]),
+        ("A URL with a query: https://example.com/search?q=url.", ["https://example.com/search?q=url"]),
+        ("A URL with a port number: http://example.com:8080/path.", ["http://example.com:8080/path"]),
+        ("A URL in quotes: 'https://example.com'.", ["https://example.com"]),
+        ("Text before URL:https://example.com.", ["https://example.com"]),
+        ("Parenthesis URL (https://example.com).", ["https://example.com"]),
+        ("Embedded URL in text, visit https://example.com today!", ["https://example.com"]),
+        ("Multiple URLs: https://example.com;https://site.io.", ["https://example.com", "https://site.io"]),
+        ("Special characters in URL: https://example.com/path?query=value&another=2.",
+         ["https://example.com/path?query=value&another=2"]),
+        ### Code blocks
+        ("Code block with URL: ```https://example.com```", []),
+        ("Code block with URL and text: ```This is a code block with https://example.com inside.```", []),
+        ("Multiple code blocks: ```https://example.com``` and `https://another-example.com`", []),
+        (
+        "Code block with URL and other code: ```python\nprint('Hello, World!')\nvisit https://example.com for more info```",
+        []),
+        ("Code block with URL and text: <code>This is a code block with https://example.com inside.</code>", []),
+        ("Multiple code blocks: <code>https://example.com</code> and <code>https://another-example.com</code>", []),
+        (
+        "Text with URL and code block: Visit https://example.com for more info. ```Code block with https://another-example.com```",
+        ["https://example.com"]),
+        (
+        "Text with URL, code block, and URL: Check out https://example.com ```Code block with https://another-example.com``` and visit https://third-example.com",
+        ["https://example.com", "https://third-example.com"]),
+    ]
+
+    results = []
+    extractor = enhanced_robust_url_extractor
+    pattern_results = {"Pattern Name": "Enhanced Robust URL Extractor"}
+    for i, (test_case, expected_urls) in enumerate(test_cases_with_expected_urls, start=1):
+        matches = extractor(test_case)
+        print(matches)
+        result = "Passed" if set(matches) == set(expected_urls) else "Failed"
+        pattern_results[f"Case {i}"] = result
+
+        # Print failed cases with detected and expected URLs
+        if result == "Failed":
+            print(f"Case {i} Failed:")
+            print(f"  Text: {test_case}")
+            print(f"  Detected URLs: {matches}")
+            print(f"  Expected URLs: {expected_urls}")
+            print()
+
+    results.append(pattern_results)
+
+    # Display the results in a tabular format
+    df_enhanced_robust = pd.DataFrame(results)
+    df_enhanced_robust.set_index("Pattern Name", inplace=True)
+    print(df_enhanced_robust)
+
 
 
 

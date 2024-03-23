@@ -311,6 +311,7 @@ openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-4-0314": (300000, 10000),
     "gpt-4-0613": (300000, 10000),
     "gpt-4-turbo-preview": (800000, 10000),
+    "gpt-4-32k": (150000, 100),
     "gpt-4-32k-0314": (150000, 100),
     "gpt-4-vision-preview": (150000, 100),
 })
@@ -323,6 +324,7 @@ openai_model_family = {
     "gpt-4-turbo": ["gpt-4-turbo-preview", "gpt-4-vision-preview"],
     "gpt-4-0314": ["gpt-4-0314"],
     "gpt-4-0613": ["gpt-4-0613"],
+    "gpt-4-32k": ["gpt-4-32k"],
     "gpt-4-vision-preview": ["gpt-4-vision-preview"],
 }
 
@@ -390,7 +392,7 @@ encoders_map = defaultdict(lambda: easy_enc, {
 })
 def call_chat_model(model, text, temperature, system, keys):
     api_key = keys["openAIKey"] if "gpt" in model or "davinci" in model else keys["OPENROUTER_API_KEY"]
-    if "gpt" in model or "davinci" in model:
+    if model.startswith("gpt") or "davinci" in model:
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(api_base="https://openrouter.ai/api/v1", base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) else dict()
@@ -727,7 +729,7 @@ ChunkText:
 
     """)
 def ChunkText(text_document: str, chunk_size: int=3400, chunk_overlap:int=100):
-    text_splitter = TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    text_splitter = TokenTextSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap)
     return text_splitter.split_text(text_document)
 
 

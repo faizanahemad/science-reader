@@ -709,6 +709,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>
+                <option>gpt-4-32k</option>
                 <option>Claude Opus</option>
                 <option>Claude Sonnet</option>
                 <option>Mistral Large</option>

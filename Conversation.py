@@ -277,16 +277,28 @@ class Conversation:
             return getattr(self, top_key, None)
         else:
             if os.path.exists(json_filepath):
-                with open(json_filepath, "r") as f:
-                    obj = json.load(f)
+                try:
+                    with open(json_filepath, "r") as f:
+                        obj = json.load(f)
+                except Exception as e:
+                    with open(json_filepath, "r") as f:
+                        obj = json.load(f)
                 setattr(self, top_key, obj)
                 return obj
             elif os.path.exists(filepath):
-                with open(filepath, "rb") as f:
-                    obj = dill.load(f)
+                try:
+                    with open(filepath, "rb") as f:
+                        obj = dill.load(f)
+                except Exception as e:
+                    with open(filepath, "rb") as f:
+                        obj = dill.load(f)
                 if top_key not in ["indices", "raw_documents", "raw_documents_index"]:
-                    with open(json_filepath, "w") as f:
-                        json.dump(obj, f)
+                    try:
+                        with open(json_filepath, "w") as f:
+                            json.dump(obj, f)
+                    except Exception as e:
+                        with open(json_filepath, "w") as f:
+                            json.dump(obj, f)
                 setattr(self, top_key, obj)
                 return obj
             else:
@@ -688,8 +700,10 @@ Write the extracted information concisely below:
         from bs4 import BeautifulSoup
 
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
-        links = [l.strip() for l in query["links"] if
-                 l is not None and len(l.strip()) > 0]  # and l.strip() not in raw_documents_index
+        links_in_text = enhanced_robust_url_extractor(user_query)
+        query['links'].extend(links_in_text)
+        links = list(set([l.strip() for l in query["links"] if
+                 l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
 
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
@@ -1225,6 +1239,8 @@ Write the extracted information concisely below:
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
         if model_name == "gpt-4-turbo":
             model_name = None
+        elif model_name == "gpt-4-32k":
+            model_name = "openai/gpt-4-32k"
         elif model_name == "Claude Opus":
             model_name = "anthropic/claude-3-opus:beta"
         elif model_name == "Claude Sonnet":
