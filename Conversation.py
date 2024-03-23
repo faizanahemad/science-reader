@@ -615,7 +615,7 @@ Write the extracted information concisely below:
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer.\n"
+            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
 
         field_text = ""
         if field == "None":
@@ -1227,8 +1227,12 @@ Write the extracted information concisely below:
             model_name = None
         elif model_name == "Claude Opus":
             model_name = "anthropic/claude-3-opus:beta"
+        elif model_name == "Claude Sonnet":
+            model_name = "anthropic/claude-3-sonnet:beta"
         elif model_name == "Mistral Large":
             model_name = "mistralai/mistral-large"
+        elif model_name == "Mistral Medium":
+            model_name = "mistralai/mistral-medium"
         elif model_name == "Mixtral":
             model_name = "mistralai/mixtral-8x7b-instruct:nitro"
         elif model_name == "Gemini":
