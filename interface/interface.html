@@ -297,16 +297,16 @@
                                     <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here."></textarea>
                                     
                                     <div class="input-group-append" style="margin-left: 5px;">
-                                        <button id="sendMessageButton" class="btn btn-success d-md-none">
+                                        <button id="sendMessageButton" class="btn btn-success">
                                             ➤<!-- i class="fas fa-paper-plane"></i--> <!-- You can also add "Send" text here if needed -->
                                         </button>
                                     </div>
                                     <div class="input-group-append" style="margin-right: -25px;margin-left: 5px;">
-                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill d-md-none">▲</button>
+                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill">▲</button>
                                     </div>
                                 </div>
                                 
-                                <div class="row mb-1 d-none d-md-flex" id="chat-search-links-input"> <!-- Reduced margin bottom -->
+                                <div class="row mb-1 d-none" id="chat-search-links-input"> <!-- Reduced margin bottom -->
                                     <div class="col p-0" style="padding-right: 10px !important;"> <!-- Removed padding -->
                                         <textarea id="linkInput" class="dynamic-textarea form-control" placeholder="Links to Visit, each in a new line"></textarea>
                                     </div>
@@ -314,7 +314,7 @@
                                         <textarea id="searchInput" class="dynamic-textarea form-control" placeholder="Search Phrases, each in a new line"></textarea>
                                     </div>
                                 </div>
-                                <div id="chat-options" class="mt-0 mb-0 d-none d-md-block container-fluid"> <!-- Removed top and bottom margin -->
+                                <div id="chat-options" class="mt-0 mb-0 d-none container-fluid"> <!-- Removed top and bottom margin -->
                                     
                                 </div>
                               </div>
@@ -538,6 +538,7 @@
     
     <link href="https://gitcdn.github.io/bootstrap-toggle/2.2.2/css/bootstrap-toggle.min.css" rel="stylesheet">
     <script src="https://gitcdn.github.io/bootstrap-toggle/2.2.2/js/bootstrap-toggle.min.js"></script>
+    <script src="interface/parseMessageForCheckBoxes.js"></script>
     <script src="interface/interface.js"></script>
     <script src="interface/chat.js"></script>
 </body>

@@ -671,11 +671,11 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <label for="history2"><small>2</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-            <input type="radio" name="historyOptions" id="history3" value="3" autocomplete="off">
+            <input type="radio" name="historyOptions" id="history3" value="3" autocomplete="off" checked>
             <label for="history3"><small>3</small></label>
         </div>
         <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-            <input type="radio" name="historyOptions" id="historyInfinite" value="infinite" autocomplete="off" checked>
+            <input type="radio" name="historyOptions" id="historyInfinite" value="infinite" autocomplete="off">
             <label for="historyInfinite"><small>∞</small></label>
         </div>
         
@@ -710,7 +710,9 @@ function addOptions(parentElementId, type, activeDocId=null) {
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>
                 <option>Claude Opus</option>
+                <option>Claude Sonnet</option>
                 <option>Mistral Large</option>
+                <option>Mistral Medium</option>
                 <option>Mixtral</option>
                 <option>Gemini</option>
             </select>

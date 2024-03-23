@@ -387,7 +387,7 @@ var ChatManager = {
             // messageElement.addClass('ml-md-auto');  // For right alignment
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
             if (message.text.trim().length > 0) {
-                initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId);
+                initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting=true);
             }
           } else {
             if (message.text.trim().length > 0) {
@@ -525,6 +525,7 @@ function loadConversations(autoselect=true) {
     return request;
 }
 
+
 function sendMessageCallback() {
     already_rendering = $('#messageText').prop('working')
     if (already_rendering) {
@@ -561,7 +562,10 @@ function sendMessageCallback() {
     $('#messageText').prop('working', true);
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
-    let options = getOptions('chat-options', 'assistant');
+    let parsed_message = parseMessageForCheckBoxes(messageText);
+    messageText = parsed_message.text;
+    var options = getOptions('chat-options', 'assistant');
+    options = mergeOptions(parsed_message, options)
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
     const allFalse = booleanKeys.every(key => options[key] === false);
     if ((wordCount > 4000 && !allFalse) || (wordCount > 8000)) {

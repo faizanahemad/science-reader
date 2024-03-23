@@ -422,9 +422,11 @@ textarea.form-control.dynamic-textarea {
         padding: .375rem .75rem;
     }
 
-    /* Maximize the input field width by making the button smaller */
-    #messageText {
-        width: calc(100% - 90px);
-        /* Adjust the width accordingly */
-    }
+    
+}
+
+/* Maximize the input field width by making the button smaller */
+#messageText {
+    width: calc(100% - 90px);
+    /* Adjust the width accordingly */
 }
