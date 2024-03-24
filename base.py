@@ -318,7 +318,9 @@ class CallLLm:
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-        if "mistralai" in self.model_name:
+        if "gemini" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 90_000
+        elif "mistralai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 26000
         elif "claude-3" in self.model_name:
             assert get_gpt3_word_count(system + text) < 90_000
