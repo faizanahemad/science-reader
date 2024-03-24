@@ -774,7 +774,7 @@ def is_pdf_link(link):
         result = True
     else:
         response = ProcessFnWithTimeout(Queue())(requests.head, 8, link)
-        content_type = response.headers.get('Content-Type')
+        content_type = response.headers.get('Content-Type') if response is not None else None
         result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
     et = time.time() - st
     logger.debug(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
@@ -853,6 +853,7 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                     futures.append(pool.submit(task_worker, args, kwargs))
                 for future in futures:
                     future.result()
+                    time.sleep(0.1)
         except Exception as e:
             exc = traceback.format_exc()
             logger.error(f"[orchestrator] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
@@ -899,12 +900,15 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                     if result is TERMINATION_SIGNAL or result is FINISHED_TASK or result == FINISHED_TASK:  # End of results
                         break
                     if result is None:
+                        time.sleep(0.1)
                         continue
                     args, kwargs = result
                     future = pool.submit(task_worker, result, [args], kwargs)
                     futures.append(future)
+                    time.sleep(0.1)
                 for future in futures:
                     future.result()
+                    time.sleep(0.1)
         except Exception as e:
             exc = traceback.format_exc()
             logger.error(f"[orchestrator_with_queue] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
@@ -1017,6 +1021,7 @@ def thread_safe_tee(iterable, n=2):
                 return
             # logger.info(f"thread_safe_tee yielding item for {ix}-th queue: {item}")
             yield item
+            time.sleep(0.01)
 
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
 

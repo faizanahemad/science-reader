@@ -268,7 +268,7 @@ def call_chat_model(model, text, temperature, system, keys):
             if "gpt" in model or "davinci" in model:
                 rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn"]:
+    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence"]:
         yield "\n Output truncated due to lack of context Length."
 
 
@@ -287,7 +287,7 @@ def call_non_chat_model(model, text, temperature, system, keys):
     )
     message = completions.choices[0].text
     finish_reason = completions.choices[0].finish_reason
-    if finish_reason.lower().strip() not in ["stop", "end_turn"]:
+    if finish_reason.lower().strip() not in ["stop", "end_turn", "stop_sequence"]:
         message = message + "\n Output truncated due to lack of context Length."
     rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
     return message
@@ -1149,7 +1149,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 page.wait_for_selector('body', timeout=timeout * 1000)
                 page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
                 while page.evaluate('document.readyState') != 'complete':
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             except Exception as e:
                 # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
@@ -1158,7 +1158,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
                 page.wait_for_selector('body', timeout=timeout * 1000)
                 while page.evaluate('document.readyState') != 'complete':
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
                 init_title = page.evaluate("""(function e(){return document.title})()""")
                 # page = example_page
@@ -1171,7 +1171,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
                 page.wait_for_selector('body', timeout=timeout*1000)
                 while page.evaluate('document.readyState') != 'complete':
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
             title = normalize_whitespace(result['title'])
             text = normalize_whitespace(result['textContent'])
@@ -1214,7 +1214,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             try:
                 driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
@@ -1230,7 +1230,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 driver.execute_script("""document.title=arguments[0]""", init_title)
                 driver.execute_script(add_readability_to_selenium)
                 while driver.execute_script('return document.readyState;') != 'complete':
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 def document_initialised(driver):
                     return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
@@ -2080,7 +2080,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
             title, text = get_arxiv_pdf_link_future.result()
             result_from = "arxiv"
             break
-        time.sleep(0.2)
+        time.sleep(0.5)
 
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")

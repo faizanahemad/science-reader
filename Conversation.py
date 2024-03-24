@@ -420,7 +420,7 @@ class Conversation:
                 if summary_nodes.done() and summary_nodes.exception() is None:
                     got_summary_nodes = True
                     break
-                time.sleep(0.1)
+                time.sleep(0.5)
             if got_summary_nodes:
                 summary_nodes = [n.page_content for n in summary_nodes.result()]
                 not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
@@ -789,7 +789,7 @@ Write the extracted information concisely below:
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
                     break
-                time.sleep(0.2)
+                time.sleep(0.5)
 
             read_links = re.findall(pattern, link_result_text)
             read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
@@ -811,7 +811,7 @@ Write the extracted information concisely below:
                     doc_answers = doc_future.result()
                     doc_answer = doc_answers[1].result()["text"]
                     break
-                time.sleep(0.2)
+                time.sleep(0.5)
             if len(doc_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
@@ -823,7 +823,7 @@ Write the extracted information concisely below:
                     conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
                     conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
                     break
-                time.sleep(0.2)
+                time.sleep(0.5)
             if len(conversation_docs_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
@@ -892,7 +892,7 @@ Write the extracted information concisely below:
                 if one_web_result is None and break_condition:
                     break
                 if one_web_result is None:
-                    time.sleep(0.2)
+                    time.sleep(0.5)
                     continue
                 if one_web_result == TERMINATION_SIGNAL:
                     break
@@ -900,7 +900,7 @@ Write the extracted information concisely below:
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append(one_web_result["text"])
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                time.sleep(0.2)
+                time.sleep(0.5)
 
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
@@ -989,7 +989,7 @@ Write the extracted information concisely below:
                     if one_web_result is None and break_condition:
                         break
                     if one_web_result is None:
-                        time.sleep(0.2)
+                        time.sleep(0.5)
                         continue
                     if one_web_result == TERMINATION_SIGNAL:
                         break
@@ -997,7 +997,7 @@ Write the extracted information concisely below:
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    time.sleep(0.2)
+                    time.sleep(0.5)
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             elif provide_detailed_answers > 2:
                 logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
@@ -1013,7 +1013,7 @@ Write the extracted information concisely below:
                     if one_web_result is None and break_condition:
                         break
                     if one_web_result is None:
-                        time.sleep(0.2)
+                        time.sleep(0.5)
                         continue
                     if one_web_result == TERMINATION_SIGNAL:
                         break
@@ -1022,7 +1022,7 @@ Write the extracted information concisely below:
                         web_text_accumulator.append(one_web_result["text"])
                         logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    time.sleep(0.2)
+                    time.sleep(0.5)
 
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             logger.info(
@@ -1233,7 +1233,7 @@ Write the extracted information concisely below:
                 break_condition = num_done >= 6 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
                 if break_condition:
                     break
-                time.sleep(0.2)
+                time.sleep(0.5)
             # Get results of those experts that are done by now.
             futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future, ans_gen_9_future, ans_gen_10_future]
             model_names = ["mixtral", "claude-2.0", "claude-v1", "palm-2", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1", "claude-v1.1", "capybara"]
@@ -1254,7 +1254,7 @@ Write the extracted information concisely below:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 break
-            time.sleep(0.2)
+            time.sleep(0.5)
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
 
         summary_text = prior_chat_summary + "\n" + summary_text

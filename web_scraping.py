@@ -363,7 +363,7 @@ def browse_to_page_selenium(url, brightdata_selenium_url=None, timeout=10):
         try:
             driver.execute_script(add_readability_to_selenium)
             while driver.execute_script('return document.readyState;') != 'interactive':
-                time.sleep(0.1)
+                time.sleep(0.2)
 
             def document_initialised(driver):
                 return driver.execute_script(
@@ -522,7 +522,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     brightdata_scrape = get_async_future(fetch_content_brightdata, url, brightdata_proxy)
     st = time.time()
     while not zenrows_html.done() or not browse_to_page_playwright_result.done() or not brightdata_scrape.done():
-        time.sleep(0.2)
+        time.sleep(0.5)
     while True and time.time() - st < 60:
         if zenrows_html.done() and zenrows_html.exception() is None:
             html = zenrows_html.result() if zenrows_html.exception() is None else ''
@@ -679,11 +679,11 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     while time.time() - st < 75 and exists_tmp_marker_file(web_search_tmp_marker_name):
         if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception:
             break
-        if zenrows_exception and brightdata_exception:
-            if random.random() <= 0.5:
-                bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
-            else:
-                bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+        # if zenrows_exception and brightdata_exception:
+        #     if random.random() <= 0.5:
+        #         bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+        #     else:
+        #         bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
         if zenrows_service_result is not None and zenrows_service_result.done() and zenrows_service_result.exception() is None and not zenrows_exception:
             result = zenrows_service_result.result()
             result_from = "zenrows_tentative"
@@ -693,23 +693,23 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 zenrows_exception = True
 
-        if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
-            result = bright_data_playwright_result.result()
-            result_from = "bright_data_playwright_tentative"
-            if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result_from = "bright_data_playwright"
-                break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
-                bright_data_playwright_exception = True
+        # if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
+        #     result = bright_data_playwright_result.result()
+        #     result_from = "bright_data_playwright_tentative"
+        #     if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #         result_from = "bright_data_playwright"
+        #         break
+        #     elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+        #         bright_data_playwright_exception = True
 
-        if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
-            result = bright_data_selenium_result.result()
-            result_from = "bright_data_selenium_tentative"
-            if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result_from = "bright_data_selenium"
-                break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
-                bright_data_selenium_exception = True
+        # if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
+        #     result = bright_data_selenium_result.result()
+        #     result_from = "bright_data_selenium_tentative"
+        #     if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #         result_from = "bright_data_selenium"
+        #         break
+        #     elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+        #         bright_data_selenium_exception = True
 
         if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 20:
             result = bright_data_result.result()
@@ -726,26 +726,26 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 brightdata_exception = True
 
-        time.sleep(0.2)
+        time.sleep(0.5)
     et = time.time() - st
     if result is None:
-        raise ScrapingValidityException(f"No result for {link} from {result_from}")
+        raise ScrapingValidityException(f"None succeeded in time. No result for {link} from {result_from}")
     result["text"] = normalize_whitespace(result["text"])
     result["title"] = normalize_whitespace(result["title"])
-    time_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
+    time_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'].split())}, time = {et:.2f}")
     if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
         logger.info(
-            f"web_scrape_page:: Got result from {result_from} for link {link}, result len = {len(result['text'].split())}, time = {et:.2f}")
+            f"web_scrape_page:: Got result from {result_from} for link {link}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'].split())}, time = {et:.2f}")
 
     elif len(result["text"].strip().split()) < good_page_size:
         result = {"text": "", "title": "", "link": link, "error": "Text too short", "exception": True}
-        logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception} and result sample = {result['text'][:50]}")
         raise ScrapingValidityException(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     elif result["text"].strip() == DDOS_PROTECTION_STR:
         result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR, "exception": True}
         logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-        raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     return result
 
