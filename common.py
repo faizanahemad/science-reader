@@ -583,6 +583,13 @@ class DefaultDictQueue:
         self.lock = threading.RLock()
         self.default_factory = default_factory  # Save the default factory
 
+    def __delitem__(self, key):
+        with self.lock:
+            if key in self.set:
+                self.set.remove(key)
+                self.queue.remove(key)
+                del self.data[key]
+
     def remove_any(self, item):
         with self.lock:
             if item in self.set:

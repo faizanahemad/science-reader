@@ -38,6 +38,34 @@ var ConversationManager = {
             }
         });
     },
+
+    statelessConversation: function (conversationId) {
+        return $.ajax({
+            url: '/make_conversation_stateless/' + conversationId,
+            type: 'DELETE',
+            success: function (result) {
+                // show a small modal that conversation is now stateless and will be deleted on next reload
+                $('#stateless-conversation-modal').modal('show');
+            },
+            error: function (result) {
+                alert('Error: ' + result.responseText);
+            }
+        });
+    },
+
+    statefulConversation: function (conversationId) {
+        return $.ajax({
+            url: '/make_conversation_stateful/' + conversationId,
+            type: 'PUT',
+            success: function (result) {
+                // show a small modal that conversation is now stateless and will be deleted on next reload
+                $('#stateful-conversation-modal').modal('show');
+            },
+            error: function (result) {
+                alert('Error: ' + result.responseText);
+            }
+        });
+    },
   
     setActiveConversation: function(conversationId) {
         this.activeConversationId = conversationId;
@@ -480,9 +508,9 @@ function loadConversations(autoselect=true) {
             conversationItem.append('<strong class="conversation-title-in-sidebar">' + conversation.title.slice(0, 60).trim() + '</strong></br>');
             conversationItem.append(deleteButton);
 
-            // Add a button for conversation details
-            var detailButton = $('<small><button class="btn p-0 ms-2 detail-button"><i class="bi bi-info-circle-fill"></i></button></small>');
-            conversationItem.append(detailButton);
+            // Add a button for conversation state
+            var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
+            conversationItem.append(stateButton);
             
             // Include a summary of the conversation
             showMore(conversationItem, conversation.summary_till_now);
@@ -513,12 +541,28 @@ function loadConversations(autoselect=true) {
             ConversationManager.deleteConversation(conversationId);
         });
 
-        // Handle click events for the detail button
-        $('.detail-button').click(function(event) {
+        // Handle click events for the stateless button
+        $('.stateless-button').click(function(event) {
             event.preventDefault();
             event.stopPropagation();
+            // var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
+            
             var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
-            // TODO: show the conversation details
+            // check if class inside the i tag is bi-eye-slash then execute below code
+            var stateless_button = $(this)
+            if ($(this).find('i').hasClass('bi-eye-slash')) {
+                ConversationManager.statelessConversation(conversationId).done(function(){
+                    // change the icon to bi-eye
+                    $(stateless_button).find('i').removeClass('bi-eye-slash').addClass('bi-eye');
+                });
+            }
+            // do the reverse here
+            if ($(this).find('i').hasClass('bi-eye')) {
+                ConversationManager.statefulConversation(conversationId).done(function(){
+                    // change the icon to bi-eye-slash
+                    $(stateless_button).find('i').removeClass('bi-eye').addClass('bi-eye-slash');
+                });
+            }
         });
     });
 

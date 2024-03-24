@@ -158,36 +158,36 @@
 }
 
 /* Show details button for Chat */
-.list-group-item-action .detail-button {
+.list-group-item-action .stateless-button {
     border: 1px solid #000000;  /* Change color as needed */
     border-radius: 4px;      /* Change for more or less curvature */
     padding: 5px;            /* Adjust padding as needed */
     color: #000000;
 }
 
-.detail-button:hover {
+.stateless-button:hover {
     border: 1px solid #000000;  /* Change color as needed */
     border-radius: 4px;      /* Change for more or less curvature */
     padding: 5px;   
     color: red;
 }
 
-.detail-button:visited {
+.stateless-button:visited {
     border: 1px solid #000000;  /* Change color as needed */
     border-radius: 4px;      /* Change for more or less curvature */
     padding: 5px;   
     color: #551A8B;
 }
 
-.list-group-item-action.active .detail-button,
-.list-group-item-action.active .detail-button:visited {
+.list-group-item-action.active .stateless-button,
+.list-group-item-action.active .stateless-button:visited {
     border: 1px solid #FFFFFF;
     border-radius: 4px;      /* Change for more or less curvature */
     padding: 5px; 
     color: #FFFFFF;
 }
 
-.list-group-item-action.active .detail-button:hover {
+.list-group-item-action.active .stateless-button:hover {
     border: 1px solid #000000;  /* Change color as needed */
     border-radius: 4px;      /* Change for more or less curvature */
     padding: 5px;   

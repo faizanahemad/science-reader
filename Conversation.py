@@ -154,6 +154,7 @@ class Conversation:
         folder = os.path.join(storage, f"{self.conversation_id}")
         self._storage = folder
         os.makedirs(folder, exist_ok=True)
+        self._stateless = False
         memory = {  "title": 'Start the Conversation',
                     "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
@@ -170,6 +171,25 @@ class Conversation:
     # Make a method to get useful prior context and encapsulate all logic for getting prior context
     # Make a method to persist important details and encapsulate all logic for persisting important details in a function
 
+    @property
+    def stateless(self):
+        if hasattr(self, "_stateless"):
+            return self._stateless
+        return False
+
+    @stateless.setter
+    def stateless(self, value):
+        if hasattr(self, "_stateless"):
+            self._stateless = value
+        else:
+            setattr(self, "_stateless", value)
+        self.save_local()
+
+    def make_stateless(self):
+        self.stateless = True
+
+    def make_stateful(self):
+        self.stateless = False
     @property
     def store_separate(self):
         return ["indices", "raw_documents", "raw_documents_index", "memory", "messages", "uploaded_documents_list"]
@@ -235,6 +255,12 @@ class Conversation:
                     f"Error deleting local storage {folder} with error {e}")
             return None
     
+    def delete_conversation(self):
+        try:
+            shutil.rmtree(self._storage)
+        except Exception as e:
+            logger.error(f"Error deleting conversation {self.conversation_id} with error {e}")
+
     def save_local(self):
         import dill
         doc_id = self.conversation_id

@@ -518,6 +518,46 @@
       </div>
     </div>
 
+    <!-- Make conversation stateless Modal -->
+    <div class="modal fade" id="stateless-conversation-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Conversation Now Stateless</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            The conversation is now stateless. It will be deleted when you refresh the page. In case you want to save the conversation and revisit it later, please click on the "eye" button again.
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="$('#stateless-conversation-modal').modal('hide');">Ok</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Make conversation stateful Modal -->
+    <div class="modal fade" id="stateful-conversation-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Conversation Stateful</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            The conversation is now Stateful again.
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="$('#stateful-conversation-modal').modal('hide');">Ok</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Prevent Rendering Modal -->
     <div class="modal fade" id="prevent-chat-rendering" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
       <div class="modal-dialog">

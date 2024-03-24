@@ -1176,7 +1176,12 @@ def list_conversation_by_user():
     # TODO: add ability to get only n conversations
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
-    conversations = [conversation for conversation in conversations if conversation is not None]
+    stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
+    for conversation in stateless_conversations:
+        removeUserFromConversation(email, conversation.conversation_id)
+        del conversation_cache[conversation.conversation_id]
+        conversation.delete_conversation()
+    conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]
     sorted_data_reverse = sorted(data, key=lambda x: x[0]['last_updated'], reverse=True)
@@ -1299,6 +1304,39 @@ def get_conversation_details(conversation_id):
     data = conversation.get_metadata()
     return jsonify(data)
 
+@app.route('/make_conversation_stateless/<conversation_id>', methods=['DELETE'])
+@limiter.limit("25 per minute")
+@login_required
+def make_conversation_stateless(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.make_stateless()
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Conversation {conversation_id} stateless now.'})
+
+@app.route('/make_conversation_stateful/<conversation_id>', methods=['PUT'])
+@limiter.limit("25 per minute")
+@login_required
+def make_conversation_stateful(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.make_stateful()
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Conversation {conversation_id} deleted'})
+
+
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
 @limiter.limit("25 per minute")
 @login_required
@@ -1311,6 +1349,8 @@ def delete_conversation(conversation_id):
     else:
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
+        del conversation_cache[conversation_id]
+        conversation.delete_conversation()
     removeUserFromConversation(email, conversation_id)
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
