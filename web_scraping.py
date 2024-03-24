@@ -717,16 +717,13 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
             try:
                 result["text"] = normalize_whitespace(result["text"])
-                result_embedding = np.array(embedding_model.embed_documents([result["text"]])[0])
-                query_embedding = np.array(query_embeddings_future.result())
-                cosine_similarity = 1 - spatial.distance.cosine(result_embedding, query_embedding)
             except Exception as e:
-                cosine_similarity = 1.0
+                result["text"] = ""
 
-            if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR and ((cosine_similarity > 0.75 and time.time() - st >= 30) or (cosine_similarity > 0.8 and time.time() - st >= 20)):
+            if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "brightdata"
                 break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR or cosine_similarity <= 0.75:
+            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 brightdata_exception = True
 
         time.sleep(0.2)

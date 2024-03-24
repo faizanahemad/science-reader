@@ -2204,7 +2204,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yield_timeout():
         while True:
             yield dict(keep_going_marker=web_search_tmp_marker_name)
-    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back, threads, 45, 75)
+    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back, threads, 90, 75)
     return task_queue
 
 

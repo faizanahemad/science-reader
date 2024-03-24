@@ -624,7 +624,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 20
+        return 25
 
     def get_preamble(self, preamble_options, field):
         preamble = ""
