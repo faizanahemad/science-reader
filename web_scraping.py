@@ -740,11 +740,11 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     elif len(result["text"].strip().split()) < good_page_size:
         result = {"text": "", "title": "", "link": link, "error": "Text too short", "exception": True}
         logger.error(f"Text too short for {link} from {result_from}, result len = {len(result['text'])}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception} and result sample = {result['text'][:50]}")
-        raise ScrapingValidityException(f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        raise ScrapingValidityException(f"Text too short for {link} from {result_from},  zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     elif result["text"].strip() == DDOS_PROTECTION_STR:
         result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR, "exception": True}
-        logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        logger.error(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from},  zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
     return result

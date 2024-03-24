@@ -953,7 +953,7 @@ Write the extracted information concisely below:
                                                                doc_answer=doc_answer, web_text=web_text,
                                                                link_result_text=link_result_text,
                                                                conversation_docs_answer=conversation_docs_answer)
-                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-large")
+                llm = CallLLm(self.get_api_keys(), use_16k=True, use_gpt4=True)
                 qu_mt = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
