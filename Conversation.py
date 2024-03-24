@@ -611,11 +611,11 @@ Write the extracted information concisely below:
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "Long reply" in preamble_options:
-            preamble += "\nProvide a long and detailed answer like an essay. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+            preamble += "\nProvide a long and detailed answer like an essay. Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "Short references" in preamble_options:
-            preamble += "\nInclude references inline in wikipedia style as your write the answer. Put references closest to where applicable. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format. Don't give references at the end.\n"
+            preamble += "\nInclude references inline in wikipedia style as your write the answer. Use any and all the documents provided in your answer to the user's query. Put references closest to where applicable. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
             preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment.\n"
         if "Explore" in preamble_options:
@@ -1277,7 +1277,7 @@ Write the extracted information concisely below:
             web_text, doc_answer, link_result_text, summary_text, previous_messages,
             conversation_docs_answer)
         yield {"text": '', "status": "Preparing prompt ..."}
-        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes else ""
+        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes and len(checkboxes["permanentText"].strip()) > 0 else ""
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,

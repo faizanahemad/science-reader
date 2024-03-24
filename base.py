@@ -183,7 +183,7 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
             if "content" in chunk["choices"][0]["delta"]:
                 yield chunk["choices"][0]["delta"]["content"]
 
-        if chunk["choices"][0]["finish_reason"] != "stop":
+        if chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn"]:
             yield "\nOutput truncated due to lack of context Length."
 
     else:
@@ -209,7 +209,7 @@ def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, strea
         text = response_json['choices'][0]['text']
         text = text.replace(prompt, "").strip()
         text = "Response from a smaller 13B model.\n" + text
-        if finish_reason != 'stop':
+        if finish_reason.lower().strip() not in ["stop", "end_turn"]:
             text += "\nOutput truncated due to lack of context length."
 
         yield text
@@ -415,7 +415,7 @@ def call_chat_model(model, text, temperature, system, keys):
             if "gpt" in model or "davinci" in model:
                 rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"]!="stop":
+    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn"]:
         yield "\n Output truncated due to lack of context Length."
 
 
@@ -434,7 +434,7 @@ def call_non_chat_model(model, text, temperature, system, keys):
     )
     message = completions.choices[0].text
     finish_reason = completions.choices[0].finish_reason
-    if finish_reason != 'stop':
+    if finish_reason.lower().strip() not in ["stop", "end_turn"]:
         message = message + "\n Output truncated due to lack of context Length."
     rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
     return message
@@ -443,7 +443,7 @@ class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
 
         self.keys = keys
-        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide concise and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
+        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide comprehensive, detailed and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
@@ -2101,7 +2101,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     query = f"Lets write a comprehensive summary essay with full details, nuances and caveats about [{title}]({link}). Then lets analyse in detail about [{title}]({link}) ( ```preview - '{text[:1000]}'``` ) in the context of the the below question ```{context}```\n"
     link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
     try:
-        if detailed >= 2:
+        if detailed >= 1:
             more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
         summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
         if detailed >= 2:

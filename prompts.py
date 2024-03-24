@@ -147,31 +147,19 @@ Conversation Summary:
                 input_variables=["query", "summary_text", "previous_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
                 template=f"""You are given conversation details between human and AI. Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query. 
 Provide a short and concise reply now, we will expand and enhance your answer later.
-Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-{self.complex_output_instructions}
-{{summary_text}}
-{{previous_messages}}
-{{document_nodes}}
-{{conversation_docs_answer}}
+{{summary_text}}{{previous_messages}}{{document_nodes}}{{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}
 {{permanent_instructions}}
-{{doc_answer}}
-{{web_text}}
-{{link_result_text}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query: "{{query}}"
-Write a clear, helpful and informative response to the user's query.
 Response to the user's query:
 """,
             ),
             chat_slow_reply_prompt=PromptTemplate(
                 input_variables=["query", "summary_text", "previous_messages", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
-                template=f"""You are given conversation details between human and AI.
-{self.complex_output_instructions} 
-Use all the documents provided here in your answer to the user's query. Don't write code unless specifically asked to do so.
-We will be replying to the user's query or message given.
+                template=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
 {{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}{{summary_text}}{{previous_messages}}
 {{permanent_instructions}}
-Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message given below.
+The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's query:\n'''{{query}}'''
 Response to the user's query:
 """,
