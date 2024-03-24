@@ -478,7 +478,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
 
 import threading
 import time
-ZENROW_PARALLELISM = 25
+ZENROW_PARALLELISM = 10
 zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 
 def send_request_zenrows_html(url, apikey, readability=True):
