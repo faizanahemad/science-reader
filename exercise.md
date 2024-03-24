@@ -89,3 +89,63 @@ Others ( not includes in main program)
 | Front Lunges | Quadriceps, Hamstrings, Glutes | Bodyweight/Added Weights |
 | Plank Dumbbell Rows | Core, Obliques, Latissimus Dorsi | Dumbbells |
 | Stepper Climb with Weights | Quadriceps, Calves, Glutes | Stepper Machine          |
+
+| **Weight in Pound** | **Weight in Kg** |
+| --- | --- |
+| 1 lb | 0.45 kg |
+| 5 lb | 2.26 kg |
+| 7.5 lb | 3.40 kg |
+| 10 lb | 4.53 kg |
+| 12.5 lb | 5.66 kg |
+| 15 lb | 6.80 kg |
+| 17.5 lb | 7.93 kg |
+| 20 lb | 9.07 kg |
+| 22.5 lb | 10.20 kg |
+| 25 lb | 11.33 kg |
+| 27.5 lb | 12.47 kg |
+| 30 lb | 13.60 kg |
+| 35 lb | 15.87 kg |
+| 40 lb | 18.14 kg |
+| 45 lb | 20.41 kg |
+| 50 lb | 22.67 kg |
+
+| **Weight in Kg** | **Weight in Pound** |
+| --- | --- | 
+| 0.5 kg | 1.10 lb |
+| 1 kg | 2.20 lb |
+| 2 kg | 4.40 lb |
+| 2.5 kg | 5.51 lb |
+| 3 kg | 6.61 lb |
+| 4 kg | 8.81 lb |
+| 5 kg | 11.02 lb |
+| 6 kg | 13.22 lb |
+| 7 kg | 15.43 lb |
+| 7.5 kg | 16.53 lb |
+| 8 kg | 17.63 lb |
+| 9 kg | 19.84 lb |
+| 10 kg | 22.04 lb |
+| 11 kg | 24.25 lb |
+| 12 kg | 26.45 lb |
+| 12.5 kg | 27.56 lb |
+| 13 kg | 28.66 lb |
+| 14 kg | 30.86 lb |
+| 15 kg | 33.06 lb |
+| 16 kg | 35.27 lb |
+| 17 kg | 37.47 lb |
+| 17.5 kg | 38.58 lb |
+| 18 kg | 39.68 lb |
+| 19 kg | 41.88 lb |
+| 20 kg | 44.09 lb |
+| 21 kg | 46.29 lb |
+| 22 kg | 48.50 lb |
+| 22.5 kg | 49.60 lb |
+| 23 kg | 50.70 lb |
+| 24 kg | 52.91 lb |
+| 25 kg | 55.11 lb |
+| 26 kg | 57.32 lb |
+| 27 kg | 59.52 lb |
+| 27.5 kg | 60.63 lb |
+| 28 kg | 61.73 lb |
+| 29 kg | 63.93 lb |
+| 30 kg | 66.13 lb |
+
