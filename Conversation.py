@@ -902,7 +902,7 @@ Write the extracted information concisely below:
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                 time.sleep(0.2)
 
-            time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} and only web reading time: {(time.time() - qu_st):.2f}")
+            time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
             word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
@@ -1000,6 +1000,7 @@ Write the extracted information concisely below:
                     time.sleep(0.2)
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             elif provide_detailed_answers > 2:
+                logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                 while True:
                     qu_wait = time.time()
                     break_condition = (len(web_text_accumulator) >= cut_off) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
@@ -1019,10 +1020,13 @@ Write the extracted information concisely below:
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
+                        logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     time.sleep(0.2)
 
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
+            logger.info(
+                f"Time taken to get web search results with sorting: {(time.time() - qu_st):.2f} with result len = {len(web_text_accumulator)}")
             full_web_string = ""
             web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
             for i, wta in enumerate(web_text_accumulator):
