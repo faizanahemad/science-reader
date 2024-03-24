@@ -150,153 +150,6 @@ import requests
 import json
 import random
 
-def fetch_completion_vllm(url, prompt, temperature, keys, max_tokens=4000, stream=False):
-    # Define the headers for the request
-    # append /v1/completions to the base URL if not already present in the URL
-    if url.endswith("/generate"):
-        url = url[:-len("/generate")]
-    if url.endswith("/generate/"):
-        url = url[:-len("/generate/")]
-
-    prompt = get_first_last_parts(prompt, max_tokens - 1500, 1000, davinci_enc)
-    input_len = len(davinci_enc.encode(prompt))
-    assert max_tokens - input_len > 0
-    max_tokens = max_tokens - input_len
-    model = "Open-Orca/LlongOrca-13B-16k" # "Open-Orca/LlongOrca-13B-16k" # "lmsys/vicuna-13b-v1.5-16k"
-    # Define the payload for the request
-    if stream:
-        if not url.endswith("/v1/") and not url.endswith("/v1"):
-            url = url + "/v1"
-        response = openai.ChatCompletion.create(
-            model=model,
-            api_key="EMPTY",
-            api_base=url,
-            messages=prompt,
-            temperature=temperature,
-            stream=True,
-            stop_token_ids= [2],
-            stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :",
-                 "Human :", "###"],
-        )
-        yield "Response from a smaller 13B model.\n"
-        for chunk in response:
-            if "content" in chunk["choices"][0]["delta"]:
-                yield chunk["choices"][0]["delta"]["content"]
-
-        if chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn"]:
-            yield "\nOutput truncated due to lack of context Length."
-
-    else:
-        if not url.endswith("/v1/completions") and not url.endswith("/v1/completions/"):
-            url = url + "/v1/completions"
-        payload = {
-            "model":model, # "LongLoRA/Llama-2-70b-chat-longlora-32k-sft", # "lmsys/vicuna-13b-v1.5-16k"
-            'prompt': prompt,
-            'max_tokens': min(max_tokens, 1024),
-            'temperature': temperature,
-            'stop_token_ids': [2],
-            "stop": ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"],
-        }
-
-        # Make the POST request
-        response = requests.post(url, json=payload)
-
-        # Parse the JSON response
-        response_json = response.json()
-
-        # Extract the 'finish_reason' and 'text' fields
-        finish_reason = response_json['choices'][0]['finish_reason']
-        text = response_json['choices'][0]['text']
-        text = text.replace(prompt, "").strip()
-        text = "Response from a smaller 13B model.\n" + text
-        if finish_reason.lower().strip() not in ["stop", "end_turn"]:
-            text += "\nOutput truncated due to lack of context length."
-
-        yield text
-
-
-
-class CallLLmClaude:
-    def __init__(self, keys, use_gpt4=False, use_16k=False, use_small_models=False, self_hosted_model_url=None):
-        assert (use_gpt4 ^ use_16k ^ use_small_models) or (not use_gpt4 and not use_16k and not use_small_models)
-        self.keys = keys
-        self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
-        openai_basic_models = ["anthropic.claude-instant-v1"]
-        openai_gpt4_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
-        openai_turbo_models = ['anthropic.claude-v1', 'anthropic.claude-v2']
-        openai_16k_models = ['anthropic.claude-v1-100k', 'anthropic.claude-v2-100k']
-        self.openai_basic_models = random.sample(openai_basic_models, len(openai_basic_models))
-        self.openai_turbo_models = random.sample(openai_turbo_models, len(openai_turbo_models))
-        self.openai_16k_models = random.sample(openai_16k_models, len(openai_16k_models))
-        self.openai_gpt4_models = random.sample(openai_gpt4_models, len(openai_gpt4_models))
-        use_gpt4 = use_gpt4 and self.keys.get("use_gpt4",
-                                              True) and not use_small_models
-        self.use_small_models = use_small_models
-        self.use_gpt4 = use_gpt4 and len(openai_gpt4_models) > 0
-        self.use_16k = use_16k and len(openai_16k_models) > 0
-
-        self.gpt4_enc = tiktoken.encoding_for_model("gpt-4")
-        self.turbo_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-        self.davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
-        self.system = "<role>You are a helpful research and reading assistant. You are an insightful, thoughtful and creative expert in multiple domains like science, machine learning, programming, writing, question answering and many others.</role>\n\n<rules>\n<rule>Please follow the instructions and respond to the user request.</rule>\n<rule> Always provide detailed, comprehensive, thoughtful, insightful, informative and in-depth response.</rule>\n<rule>Directly start your answer without any greetings.</rule>\n<rule>Use markdown lists and paragraphs for formatting.</rule>\n<rule>End your response with ###. Write '###' after your response is over in a new line.</rule>\n</rules>\n\n"
-        import boto3
-        self.bedrock = boto3.client(service_name='bedrock-runtime',
-                               region_name=os.getenv("AWS_REGION"),
-                               aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                               aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                               endpoint_url=os.getenv("BEDROCK_ENDPOINT_URL"))
-
-
-    def call_claude(self, modelId, body):
-        from botocore.exceptions import EventStreamError
-        # raise EventStreamError(dict(), "test-error-for-checking-vllm-backup")
-        response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
-        if response.get('modelStreamErrorException') is not None or response.get('internalServerException') is not None:
-            import boto3
-            self.bedrock = boto3.client(service_name='bedrock-runtime',
-                                        region_name=os.getenv("AWS_REGION"),
-                                        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                                        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-                                        endpoint_url=os.getenv("BEDROCK_ENDPOINT_URL"))
-            response = self.bedrock.invoke_model_with_response_stream(body=body, modelId=modelId)
-        stream = response.get('body')
-        if stream:
-            for event in stream:
-                chunk = event.get('chunk')
-                if chunk:
-                    fragment = json.loads(chunk.get('bytes').decode())
-                    text = fragment.get('completion')
-                    stop_reason = fragment.get('stop_reason')
-                    if stop_reason == 'max_tokens':
-                        text = text + "\nOutput truncated due to lack of context Length."
-                    yield text
-
-    @retry(wait=wait_random_exponential(min=15, max=60), stop=stop_after_attempt(4))
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None):
-        from botocore.exceptions import EventStreamError
-        system = f"\n\n{system.strip()}" if system is not None and len(system.strip()) > 0 else ""
-        text = f"{self.system}{system}\n\n{text}\n"
-        body = json.dumps({"prompt": f"\n\nHuman: {text}\nAssistant:", "max_tokens_to_sample": 2048 if max_tokens is None else max_tokens, "temperature": temperature, "stop_sequences":list(set(["\n\nHuman:", "###", "Human:", "human:", "HUMAN:"] + ["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"]))})
-        accept = 'application/json'
-        contentType = 'application/json'
-        vllmUrl = self.self_hosted_model_url
-        def vllmBackup(*args, **kwargs):
-            return fetch_completion_vllm(vllmUrl, text, temperature, self.keys, max_tokens=12000, stream=stream)
-        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
-        logger.info(
-            f"CallLLM with temperature = {temperature}, stream = {stream} with text len = {len(text.split())}, token len = {text_len}")
-        if self.use_gpt4:
-            assert len(self.gpt4_enc.encode(text)) < 8000
-            modelId = next(round_robin(self.openai_gpt4_models))
-        elif self.use_16k and text_len > 3400:
-            modelId = next(round_robin(self.openai_16k_models))
-        elif self.use_small_models:
-            assert len(self.gpt4_enc.encode(text)) < 4000
-            modelId = next(round_robin(self.openai_basic_models))
-        else:
-            assert len(self.gpt4_enc.encode(text)) < 8000
-            modelId = next(round_robin(self.openai_turbo_models))
-        return call_with_stream(self.call_claude, stream, modelId, body, backup_function=vllmBackup if vllmUrl is not None else None)
 
 openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-3.5-turbo": (1000000, 10000),
@@ -480,8 +333,7 @@ class CallLLm:
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
-            return call_with_stream(fetch_completion_vllm, self.self_hosted_model_url, text, temperature, self.keys,
-                                         max_tokens=max_tokens)
+            raise ValueError("Self hosted models not supported")
         else:
             assert self.keys["openAIKey"] is not None
 
@@ -619,50 +471,10 @@ def split_text(text):
     
     yield first_half
     yield second_half
-    
-    
 
 
 
 
-@AddAttribute('name', "MathTool")
-@AddAttribute('description', """
-MathTool:
-    This tool takes a numeric expression as a string and provides the output for it.
-
-    Input params/args: 
-        num_expr (str): numeric expression to evaluate
-
-    Returns: 
-        str: evaluated expression answer
-
-    Usage:
-        `answer=MathTool(num_expr="2*3") # Expected answer = 6, # This tool needs no initialization`
-
-    """)
-def MathTool(num_expr: str):
-    math_tool = load_tools(["llm-math"], llm=llm)[0]
-    return math_tool._run(num_expr).replace("Answer: ", "")
-
-
-@AddAttribute('name', "WikipediaTool")
-@AddAttribute('description', """
-WikipediaTool:
-    This tool takes a phrase or key words and searches them over wikipedia, returns results from wikipedia as a str.
-
-    Input params/args: 
-        search_phrase (str): phrase to search over on wikipedia
-
-    Returns: 
-        str: searched paragraph on basis of search_phrase from wikipedia
-
-    Usage:
-        `answer=WikipediaTool(search_phrase="phrase to search") # This tool needs no initialization`
-
-    """)
-def WikipediaTool(search_phrase: str):
-    tool = load_tools(["wikipedia"], llm=llm)[0]
-    return tool._run(search_phrase)
 
 enc = tiktoken.encoding_for_model("gpt-4")
 
