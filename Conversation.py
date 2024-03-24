@@ -611,7 +611,7 @@ Write the extracted information concisely below:
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "Long reply" in preamble_options:
-            preamble += "\nProvide a long and detailed answer like an essay. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+            preamble += "\nProvide a long and detailed answer like an essay. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "Short references" in preamble_options:
@@ -621,9 +621,9 @@ Write the extracted information concisely below:
         if "Explore" in preamble_options:
             preamble += "\nSprinkle interesting tidbits of knowledge around the topic we discuss as well to help me explore and learn more. Provide interesting and stimulating information around the topic we discuss.\n"
         if "Creative" in preamble_options:
-            preamble += "\nBe creative and think out of the box. Think creatively and provide a creative answer. Always provide insightful, stimulating and informative response. When multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\n"
+            preamble += "\nBe creative and think out of the box. Think creatively and provide a creative answer. Think of any nuances as well. Always provide insightful, stimulating and informative response. When multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\n"
         if "Argumentative" in preamble_options:
-            preamble += "\nProvide an argumentative answer. Disagree and Disprove respectfully. Answer with a strong argument using a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian viewpoint in a respectful manner.\n"
+            preamble += "\nProvide an argumentative answer. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a strong argument using a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian viewpoint in a respectful manner.\n"
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:

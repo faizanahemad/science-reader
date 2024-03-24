@@ -910,11 +910,11 @@ Only provide answer from the document given above.
         top_chunks = sorted_chunks[:8]
         top_chunks_text = ""
         for idx, tc in enumerate(top_chunks):
-            top_chunks_text += f"Retrieved text relevant chunk {idx+1}:\n{tc[0]}\n\n"
+            top_chunks_text += f"Retrieved relevant text chunk {idx+1}:\n{tc[0]}\n\n"
         top_chunks = top_chunks_text
         fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
         prompt = self.prompt.format(context=context, document=fragments_text)
-        callLLm = CallLLm(self.keys, model_name="mistralai/mixtral-8x7b-instruct:nitro")
+        callLLm = CallLLm(self.keys, model_name="google/gemini-pro")
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -927,42 +927,51 @@ Only provide answer from the document given above.
         # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
-        if doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+        if doc_word_count < TOKEN_LIMIT_FOR_DETAILED:
+            rag_result = None
+            if self.scan:
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
+                                              text_document) if not short else None
+            result = self.get_one(context_user_query, text_document)
+            if self.scan:
+                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
+                result = result + "\nMore Details:\n" + rag_result
+        elif doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED and doc_word_count> TOKEN_LIMIT_FOR_DETAILED:
             rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document) if not short else None
             result = self.get_one(context_user_query, text_document)
             rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
             result = result + "\nMore Details:\n" + rag_result
-        elif self.scan:
-            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
+        elif self.scan and doc_word_count > TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)
             first_chunk = chunks[0]
             second_result = None
             rag_result = None
-            big_result = None
             if len(chunks) > 1:
                 first_chunk = first_chunk + "..."
                 second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
                 second_result = get_async_future(self.get_one, context_user_query,
                                                  second_chunk)
-                big_chunk = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)[0]
-                big_result = get_async_future(self.get_one, context_user_query,
-                                              big_chunk)
             if len(chunks) > 2:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, TOKEN_LIMIT_FOR_DETAILED, "\n\n".join(chunks[2:]))
-                big_chunk = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)[0]
-                big_result = get_async_future(self.get_one, context_user_query,
-                                           big_chunk)
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, "\n\n".join(chunks[2:]))
+            else:
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
+                                              text_document) if not short else None
 
             result = self.get_one(context_user_query, first_chunk)
-            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n" + (big_result.result() if big_result is not None and big_result.exception() is None else "")
+            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n"
         else:
             try:
-                result = self.get_one_with_rag(context_user_query, None, text_document)
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
+                                              text_document) if not short else None
+                result = self.get_one(context_user_query, text_document)
+                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
+                result = result + "\nMore Details:\n" + rag_result
             except Exception as e:
                 logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
                 chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
                 result = self.get_one(context_user_query, chunks[0])
 
-        result = get_first_last_parts(result, 384, 256) if short else get_first_last_parts(result, 1536 if self.scan else 384, 1024 if self.scan else 384)
+        result = get_first_last_parts(result, 512, 256) if short else get_first_last_parts(result, 1536 if self.scan else 512, 1024 if self.scan else 384)
         assert isinstance(result, str)
         et = time.time()
         time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")
@@ -1995,11 +2004,6 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
             f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
-def web_search(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
-    gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
-    part2_res = get_async_future(web_search_part2, gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1))
-    return [get_async_future(get_part_1_results, gen1), part2_res] # get_async_future(get_part_1_results, part1_res)
 
 def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
     part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
@@ -2094,9 +2098,16 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     link_data = download_link_data(link_title_context_apikeys)
     title = link_data["title"]
     text = link_data["full_text"]
-    link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+    query = f"Lets write a comprehensive summary essay with full details, nuances and caveats about [{title}]({link}). Then lets analyse in detail about [{title}]({link}) ( ```preview - '{text[:1000]}'``` ) in the context of the the below question ```{context}```\n"
+    link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
     try:
+        if detailed >= 2:
+            more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
         summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
+        if detailed >= 2:
+            more_summary = more_summary.result() if more_summary.exception() is None else ""
+            summary = f"{summary}\n\n{more_summary}"
+
     except AssertionError as e:
         return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
@@ -2120,8 +2131,10 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_pdf:
         result = read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        result["is_pdf"] = True
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        result["is_pdf"] = False
     if "full_text" in result and len(result["full_text"].strip()) > 0 and len(result["full_text"].strip().split()) > 100:
         result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
                                                                                          'end_of_text').replace(
@@ -2266,7 +2279,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
 
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
-    link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    link, title, context, api_keys, text, query, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
     input_len = len(txt.split())
@@ -2309,7 +2322,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yeild_one():
         for r in results_generator:
             if isinstance(r, dict) and r["type"] == "result":
-                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time())]]
+                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time()), r["query"]]]
             else:
                 continue
 
@@ -2341,10 +2354,12 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         text = link_title_context_apikeys[4]
         detailed = link_title_context_apikeys[5]
         start_time = link_title_context_apikeys[6]
+        query = link_title_context_apikeys[7]
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         web_res["start_time"] = start_time
+        web_res["query"] = query
         if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception", False) and "full_text" in web_res and len(web_res["full_text"].split()) > 0:
             return [web_res, kwargs]
         else:
@@ -2359,13 +2374,14 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         elapsed = link_data["start_time"] - time.time()
         error = link_data["error"] if "error" in link_data else None
         context = link_data["context"]
+        query = link_data["query"]
         detailed = link_data["detailed"] if "detailed" in link_data and elapsed <= 30 else False
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         if exception:
             # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
             raise Exception(f"Exception raised for link: {link}, {error}")
         if exists_tmp_marker_file(web_search_tmp_marker_name):
-            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+            link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
             summary = get_downloaded_data_summary(link_title_context_apikeys)
             return summary
         else:
@@ -2386,7 +2402,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a, provide_detailed_answers and len(links) <= 2) for l_t_c_a in link_title_context_apikeys]
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a, provide_detailed_answers and len(links) <= 4) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [future.result() for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
