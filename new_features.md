@@ -4,6 +4,24 @@
   - Clear current checkboxes once a message is sent by user.
   - Prioritize this over message length checkbox.
   - We use selected messages by running over all messages in chat and seeing if any is selected, if yes then we use this otherwise we don't.
+- Debug Login, Debug Websearch, convert word to pdf (convert_doc_to_pdf) as a call to convertapi.
+- Logging of stdout.
+- Stateless Chat for immediate uses. [Done] 
+  - Make this as search tab. In this search is enabled by default and chats are stateless. [WIP]
+- Change websearch timing params to common configs.
+- Fix doc download [Done]
+- Make doc viewable within chat.
+- 
+- On Mobile, given a pdf link or an arxiv link open in pdfjs viewer. Extra functionality since mobile forces pdf download.
+- Read link from message text itself.
+- /search_exact command to search for exact text.
+- Use brightdata for arxiv link.
+- read_link better [Done]
+- Don't index docs below 20K tokens.
+  - Do RAG prep only if doc is over 20K tokens.
+- Deprecate doc view and reviews.
+- Add sonnet, haiku and mistral medium to the list of final models.
+- Use google gemini model more.
 - Upload image, do ocr, and then use the text in the image
 - Move to chat message api based system for past messages.
 - For Doc Qna, Create question and follow up question based on the document summary and then ask them in parallel. Use this in L4. [Nope] it will write too much.
