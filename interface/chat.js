@@ -364,7 +364,7 @@ var ChatManager = {
                 showPDF(doc.source, "chat-pdf-content");
                 $("#chat-pdf-content").removeClass('d-none');
             });
-            
+
             
             // Attach delete event
             deleteDiv.click(function(event) {
@@ -526,7 +526,7 @@ function loadConversations(autoselect=true) {
             conversationItem.append(deleteButton);
 
             // Add a button for conversation state
-            var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
+            var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye"></i></button></small>');
             conversationItem.append(stateButton);
             
             // Include a summary of the conversation
