@@ -1072,6 +1072,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     pdf_url = pdf_url.strip()
     # check if the link is local or remote
     is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
+    assert is_remote or os.path.exists(pdf_url), f"File {pdf_url} does not exist"
     if is_remote:
         pdf_url = convert_to_pdf_link_if_needed(pdf_url)
         is_pdf = is_pdf_link(pdf_url)
@@ -1083,13 +1084,15 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
+        convert_doc_to_pdf(pdf_url, pdf_url.replace(".docx", ".pdf"))
+        pdf_url = pdf_url.replace(".docx", ".pdf")
     elif is_remote and not (pdf_url.endswith(".md") or pdf_url.endswith(".json") or pdf_url.endswith(".csv") or pdf_url.endswith(".txt")):
         html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
         # save this html to a file and then use the html loader.
         html_file = os.path.join(folder, "temp.html")
         with open(html_file, "w") as f:
             f.write(html)
-        convert_doc_to_pdf(html_file, html_file.replace(".html", ".pdf"))
+        convert_html_to_pdf(html_file, html_file.replace(".html", ".pdf"))
         pdf_url = html_file.replace(".html", ".pdf")
         # delete html file
         os.remove(html_file)

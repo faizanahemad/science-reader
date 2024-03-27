@@ -1123,7 +1123,7 @@ Write the extracted information concisely below:
                                                        doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
                                                        link_result_text=link_result_text_expert_16k,
                                                        conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=False)
             ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
             
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1165,7 +1165,7 @@ Write the extracted information concisely below:
                                                            doc_answer=doc_answer_expert, web_text=web_text_expert,
                                                            link_result_text=link_result_text_expert,
                                                            conversation_docs_answer=conversation_docs_answer_expert)
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
             ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
 
             prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1212,24 +1212,9 @@ Write the extracted information concisely below:
             llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=False, use_16k=False)
             ans_gen_9_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
 
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. First, put forward your reasoning and decision making process in short, then write your answer.",
-                                                           doc_answer=doc_answer_expert_16k,
-                                                           web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="nousresearch/nous-capybara-34b", use_gpt4=False,
-                                    use_16k=False)
-            ans_gen_10_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
-            
-            
-
-            
             while True:
                 qu_wait = time.time()
-                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0) + (1 if ans_gen_9_future.done() and ans_gen_9_future.exception() is None else 0) + (1 if ans_gen_10_future.done() and ans_gen_10_future.exception() is None else 0)
+                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0) + (1 if ans_gen_9_future.done() and ans_gen_9_future.exception() is None else 0)
                 break_condition = num_done >= 6 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
                 if break_condition:
                     break

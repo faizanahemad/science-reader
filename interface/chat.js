@@ -341,14 +341,30 @@ var ChatManager = {
                 .attr('aria-hidden', 'true')
                 .attr('aria-label', 'Delete document'); // Accessibility feature
             
+            
             var deleteDiv = $('<div></div>')
                 .addClass('btn p-0 btn-sm btn-danger ml-1')
                 .append(deleteButton);
+
+            var downloadButton = $('<i></i>')
+                .addClass('fa fa-download')
+                .attr('aria-hidden', 'true')
+                .attr('aria-label', 'Download document'); // Accessibility feature
+            
+            var downloadDiv = $('<div></div>')
+                .addClass('btn p-0 btn-sm btn-primary ml-1')
+                .append(downloadButton);
             
             // Attach download event to open in a new tab
-            docButton.click(function() {
+            downloadDiv.click(function() {
                 window.open(`/download_doc_from_conversation/${conversation_id}/${doc.doc_id}`, '_blank');
             });
+
+            docButton.click(function() {
+                showPDF(doc.source, "chat-pdf-content");
+                $("#chat-pdf-content").removeClass('d-none');
+            });
+            
             
             // Attach delete event
             deleteDiv.click(function(event) {
@@ -358,6 +374,7 @@ var ChatManager = {
                     alert("Error deleting the document.");
                 });
             });
+            docButton.append(downloadDiv);
             docButton.append(deleteDiv);
             // Create a container for each pair of document and delete buttons
             var container = $('<div></div>')
@@ -607,7 +624,7 @@ function sendMessageCallback() {
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
     let parsed_message = parseMessageForCheckBoxes(messageText);
-    messageText = parsed_message.text;
+    // messageText = parsed_message.text;
     var options = getOptions('chat-options', 'assistant');
     options = mergeOptions(parsed_message, options)
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');

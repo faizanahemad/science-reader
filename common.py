@@ -83,7 +83,7 @@ time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
 
-def convert_doc_to_pdf(file_path, output_path):
+def convert_html_to_pdf(file_path, output_path):
     api_url = PDF_CONVERT_URL
     try:
         logger.info(f"Converting doc at {file_path} to pdf, file exists = {os.path.exists(file_path)}")

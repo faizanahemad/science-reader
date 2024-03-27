@@ -37,7 +37,8 @@ from datetime import timedelta
 import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed, \
-    verify_openai_key_and_fetch_models, convert_doc_to_pdf
+    verify_openai_key_and_fetch_models
+from base import convert_doc_to_pdf
 import spacy
 from spacy.lang.en import English
 from spacy.pipeline import Lemmatizer
@@ -441,7 +442,7 @@ def login_required(f):
     return decorated_function
 
 @app.route('/addUpvoteOrDownvote', methods=['POST'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def add_upvote_downvote():
     email, name, _ = check_login(session)
@@ -459,7 +460,7 @@ def add_upvote_downvote():
     return jsonify({'status': 'success'}), 200
 
 @app.route('/getUpvotesDownvotesByUser', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def get_votes_by_user():
     email, name, _ = check_login(session)
@@ -508,7 +509,7 @@ def get_votes_by_question_and_user():
 
 
 @app.route('/addUserQuestionFeedback', methods=['POST'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def add_user_question_feedback():
     email, name, _ = check_login(session)
@@ -722,7 +723,7 @@ def search_document():
 
 
 @app.route('/list_all', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def list_all():
     keys = keyParser(session)
@@ -738,7 +739,7 @@ def list_all():
 
 
 @app.route('/get_document_detail', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def get_document_detail():
     keys = keyParser(session)
@@ -775,7 +776,7 @@ def index_document():
         return jsonify({'error': 'No pdf_url provided'}), 400
 
 @app.route('/set_keys', methods=['POST'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def set_keys():
     keys = request.json  # Assuming keys are sent as JSON in the request body
@@ -784,7 +785,7 @@ def set_keys():
     return jsonify({'result': 'success'})
 
 @app.route('/clear_session', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def clear_session():
     # clear the session
@@ -966,7 +967,7 @@ def loader():
                                'gradient-loader.gif', mimetype='image/gif')
 
 @app.route('/interface/<path:path>')
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 def send_static(path):
     return send_from_directory('interface', path, max_age=0)
 
@@ -1221,7 +1222,7 @@ def create_conversation_simple(session):
 
 
 @app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def list_messages_by_conversation(conversation_id):
     keys = keyParser(session)
@@ -1288,7 +1289,7 @@ def send_message(conversation_id):
 
 
 @app.route('/get_conversation_details/<conversation_id>', methods=['GET'])
-@limiter.limit("100 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def get_conversation_details(conversation_id):
     keys = keyParser(session)

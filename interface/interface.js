@@ -1059,6 +1059,80 @@ function removeEmTags(htmlChunk) {
     return newHtmlChunk;
 }
 
+function showPDF(pdfUrl, subtree) {
+    var parent_of_view = document.getElementById(`${subtree}`);
+    var xhr = new XMLHttpRequest();
+    var progressBar = parent_of_view.querySelector('#progressbar');
+    var progressStatus = parent_of_view.querySelector('#progress-status');
+    var viewer = parent_of_view.querySelector("#pdfjs-viewer");
+    progressBar.style.width = '0%';
+    progressStatus.textContent = '';
+    viewer.style.display = 'none';  // Hide the viewer while loading
+    document.getElementById('progress').style.display = 'block';  // Show the progress bar
+
+
+    xhr.open('GET', '/proxy?file=' + encodeURIComponent(pdfUrl), true);
+    xhr.responseType = 'blob';
+
+    // Track progress
+    xhr.onprogress = function (e) {
+        document.getElementById('progress').style.display = 'block';
+        if (e.lengthComputable) {
+            var percentComplete = (e.loaded / e.total) * 100;
+            progressStatus.style.display = 'block'; // Hide the progress status
+            progressBar.style.display = 'block';
+            progressBar.style.width = percentComplete + '%';
+            progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(2) + ' of ' + (e.total / 1024).toFixed(2) + ' KB (' + Math.round(percentComplete) + '%)';
+        } else {
+            progressStatus.style.display = 'block'; // Hide the progress status
+            progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(2) + ' KB';
+        }
+    }
+
+
+    xhr.onload = function (e) {
+
+
+        if (this.status == 200) {
+            var blob = this.response;
+
+            // Create an object URL for the Blob
+            var objectUrl = URL.createObjectURL(blob);
+
+            // Reset the src of the viewer
+            viewer.setAttribute('src', viewer.getAttribute('data-original-src'));
+
+            // Construct the full URL to the PDF
+            var viewerUrl = viewer.getAttribute('src') + '?file=' + encodeURIComponent(objectUrl);
+
+            // Load the PDF into the viewer
+            viewer.setAttribute('src', viewerUrl);
+
+            function resizePdfView(event) {
+                var width = $('#content-col').width();
+                var height = $("#pdf-questions").is(':hidden') ? $(window).height() : $(window).height() * 0.8;
+                $('#pdf-content').css({
+                    'width': width,
+                });
+                $(viewer).css({
+                    'width': '100%',
+                    'height': height,
+                });
+            }
+
+            $(window).resize(resizePdfView).trigger('resize'); // trigger resize event after showing the PDF
+
+            viewer.style.display = 'block';  // Show the viewer once the PDF is ready
+            document.getElementById('progress').style.display = 'none';  // Hide the progress bar
+            progressStatus.style.display = 'none'; // Hide the progress status
+            progressBar.style.display = 'none';
+        } else {
+            console.error("Error occurred while fetching PDF: " + this.status);
+        }
+    };
+
+    xhr.send();
+}
 
 $(document).ready(function() {
     const options = {
@@ -1302,80 +1376,7 @@ $(document).ready(function() {
     
     
     
-    function showPDF(pdfUrl) {
-        var xhr = new XMLHttpRequest();
-        var progressBar = document.getElementById('progressbar');
-        var progressStatus = document.getElementById('progress-status');
-        var viewer = document.getElementById('pdfjs-viewer');
-
-        progressBar.style.width = '0%';
-        progressStatus.textContent = '';
-        viewer.style.display = 'none';  // Hide the viewer while loading
-        document.getElementById('progress').style.display = 'block';  // Show the progress bar
-        
-
-        xhr.open('GET', '/proxy?file=' + encodeURIComponent(pdfUrl), true);
-        xhr.responseType = 'blob';
-
-        // Track progress
-        xhr.onprogress = function(e) {
-            document.getElementById('progress').style.display = 'block';
-            if (e.lengthComputable) {
-                var percentComplete = (e.loaded / e.total) * 100;
-                progressStatus.style.display = 'block'; // Hide the progress status
-                progressBar.style.display = 'block';
-                progressBar.style.width = percentComplete + '%';
-                progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(2) + ' of ' + (e.total / 1024).toFixed(2) + ' KB (' + Math.round(percentComplete) + '%)';
-            } else {
-                progressStatus.style.display = 'block'; // Hide the progress status
-                progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(2) + ' KB';
-            }
-        }
-        
-
-        xhr.onload = function(e) {
-            
-            
-            if (this.status == 200) {
-                var blob = this.response;
-
-                // Create an object URL for the Blob
-                var objectUrl = URL.createObjectURL(blob);
-
-                // Reset the src of the viewer
-                viewer.setAttribute('src', viewer.getAttribute('data-original-src'));
-
-                // Construct the full URL to the PDF
-                var viewerUrl = viewer.getAttribute('src') + '?file=' + encodeURIComponent(objectUrl);
-
-                // Load the PDF into the viewer
-                viewer.setAttribute('src', viewerUrl);
-
-                function resizePdfView(event) {
-                    var width = $('#content-col').width();
-                    var height = $("#pdf-questions").is(':hidden')? $(window).height() :$(window).height() * 0.8;
-                    $('#pdf-content').css({
-                        'width': width,
-                    });
-                    $(viewer).css({
-                        'width': '100%',
-                        'height': height,
-                    });
-                }
-
-                $(window).resize(resizePdfView).trigger('resize'); // trigger resize event after showing the PDF
-
-                viewer.style.display = 'block';  // Show the viewer once the PDF is ready
-                document.getElementById('progress').style.display = 'none';  // Hide the progress bar
-                progressStatus.style.display = 'none'; // Hide the progress status
-                progressBar.style.display = 'none';
-            } else {
-                console.error("Error occurred while fetching PDF: " + this.status);
-            }
-        };
-
-        xhr.send();
-    }
+    
 
     function toggleSidebar() {
         function getActiveTabName() {
@@ -1432,7 +1433,7 @@ $(document).ready(function() {
             apiCall('/get_document_detail?doc_id=' + activeDocId, 'GET', {}).done(function(data) {
                 view.empty();
                 pdfUrl = data.source
-                showPDF(data.source);
+                showPDF(data.source, "pdf-content");
                 
                 view.append('<div id="details-row" class="row"></div>');
 
@@ -2325,6 +2326,7 @@ $(document).ready(function() {
         $('#review-assistant-view').hide();
         $('#references-view').show();
         $('#chat-assistant-view').hide();
+        $("#chat-pdf-content").addClass('d-none');
 
         loadCitationsAndReferences();
         pdfTabIsActive();
@@ -2337,6 +2339,7 @@ $(document).ready(function() {
         $('#references-view').hide();
         $('#review-assistant-view').show();
         $('#chat-assistant-view').hide();
+        $("#chat-pdf-content").addClass('d-none');
         pdfTabIsActive();
         toggleSidebar();
         
@@ -2349,12 +2352,13 @@ $(document).ready(function() {
         $('#references-view').hide();
         $('#pdf-view').show();
         $('#chat-assistant-view').hide();
+        $("#chat-pdf-content").addClass('d-none');
         pdfTabIsActive();
         toggleSidebar();
         
         
     });
-
+    $('#assistant-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
     $('#assistant-tab').on('shown.bs.tab', function (e) {
         // Clear the details viewer
         loadConversations();
@@ -2365,12 +2369,14 @@ $(document).ready(function() {
         var chatView = $('#chatView');
         chatView.scrollTop(chatView.prop('scrollHeight'));
         $('#messageText').focus();
+        $("#chat-pdf-content").addClass('d-none');
         pdfTabIsActive();
         toggleSidebar();
 
     });
     
     $('#show-sidebar').on('click', toggleSidebar);
+    $('#show-sidebar').on('click', function () { $("#chat-pdf-content").addClass('d-none');});
     
     document.getElementById('toggle-tab-content').addEventListener('click', function() {
         var tabContent = $("#pdf-view").find("#pdfjs-viewer")[0];

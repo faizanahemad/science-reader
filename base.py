@@ -1964,6 +1964,57 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
 import requests
 import base64
 
+import requests
+
+
+def convert_doc_to_pdf(file_path, output_path, secret_key=None):
+    """
+    Converts a Word document (DOCX) to PDF using an online API.
+
+    Args:
+    file_path (str): Path to the DOCX file on disk.
+    output_path (str): Path where the converted PDF should be saved.
+    secret_key (str): API secret key.
+
+    Returns:
+    None
+    """
+    # Define the API endpoint with the secret key as a query parameter
+
+    if secret_key is None:
+        secret_key = os.getenv("CONVERT_API_SECRET_KEY")
+    assert secret_key is not None, "Secret key is not provided and not found in environment variables."
+
+    api_endpoint = f"https://v2.convertapi.com/convert/docx/to/pdf?Secret={secret_key}"
+    data = {'StoreFile': 'true'}
+
+    # Open the DOCX file in binary mode
+    with open(file_path, 'rb') as file:
+        files = {'File': file}
+
+        # Make the POST request
+        response = requests.post(api_endpoint, files=files, data=data)
+
+        # Check if the request was successful
+        if response.status_code == 200:
+            # Parse the response JSON
+            response_json = response.json()
+
+            # ConvertAPI returns the PDF file in a URL if StoreFile was set to true
+            pdf_url = response_json['Files'][0]['Url']
+
+            # Download the PDF file
+            pdf_response = requests.get(pdf_url)
+
+            if pdf_response.status_code == 200:
+                # Save the PDF file to the specified output path
+                with open(output_path, 'wb') as pdf_file:
+                    pdf_file.write(pdf_response.content)
+            else:
+                raise Exception(f"Failed to download the converted PDF: {pdf_response.status_code} {pdf_response.text}")
+        else:
+            raise Exception(f"Failed to convert DOCX to PDF: {response.status_code} {response.text}")
+
 
 def convert_pdf_to_txt(file_url, secret_key):
     """
