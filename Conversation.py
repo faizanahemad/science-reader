@@ -371,7 +371,7 @@ class Conversation:
 
 
     @timer
-    def retrieve_prior_context(self, query, links=None, required_message_lookback=16):
+    def retrieve_prior_context(self, query, links=None, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
         token_limit_short = 3000
         token_limit_long = 7500
@@ -381,6 +381,9 @@ class Conversation:
         memory, messages, indices = [f.result() for f in futures]
         message_lookback = 2
         previous_messages_text = ""
+        if len(past_message_ids) > 0:
+            messages = [m for m in messages if m["message_id"] in past_message_ids]
+            required_message_lookback = 12
         while get_gpt4_word_count(previous_messages_text) < token_limit_short and message_lookback <= required_message_lookback and required_message_lookback > 0:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
@@ -464,6 +467,11 @@ Title of the conversation:
             title = wrap_in_future(self.get_field("memory")["title"])
         return title
 
+    def get_message_ids(self, query, response):
+        user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False))
+        response_message_id = str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False))
+        return dict(user_message_id=user_message_id, response_message_id=response_message_id)
+
     @timer
     def persist_current_turn(self, query, response, new_docs):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
@@ -482,11 +490,12 @@ Title of the conversation:
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
-        msg_set = get_async_future(self.set_field, "messages", [
+        preserved_messages = [
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
-             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}])
+             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}]
+        msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
         llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 8000, 10_000)
@@ -521,13 +530,13 @@ Title of the conversation:
         message_lookback = 4
         previous_messages_text = ""
         prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
-        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 10_000 and message_lookback < 6:
+        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 16_000 and message_lookback < 8:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             message_lookback += 2
         assert get_gpt3_word_count(previous_messages_text) > 0
-        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-large", use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
         prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
         summary = llm(prompt, temperature=0.2, stream=False)
         memory["running_summary"][-1] = summary
@@ -709,6 +718,7 @@ Write the extracted information concisely below:
 
         checkboxes = query["checkboxes"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
+        past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in query else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
@@ -734,7 +744,7 @@ Write the extracted information concisely below:
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=2:
+                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=2 and len(past_message_ids) == 0:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             message_lookback = min(4, message_lookback)
         web_search_tmp_marker_name = None
@@ -778,7 +788,7 @@ Write the extracted information concisely below:
                                           False)
         web_text = ''
         prior_context_future = get_async_future(self.retrieve_prior_context,
-            query["messageText"], links=links if len(links) > 0 else None, required_message_lookback=unchanged_message_lookback)
+            query["messageText"], links=links if len(links) > 0 else None, past_message_ids=past_message_ids, required_message_lookback=unchanged_message_lookback)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -1051,6 +1061,8 @@ Write the extracted information concisely below:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
                 get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+                message_ids = self.get_message_ids(query["messageText"], answer)
+                yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
                 return
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
@@ -1061,6 +1073,8 @@ Write the extracted information concisely below:
             answer += text
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            message_ids = self.get_message_ids(query["messageText"], answer)
+            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
         if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
@@ -1069,6 +1083,8 @@ Write the extracted information concisely below:
             answer += text
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            message_ids = self.get_message_ids(query["messageText"], answer)
+            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
         if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
@@ -1078,11 +1094,15 @@ Write the extracted information concisely below:
             answer += text
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            message_ids = self.get_message_ids(query["messageText"], answer)
+            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and provide_detailed_answers >= 3:
             yield {"text": '', "status": "saving answer ..."}
             get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            message_ids = self.get_message_ids(query["messageText"], answer)
+            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
         yield {"text": '', "status": "getting previous context"}
         all_expert_answers = ""
@@ -1351,8 +1371,13 @@ Write the extracted information concisely below:
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, full_doc_texts)
+        message_ids = self.get_message_ids(query["messageText"], answer)
+        yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
 
     
+    def detect_previous_message_type(self):
+        pass
+
     def get_last_ten_messages(self):
         return self.get_field("messages")[-10:]
     
