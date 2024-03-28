@@ -142,6 +142,17 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             answer_post_text = answerParagraph.text()
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').text(part['status']);
+
+            if (part['message_ids']){
+                user_message_id = part['message_ids']['user_message_id']
+                response_message_id = part['message_ids']['response_message_id']
+                Array.from(card.find('.history-message-checkbox'))[0].setAttribute('message-id', response_message_id);
+                Array.from(card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${response_message_id}`);
+                last_card = $(card).prevAll('.card').last()
+                Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('message-id', user_message_id);
+                Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${user_message_id}`);
+            }
+                
         }
 
         if (done) {
@@ -416,9 +427,11 @@ var ChatManager = {
         }
         messages.forEach(function(message, index, array) {
           var senderText = message.sender === 'user' ? 'You' : 'Assistant';
-            var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column"></div>');
+            var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
           var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
-          var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}><small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
+          var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}>
+          <input type="checkbox" class="history-message-checkbox" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
+          <small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
           var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
           var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
           textElem.html(message.text.replace(/\n/g, '  \n'))
@@ -624,6 +637,21 @@ function sendMessageCallback() {
     var links = $('#linkInput').val().split('\n');
     var search = $('#searchInput').val().split('\n');
     let parsed_message = parseMessageForCheckBoxes(messageText);
+
+    var history_message_ids = []
+    $(".history-message-checkbox").each(function(){
+        var message_id = $(this).attr('message-id');
+        var checked = $(this).prop('checked');
+        if (checked){
+            history_message_ids.push(message_id);
+            // remove the checked
+            $(this).prop('checked', false);
+        }
+    });
+    if (history_message_ids.length > 0){
+        parsed_message['history_message_ids'] = history_message_ids;
+    }
+
     // messageText = parsed_message.text;
     var options = getOptions('chat-options', 'assistant');
     options = mergeOptions(parsed_message, options)

@@ -718,7 +718,7 @@ Write the extracted information concisely below:
 
         checkboxes = query["checkboxes"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
-        past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in query else []
+        past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
