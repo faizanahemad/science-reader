@@ -148,7 +148,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 response_message_id = part['message_ids']['response_message_id']
                 Array.from(card.find('.history-message-checkbox'))[0].setAttribute('message-id', response_message_id);
                 Array.from(card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${response_message_id}`);
-                last_card = $(card).prevAll('.card').last()
+                last_card = $(card).prevAll('.card').first()
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('message-id', user_message_id);
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${user_message_id}`);
             }
