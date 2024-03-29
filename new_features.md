@@ -1,28 +1,36 @@
 # Next
+- Speed up load time in chat by calling upvote downvote api only after the chat is loaded.
 - Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
-- Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox).
+  - /more command to read more of the search results. Or More button too.
+    - Should work if previous was a search, link read or doc reading or general message. But work differently for each.
+      - In case of plain messages, it should just go for reply module directly.
+- Remove history by past summary index since we use this mostly as a search tool.
+  - Use this only if infinite length message context is asked.
+- Hide Sidebar on load. [Done]
+- Allow to select any past message or ignore any past message for history (custom messages in history by a checkbox). [Done]
   - Clear current checkboxes once a message is sent by user.
   - Prioritize this over message length checkbox.
   - We use selected messages by running over all messages in chat and seeing if any is selected, if yes then we use this otherwise we don't.
 - Debug Login, Debug Websearch, convert word to pdf (convert_doc_to_pdf) as a call to convertapi.
 - Logging of stdout.
 - Stateless Chat for immediate uses. [Done] 
+  - Make initial chats stateless always and only make then stateful if user chooses to. This way no need to make a search tab. 
   - Make this as search tab. In this search is enabled by default and chats are stateless. [WIP]
 - Change websearch timing params to common configs.
 - Fix doc download [Done]
-- Make doc viewable within chat.
-- 
+- Make doc viewable within chat. [Done]
+- How do we do word doc and html link doc type for docs in chat? [Done]
 - On Mobile, given a pdf link or an arxiv link open in pdfjs viewer. Extra functionality since mobile forces pdf download.
-- Read link from message text itself.
+- Read link from message text itself. [Done]
 - /search_exact command to search for exact text.
-- Use brightdata for arxiv link.
+- Use brightdata for arxiv link. [Nope]
 - read_link better [Done]
 - Don't index docs below 20K tokens.
   - Do RAG prep only if doc is over 20K tokens.
 - Deprecate doc view and reviews.
-- Add sonnet, haiku and mistral medium to the list of final models.
+- Add sonnet, haiku and mistral medium to the list of final models. [Nope]
 - Use google gemini model more.
-- Upload image, do ocr, and then use the text in the image
+- Upload image, do ocr, and then use the text in the image [Nope]
 - Move to chat message api based system for past messages.
 - For Doc Qna, Create question and follow up question based on the document summary and then ask them in parallel. Use this in L4. [Nope] it will write too much.
 - For multi-doc do a criss cross two layer calling strategy. First call all docs and then call all docs again. Use this in L4 as well.
