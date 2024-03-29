@@ -268,7 +268,7 @@ def call_chat_model(model, text, temperature, system, keys):
             if "gpt" in model or "davinci" in model:
                 rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence"]:
+    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
         yield "\n Output truncated due to lack of context Length."
 
 
@@ -287,7 +287,7 @@ def call_non_chat_model(model, text, temperature, system, keys):
     )
     message = completions.choices[0].text
     finish_reason = completions.choices[0].finish_reason
-    if finish_reason.lower().strip() not in ["stop", "end_turn", "stop_sequence"]:
+    if finish_reason.lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
         message = message + "\n Output truncated due to lack of context Length."
     rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
     return message
@@ -1943,6 +1943,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
               expire=cache_timeout)
+    assert len(link.strip()) > 0, f"[process_link] Link is empty for title {title}"
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
@@ -1950,6 +1951,7 @@ from concurrent.futures import ThreadPoolExecutor
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    assert len(link.strip()) > 0, f"[download_link_data] Link is empty for title {title}"
     key = f"download_link_data-{str([link])}"
     key = str(mmh3.hash(key, signed=False))
     result = cache.get(key)
@@ -2156,6 +2158,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
     cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
               expire=cache_timeout)
+    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for title {title}"
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
 
@@ -2175,6 +2178,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     tex_len = len(extracted_info.split())
     time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
     assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short, input len = {input_len}, ( Output len = {tex_len} ) for link: {link}"
+    assert len(link.strip()) > 0, f"[get_downloaded_data_summary] Link is empty for title {title}"
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 
@@ -2194,6 +2198,7 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     text = pgc["text"]
     cache.set(key, {"link": link, "title": title, "detailed": detailed, "exception": False, "full_text": text},
               expire=cache_timeout)
+    assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
@@ -2209,7 +2214,11 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
 
     def call_back(result, *args, **kwargs):
         try:
-            link = args[0][0][0]
+            if result is not None and "link" in result and len(result["link"].strip()) > 0:
+                link = result['link']
+            else:
+                link = args[0][0]['link']
+            assert len(link.strip()) > 0, f"Empty input link in call_back"
         except:
             link = ''
         full_result = None
@@ -2249,6 +2258,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def fn2(*args, **kwargs):
         link_data = args[0]
         link = link_data["link"]
+        assert len(link.strip()) > 0, f"Empty input link in fn2"
         title = link_data["title"]
         text = link_data["full_text"]
         exception = link_data["exception"]
@@ -2264,6 +2274,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         if exists_tmp_marker_file(web_search_tmp_marker_name):
             link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
             summary = get_downloaded_data_summary(link_title_context_apikeys)
+            assert "link" in summary and len(summary["link"].strip()) > 0, f"Empty output link in summary"
             return summary
         else:
             raise Exception(f"fn2 Web search stopped for link: {link}")

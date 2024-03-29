@@ -838,7 +838,7 @@ Write the extracted information concisely below:
                 time.sleep(0.5)
 
             read_links = re.findall(pattern, link_result_text)
-            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
+            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in links]))
             if len(all_docs_info) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
@@ -927,6 +927,7 @@ Write the extracted information concisely below:
                 #     yield {"text": query_results + "\n", "status": "Reading web search results ... "}
             result_queue = web_results.result()[1]
             web_text_accumulator = []
+            web_results_seen_links = []
             qu_st = time.time()
             qu_mt = time.time()
             logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
@@ -949,6 +950,7 @@ Write the extracted information concisely below:
 
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append(one_web_result["text"])
+                    web_results_seen_links.append(one_web_result["link"])
                     logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                 time.sleep(0.5)
 
@@ -960,7 +962,7 @@ Write the extracted information concisely below:
             # Join the elements along with serial numbers.
             if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
 
-                first_stage_cut_off = 8 if provide_detailed_answers == 3 else 12
+                first_stage_cut_off = 8 if provide_detailed_answers <= 3 else 12
                 used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
                 full_web_string = ""
                 for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
@@ -970,7 +972,7 @@ Write the extracted information concisely below:
                         break
                 web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
-                read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
+                read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links]))
                 message_config["web_search_links_read"] = read_links
                 if len(read_links) > 0:
                     read_links = "\nWe read the below links:\n" + "\n".join(
@@ -1020,6 +1022,7 @@ Write the extracted information concisely below:
                         if one_web_result is not None and one_web_result != TERMINATION_SIGNAL:
                             if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                                 web_text_accumulator.append(one_web_result["text"])
+                                web_results_seen_links.append(one_web_result["link"])
                                 logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     answer += "</answer>\n"
                     yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
@@ -1047,6 +1050,7 @@ Write the extracted information concisely below:
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
+                        web_results_seen_links.append(one_web_result["link"])
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     time.sleep(0.5)
                 web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
@@ -1071,6 +1075,7 @@ Write the extracted information concisely below:
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
+                        web_results_seen_links.append(one_web_result["link"])
                         logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                         logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     time.sleep(0.5)
@@ -1088,7 +1093,7 @@ Write the extracted information concisely below:
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
             read_links = re.findall(pattern, web_text)
-            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
+            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links]))
             if "web_search_links_read" in message_config:
                 message_config["web_search_links_read"].extend(read_links)
             else:

@@ -1276,6 +1276,23 @@ def test_enhanced_robust_url_extraction():
     df_enhanced_robust.set_index("Pattern Name", inplace=True)
     print(df_enhanced_robust)
 
+import re
+
+def extract_url_from_mardown(text):
+    """
+    Extracts URLs from text where URLs are always enclosed within parentheses.
+
+    Args:
+        text (str): The input text.
+
+    Returns:
+        list: A list of extracted URLs.
+    """
+
+    pattern = r'\((https?://\S+)\)'  # Regular expression pattern
+    urls = re.findall(pattern, text)
+    return urls[0]
+
 
 
 
