@@ -611,6 +611,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         type==="assistant"?`${parentElementId}-${type}-use-google-scholar`:`${parentElementId}-${type}-use-references-and-citations-checkbox`,
         `${parentElementId}-${type}-perform-web-search-checkbox`,
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
+        `${parentElementId}-${type}-tell-me-more-checkbox`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     var checkboxOneText = type==="assistant"?"Scholar":"References and Citations";
@@ -626,6 +627,7 @@ function addOptions(parentElementId, type, activeDocId=null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
@@ -812,6 +814,7 @@ function getOptions(parentElementId, type) {
     values = {
         perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
         use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
+        tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
@@ -2371,7 +2374,16 @@ $(document).ready(function() {
         $('#messageText').focus();
         $("#chat-pdf-content").addClass('d-none');
         pdfTabIsActive();
-        toggleSidebar();
+        // toggleSidebar();
+        var otherSidebar = $('#doc-keys-sidebar');
+        var sidebar = $('#chat-assistant-sidebar');
+        sidebar.addClass('d-none');
+        otherSidebar.addClass('d-none');
+        var contentCol = $('#content-col');
+        contentCol.removeClass('col-md-10').addClass('col-md-12');
+        var contentCol = $('#chat-assistant');
+        contentCol.removeClass('col-md-10').addClass('col-md-12');
+        
 
     });
     

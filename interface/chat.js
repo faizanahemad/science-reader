@@ -191,6 +191,7 @@ function highLightActiveConversation(){
 }
 
 var ChatManager = {
+    shownDoc: null,
     listDocuments: function(conversationId) {
         return $.ajax({
             url: '/list_documents_by_conversation/' + conversationId,
@@ -372,8 +373,15 @@ var ChatManager = {
             });
 
             docButton.click(function() {
-                showPDF(doc.source, "chat-pdf-content");
-                $("#chat-pdf-content").removeClass('d-none');
+                if (ChatManager.shownDoc === doc.source) {
+                    $("#chat-pdf-content").removeClass('d-none');
+                } else {
+                    showPDF(doc.source, "chat-pdf-content");
+                    $("#chat-pdf-content").removeClass('d-none');
+                    // set shownDoc in ChatManager
+                    ChatManager.shownDoc = doc.source;
+                }
+                
             });
 
             
@@ -626,7 +634,8 @@ function sendMessageCallback() {
         return;
     }
     var messageText = $('#messageText').val();
-    if (messageText.trim().length == 0) {
+    var options = getOptions('chat-options', 'assistant');
+    if (messageText.trim().length == 0 && (options['tell_me_more']===false || options['tell_me_more']===undefined)) {
         return;
     }
     // Lets split the messageText and get word count and then check if word count > 1000 then raise alert
@@ -653,8 +662,10 @@ function sendMessageCallback() {
     }
 
     // messageText = parsed_message.text;
-    var options = getOptions('chat-options', 'assistant');
     options = mergeOptions(parsed_message, options)
+    if (options['tell_me_more'] && messageText.trim().length == 0){
+        messageText = 'Tell me more';
+    }
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
     const allFalse = booleanKeys.every(key => options[key] === false);
     if ((wordCount > 4000 && !allFalse) || (wordCount > 8000)) {
@@ -677,6 +688,41 @@ function sendMessageCallback() {
     var chatView = $('#chatView');
     chatView.scrollTop(chatView.prop('scrollHeight'));
 }
+
+function scrollToBottom() {
+    var $chatView = $('#chatView');
+    var $scrollToBottomBtn = $('#scrollToBottomBtn');
+
+    // Function to check the scroll position
+    function checkScroll() {
+        // Calculate the distance from the bottom
+        var scrollTop = $chatView.scrollTop();
+        var scrollHeight = $chatView.prop('scrollHeight');
+        var chatViewHeight = $chatView.innerHeight();
+        var distanceFromBottom = scrollHeight - (scrollTop + chatViewHeight);
+
+        // Show button if more than 90 pixels from the bottom, otherwise hide
+        if (distanceFromBottom > 400) {
+            $scrollToBottomBtn.show();
+        } else {
+            $scrollToBottomBtn.hide();
+        }
+    }
+
+    // Scroll event
+    $chatView.on('scroll', function () {
+        checkScroll();
+    });
+
+    // Click event for the button
+    $scrollToBottomBtn.click(function () {
+        $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
+    });
+
+    // Initial check in case the page is loaded in a scrolled state
+    checkScroll();
+}
+
 
 $(document).ready(function() {
     
@@ -749,6 +795,7 @@ $(document).ready(function() {
         $(this).text(newContent);
     });
     $(window).scrollTop(0);
+    scrollToBottom();
     // $('#toggleChatDocsView').click();
 })
 

@@ -473,7 +473,7 @@ Title of the conversation:
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
     @timer
-    def persist_current_turn(self, query, response, new_docs):
+    def persist_current_turn(self, query, response, config, new_docs):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
         messages = get_async_future(self.get_field, "messages")
@@ -494,7 +494,7 @@ Title of the conversation:
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
-             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id}]
+             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
         llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
@@ -560,7 +560,7 @@ Title of the conversation:
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
-    def get_uploaded_documents_for_query(self, query):
+    def get_uploaded_documents_for_query(self, query, replace_reference=True):
         attached_docs = re.findall(r'#doc_\d+', query["messageText"])
         attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
@@ -572,8 +572,9 @@ Title of the conversation:
             attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
             doc_infos = [d.title for d in attached_docs]
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
-            for i, d in enumerate(attached_docs_names):
-                query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
+            if replace_reference:
+                for i, d in enumerate(attached_docs_names):
+                    query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
         return query, attached_docs, attached_docs_names
 
     def get_prior_messages_summary(self, query:str)->str:
@@ -699,13 +700,6 @@ Write the extracted information concisely below:
         return final_preamble
 
     def reply(self, query):
-        # Get prior context
-        # Get document context
-        # TODO: plan and pre-critique
-        # TODO: post-critique and improve
-        # TODO: Use gpt-3.5-16K for longer contexts as needed.
-        # TODO: get prior messages and use gpt-3.5 16K for getting a good prior long context for current message. Do this asynchronously.
-        # query payload below, actual query is the messageText
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         get_async_future(self.create_deep_summary)
         pattern = r'\[.*?\]\(.*?\)'
@@ -720,6 +714,38 @@ Write the extracted information concisely below:
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
+        tell_me_more = False
+        previous_message_config = None
+        if "tell_me_more" in checkboxes and checkboxes["tell_me_more"]:
+            tell_me_more = True
+            query["messageText"] = query["messageText"] + "\n" + "Tell me more about what we discussed in our last message.\n"
+            enablePreviousMessages = max(2, 6 if enablePreviousMessages == "infinite" else int(enablePreviousMessages))
+            messages = self.get_field("messages")
+            if len(messages) >= 2:
+                last_message = messages[-1]
+                last_user_message = messages[-2]
+                assert "config" in last_message
+                previous_message_config = last_message["config"]
+                query["links"].extend(previous_message_config["links"])
+                if "use_attached_docs" in previous_message_config and previous_message_config["use_attached_docs"]:
+                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": previous_message_config["attached_docs_names"]}, False)
+                    _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
+                    attached_docs.extend(prev_attached_docs)
+                    attached_docs_names.extend(prev_attached_docs_names)
+                    query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
+                else:
+                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query,
+                                                                 {"messageText": last_user_message["text"]}, False)
+                    _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
+                    attached_docs.extend(prev_attached_docs)
+                    attached_docs_names.extend(prev_attached_docs_names)
+                    query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
+                if "link_context" in previous_message_config:
+                    previous_message_config["link_context"] = "\n" + previous_message_config["link_context"]
+                if "perform_web_search" in previous_message_config and previous_message_config["perform_web_search"]:
+                    checkboxes["perform_web_search"] = True
+                    previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
+        message_config = dict(**checkboxes)
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
         else:
@@ -727,17 +753,25 @@ Write the extracted information concisely below:
 
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         user_query = query['messageText']
-        link_context = previous_context + user_query
+        link_context = previous_context + user_query + (previous_message_config["link_context"] if tell_me_more else '')
+        message_config["link_context"] = link_context
+        if len(attached_docs) > 0:
+            message_config["use_attached_docs"] = True
+            message_config["attached_docs_names"] = attached_docs_names
+
         yield {"text": '', "status": "Getting prior chat context ..."}
         additional_docs_to_read = query["additional_docs_to_read"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         google_scholar = checkboxes["googleScholar"]
+        message_config["googleScholar"] = google_scholar
+        message_config["searches"] = searches
         original_user_query = user_query
-        from bs4 import BeautifulSoup
 
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+        message_config["perform_web_search"] = perform_web_search
         links_in_text = enhanced_robust_url_extractor(user_query)
         query['links'].extend(links_in_text)
+        message_config["links"] = query['links']
         links = list(set([l.strip() for l in query["links"] if
                  l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
 
@@ -753,9 +787,11 @@ Write the extracted information concisely below:
             create_tmp_marker_file(web_search_tmp_marker_name)
             logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
+            message_config["web_search_user_query"] = user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '')
+            previous_turn_results = dict(queries=previous_message_config["web_search_queries"], links=previous_message_config["web_search_links_unread"]) if tell_me_more else None
+            web_results = get_async_future(web_search_queue, user_query + (previous_message_config["web_search_user_query"] if tell_me_more else ''), 'helpful ai assistant',
                                            previous_context,
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches,
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
 
         if (provide_detailed_answers == 0 or provide_detailed_answers == 1) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
@@ -771,7 +807,7 @@ Write the extracted information concisely below:
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
-                                                        query["messageText"],
+                                                        query["messageText"] + (f"\nPreviously we talked about: \n'''{summary}'''\n" if tell_me_more else ''),
                                                         attached_docs,
                                                         summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers)),
@@ -825,7 +861,9 @@ Write the extracted information concisely below:
             if len(doc_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
-                yield {"text": '', "status": "document reading failed"}
+                yield {"text": 'document reading failed', "status": "document reading failed"}
+                time.sleep(3.0)
+
         conversation_docs_answer = ''
         if len(attached_docs) > 0:
             while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers)*5))):
@@ -837,7 +875,8 @@ Write the extracted information concisely below:
             if len(conversation_docs_answer) > 0:
                 yield {"text": '', "status": "document reading completed"}
             else:
-                yield {"text": '', "status": "document reading failed"}
+                yield {"text": 'document reading failed', "status": "document reading failed"}
+                time.sleep(3.0)
 
         prior_context = prior_context_future.result()
         previous_messages = prior_context["previous_messages"]
@@ -854,6 +893,7 @@ Write the extracted information concisely below:
                 yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
                 answer += "#### Web searched with Queries: \n"
                 queries = two_column_list(search_results['queries'])
+                message_config["web_search_queries"] = search_results['queries']
                 answer += (queries + "\n")
                 yield {"text": queries + "\n", "status": "displaying web search queries ... "}
 
@@ -931,6 +971,7 @@ Write the extracted information concisely below:
                 web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
                 read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
+                message_config["web_search_links_read"] = read_links
                 if len(read_links) > 0:
                     read_links = "\nWe read the below links:\n" + "\n".join(
                         [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
@@ -1048,6 +1089,10 @@ Write the extracted information concisely below:
             # web_text = "\n\n".join(web_text_accumulator)
             read_links = re.findall(pattern, web_text)
             read_links = list(set([link.strip() for link in read_links if len(link.strip())>0]))
+            if "web_search_links_read" in message_config:
+                message_config["web_search_links_read"].extend(read_links)
+            else:
+                message_config["web_search_links_read"] = read_links
             if len(read_links) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "web search completed"}
@@ -1060,7 +1105,7 @@ Write the extracted information concisely below:
             if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
-                get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
                 return
@@ -1072,7 +1117,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1082,7 +1127,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1093,14 +1138,14 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and provide_detailed_answers >= 3:
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1366,11 +1411,13 @@ Write the extracted information concisely below:
                 answer += "\n#### All Search Results: \n"
                 yield {"text": "\n#### All Search Results: \n", "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']} [{qr['count']}]</a>" for qr in full_results]
+                message_config["web_search_links_all"] = full_results
+                message_config["web_search_links_unread"] = sorted([qr for qr in full_results if qr["link"] not in message_config["web_search_links_read"]], key=lambda x: x["count"], reverse=True)
                 query_results = two_column_list(query_results)
                 answer += (query_results + "\n")
                 yield {"text": query_results + "\n", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, original_user_query, answer, full_doc_texts)
+        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, full_doc_texts)
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
 

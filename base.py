@@ -1819,8 +1819,24 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 
-def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None, gscholar=False, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
+def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None,
+                     previous_turn_search_results=None,
+                     gscholar=False, provide_detailed_answers=False,
+                     web_search_tmp_marker_name=None):
+    if previous_turn_search_results is None:
+        part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
+    else:
+        def get_pseudo_results():
+            queries = previous_turn_search_results["queries"]
+            yield {"type": "query", "query": queries, "query_type": "web_search_part1", "year_month": year_month,
+                   "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
+            for idx, r in enumerate(previous_turn_search_results["links"]):
+                yield {"query": random.choice(queries), "title": r["title"], "link": r["link"], "context": context, "type": "result",
+                       "rank": idx, "start_time": time.time()}
+            yield {"type": "end", "query": queries, "query_type": "web_search_part1", "year_month": year_month,
+                   "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers,
+                   "full_results": previous_turn_search_results["links"]}
+        part1_res = get_async_future(get_pseudo_results)
     gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
     read_queue = queued_read_over_multiple_links(gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
                                                  web_search_tmp_marker_name=web_search_tmp_marker_name)

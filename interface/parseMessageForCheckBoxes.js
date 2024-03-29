@@ -20,6 +20,7 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/detailed\s+(\d+)/i, "provide_detailed_answers");
     processCommand(/\/scholar\b/i, "googleScholar", true);
     processCommand(/\/search\b/i, "perform_web_search", true);
+    processCommand(/\/more\b/i, "tell_me_more", true);
 
     // Handle commands without numbers specifically, to ensure no leftover words like "then_no_number"
     processedText = processedText.replace(/\/history\b/i, "").replace(/\/detailed\b/i, "");

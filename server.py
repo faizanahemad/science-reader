@@ -1276,6 +1276,7 @@ def send_message(conversation_id):
     additional_params: dict = query["checkboxes"]
     additional_docs_to_read = additional_params.get("additional_docs_to_read", [])
     additional_docs_to_read = list(set(additional_docs_to_read))
+    additional_params["additional_docs_to_read"] = additional_docs_to_read
     use_multiple_docs = additional_params.get("use_multiple_docs", False) and isinstance(additional_docs_to_read,
                                                                                          (tuple, list)) and len(
         additional_docs_to_read) > 0
