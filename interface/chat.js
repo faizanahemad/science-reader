@@ -453,11 +453,15 @@ var ChatManager = {
             // messageElement.addClass('ml-md-auto');  // For right alignment
             messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
             if (message.text.trim().length > 0) {
-                initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting=true);
+                setTimeout(function(){
+                    initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting=true);
+                }, 1000);
             }
           } else {
             if (message.text.trim().length > 0) {
-                initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+                setTimeout(function () {
+                    initialiseVoteBank(messageElement, message.text, contentId=message.message_id, activeDocId=ConversationManager.activeConversationId);
+                }, 1000);
             }
             // messageElement.addClass('mr-md-auto');  // For left alignment
             messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue

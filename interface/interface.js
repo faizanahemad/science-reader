@@ -355,9 +355,10 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             });
         });
     });
-
-    updateVoteCount();
-    checkUserVote();
+    setTimeout(function () {
+        updateVoteCount();
+        checkUserVote();
+    }, 8000);
 }
 const markdownParser = new marked.Renderer();
 marked.setOptions({
@@ -1697,7 +1698,10 @@ $(document).ready(function() {
                 
                 if (autoselect){
                     if (firstDoc) {
-                        setActiveDoc(activeDocId|| doc.doc_id);
+                        firstDocId = activeDocId || doc.doc_id
+                        setTimeout(function () {
+                            setActiveDoc(firstDocId);
+                        }, 5000);
                         firstDoc = false;
                     }
                 }

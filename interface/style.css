@@ -352,7 +352,11 @@ textarea.form-control.dynamic-textarea {
 
 #loader {
     position: fixed;
-    left: 0%;
+    /* left: 50%; */
+    left: 0% !important;
+    /* padding-left: 40vh; */
+    padding-top: 20vh;
+    /* transform: translateX(-50%); */
     top: 0% !important;
     width: 100%;
     height: 100% !important;
@@ -361,6 +365,11 @@ textarea.form-control.dynamic-textarea {
     align-items: center;
     justify-content: center;
     /* background: url('loader.gif') 50% 50% no-repeat white; replace 'loader.gif' with your loader image */
+}
+
+.spinner-border-loader {
+    width: 10rem;
+    height: 10rem;
 }
 
 .toggle-handle { 

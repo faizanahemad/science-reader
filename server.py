@@ -213,6 +213,14 @@ def getAllCoversations():
     conn.close()
     return rows
 
+def getConversationById(conversation_id):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM UserToConversationId WHERE conversation_id=?", (conversation_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
 def addUpvoteOrDownvote(user_email, question_id, doc_id, upvote, downvote):
     assert not checkNoneOrEmpty(question_id)
     assert not checkNoneOrEmpty(user_email)
@@ -1111,8 +1119,8 @@ def list_documents_by_conversation(conversation_id):
 def download_doc_from_conversation(conversation_id, doc_id):
     keys = keyParser(session)
     conversation: Conversation = conversation_cache[conversation_id]
-    conversation = set_keys_on_docs(conversation, keys)
     if conversation:
+        conversation = set_keys_on_docs(conversation, keys)
         doc:DocIndex = conversation.get_uploaded_documents(doc_id, readonly=True)[0]
         if doc and os.path.exists(doc.doc_source):
             file_dir, file_name = os.path.split(doc.doc_source)
@@ -1215,6 +1223,7 @@ def create_conversation_simple(session):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     from base import get_embedding_model
+    # str(mmh3.hash(email, signed=False))
     conversation_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(36))
     conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,
                                 conversation_id=conversation_id)
@@ -1222,6 +1231,21 @@ def create_conversation_simple(session):
     addConversationToUser(email, conversation.conversation_id)
     return conversation
 
+@app.route('/shared_chat/<conversation_id>', methods=['GET'])
+@limiter.limit("100 per minute")
+def shared_chat(conversation_id):
+    conversation_ids = [c[1] for c in getConversationById(conversation_id)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+    data = conversation.get_metadata()
+    messages = conversation.get_message_list()
+    if conversation:
+        docs: List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
+        docs = [d.get_short_info() for d in docs]
+        return jsonify({"messages": messages, "docs": docs, "metadata": data})
+    return jsonify({"messages": messages, "metadata": data})
 
 @app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
 @limiter.limit("1000 per minute")
@@ -1390,79 +1414,6 @@ def delete_last_message(conversation_id):
     conversation.delete_last_turn()
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
-
-
-@app.route('/web_search', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def web_search():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    query = request.json.get("query")
-    context = request.json.get("context")
-    research = request.json.get("research")
-    return jsonify({"error": "No query provided"}), 400
-
-@app.route('/web_search_specific_query', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def web_search_specific_query():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    query = request.json.get("query")
-    context = request.json.get("context")
-    research = request.json.get("research")
-    return jsonify({"error": "No query provided"}), 400
-
-# Next we build - get_link_text, get_link_text_and_summary_and_title, get_link_summary_and_title, get_link_summary, get_link_title, ask_question_to_link_with_context
-@app.route('/get_link_text', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def get_link_text():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    link = request.json.get("link")
-    return jsonify({"error": "No query provided"}), 400
-
-@app.route('/get_link_summary_and_title', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def get_link_summary_and_title():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    link = request.json.get("link")
-    return jsonify({"error": "No query provided"}), 400
-
-@app.route('/get_link_text_and_summary_and_title', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def get_link_text_and_summary_and_title():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    link = request.json.get("link")
-    return jsonify({"error": "No query provided"}), 400
-
-@app.route('/ask_question_to_link_with_context', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def ask_question_to_link_with_context():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    link = request.json.get("link")
-    query = request.json.get("question")
-    context = request.json.get("context")
-    return jsonify({"error": "No query provided"}), 400
-
-@app.route('/ask_question_to_multiple_link_with_context', methods=['POST'])
-@limiter.limit("30 per minute")
-@login_required
-def ask_question_to_multiple_link_with_context():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    links = request.json.get("links")
-    query = request.json.get("question")
-    context = request.json.get("context")
-    return jsonify({"error": "No query provided"}), 400
 
 # Next we build - create_session,
 # Within session the below API can be used - create_document_from_link, create_document_from_link_and_ask_question, list_created_documents, delete_created_document, get_created_document_details
