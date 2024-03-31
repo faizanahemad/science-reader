@@ -323,6 +323,7 @@ def keyParser(session):
         "tgiSmallModelUrl": os.getenv("tgiSmallModelUrl", ''),
         "embeddingsUrl": os.getenv("embeddingsUrl", ''),
         "zenrows": os.getenv("zenrows", ''),
+        "scrapingant": os.getenv("scrapingant", ''),
         "brightdataUrl": os.getenv("brightdataUrl", ''),
         "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", ''),
         "LOGIN_BEARER_AUTH": os.getenv("LOGIN_BEARER_AUTH", ''),

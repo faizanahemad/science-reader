@@ -415,7 +415,7 @@ class Conversation:
 
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
-        if len(memory["running_summary"]) > 4 and required_message_lookback > 4:
+        if len(memory["running_summary"]) > 4 and required_message_lookback > 6:
             summary_nodes = get_async_future(indices["summary_index"].similarity_search, query, k=6)
             st_retr = time.time()
             got_summary_nodes = False
@@ -1340,7 +1340,7 @@ Write the extracted information concisely below:
             model_name = "google/gemini-pro"
         else:
             model_name = None
-        yield {"text": f"Using model = {model_name}", "status": "starting answer generation"}
+        yield {"text": f"", "status": "starting answer generation"}
 
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")

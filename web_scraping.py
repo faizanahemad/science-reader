@@ -107,8 +107,6 @@ remove_script_tags = """
 const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
 """.strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,3e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
 
-new_script = "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,500))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,500)}(),function e(){if('undefined'!=typeof Readability){const e=document.getElementsByTagName('body')[0],n=e.innerHTML;e.innerHTML='';try{var t=new Readability(document).parse();if(t.textContent.split(' ').length<200)return void(e.innerHTML=n);const i=document.createElement('div');i.id='custom_content';const a=document.createElement('div');a.id='title',a.textContent=t.title;const c=document.createElement('div');return c.id='textContent',c.textContent=t.textContent,i.appendChild(a),i.appendChild(c),e.appendChild(i),t}catch(t){e.innerHTML=n}}setTimeout(e,2e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
-
 def send_request_bee(url, apikey):
     js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
          remove_script_tags + '"}]}'
@@ -179,93 +177,94 @@ def send_request_zenrows_shim(url, apikey):
 
 
     
+def send_request_ant_html(url, apikey, readability=True):
+    add_readability_for_ant = '''
+    const body = document.getElementsByTagName('body')[0];
+    const helloDiv = document.createElement('div');
+    var script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+    document.head.appendChild(script);
+    await new Promise(r => setTimeout(r, 500));
 
 
-def send_request_ant(url, apikey):
-    
-    add_readability_to_selenium = '''
-const body = document.getElementsByTagName('body')[0];
-const helloDiv = document.createElement('div');
-var script = document.createElement('script');
-script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-document.head.appendChild(script);
-await new Promise(r => setTimeout(r, 2000));
-
-
-function myFunction() {
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-        var script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-        document.head.appendChild(script);
-    } else {
-        setTimeout(myFunction, 1000);
+    function myFunction() {
+        if (document.readyState === 'interactive' || document.readyState === 'complete') {
+            var script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+            document.head.appendChild(script);
+        } else {
+            setTimeout(myFunction, 500);
+        }
     }
-}
-myFunction();
+    myFunction();
 
-function myReadable() {
-    if (typeof(Readability) !== 'undefined') {
-        var myDict = new Readability(document).parse();
-        const body = document.getElementsByTagName('body')[0];
-        body.innerHTML = '';
+    function myReadable() {
+        if (typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')) {
+            var myDict = new Readability(document).parse();
+            const body = document.getElementsByTagName('body')[0];
+            body.innerHTML = '';
 
-        const customContentDiv = document.createElement('div');
-        customContentDiv.id = 'custom_content';
+            const customContentDiv = document.createElement('div');
+            customContentDiv.id = 'custom_content';
 
-        const titleDiv = document.createElement('div');
-        titleDiv.id = 'title';
-        titleDiv.textContent = myDict.title;
+            const titleDiv = document.createElement('div');
+            titleDiv.id = 'title';
+            titleDiv.textContent = myDict.title;
 
-        const textContentDiv = document.createElement('div');
-        textContentDiv.id = 'textContent';
-        textContentDiv.textContent = myDict.textContent;
+            const textContentDiv = document.createElement('div');
+            textContentDiv.id = 'textContent';
+            textContentDiv.textContent = myDict.textContent;
 
-        customContentDiv.appendChild(titleDiv);
-        customContentDiv.appendChild(textContentDiv);
+            customContentDiv.appendChild(titleDiv);
+            customContentDiv.appendChild(textContentDiv);
 
-        body.appendChild(customContentDiv);
-        return myDict;
-    } else {
-        setTimeout(myReadable, 2000);
+            body.appendChild(customContentDiv);
+            return myDict;
+        } else {
+            setTimeout(myReadable, 2000);
+        }
     }
-}
-myReadable();
-'''
-
+    myReadable();
+    '''
 
     remove_script_tags = """
-// Select all script elements inside the body
-const scriptElements = document.querySelectorAll('body script');
+    // Select all script elements inside the body
+    const scriptElements = document.querySelectorAll('body script');
 
-// Remove each script element
-scriptElements.forEach(scriptElement => {
-  scriptElement.remove();
-});
-const iframeElements = document.querySelectorAll('body iframe');
+    // Remove each script element
+    scriptElements.forEach(scriptElement => {
+      scriptElement.remove();
+    });
+    const iframeElements = document.querySelectorAll('body iframe');
 
-// Remove each iframe element
-iframeElements.forEach(iframeElement => {
-  iframeElement.remove();
-});
+    // Remove each iframe element
+    iframeElements.forEach(iframeElement => {
+      iframeElement.remove();
+    });
 
-""" + add_readability_to_selenium
-    
-    url = urllib.parse.quote(url)
+    """ + (add_readability_for_ant if readability else "")
     rst = base64.b64encode(remove_script_tags.encode()).decode()
-    st = time.time()
-    conn = http.client.HTTPSConnection("api.scrapingant.com")
-    conn.request("GET", f"/v2/general?url={url}&x-api-key={apikey}&proxy_country=US&wait_for_selector=body&js_snippet="+rst)
-
-    res = conn.getresponse()
-    if res.status != 200:
-        raise Exception(
-            f"Error in ant with status code {res.status}")
-    data = res.read()
-    html_content = data.decode("utf-8")
-    et = time.time() - st
-    logger.info(" ".join(['send_request_ant ', str(et), "\n", html_content[-100:]]))
-    return soup_parser(html_content)
-
+    ant_url = "https://api.scrapingant.com/v2/general"
+    params = {
+        'url': url,
+        'x-api-key': apikey,
+        'proxy_country': 'US',
+        'wait_for_selector': 'body',
+        'return_page_source': 'true',
+        'js_snippet': rst
+    }
+    response = requests.get(ant_url, params=params)
+    if response.status_code != 200:
+        error_decode = json.loads(response.text)
+        detected = error_decode["detail"].startswith("Our browser was detected by target site.")
+        if detected:
+            params['proxy_type'] = 'residential'
+            response = requests.get(url, params=params)
+        if response.status_code != 200:
+            error_details = response.text
+            raise Exception(
+                f"Error in ant with status code {response.status_code} and error details {error_details}")
+    return response.text
 
 
 user_agents = [
@@ -566,8 +565,11 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     #     html = remove_script_tags_from_html(html)
     return html
 
-def send_request_zenrows(url, apikey):
-    html = send_request_zenrows_html(url, apikey)
+def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=True):
+    if zenrows_or_ant == 'zenrows':
+        html = send_request_zenrows_html(url, apikey, readability)
+    elif zenrows_or_ant == 'ant':
+        html = send_request_ant_html(url, apikey, readability)
     result = get_async_future(soup_parser, html)
     # local_result = get_async_future(local_browser_reader, html)
     soup_html_parser_result = get_async_future(soup_html_parser, html)
@@ -665,19 +667,30 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     #     bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
     # else:
     #     bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
-    zenrows_service_result = get_async_future(send_request_zenrows, link, apikeys['zenrows'])
-    embedding_model = get_embedding_model(apikeys)
-    query_embeddings_future = get_async_future(embedding_model.embed_query, context)
+    if "zenrows" in apikeys:
+        zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
+    else:
+        zenrows_service_result = None
+
+    if "scrapingant" in apikeys:
+        ant_service_result = get_async_future(send_request_for_webpage, link, apikeys['scrapingant'], zenrows_or_ant='ant', readability=False)
+    else:
+        ant_service_result = None
+
+    # embedding_model = get_embedding_model(apikeys)
+    # query_embeddings_future = get_async_future(embedding_model.embed_query, context)
+
     # Also add bright data cdp fetch as a backup.
     result_from = "None"
     brightdata_exception = False
     zenrows_exception = False
+    ant_exception = False
     bright_data_playwright_exception = False
     bright_data_selenium_exception = False
     # TODO: Change timeout based on whether it is a single page link read or multiple pages.
     # TODO: use the cache module with a lock based on url to ensure error is noted and attempts + success rates are noted.
     while time.time() - st < 75 and exists_tmp_marker_file(web_search_tmp_marker_name):
-        if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception:
+        if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception and ant_exception:
             break
         # if zenrows_exception and brightdata_exception:
         #     if random.random() <= 0.5:
@@ -692,6 +705,15 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
                 break
             elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 zenrows_exception = True
+
+        if ant_service_result is not None and ant_service_result.done() and ant_service_result.exception() is None and not ant_exception and time.time() - st >= 10:
+            result = ant_service_result.result()
+            result_from = "ant_tentative"
+            if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+                result_from = "ant"
+                break
+            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+                ant_exception = True
 
         # if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
         #     result = bright_data_playwright_result.result()
@@ -711,7 +733,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         #     elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
         #         bright_data_selenium_exception = True
 
-        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 20:
+        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 23:
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
             # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
@@ -756,7 +778,34 @@ if __name__=="__main__":
     # print(result)
     # result = fetch_content_brightdata("https://platform.openai.com/docs/guides/images/usage", "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225")
     # print(result)
-    result = web_scrape_page("https://towardsdatascience.com/clothes-classification-with-the-deepfashion-dataset-and-fast-ai-1e174cbf0cdc", '',
-                             {"brightdataUrl": "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225",
-                              "zenrows": "0e1c6def95eadc85bf9eff4798f311231caca6b3"})
-    print(result)
+    # result = web_scrape_page("https://docs.scrapingant.com/captcha-and-cloudflare", '',
+    #                          {"brightdataUrl": "http://brd-customer-hl_f6ac9ba2-zone-unblocker:39vo949l2tfh@brd.superproxy.io:22225",
+    #                           # "zenrows": "XXX"
+    #                           })
+    # print(result)
+    st = time.time()
+    res = send_request_for_webpage("https://docs.scrapingant.com/captcha-and-cloudflare", "XXX", zenrows_or_ant='ant')
+    print(len(res['text'].strip().split()))
+    et = time.time() - st
+    print(f"Ant Time = {et:.2f}")
+
+    st = time.time()
+    res = send_request_for_webpage("https://docs.scrapingant.com/captcha-and-cloudflare",
+                                   "XXX", zenrows_or_ant='ant', readability=False)
+    print(len(res['text'].strip().split()))
+    et = time.time() - st
+    print(f"Ant Time = {et:.2f}")
+
+
+    st = time.time()
+    res = send_request_for_webpage("https://docs.scrapingant.com/captcha-and-cloudflare", "XXX", zenrows_or_ant='zenrows')
+    print(len(res['text'].strip().split()))
+    et = time.time() - st
+    print(f"Zenrows Time = {et:.2f}")
+
+    st = time.time()
+    res = send_request_for_webpage("https://docs.scrapingant.com/captcha-and-cloudflare",
+                                   "XXX", zenrows_or_ant='zenrows', readability=False)
+    print(len(res['text'].strip().split()))
+    et = time.time() - st
+    print(f"Zenrows Time = {et:.2f}")

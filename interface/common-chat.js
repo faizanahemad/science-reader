@@ -53,13 +53,18 @@ var ConversationManager = {
         });
     },
 
-    statefulConversation: function (conversationId) {
+    statefulConversation: function (conversationId, copy_model_or_state_modal = true) {
         return $.ajax({
             url: '/make_conversation_stateful/' + conversationId,
             type: 'PUT',
             success: function (result) {
                 // show a small modal that conversation is now stateless and will be deleted on next reload
-                $('#stateful-conversation-modal').modal('show');
+                if (copy_model_or_state_modal) {
+                    $('#stateful-conversation-modal').modal('show');
+                } else {
+                    $('#clipboard-modal').modal('show');
+                }
+                
             },
             error: function (result) {
                 alert('Error: ' + result.responseText);
@@ -239,6 +244,7 @@ var ChatManager = {
             window.open('/shared/' + conversationId, '_blank');
             var domainURL = window.location.protocol + "//" + window.location.hostname + (window.location.port ? ':' + window.location.port : '');  
             copyToClipboard(null, domainURL + '/shared/' + conversationId, "text");
+            ConversationManager.statefulConversation(conversationId, false);
         });
     },
     setupAddDocumentForm: function (conversationId) {
