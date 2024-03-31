@@ -415,7 +415,7 @@ class Conversation:
 
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
-        if len(memory["running_summary"]) > 4:
+        if len(memory["running_summary"]) > 4 and required_message_lookback > 4:
             summary_nodes = get_async_future(indices["summary_index"].similarity_search, query, k=6)
             st_retr = time.time()
             got_summary_nodes = False

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.7.2/styles/default.min.css">
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.7.2/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
+<!--     <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script> -->
+    <script src="https://mozilla.github.io/pdf.js/build/pdf.js"></script>
+
+
+
+    <!-- Include DataTables CSS -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.10.25/datatables.min.css"/>
+
+    <!-- Include DataTables JS -->
+    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.10.25/datatables.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js" integrity="sha512-uto9mlQzrs59VwILcLiRYeLKPPbS/bT71da/OEBYEwcdNUk8jYIy+D176RYoop1Da+f9mvkYrmj5MCLZWEtQuA==" crossorigin="anonymous"></script>
+    <script type="text/x-mathjax-config">
+        MathJax.Hub.Config({
+          tex2jax: {
+            inlineMath: [['$', '$'], ['$ ', ' $'], ['$$ ', ' $$'], ['$$', '$$'], ['\\(', '\\)']],
+            processEscapes: true
+          }
+        });
+    </script>
+    <script type="text/javascript">
+        <!-- window.location.assign('/interface'); -->
+    </script>
+
+    <!-- Bootstrap CSS -->
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/css/bootstrap.min.css" integrity="sha512-rt/SrQ4UNIaGfDyEXZtNcyWvQeOq0QLygHluFQcSjaGB04IxWhal71tKuzP6K8eYXYB6vJV4pHkXcmFGGQ1/0w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/js/bootstrap.bundle.min.js" integrity="sha512-igl8WEUuas9k5dtnhKqyyld6TzzRjvMqLC79jkgT3z02FvJyHAuUtyemm/P/jYSne1xwFI06ezQxEwweaiV7VA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/interface/style.css">
+
+    <title>Shared Chat</title>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+    <link href="https://gitcdn.github.io/bootstrap-toggle/2.2.2/css/bootstrap-toggle.min.css" rel="stylesheet">
+    <script src="https://gitcdn.github.io/bootstrap-toggle/2.2.2/js/bootstrap-toggle.min.js"></script>
+    <script src="/interface/common.js"></script>
+    <script src="/interface/common-chat.js"></script>
+    <script src="/interface/shared.js"></script>
+
+    <div class="container-fluid">
+        <div class="row scrolling-row">
+          <ul class="nav nav-tabs" id="pdf-details-tab" role="tablist">
+            <li class="nav-item">
+                <a class="nav-link" id="assistant-tab" href="#assistant-view" data-toggle="tab" role="tab">Chat</a>
+            </li>
+          </ul>
+          <div id="navbar-trigger" style="height: 5px;"></div>
+        </div>
+        <div id="chat-pdf-content" style="height: calc(100% - 30px); max-height: calc(100vh - 30px);" class="d-none row scrolling-row">
+          <!-- Add a close button to the side of iframe -->
+          <iframe id="pdfjs-viewer" src="/interface/pdf.js/web/viewer.html" data-original-src="/interface/pdf.js/web/viewer.html" width="100%" height="100%" allowfullscreen webkitallowfullscreen></iframe>
+          <!-- PDF will be displayed here -->
+          <div id="progress" style="display: none;">
+              <div id="progressbar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
+          </div>
+          <span id="progress-status"></span>
+        </div>
+        <div id="chat-content" class="row scrolling-row" style="height: calc(100% - 30px); max-height: calc(100vh - 30px);">
+            <div class="col-md-12" id="content-col">
+                <div id="chat-assistant-view" class="container-fluid" style="padding-left: 2px; padding-top: 2px;">
+                  <div class="tab-content">
+                    <div class="tab-pane fade show active" id="assistant-view" role="tabpanel">
+                      <div class="row scrolling-row">
+                        <div class="col-md-3 sidebar sticky-top scrollable-sidebar d-none d-lg-block" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
+                            <!-- Sidebar -->
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <h5 class="mb-0">Chat Summary</h5> <!-- Added class mb-0 to remove default bottom margin -->
+                            </div>
+                            <div id="conversations" class="list-group" style="margin-top: 10px;">
+                                <!-- Conversations will be dynamically populated here -->
+                            </div>
+                        </div>
+                        <div class="col-md-9" id="chat-assistant">
+                          <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
+                              <div class="row d-md-none">
+                                  <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill d-md-none">
+                                    ▼
+                                  </button>
+                              </div>
+                              <div id="chat-doc-view" class="row d-none d-md-flex">
+                                  <!-- Chat Docs will be populated here -->
+                                  <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
+                                  <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
+                                  
+
+                              </div>
+                              <div id="chatView" class="row flex-grow-1 overflow-auto">
+                                  <!-- Chat messages will be dynamically populated here -->
+                              </div>
+                              <button id="scrollToBottomBtn" class="btn btn-sm btn-outline-primary" style="opacity: 0.8; display:none; position: fixed; bottom: 80px;left: 50%;transform: translateX(-50%); z-index: 100;">▼</button>
+                              
+                          </div>
+                        </div>
+                      
+                      
+                      
+                      
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                
+                
+            </div>
+        </div>
+        
+    </div>
+
+</body>
+
+</html>

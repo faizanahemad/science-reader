@@ -234,8 +234,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    width: 100px;
-    margin-right: 5px;
+    /* width: 100px; */
+    /* margin-right: 5px; */
 }
 
 .vote-btn {

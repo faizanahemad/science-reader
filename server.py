@@ -960,7 +960,7 @@ def get_fixed_details():
 
 
     
-from flask import send_from_directory
+from flask import send_from_directory, send_file
 
 @app.route('/favicon.ico')
 @limiter.limit("30 per minute")
@@ -985,11 +985,36 @@ def send_static(path):
 def interface():
     return send_from_directory('interface', 'interface.html', max_age=0)
 
+
+# Path to your shared.html file
+html_file_path = os.path.join('interface', 'shared.html')
+
+# Read the HTML file
+with open(html_file_path, 'r', encoding='utf-8') as file:
+    html_content = file.read()
+
+@app.route('/shared/<conversation_id>')
+@limiter.limit("20 per minute")
+def shared(conversation_id):
+    # Insert the <div> element before the closing </body> tag
+    div_element = f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
+    modified_html = html_content.replace('</body>', f'{div_element}</body>')
+
+    # Return the modified HTML content
+    return Response(modified_html, mimetype='text/html')
+
+
 from flask import Response, stream_with_context
 
 @app.route('/proxy', methods=['GET'])
 @login_required
 def proxy():
+    file_url = request.args.get('file')
+    logger.debug(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url)}")
+    return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
+
+@app.route('/proxy_shared', methods=['GET'])
+def proxy_shared():
     file_url = request.args.get('file')
     logger.debug(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url)}")
     return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
@@ -1244,8 +1269,11 @@ def shared_chat(conversation_id):
     if conversation:
         docs: List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
         docs = [d.get_short_info() for d in docs]
-        return jsonify({"messages": messages, "docs": docs, "metadata": data})
-    return jsonify({"messages": messages, "metadata": data})
+        return jsonify({"messages": messages, "documents": docs, "metadata": data})
+    return jsonify({"messages": messages, "metadata": data, "documents": []})
+
+
+
 
 @app.route('/list_messages_by_conversation/<conversation_id>', methods=['GET'])
 @limiter.limit("1000 per minute")
