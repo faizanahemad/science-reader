@@ -628,9 +628,10 @@ Extract and copy relevant information verbatim from the above conversation messa
 Write the extracted information concisely below:
 """
         # final_information = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(prompt, temperature=0.2, stream=False)
-        final_information = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False,
                                 use_16k=False)(prompt, temperature=0.2, stream=False)
         # We return a string
+        final_information = " ".join(final_information.split()[:2000])
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
@@ -778,7 +779,7 @@ Write the extracted information concisely below:
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=2 and len(past_message_ids) == 0:
+                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             message_lookback = min(4, message_lookback)
         web_search_tmp_marker_name = None
@@ -794,7 +795,7 @@ Write the extracted information concisely below:
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
 
-        if (provide_detailed_answers == 0 or provide_detailed_answers == 1) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
             searches) == 0):
             provide_detailed_answers = 2
         # raw_documents_index = self.get_field("raw_documents_index")
@@ -804,6 +805,9 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
 
+        provide_raw_text = (len(links) + len(attached_docs) + len(additional_docs_to_read)) <= 3 and provide_detailed_answers <= 3 and not (
+                    google_scholar or perform_web_search) and unchanged_message_lookback <= 8
+        raw_text_length = 32_000
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
@@ -811,8 +815,8 @@ Write the extracted information concisely below:
                                                         attached_docs,
                                                         summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers)),
-                                                        False,
-                                                        True)
+                                                        provide_raw_text=provide_raw_text,
+                                                        dont_join_answers=True)
         doc_answer = ''
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
@@ -821,10 +825,16 @@ Write the extracted information concisely below:
                                           additional_docs_to_read,
                                           summary if message_lookback >= 0 else '',
                                           max(0, int(provide_detailed_answers)),
-                                          False)
+                                          provide_raw_text=provide_raw_text,
+                                          dont_join_answers=False)
         web_text = ''
         prior_context_future = get_async_future(self.retrieve_prior_context,
             query["messageText"], links=links if len(links) > 0 else None, past_message_ids=past_message_ids, required_message_lookback=unchanged_message_lookback)
+        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+        if provide_detailed_answers >= 3 and "Short reply" not in preambles:
+            preambles.append("Long reply")
+        preamble = self.get_preamble(preambles,
+                                     checkboxes["field"] if "field" in checkboxes else None)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -1305,14 +1315,16 @@ Write the extracted information concisely below:
 
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
-        while time.time() - wt_prior_ctx < 30 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 break
             time.sleep(0.5)
-        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f}")
-
         summary_text = prior_chat_summary + "\n" + summary_text
+        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
+
+
+
         yield {"text": '', "status": "Preparing prompt context ..."}
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
         partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
@@ -1345,7 +1357,10 @@ Write the extracted information concisely below:
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
 
-        if probable_prompt_length < 48000 and (model_name is None or not model_name.startswith("mistralai")):
+        if probable_prompt_length < 90000 and (model_name is None or not model_name.startswith("mistralai")):
+            previous_messages = previous_messages_very_long
+            truncate_text = truncate_text_for_gpt4_96k
+        elif probable_prompt_length < 48000 and (model_name is None or not model_name.startswith("mistralai")):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_64k
         elif probable_prompt_length < 28000 and (model_name is None or not model_name.startswith("mistralai")):
@@ -1361,6 +1376,8 @@ Write the extracted information concisely below:
         web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
             web_text, doc_answer, link_result_text, summary_text, previous_messages,
             conversation_docs_answer)
+        time_logger.info(
+            f"Time to wait before preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
         yield {"text": '', "status": "Preparing prompt ..."}
         permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes and len(checkboxes["permanentText"].strip()) > 0 else ""
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
@@ -1372,10 +1389,12 @@ Write the extracted information concisely below:
                                                        conversation_docs_answer=conversation_docs_answer)
 
         prompt = remove_bad_whitespaces_easy(prompt)
+        time_logger.info(
+            f"Time to wait till after preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
         # Lets log all things that went into making the prompt.
         # logger.info(f"query: {query['messageText']}")
         # logger.info(f"summary_text: {summary_text}")
-        logger.info(f"previous_messages: {previous_messages}")
+        # logger.info(f"previous_messages: {previous_messages}")
         # logger.info(f"permanent_instructions: {permanent_instructions}")
         # logger.info(f"doc_answer: {doc_answer}")
         # logger.info(f"web_text: {web_text}")
@@ -1383,8 +1402,10 @@ Write the extracted information concisely below:
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-        preamble = self.get_preamble(checkboxes["preamble_options"] if "preamble_options" in checkboxes else [], checkboxes["field"] if "field" in checkboxes else None)
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
+        t2y = next(main_ans_gen)
+        yield {"text": t2y, "status": "answering in progress"}
+        answer += t2y
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
         last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, 
@@ -1509,20 +1530,22 @@ def format_llm_inputs(web_text, doc_answer, link_result_text, summary_text, prev
 
 
 def get_probable_prompt_length(messageText, web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text):
-    link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_64k(
-        link_result_text, web_text, doc_answer, summary_text, previous_messages,
-        messageText, conversation_docs_answer)
-    web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-        web_text, doc_answer, link_result_text, summary_text, previous_messages,
-        conversation_docs_answer)
-    prompt = prompts.chat_slow_reply_prompt.format(query=messageText,
-                                                   summary_text=summary_text,
-                                                   previous_messages=previous_messages,
-                                                   permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Write your reasoning and approach in short before writing your answer.\n\n" + str(partial_answer_text),
-                                                   doc_answer=doc_answer, web_text=web_text,
-                                                   link_result_text=link_result_text,
-                                                   conversation_docs_answer=conversation_docs_answer)
-    return len(enc.encode(prompt))
+    text = " ".join([remove_bad_whitespaces_easy(x) for x in [messageText, web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text]])
+    return int(1.25 * len(text.split()))
+    # link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_96k(
+    #     link_result_text, web_text, doc_answer, summary_text, previous_messages,
+    #     messageText, conversation_docs_answer)
+    # web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
+    #     web_text, doc_answer, link_result_text, summary_text, previous_messages,
+    #     conversation_docs_answer)
+    # prompt = prompts.chat_slow_reply_prompt.format(query=messageText,
+    #                                                summary_text=summary_text,
+    #                                                previous_messages=previous_messages,
+    #                                                permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Write your reasoning and approach in short before writing your answer.\n\n" + str(partial_answer_text),
+    #                                                doc_answer=doc_answer, web_text=web_text,
+    #                                                link_result_text=link_result_text,
+    #                                                conversation_docs_answer=conversation_docs_answer)
+    # return len(enc.encode(prompt))
 
 
 def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
@@ -1539,6 +1562,10 @@ def truncate_text_for_gpt4_32k(link_result_text, web_text, doc_answer, summary_t
 
 def truncate_text_for_gpt4_64k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-64k")
+
+
+def truncate_text_for_gpt4_96k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
+    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-96k")
 
 def truncate_text_for_gpt3_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-3.5-turbo-16k")
@@ -1564,6 +1591,10 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
     elif model == "gpt-4-64k":
         l1 = 32000
         l2 = 16000
+        l4 = 10000
+    elif model == "gpt-4-96k":
+        l1 = 60000
+        l2 = 20000
         l4 = 10000
     else:
         l1 = 2000

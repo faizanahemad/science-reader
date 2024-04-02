@@ -421,25 +421,23 @@ class DocIndex:
             return None
         return None
 
-    def semantic_search_document(self, query):
-        # tldr = (self.paper_details["tldr"] + "\n\n") if "tldr" in self.paper_details and self.paper_details[
-        #     "tldr"] is not None and len(self.paper_details["tldr"].strip()) > 0 else ""
-        # title = (self.paper_details["title"] + "\n\n") if "title" in self.paper_details and self.paper_details[
-        #     "title"] is not None and len(self.paper_details["title"].strip()) > 0 else ""
-        # brief_summary = title + tldr + self.short_summary
-        # brief_summary = (brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
-        brief_summary = ""
-        summary_nodes = self.get_doc_data("indices", "summary_index").similarity_search(query, k=self.result_cutoff * 2)
-        summary_text = "\n".join([n.page_content for n in summary_nodes])  # + "\n" + additional_text_qna
-        summary_text = (summary_text + "\n\n") if len(summary_text.strip()) > 0 else ""
-        rem_init_len = 512 * 4
-        rem_word_len = rem_init_len - get_gpt3_word_count(
-            summary_text + brief_summary)
-        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+    def semantic_search_document(self, query, token_limit=4096):
+        brief_summary = self.title + "\n" + self.short_summary
+        brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+        text = brief_summary + self.get_doc_data("static_data", "doc_text")
+        tex_len = get_gpt4_word_count(text)
+        if tex_len < token_limit:
+            return text
+        rem_word_len = token_limit - get_gpt3_word_count(brief_summary)
+        rem_tokens = (rem_word_len if token_limit < 12_000 else (rem_word_len - 3200)) // LARGE_CHUNK_LEN
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query,
                                                                                 k=max(self.result_cutoff, rem_tokens))
-        raw_text = "\n".join([n.page_content for n in raw_nodes])
-        return brief_summary + summary_text + "\n\n" + raw_text
+        if token_limit > 12_000:
+            small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(
+                self.result_cutoff, 3200 // SMALL_CHUNK_LEN))
+            raw_nodes = raw_nodes + small_chunk_nodes
+        raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        return brief_summary + raw_text
 
     
     @streaming_timer
@@ -449,8 +447,6 @@ class DocIndex:
         if mode["provide_detailed_answers"]:
             detail_level = max(1, int(mode["provide_detailed_answers"]))
             mode = "detailed"
-            if detail_level >= 3:
-                query = f"{query}\n\nWrite detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.\n\n"
         elif mode["review"]:
             mode = "detailed"
             detail_level = 1
@@ -490,7 +486,7 @@ Context is given below.
 Write answer below.
                 """
             if tex_len < 24000:
-                llm = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro" if detail_level <= 2 else "mistralai/mistral-medium", use_gpt4=True, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level <= 2 else "anthropic/claude-3-sonnet:beta", use_gpt4=True, use_16k=True)
                 additional_info_ld = get_async_future(llm, prompt, temperature=0.3)
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
@@ -505,7 +501,7 @@ Write answer below.
             else:
                 additional_info_ld = get_async_future(call_contextual_reader, query,
                                                       brief_summary + self.get_doc_data("static_data", "doc_text"),
-                                                      self.get_api_keys(), provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 2)
+                                                      self.get_api_keys(), provide_short_responses=detail_level <= 1, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 3)
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
                         llm = CallLLm(self.get_api_keys(),

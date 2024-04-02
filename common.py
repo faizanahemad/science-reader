@@ -725,7 +725,7 @@ def typed_memoize(cache, *types):
             key = str(mmh3.hash(key, signed=False))
             result = cache.get(key)
             # If the result is not in the cache, call the function and store the result in the cache
-            if result is None:
+            if result is None or isinstance(result, Exception) or (isinstance(result, (list, tuple, set)) and len(result) == 0):
                 result = f(*args, **kwargs)
                 cache.set(key, result, expire=cache_timeout)
 
@@ -951,19 +951,17 @@ def remove_bad_whitespaces(s):
     s = re.sub(' +', ' ', s)  # Remove extra whitespaces
     s = re.sub("\n{2,}", "\n", s)
     s = re.sub("\r+", "\n", s)
-    s = s.strip()
     lines = s.splitlines(keepends=False)
     lines = [line.rstrip().lstrip() for line in lines if line.strip()!='']
     s = '\n'.join(lines)
     s = remove_leading_spaces(s)
-    return s
+    return s.strip()
 
 def remove_bad_whitespaces_easy(s):
     s = re.sub("\n{2,}", "\n", s)
     s = re.sub("\r+", "\n", s)
-    s = s.strip()
     lines = s.splitlines(keepends=False)
-    lines = [line.rstrip() for line in lines if line.strip()!='']
+    lines = [line.rstrip() for line in lines]
     s = '\n'.join(lines)
     return s.strip()
 
