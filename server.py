@@ -1126,7 +1126,6 @@ def delete_document_from_conversation(conversation_id, document_id):
 @login_required
 def list_documents_by_conversation(conversation_id):
     keys = keyParser(session)
-    email, name, loggedin = check_login(session)
     conversation: Conversation = conversation_cache[conversation_id]
     conversation = set_keys_on_docs(conversation, keys)
     if conversation:

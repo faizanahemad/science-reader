@@ -27,8 +27,8 @@ from functools import partial
 
 from tenacity import RetryError
 FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
-SMALL_CHUNK_LEN = 192
-LARGE_CHUNK_LEN = 512
+SMALL_CHUNK_LEN = 256
+LARGE_CHUNK_LEN = 4096
 TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
 TOKEN_LIMIT_FOR_EXTRA_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_EXTRA_DETAILED", 25000))
 TOKEN_LIMIT_FOR_SUPER_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_SUPER_DETAILED", 50000))
@@ -1027,7 +1027,19 @@ def thread_safe_tee(iterable, n=2):
 from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
 from typing import List, Optional
 import numpy as np
+embed_executor = ThreadPoolExecutor(max_workers=32)
 class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
+    def embed_documents(
+            self, texts: List[str], chunk_size: Optional[int] = 0
+    ) -> List[List[float]]:
+        if len(texts) > 4:
+            futures = []
+            for i in range(0, len(texts), 2):
+                futures.append(embed_executor.submit(self._get_len_safe_embeddings, texts[i:i+2], engine=self.deployment, chunk_size=chunk_size))
+            results = [future.result() for future in futures]
+            return [item for sublist in results for item in sublist]
+        else:
+            return self._get_len_safe_embeddings(texts, engine=self.deployment)
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:
@@ -1087,7 +1099,7 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
                 batched_embeddings += [r["embedding"] for r in response["data"]]
         else:
             # parallelize the above with a threadpool
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            with ThreadPoolExecutor(max_workers=16) as executor:
                 futures = []
                 for i in _iter:
                     futures.append(executor.submit(embed_with_retry, self, input=tokens[i : i + _chunk_size], **self._invocation_params))
@@ -1125,7 +1137,7 @@ def get_embedding_model(keys) -> Embeddings:
     openai_key = keys["openAIKey"]
     assert openai_key
     # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-ada-002', chunk_size=2048)
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-ada-002', chunk_size=4096)
     return openai_embed
 
 

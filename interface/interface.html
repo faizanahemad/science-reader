@@ -326,9 +326,14 @@
                                         <button id="sendMessageButton" class="btn btn-success">
                                             ➤<!-- i class="fas fa-paper-plane"></i--> <!-- You can also add "Send" text here if needed -->
                                         </button>
-                                         <div id="uploadSpinner" class="spinner-border text-success" role="status" style="display: none;">
-                                          <span class="sr-only">Uploading...</span>
-                                        </div>
+                                         <div id="uploadProgressContainer" style="position: relative; display: inline-block; display: none;">
+                                              <div id="uploadSpinner" class="spinner-border text-success" role="status">
+                                                  <span class="sr-only">Uploading...</span>
+                                              </div>
+                                              <div id="uploadProgressText" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-weight: bold;">
+                                                  0%
+                                              </div>
+                                          </div>
                                     </div>
                                     <div class="input-group-append" style="margin-right: -25px;margin-left: 5px;">
                                       <button id="toggleChatControls" class="btn btn-secondary rounded-pill">▲</button>

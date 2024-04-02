@@ -197,12 +197,14 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
 
 class DocIndex:
     def __init__(self, doc_source, doc_filetype, doc_type, doc_text, full_summary, openai_embed, storage):
-
+        self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
+        raw_data = dict(chunks=full_summary["chunks"])
+        raw_index_future = get_async_future(create_index_faiss, raw_data['chunks'], openai_embed, doc_id=self.doc_id, )
         self._visible = False
         self.result_cutoff = 2
         self.version = 0
         self.last_access_time = time.time()
-        self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
+
         self.doc_source = doc_source
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
@@ -217,11 +219,8 @@ class DocIndex:
         
         
         static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text,)
-        raw_data = dict(chunks=full_summary["chunks"], small_chunks=full_summary["small_chunks"])
-        raw_index_future = get_async_future(create_index_faiss, raw_data['chunks'], openai_embed, doc_id=self.doc_id,)
-        small_chunk_index_future = get_async_future(create_index_faiss, raw_data["small_chunks"], openai_embed,)
         del full_summary["chunks"]
-        del full_summary["small_chunks"]
+
         
         qna_data = dict(chunked_summary=full_summary["chunked_summary"], running_summary=full_summary["running_summary"], detailed_qna=full_summary["detailed_qna"], extended_abstract=dict())
         deep_reader_data = full_summary["deep_reader_details"]
@@ -238,8 +237,7 @@ class DocIndex:
         futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data), get_async_future(self.set_doc_data, "qna_data", None, qna_data), get_async_future(self.set_doc_data, "deep_reader_data", None, deep_reader_data), get_async_future(self.set_doc_data, "review_data", None, review_data), get_async_future(self.set_doc_data, "_paper_details", None, _paper_details)]
         indices = dict(dqna_index=create_index_faiss([''], openai_embed, doc_id=self.doc_id, ),
                        raw_index=raw_index_future.result(),
-                       summary_index=create_index_faiss([''], openai_embed, ),
-                       small_chunk_index=small_chunk_index_future.result())
+                       summary_index=create_index_faiss([''], openai_embed, ))
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
             f.result()
@@ -421,6 +419,9 @@ class DocIndex:
             return None
         return None
 
+    def get_raw_data_index(self):
+        return self.get_doc_data("indices", "raw_index")
+
     def semantic_search_document(self, query, token_limit=4096):
         brief_summary = self.title + "\n" + self.short_summary
         brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
@@ -429,13 +430,10 @@ class DocIndex:
         if tex_len < token_limit:
             return text
         rem_word_len = token_limit - get_gpt3_word_count(brief_summary)
-        rem_tokens = (rem_word_len if token_limit < 12_000 else (rem_word_len - 3200)) // LARGE_CHUNK_LEN
+        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query,
                                                                                 k=max(self.result_cutoff, rem_tokens))
-        if token_limit > 12_000:
-            small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(
-                self.result_cutoff, 3200 // SMALL_CHUNK_LEN))
-            raw_nodes = raw_nodes + small_chunk_nodes
+
         raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
         return brief_summary + raw_text
 
@@ -517,10 +515,6 @@ Write answer below.
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
                                                                                                      8200//LARGE_CHUNK_LEN))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-                small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(
-                    self.result_cutoff, 3200//SMALL_CHUNK_LEN))
-                small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
-                raw_text = raw_text + " \n\n " + small_chunk_text
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
                 llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-sonnet:beta", use_gpt4=False, use_16k=True)
@@ -533,45 +527,6 @@ Write answer below.
                 additional_info = get_async_future(get_additional_info)
 
         answer = ''
-        if additional_info is None or mode=="review":
-            llm = CallLLm(self.get_api_keys(), use_gpt4=mode == "detailed" and detail_level > 1, use_16k=True)
-            rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(brief_summary) - 2000
-            rem_tokens = rem_word_len // LARGE_CHUNK_LEN
-            raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-            raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-            st_wt = time.time()
-            while (additional_info is not None and time.time() - st_wt < 45 and not additional_info.done()):
-                time.sleep(0.5)
-            full_summary = ""
-            if additional_info.done():
-                full_summary = additional_info.result() if additional_info is not None else ""
-            full_summary = f"Short summary of the document is given below. \n'''{full_summary}'''" if len(full_summary.strip()) > 0 else ""
-            rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(brief_summary + raw_text) - 500
-            if rem_word_len > SMALL_CHUNK_LEN:
-                rem_tokens = rem_word_len // SMALL_CHUNK_LEN
-                small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-                small_chunk_text = "\n\n".join([n.page_content for n in small_chunk_nodes])
-                raw_text = raw_text + " \n\n " + small_chunk_text
-            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary+raw_text, full_summary=full_summary)
-
-            if llm.use_gpt4 and llm.use_16k:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART*4 - 1000)
-            elif llm.use_gpt4:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 500)
-            elif llm.use_16k:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART * 2 - 1000)
-            else:
-                prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_DUMB - 1000)
-
-            ans_begin_time = time.time()
-            logger.info(f"streaming_get_short_answer:: Start to answer by {(ans_begin_time-ent_time):4f}s")
-
-            main_ans_gen = llm(prompt, temperature=0.7, stream=True)
-            for txt in main_ans_gen:
-                yield txt
-                answer += txt
-
-            yield "</br> \n"
         if additional_info is not None:
             additional_info = additional_info.result() if additional_info.exception() is None else ""
             additional_info = remove_bad_whitespaces(additional_info)
@@ -614,7 +569,7 @@ Write answer below.
             try:
                 title = self.paper_details["title"]
             except Exception as e:
-                title = CallLLm(self.get_api_keys(), use_gpt4=False)(f"""Provide a title for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+                title = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a title for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
             setattr(self, "_title", title)
             self.save_local()
             return title
@@ -716,7 +671,7 @@ Detailed and comprehensive summary:
             try:
                 short_summary = self.paper_details["abstract"]
             except Exception as e:
-                short_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(f"""Provide a summary for the below scientific text: \n'''{ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_SHORT, 0)[0]}''' \nInclude relevant keywords, the provided abstract and any search/seo friendly terms in your summary. \nSummary: \n""",)
+                short_summary = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
             setattr(self, "_short_summary", short_summary)
             self.save_local()
             return short_summary
@@ -740,25 +695,11 @@ Detailed and comprehensive summary:
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         answer = previous_answer["answer"] + "\n" + (
             previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
-        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer) - 2000
+        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer) - 1000
         rem_tokens = rem_word_len // LARGE_CHUNK_LEN
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
         raw_text = "\n".join([n.page_content for n in raw_nodes])
         rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer + raw_text) - 500
-        rem_tokens = rem_word_len // SMALL_CHUNK_LEN
-        small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=max(self.result_cutoff * 2, rem_tokens))
-
-        # Get those nodes that don't come up in last query.
-        small_chunk_nodes_ids = [n.metadata["order"] for n in small_chunk_nodes]
-        small_chunk_nodes_old = self.get_doc_data("indices", "small_chunk_index").similarity_search(previous_answer["query"], k=self.result_cutoff*8)
-        small_chunk_nodes_ids = small_chunk_nodes_ids + [n.metadata["order"] for n in small_chunk_nodes_old]
-        
-        additional_small_chunk_nodes = self.get_doc_data("indices", "small_chunk_index").similarity_search(query, k=self.result_cutoff*8)
-        additional_small_chunk_nodes = [n for n in additional_small_chunk_nodes if n.metadata["order"] not in small_chunk_nodes_ids]
-        
-        small_chunk_nodes = small_chunk_nodes + additional_small_chunk_nodes[:2]
-        
-        raw_text = raw_text + "\n".join([n.page_content for n in small_chunk_nodes])
         prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"],
                                       answer=answer,
                                       fragment=raw_text)
@@ -1121,12 +1062,10 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         
     doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     chunks = get_async_future(ChunkText, doc_text, LARGE_CHUNK_LEN, 64)
-    small_chunks = get_async_future(ChunkText, doc_text, SMALL_CHUNK_LEN, 32)
-    chunks, small_chunks = chunks.result(), small_chunks.result()
+    chunks = chunks.result()
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
-        "small_chunks": small_chunks,
         'running_summary': '',
         'detailed_qna': [],
         'deep_reader_details': {

@@ -682,9 +682,7 @@ Only provide answer from the document given above.
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
     def get_one(self, context, document,):
-        import inspect
         prompt = self.prompt.format(context=context, document=document)
-        wc = get_gpt3_word_count(prompt)
         try:
             llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
@@ -708,9 +706,9 @@ Only provide answer from the document given above.
             elif wc < 16000:
                 chunk_size = 1024
             elif wc < 32000:
-                chunk_size = 1536
-            else:
                 chunk_size = 2048
+            else:
+                chunk_size = 4096
             chunks = ChunkText(text_document=document, chunk_size=chunk_size)
             doc_embeds = openai_embed.embed_documents(chunks)
             return chunks, chunk_size, np.array(doc_embeds)
@@ -1431,8 +1429,8 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
     return {"text": text, "title": title}
 @typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
-    from langchain.document_loaders import PyPDFLoader
-    loader = PyPDFLoader(url)
+    from langchain.document_loaders import PyPDFLoader, PyMuPDFLoader
+    loader = PyMuPDFLoader(url)
     pages = loader.load_and_split()
     if page_ranges:
         start, end = page_ranges.split("-")

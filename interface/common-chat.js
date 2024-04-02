@@ -256,24 +256,33 @@ var ChatManager = {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
             doc_modal.find('#submit-spinner').hide();  // Hide the spinner
 
-            $('#sendMessageButton').prop('disabled', false);
-            $('#sendMessageButton').show();
+            
             // Assuming you have a spinner element for feedback
-            $('#uploadSpinner').hide();
+            let progressContainer = $('#uploadProgressContainer');
+            
 
             if (response.status) {
                 ChatManager.listDocuments(conversationId)
                     .done(function (documents) {
                         doc_modal.modal('hide');
                         ChatManager.renderDocuments(conversationId, documents);
+                        progressContainer.hide();
+                        $('#sendMessageButton').prop('disabled', false);
+                        $('#sendMessageButton').show();
                     })
                     .fail(function () {
                         doc_modal.modal('hide');
+                        progressContainer.hide();
+                        $('#sendMessageButton').prop('disabled', false);
+                        $('#sendMessageButton').show();
                         alert(response.error);
                     })
                 // set the new document as the current document
 
             } else {
+                progressContainer.hide();
+                $('#sendMessageButton').prop('disabled', false);
+                $('#sendMessageButton').show();
                 alert(response.error);
             }
         }
@@ -283,12 +292,14 @@ var ChatManager = {
             $('#sendMessageButton').prop('disabled', false);
             $('#sendMessageButton').show();
             // Assuming you have a spinner element for feedback
-            $('#uploadSpinner').hide();
+            let progressContainer = $('#uploadProgressContainer');
+            progressContainer.hide();
             alert('Error: ' + response.responseText);
             doc_modal.modal('hide');
         }
 
         function uploadFile(file) {
+            let xhr = new XMLHttpRequest();
             var formData = new FormData();
             formData.append('pdf_file', file);
             doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
@@ -296,16 +307,48 @@ var ChatManager = {
             
             $('#sendMessageButton').prop('disabled', true);
             $('#sendMessageButton').hide();
-            // Assuming you have a spinner element for feedback
-            $('#uploadSpinner').show();
+            let progressContainer = $('#uploadProgressContainer');
+            let progressText = $('#uploadProgressText');
+            progressContainer.show();
+            progressText.text('0%');
+            xhr.open('POST', '/upload_doc_to_conversation/' + conversationId, true);
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable) {
+                    let percentComplete = Math.round((e.loaded / e.total) * 80);
+                    progressText.text(percentComplete + '%'); // Update progress text
+                }
+            };
 
-            fetch('/upload_doc_to_conversation/' + conversationId, {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(success)
-                .catch(failure);
+            intrvl = setInterval(function () {
+                currentProgress = parseInt(progressText.text().replace('%', ''));
+                if (currentProgress < 100 && currentProgress >= 80) {
+                    progressText.text(currentProgress + 1 + '%');
+                }
+            }, 1000);
+
+            xhr.onload = function () {
+                progressText.text('100%');
+                if (xhr.status == 200) {
+                    let response = JSON.parse(xhr.responseText);
+                    // Handle success
+                    success(response); // Make sure to define this function
+                } else {
+                    // Handle failure
+                    failure(xhr.response); // Make sure to define this function
+                }
+
+                clearInterval(intrvl);
+            };
+
+            // Error event
+            xhr.onerror = function () {
+                failure(xhr.response); // Make sure to define this function
+                progressContainer.hide();
+                clearInterval(intrvl);
+            };
+
+            // Send the form data with the file
+            xhr.send(formData);
         }
 
         doc_modal.find('#file-upload-button').off().on('click', function () {
