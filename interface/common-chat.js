@@ -255,6 +255,12 @@ var ChatManager = {
         function success(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
             doc_modal.find('#submit-spinner').hide();  // Hide the spinner
+
+            $('#sendMessageButton').prop('disabled', false);
+            $('#sendMessageButton').show();
+            // Assuming you have a spinner element for feedback
+            $('#uploadSpinner').hide();
+
             if (response.status) {
                 ChatManager.listDocuments(conversationId)
                     .done(function (documents) {
@@ -274,6 +280,10 @@ var ChatManager = {
         function failure(response) {
             doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
             doc_modal.find('#submit-spinner').hide();  // Hide the spinner
+            $('#sendMessageButton').prop('disabled', false);
+            $('#sendMessageButton').show();
+            // Assuming you have a spinner element for feedback
+            $('#uploadSpinner').hide();
             alert('Error: ' + response.responseText);
             doc_modal.modal('hide');
         }
@@ -283,6 +293,12 @@ var ChatManager = {
             formData.append('pdf_file', file);
             doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
             doc_modal.find('#submit-spinner').show();  // Display the spinner
+            
+            $('#sendMessageButton').prop('disabled', true);
+            $('#sendMessageButton').hide();
+            // Assuming you have a spinner element for feedback
+            $('#uploadSpinner').show();
+
             fetch('/upload_doc_to_conversation/' + conversationId, {
                 method: 'POST',
                 body: formData
@@ -305,6 +321,18 @@ var ChatManager = {
             }
         });
 
+        $('#chat-file-upload-span').off().on('click', function () {
+            $('#chat-file-upload').click();
+        });
+
+        $('#chat-file-upload').off().on('change', function (e) {
+            var file = e.target.files[0]; // Get the selected file
+            if (file) {
+                uploadFile(file); // Call the file upload function
+            }
+        });
+
+        // Handle filedrop
         let dropArea = doc_modal.find('#drop-area').off();
         dropArea.on('dragover', function (e) {
             e.preventDefault();  // Prevent the default dragover behavior
