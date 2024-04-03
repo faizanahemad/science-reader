@@ -196,11 +196,12 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
 
 
 class DocIndex:
-    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, full_summary, openai_embed, storage):
+    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage):
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
         raw_data = dict(chunks=full_summary["chunks"])
         raw_index_future = get_async_future(create_index_faiss, raw_data['chunks'], openai_embed, doc_id=self.doc_id, )
         self._visible = False
+        self._chunk_size = chunk_size
         self.result_cutoff = 2
         self.version = 0
         self.last_access_time = time.time()
@@ -218,7 +219,7 @@ class DocIndex:
         self.is_local = os.path.exists(doc_source)
         
         
-        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text,)
+        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
         del full_summary["chunks"]
 
         
@@ -243,6 +244,13 @@ class DocIndex:
             f.result()
         
         
+    @property
+    def chunk_size(self):
+        if hasattr(self, "_chunk_size"):
+            return self._chunk_size
+        else:
+            return LARGE_CHUNK_LEN
+
     @property
     def visible(self):
         return self._visible if hasattr(self, "_visible") else True
@@ -431,7 +439,7 @@ class DocIndex:
         if tex_len < token_limit:
             return text
         rem_word_len = token_limit - get_gpt3_word_count(brief_summary)
-        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+        rem_tokens = rem_word_len // self.chunk_size
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query,
                                                                                 k=max(self.result_cutoff, rem_tokens))
 
@@ -499,7 +507,7 @@ Write answer below.
                 else:
                     additional_info = additional_info_ld
             else:
-                additional_info_ld = get_async_future(call_contextual_reader, query,
+                additional_info_ld = get_async_future(call_contextual_reader, query, self.semantic_search_document,
                                                       brief_summary + self.get_doc_data("static_data", "doc_text"),
                                                       self.get_api_keys(), provide_short_responses=detail_level <= 1, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 3)
                 if detail_level >= 2:
@@ -515,7 +523,7 @@ Write answer below.
 
             if detail_level >= 4 and tex_len >= 16_000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
-                                                                                                     8200//LARGE_CHUNK_LEN))
+                                                                                                     24_000//self.chunk_size))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
                 prompt = self.short_streaming_answer_prompt.format(query=query, fragment=brief_summary + raw_text, full_summary='')
 
@@ -698,7 +706,7 @@ Detailed and comprehensive summary:
         answer = previous_answer["answer"] + "\n" + (
             previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
         rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer) - 1000
-        rem_tokens = rem_word_len // LARGE_CHUNK_LEN
+        rem_tokens = rem_word_len // self.chunk_size
         raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff, rem_tokens))
         raw_text = "\n".join([n.page_content for n in raw_nodes])
         rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer + raw_text) - 500
@@ -1019,6 +1027,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         is_pdf = pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
     logger.info(f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}")
+    filetype = "pdf" if is_pdf else "word" if pdf_url.endswith(".docx") else "html" if pdf_url.endswith(".html") else "md" if pdf_url.endswith(".md") else "json" if pdf_url.endswith(".json") else "csv" if pdf_url.endswith(".csv") else "txt" if pdf_url.endswith(".txt") else "pdf"
     if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
@@ -1063,7 +1072,16 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     
         
     doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-    chunks = get_async_future(ChunkText, doc_text, LARGE_CHUNK_LEN, 64)
+    doc_text_len = len(doc_text.split())
+    if doc_text_len < 8000:
+        chunk_size = LARGE_CHUNK_LEN // 8
+    elif doc_text_len < 16000:
+        chunk_size = LARGE_CHUNK_LEN // 4
+    elif doc_text_len < 32000:
+        chunk_size = LARGE_CHUNK_LEN // 2
+    else:
+        chunk_size = LARGE_CHUNK_LEN
+    chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
     chunks = chunks.result()
     nested_dict = {
         'chunked_summary': [''],
@@ -1081,8 +1099,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     openai_embed = get_embedding_model(keys)
     try:
         doc_index: DocIndex = ImmediateDocIndex(pdf_url,
-                    "pdf", 
-                    "scientific_article", doc_text, nested_dict, openai_embed, folder)
+                    filetype,
+                    "scientific_article", doc_text, chunk_size, nested_dict, openai_embed, folder)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
         doc_index.set_api_keys(keys)

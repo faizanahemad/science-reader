@@ -47,6 +47,7 @@ from collections import defaultdict, Counter
 
 import openai
 import tiktoken
+from typing import Callable, Any, List, Dict, Tuple, Optional, Union
 from vllm_client import get_streaming_vllm_response
 
 
@@ -696,46 +697,47 @@ Only provide answer from the document given above.
         assert isinstance(result, str)
         return result
 
-    def get_one_with_rag(self, context, chunk_size, document):
-
-        import inspect
-        openai_embed = get_embedding_model(self.keys)
-        def get_doc_embeds(document):
-            document = document.strip()
-            ds = document.split(" ")
-            document = " ".join(ds[:256_000])
-            wc = len(ds)
-            if wc < 8000:
-                chunk_size = 512
-            elif wc < 16000:
-                chunk_size = 1024
-            elif wc < 32000:
-                chunk_size = 2048
-            else:
-                chunk_size = 4096
-            chunks = ChunkText(text_document=document, chunk_size=chunk_size)
-            doc_embeds = openai_embed.embed_documents(chunks)
-            return chunks, chunk_size, np.array(doc_embeds)
-        doc_em_future = get_async_future(get_doc_embeds, document)
-        query_em_future =  get_async_future(openai_embed.embed_query, context)
-        chunks, chunk_size, doc_embedding = doc_em_future.result()
-        query_embedding = np.array(query_em_future.result())
-        # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
-        scores = np.dot(doc_embedding, query_embedding)
-        sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-        top_chunks = sorted_chunks[:8]
-        top_chunks_text = ""
-        for idx, tc in enumerate(top_chunks):
-            top_chunks_text += f"Retrieved relevant text chunk {idx+1}:\n{tc[0]}\n\n"
-        top_chunks = top_chunks_text
-        fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
+    def get_one_with_rag(self, context, chunk_size, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
+        if retriever is None:
+            openai_embed = get_embedding_model(self.keys)
+            def get_doc_embeds(document):
+                document = document.strip()
+                ds = document.split(" ")
+                document = " ".join(ds[:256_000])
+                wc = len(ds)
+                if wc < 8000:
+                    chunk_size = 512
+                elif wc < 16000:
+                    chunk_size = 1024
+                elif wc < 32000:
+                    chunk_size = 2048
+                else:
+                    chunk_size = 4096
+                chunks = ChunkText(text_document=document, chunk_size=chunk_size)
+                doc_embeds = openai_embed.embed_documents(chunks)
+                return chunks, chunk_size, np.array(doc_embeds)
+            doc_em_future = get_async_future(get_doc_embeds, document)
+            query_em_future =  get_async_future(openai_embed.embed_query, context)
+            chunks, chunk_size, doc_embedding = doc_em_future.result()
+            query_embedding = np.array(query_em_future.result())
+            # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
+            scores = np.dot(doc_embedding, query_embedding)
+            sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
+            top_chunks = sorted_chunks[:8]
+            top_chunks_text = ""
+            for idx, tc in enumerate(top_chunks):
+                top_chunks_text += f"Retrieved relevant text chunk {idx+1}:\n{tc[0]}\n\n"
+            top_chunks = top_chunks_text
+            fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
+        else:
+            fragments_text = retriever(document, 16_000)
         prompt = self.prompt.format(context=context, document=fragments_text)
         callLLm = CallLLm(self.keys, model_name="google/gemini-pro")
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
 
-    def __call__(self, context_user_query, text_document, chunk_size=TOKEN_LIMIT_FOR_SHORT):
+    def __call__(self, context_user_query, text_document, chunk_size=TOKEN_LIMIT_FOR_SHORT, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
         import functools
         st = time.time()
@@ -747,13 +749,13 @@ Only provide answer from the document given above.
             rag_result = None
             if self.scan:
                 rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
-                                              text_document) if not short else None
+                                              text_document, retriever) if not short else None
             result = self.get_one(context_user_query, text_document)
             if self.scan:
                 rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
                 result = result + "\nMore Details:\n" + rag_result
         elif doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED and doc_word_count> TOKEN_LIMIT_FOR_DETAILED:
-            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document) if not short else None
+            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document, retriever) if not short else None
             result = self.get_one(context_user_query, text_document)
             rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
             result = result + "\nMore Details:\n" + rag_result
@@ -767,18 +769,15 @@ Only provide answer from the document given above.
                 second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
                 second_result = get_async_future(self.get_one, context_user_query,
                                                  second_chunk)
-            if len(chunks) > 2:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, "\n\n".join(chunks[2:]))
-            else:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
-                                              text_document) if not short else None
+            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
+                                              text_document, retriever) if not short else None
 
             result = self.get_one(context_user_query, first_chunk)
             result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n"
         else:
             try:
                 rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
-                                              text_document) if not short else None
+                                              text_document, retriever) if not short else None
                 result = self.get_one(context_user_query, text_document)
                 rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
                 result = result + "\nMore Details:\n" + rag_result
@@ -797,10 +796,10 @@ Only provide answer from the document given above.
         return result
 
 @typed_memoize(cache, str, int, tuple, bool)
-def call_contextual_reader(query, document, keys, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2, scan=False)->str:
+def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2, scan=False)->str:
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses, scan=scan)
-    return cr(query, document, chunk_size=chunk_size+512)
+    return cr(query, document, chunk_size=chunk_size+512, retriever=retriever)
 
 
 import json
@@ -2136,7 +2135,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
     non_chunk_time = time.time()
-    extracted_info = call_contextual_reader(context, txt,
+    extracted_info = call_contextual_reader(context, txt, None,
                                             api_keys, provide_short_responses=not detailed and not use_large_context,
                                             chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
     tt = time.time() - st
