@@ -423,6 +423,7 @@ class DocIndex:
         return self.get_doc_data("indices", "raw_index")
 
     def semantic_search_document(self, query, token_limit=4096):
+        st_time = time.time()
         brief_summary = self.title + "\n" + self.short_summary
         brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
         text = brief_summary + self.get_doc_data("static_data", "doc_text")
@@ -435,6 +436,7 @@ class DocIndex:
                                                                                 k=max(self.result_cutoff, rem_tokens))
 
         raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        logger.info(f"[semantic_search_document]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
         return brief_summary + raw_text
 
     
@@ -462,7 +464,7 @@ class DocIndex:
         if mode == "detailed" or mode == "review":
             text = brief_summary + self.get_doc_data("static_data", "doc_text")
             tex_len = get_gpt4_word_count(text)
-            if tex_len < 24000:
+            if tex_len < 28000:
                 prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
@@ -473,7 +475,7 @@ Context is given below.
 Write answer below.
 """
             else:
-                chunked_text = ChunkText(text, 45000)[0]
+                chunked_text = ChunkText(text, 64000)[0]
                 prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
@@ -483,14 +485,14 @@ Context is given below.
 
 Write answer below.
                 """
-            if tex_len < 24000:
-                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level <= 2 else "anthropic/claude-3-sonnet:beta", use_gpt4=True, use_16k=True)
+            if tex_len < 28000:
+                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta", use_gpt4=True, use_16k=True)
                 additional_info_ld = get_async_future(llm, prompt, temperature=0.3)
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
                         llm = CallLLm(self.get_api_keys(),
-                                      model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta",)
-                        ad_info = get_async_future(llm, prompt, temperature=0.3)
+                                      model_name="google/gemini-pro" if detail_level <= 3 else "anthropic/claude-3-haiku:beta",)
+                        ad_info = get_async_future(llm, prompt, temperature=0.9)
                         init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
                         return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
                     additional_info = get_async_future(get_additional_info_high_detail)
@@ -503,15 +505,15 @@ Write answer below.
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
                         llm = CallLLm(self.get_api_keys(),
-                                      model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta",)
-                        ad_info = get_async_future(llm, prompt, temperature=0.3)
+                                      model_name="google/gemini-pro")
+                        ad_info = get_async_future(llm, prompt, temperature=0.9)
                         init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
                         return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
                     additional_info = get_async_future(get_additional_info_high_detail)
                 else:
                     additional_info = additional_info_ld
 
-            if detail_level >= 4 and tex_len >= 8000:
+            if detail_level >= 4 and tex_len >= 16_000:
                 raw_nodes = self.get_doc_data("indices", "raw_index").similarity_search(query, k=max(self.result_cutoff,
                                                                                                      8200//LARGE_CHUNK_LEN))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])

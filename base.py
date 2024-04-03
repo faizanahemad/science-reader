@@ -319,11 +319,13 @@ class CallLLm:
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if "gemini" in self.model_name:
-            assert get_gpt3_word_count(system + text) < 90_000
+            assert get_gpt3_word_count(system + text) < 100_000
         elif "mistralai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 26000
         elif "claude-3" in self.model_name:
-            assert get_gpt3_word_count(system + text) < 90_000
+            assert get_gpt3_word_count(system + text) < 140_000
+        elif "anthropic" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 80_000
         else:
             assert get_gpt3_word_count(system + text) < 14000
         return call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
@@ -682,11 +684,13 @@ Only provide answer from the document given above.
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
     def get_one(self, context, document,):
+        document = " ".join(document.split()[:64_000])
         prompt = self.prompt.format(context=context, document=document)
         try:
             llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
-        except:
+        except Exception as e:
+            traceback.print_exc()
             llm = CallLLm(self.keys, model_name="anthropic/claude-instant-1.2", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
@@ -699,7 +703,7 @@ Only provide answer from the document given above.
         def get_doc_embeds(document):
             document = document.strip()
             ds = document.split(" ")
-            document = " ".join(ds[:128_000])
+            document = " ".join(ds[:256_000])
             wc = len(ds)
             if wc < 8000:
                 chunk_size = 512
@@ -779,14 +783,17 @@ Only provide answer from the document given above.
                 rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
                 result = result + "\nMore Details:\n" + rag_result
             except Exception as e:
+                traceback.print_exc()
                 logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
                 chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
                 result = self.get_one(context_user_query, chunks[0])
 
-        result = get_first_last_parts(result, 512, 256) if short else get_first_last_parts(result, 1536 if self.scan else 512, 1024 if self.scan else 384)
         assert isinstance(result, str)
+        logger.info(
+            f"[ContextualReader] ContextualReader with result len = {len(result.split())} and doc len = {doc_word_count}")
+        result = get_first_last_parts(result, 512, 384) if short else get_first_last_parts(result, 2048 if self.scan else 1024, 1024 if self.scan else 512)
         et = time.time()
-        time_logger.info(f"ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size}")
+        time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size} with result len = {len(result.split())} and doc len = {doc_word_count}")
         return result
 
 @typed_memoize(cache, str, int, tuple, bool)
@@ -2311,13 +2318,13 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
     start_time = time.time()
     query_string = (
-                       f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(
-                           current_doc_summary.strip()) > 0 else '') + f"Current query: '''{query}'''"
+                       f"Previous context: '''{current_doc_summary}'''\n" if len(
+                           current_doc_summary.strip()) > 0 else '') + f"Focus on this Current query: '''{query}'''"
     if provide_raw_text:
         per_doc_text_len = 32_000 // len(additional_docs)
         doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) for doc in additional_docs]
     query_string = (
-                       f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(
+                       f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
     if not provide_raw_text or provide_detailed_answers >= 2:
         futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 1 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]

@@ -327,7 +327,7 @@ var ChatManager = {
             }, 1000);
 
             xhr.onload = function () {
-                progressText.text('100%');
+                
                 if (xhr.status == 200) {
                     let response = JSON.parse(xhr.responseText);
                     // Handle success

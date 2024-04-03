@@ -716,6 +716,7 @@ Write the extracted information concisely below:
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
         tell_me_more = False
+        tell_me_more_msg_resp = None
         previous_message_config = None
         if "tell_me_more" in checkboxes and checkboxes["tell_me_more"]:
             tell_me_more = True
@@ -727,9 +728,10 @@ Write the extracted information concisely below:
                 last_user_message = messages[-2]
                 assert "config" in last_message
                 previous_message_config = last_message["config"]
+                tell_me_more_msg_resp = "User:" + "\n'''" + last_user_message["text"] + "'''\nResponse:\n'''" + last_message["text"] + "'''\n"
                 query["links"].extend(previous_message_config["links"])
                 if "use_attached_docs" in previous_message_config and previous_message_config["use_attached_docs"]:
-                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": previous_message_config["attached_docs_names"]}, False)
+                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": " ".join(previous_message_config["attached_docs_names"])}, False)
                     _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
                     attached_docs.extend(prev_attached_docs)
                     attached_docs_names.extend(prev_attached_docs_names)
@@ -811,7 +813,7 @@ Write the extracted information concisely below:
         if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
-                                                        query["messageText"] + (f"\nPreviously we talked about: \n'''{summary}'''\n" if tell_me_more else ''),
+                                                        query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
                                                         attached_docs,
                                                         summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers)),
