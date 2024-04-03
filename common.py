@@ -395,7 +395,11 @@ def check_if_stream_and_raise_exception(iterable_or_str):
     else:
         # If it's not a string or a generator, raise an exception.
         raise ValueError("Unexpected input type.")
-        
+
+
+import tiktoken
+gpt4_enc = tiktoken.encoding_for_model('gpt-4')
+gpt3_enc = tiktoken.encoding_for_model('gpt-3.5-turbo')
 def get_first_n_words(my_string, n=700):
     return get_first_last_parts(my_string, first_n=n, last_n=0)
 

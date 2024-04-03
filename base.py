@@ -697,7 +697,7 @@ Only provide answer from the document given above.
         assert isinstance(result, str)
         return result
 
-    def get_one_with_rag(self, context, chunk_size, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
+    def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         if retriever is None:
             openai_embed = get_embedding_model(self.keys)
             def get_doc_embeds(document):
@@ -737,30 +737,31 @@ Only provide answer from the document given above.
         assert isinstance(result, str)
         return result
 
-    def __call__(self, context_user_query, text_document, chunk_size=TOKEN_LIMIT_FOR_SHORT, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
+    def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
-        import functools
         st = time.time()
-        # part_fn = functools.partial(self.get_one_with_exception, context_user_query, chunk_size)
-        # result = process_text(text_document, chunk_size, part_fn, self.keys)
         doc_word_count = get_gpt3_word_count(text_document)
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
-        if doc_word_count < TOKEN_LIMIT_FOR_DETAILED:
+        if short and doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            result = self.get_one(context_user_query, text_document)
+        elif doc_word_count <= TOKEN_LIMIT_FOR_DETAILED:
             rag_result = None
             if self.scan:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query,
                                               text_document, retriever) if not short else None
             result = self.get_one(context_user_query, text_document)
             if self.scan:
                 rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
                 result = result + "\nMore Details:\n" + rag_result
-        elif doc_word_count < TOKEN_LIMIT_FOR_EXTRA_DETAILED and doc_word_count> TOKEN_LIMIT_FOR_DETAILED:
-            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None, text_document, retriever) if not short else None
+        elif doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2:
+            if self.scan:
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever) if not short else None
             result = self.get_one(context_user_query, text_document)
-            rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
-            result = result + "\nMore Details:\n" + rag_result
-        elif self.scan and doc_word_count > TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED, chunk_overlap=0)
+            if self.scan:
+                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
+                result = result + "\nMore Details:\n" + rag_result
+        elif doc_word_count > TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2:
+            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2, chunk_overlap=0)
             first_chunk = chunks[0]
             second_result = None
             rag_result = None
@@ -769,37 +770,28 @@ Only provide answer from the document given above.
                 second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
                 second_result = get_async_future(self.get_one, context_user_query,
                                                  second_chunk)
-            rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
-                                              text_document, retriever) if not short else None
+            if self.scan:
+                rag_result = get_async_future(self.get_one_with_rag, context_user_query,
+                                                  text_document, retriever) if not short else None
 
             result = self.get_one(context_user_query, first_chunk)
             result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n"
         else:
-            try:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, None,
-                                              text_document, retriever) if not short else None
-                result = self.get_one(context_user_query, text_document)
-                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
-                result = result + "\nMore Details:\n" + rag_result
-            except Exception as e:
-                traceback.print_exc()
-                logger.warning(f"ContextualReader:: RAG failed with exception {str(e)}")
-                chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_DETAILED, chunk_overlap=0)
-                result = self.get_one(context_user_query, chunks[0])
+            raise ValueError(f"[ContextualReader] No matching case found for document length = {doc_word_count}, scan = {self.scan}, short = {short}.")
 
         assert isinstance(result, str)
         logger.info(
             f"[ContextualReader] ContextualReader with result len = {len(result.split())} and doc len = {doc_word_count}")
         result = get_first_last_parts(result, 512, 384) if short else get_first_last_parts(result, 2048 if self.scan else 1024, 1024 if self.scan else 512)
         et = time.time()
-        time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds for chunk size {chunk_size} with result len = {len(result.split())} and doc len = {doc_word_count}")
+        time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds with result len = {len(result.split())} and doc len = {doc_word_count}")
         return result
 
 @typed_memoize(cache, str, int, tuple, bool)
-def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, chunk_size=TOKEN_LIMIT_FOR_SHORT//2, scan=False)->str:
+def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, scan=False)->str:
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses, scan=scan)
-    return cr(query, document, chunk_size=chunk_size+512, retriever=retriever)
+    return cr(query, document, retriever=retriever)
 
 
 import json
@@ -2137,7 +2129,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     non_chunk_time = time.time()
     extracted_info = call_contextual_reader(context, txt, None,
                                             api_keys, provide_short_responses=not detailed and not use_large_context,
-                                            chunk_size=((TOKEN_LIMIT_FOR_DETAILED + 500) if detailed or use_large_context else (TOKEN_LIMIT_FOR_SHORT + 200)), scan=use_large_context)
+                                            scan=use_large_context)
     tt = time.time() - st
     tex_len = len(extracted_info.split())
     time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
@@ -2320,12 +2312,12 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"Focus on this Current query: '''{query}'''"
     if provide_raw_text:
-        per_doc_text_len = 32_000 // len(additional_docs)
+        per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(additional_docs)
         doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) for doc in additional_docs]
     query_string = (
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
-    if not provide_raw_text or provide_detailed_answers >= 2:
+    if not provide_raw_text or provide_detailed_answers >= 3:
         futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 1 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
         answers = [future.result() for future in futures]
         logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")

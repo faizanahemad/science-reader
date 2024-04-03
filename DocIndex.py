@@ -494,12 +494,12 @@ Context is given below.
 Write answer below.
                 """
             if tex_len < 28000:
-                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level <= 3 else "anthropic/claude-3-sonnet:beta", use_gpt4=True, use_16k=True)
+                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
                 additional_info_ld = get_async_future(llm, prompt, temperature=0.3)
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
                         llm = CallLLm(self.get_api_keys(),
-                                      model_name="google/gemini-pro" if detail_level <= 3 else "anthropic/claude-3-haiku:beta",)
+                                      model_name="google/gemini-pro")
                         ad_info = get_async_future(llm, prompt, temperature=0.9)
                         init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
                         return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
@@ -509,7 +509,7 @@ Write answer below.
             else:
                 additional_info_ld = get_async_future(call_contextual_reader, query, self.semantic_search_document,
                                                       brief_summary + self.get_doc_data("static_data", "doc_text"),
-                                                      self.get_api_keys(), provide_short_responses=detail_level <= 1, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED + 500, scan=detail_level >= 3)
+                                                      self.get_api_keys(), provide_short_responses=detail_level <= 1, scan=detail_level >= 3)
                 if detail_level >= 2:
                     def get_additional_info_high_detail():
                         llm = CallLLm(self.get_api_keys(),

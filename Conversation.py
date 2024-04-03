@@ -415,32 +415,12 @@ class Conversation:
 
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
-        if len(memory["running_summary"]) > 4 and required_message_lookback > 6:
-            summary_nodes = get_async_future(indices["summary_index"].similarity_search, query, k=6)
-            st_retr = time.time()
-            got_summary_nodes = False
-            while time.time() - st_retr < 6:
-                if summary_nodes.done() and summary_nodes.exception() is None:
-                    got_summary_nodes = True
-                    break
-                time.sleep(0.5)
-            if got_summary_nodes:
-                summary_nodes = [n.page_content for n in summary_nodes.result()]
-                not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
-                summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
-                summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0][-2:]
-                # summary_text = get_first_last_parts("\n".join(summary_nodes + running_summary), 0, 1000)
-            else:
-                summary_nodes = []
-        else:
-            summary_nodes = []
 
         if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
             running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
-        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long,
-                    summary_nodes=summary_nodes + running_summary)
+        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long)
         # lets log the length of each of the above in a single log statement
         logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
         return results
@@ -623,12 +603,11 @@ The summary of the conversation is as follows:
 '''{summary_nodes}'''
 
 Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
-Only provide answer from the conversation messages and summary given above. If no relevant information is found in given context, then output "No relevant information found." only.
 Extract and copy relevant information verbatim from the above conversation messages and summary and paste it below.
 Write the extracted information concisely below:
 """
         # final_information = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(prompt, temperature=0.2, stream=False)
-        final_information = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False,
                                 use_16k=False)(prompt, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:2000])
@@ -710,7 +689,8 @@ Write the extracted information concisely below:
         query, attached_docs, attached_docs_names = attached_docs_future.result()
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
-
+        summary_text_init = summary
+        summary_text = summary
         checkboxes = query["checkboxes"]
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
@@ -896,8 +876,6 @@ Write the extracted information concisely below:
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         new_line = "\n"
-        summary_text = "\n".join(prior_context["summary_nodes"][-2:] if enablePreviousMessages == "infinite" else (
-            prior_context["summary_nodes"][-1:]) if enablePreviousMessages in ["0", "1", "2"] else [])
         executed_partial_two_stage_answering = False
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
@@ -972,7 +950,7 @@ Write the extracted information concisely below:
             web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
             web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
             # Join the elements along with serial numbers.
-            if len(web_text_accumulator) >= 4 and provide_detailed_answers > 2:
+            if len(web_text_accumulator) >= 4 and provide_detailed_answers >= 3:
 
                 first_stage_cut_off = 8 if provide_detailed_answers <= 3 else 12
                 used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
@@ -1317,12 +1295,13 @@ Write the extracted information concisely below:
 
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
+        summary_text = summary_text_init
         while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
+                summary_text = prior_chat_summary + "\n" + summary_text
                 break
             time.sleep(0.5)
-        summary_text = prior_chat_summary + "\n" + summary_text
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
 
 
