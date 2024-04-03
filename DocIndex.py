@@ -571,7 +571,7 @@ Write answer below.
             try:
                 title = self.paper_details["title"]
             except Exception as e:
-                title = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a title for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+                title = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
             setattr(self, "_title", title)
             self.save_local()
             return title
