@@ -119,7 +119,7 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.INFO)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
@@ -196,10 +196,16 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
 
 
 class DocIndex:
-    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage):
+    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage, keys):
+        init_start = time.time()
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
         raw_data = dict(chunks=full_summary["chunks"])
         raw_index_future = get_async_future(create_index_faiss, raw_data['chunks'], openai_embed, doc_id=self.doc_id, )
+        raw_data_small = dict(chunks=full_summary["chunks_small"])
+        raw_index_small_future = get_async_future(create_index_faiss, raw_data_small['chunks'], openai_embed, doc_id=self.doc_id, )
+
+
+
         self._visible = False
         self._chunk_size = chunk_size
         self.result_cutoff = 2
@@ -217,8 +223,15 @@ class DocIndex:
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
         assert  doc_filetype == "pdf" and ("http" in doc_source or os.path.exists(doc_source))
         self.is_local = os.path.exists(doc_source)
-        
-        
+        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+            def set_title_summary():
+                short_summary = CallLLm(keys, model_name="google/gemini-pro", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{raw_data['chunks'][0]}''' \nSummary: \n""", )
+                title = CallLLm(keys, use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+                setattr(self, "_title", title)
+                setattr(self, "_short_summary", short_summary)
+            set_title_summary_future = get_async_future(set_title_summary)
+        else:
+            set_title_summary_future = wrap_in_future(None)
         static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
         del full_summary["chunks"]
 
@@ -235,29 +248,46 @@ class DocIndex:
         # self.set_doc_data("_paper_details", None, _paper_details)
         # self.set_doc_data("indices", None, indices)
 
-        self._raw_index = raw_index_future.result()
+
         futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data), get_async_future(self.set_doc_data, "qna_data", None, qna_data), get_async_future(self.set_doc_data, "deep_reader_data", None, deep_reader_data), get_async_future(self.set_doc_data, "review_data", None, review_data), get_async_future(self.set_doc_data, "_paper_details", None, _paper_details)]
-        indices = dict(dqna_index=create_index_faiss([''], openai_embed, doc_id=self.doc_id, ),
-                       summary_index=create_index_faiss([''], openai_embed, ))
+        indices = dict(summary_index=create_index_faiss([''], openai_embed, ))
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
             f.result()
+        time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+        def set_raw_index_small():
+            _ = set_title_summary_future.result()
+            brief_summary = self.title + "\n" + self.short_summary
+            brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+            self._brief_summary = brief_summary
+            text = self.brief_summary + doc_text
+            self._text_len = get_gpt4_word_count(text)
+            self._brief_summary_len = get_gpt3_word_count(brief_summary)
+            self._raw_index = raw_index_future.result()
+            time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
+        set_raw_index_small()
 
-    def post_init(self):
-        brief_summary = self.title + "\n" + self.short_summary
-        brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
-        self._brief_summary = brief_summary
-        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
-        self._text_len = get_gpt4_word_count(text)
 
+    @property
+    def brief_summary_len(self):
+        if hasattr(self, "_brief_summary_len"):
+            return self._brief_summary_len
+        else:
+            return get_gpt3_word_count(self.brief_summary)
 
     @property
     def raw_index(self):
         if hasattr(self, "_raw_index"):
             return self._raw_index
         else:
-            self._raw_index = self.get_doc_data("indices", "raw_index")
-        return self._raw_index
+            return None
+
+    @property
+    def raw_index_small(self):
+        if hasattr(self, "_raw_index_small"):
+            return self._raw_index_small
+        else:
+            return None
 
     @property
     def text_len(self):
@@ -451,16 +481,37 @@ class DocIndex:
         return None
 
 
-    def semantic_search_document(self, query, token_limit=4096):
+    def semantic_search_document_small(self, query, token_limit=4096):
         st_time = time.time()
-        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         tex_len = self.text_len
         if tex_len < token_limit:
+            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
             return text
-        rem_word_len = token_limit - get_gpt3_word_count(self.brief_summary)
+        rem_word_len = token_limit - self.brief_summary_len
         rem_tokens = rem_word_len // self.chunk_size
-        raw_nodes = self.raw_index.similarity_search(query,
-                                                                                k=max(self.result_cutoff, rem_tokens))
+        if self.raw_index_small is None:
+            logger.warn(
+                f"[semantic_search_document_small]:: Raw index small is None, returning using semantic_search_document fn.")
+            return self.semantic_search_document(query, token_limit)
+        raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+
+        raw_text = "\n".join([f"Small Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        logger.info(f"[semantic_search_document_small]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
+        return self.brief_summary + raw_text
+
+    def semantic_search_document(self, query, token_limit=4096):
+        st_time = time.time()
+        tex_len = self.text_len
+        if tex_len < token_limit:
+            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+            return text
+        rem_word_len = token_limit - self.brief_summary_len
+        rem_tokens = rem_word_len // self.chunk_size
+        if self.raw_index is None:
+            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+            logger.warn(f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text.")
+            return ChunkText(text, token_limit)[0]
+        raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
 
         raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
         logger.info(f"[semantic_search_document]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
@@ -490,64 +541,36 @@ class DocIndex:
         if mode == "detailed" or mode == "review":
             tex_len = self.text_len
             if tex_len < 28000:
-                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
-Question or Query is given below.
-{query}
-
-Context is given below.
-{text}
-
-Write answer below.
-"""
+                chunked_text = text
             else:
                 chunked_text = ChunkText(text, 64000)[0]
-                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
+            prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
 
 Context is given below.
 {chunked_text}
 
-Write answer below.
-                """
-            if tex_len < 28000:
-                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
-                additional_info_ld = get_async_future(llm, prompt, temperature=0.3)
-                if detail_level >= 3:
-                    def get_additional_info_high_detail():
-                        llm = CallLLm(self.get_api_keys(),
-                                      model_name="google/gemini-pro")
-                        ad_info = get_async_future(llm, prompt, temperature=0.9)
-                        init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
-                        return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
-                    additional_info = get_async_future(get_additional_info_high_detail)
-                else:
-                    additional_info = additional_info_ld
-            else:
-                additional_info_ld = get_async_future(call_contextual_reader, query, self.semantic_search_document,
-                                                      text,
-                                                      self.get_api_keys(), provide_short_responses=detail_level <= 1, scan=detail_level >= 4)
-                if detail_level >= 3:
-                    def get_additional_info_high_detail():
-                        llm = CallLLm(self.get_api_keys(),
-                                      model_name="google/gemini-pro")
-                        ad_info = get_async_future(llm, prompt, temperature=0.9)
-                        init_add_info = additional_info_ld.result() if additional_info_ld.exception() is None else ""
-                        return init_add_info + "\n\n" + (ad_info.result() if ad_info.exception() is None else "")
-                    additional_info = get_async_future(get_additional_info_high_detail)
-                else:
-                    additional_info = additional_info_ld
+Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
+"""
 
-            if detail_level >= 4 and tex_len >= 16_000:
-                raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff,
-                                                                                                     24_000//self.chunk_size))
+            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro" if detail_level <= 2 else "anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
+            additional_info = get_async_future(llm, prompt, temperature=0.9)
+            if detail_level >= 3 and self.raw_index is not None:
+                raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
+                if detail_level >= 4 and self.raw_index_small is not None:
+                    small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
+                                                                              12_000 // self.chunk_size))
+                    small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
+                    raw_text += "\n\n" + small_raw_text
 
-                llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-sonnet:beta", use_gpt4=False, use_16k=True)
+                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
+                    llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-sonnet:beta" if detail_level >= 4 else "google/gemini-pro", use_gpt4=False,
+                                  use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
                     init_add_info = additional_info_v1.result()
                     return init_add_info + "\n\n" + ad_info.result()
@@ -698,7 +721,7 @@ Detailed and comprehensive summary:
             try:
                 short_summary = self.paper_details["abstract"]
             except Exception as e:
-                short_summary = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
+                short_summary = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
             setattr(self, "_short_summary", short_summary)
             self.save_local()
             return short_summary
@@ -975,10 +998,7 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
         else:
             self.get_doc_data("qna_data", "detailed_qna")[found_index] = [question_id, final_query, answer, mode]
             self.set_doc_data("qna_data", "detailed_qna", self.get_doc_data("qna_data", "detailed_qna"), overwrite=True)
-        db2 = FAISS.from_texts([final_query +"\n"+answer], get_embedding_model(self.get_api_keys()))
-        self.get_doc_data("indices", "dqna_index").merge_from(db2)
-        index = self.get_doc_data("indices", "dqna_index")
-        self.set_doc_data("indices", "dqna_index", index)
+
         
     
     
@@ -1098,10 +1118,13 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     else:
         chunk_size = LARGE_CHUNK_LEN
     chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
+    chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
     chunks = chunks.result()
+    chunks_small = chunks_small.result()
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,
+        'chunks_small': chunks_small,
         'running_summary': '',
         'detailed_qna': [],
         'deep_reader_details': {
@@ -1116,11 +1139,10 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     try:
         doc_index: DocIndex = ImmediateDocIndex(pdf_url,
                     filetype,
-                    "scientific_article", doc_text, chunk_size, nested_dict, openai_embed, folder)
+                    "scientific_article", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
         doc_index.set_api_keys(keys)
-        doc_index.post_init()
         def get_doc_ready():
             return doc_index.get_short_info()
         _ = get_async_future(get_doc_ready)

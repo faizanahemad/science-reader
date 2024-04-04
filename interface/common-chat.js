@@ -314,14 +314,14 @@ var ChatManager = {
             xhr.open('POST', '/upload_doc_to_conversation/' + conversationId, true);
             xhr.upload.onprogress = function (e) {
                 if (e.lengthComputable) {
-                    let percentComplete = Math.round((e.loaded / e.total) * 80);
+                    let percentComplete = Math.round((e.loaded / e.total) * 70);
                     progressText.text(percentComplete + '%'); // Update progress text
                 }
             };
 
             intrvl = setInterval(function () {
                 currentProgress = parseInt(progressText.text().replace('%', ''));
-                if (currentProgress < 100 && currentProgress >= 80) {
+                if (currentProgress < 100 && currentProgress >= 70) {
                     progressText.text(currentProgress + 1 + '%');
                 }
             }, 1000);

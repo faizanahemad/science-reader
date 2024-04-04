@@ -52,12 +52,8 @@ Summary of the document is given below:
 {{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
-{self.complex_output_instructions}
 
-Question or Query is given below.
-{{query}}
-
-Write informative answer below.
+Write informative, comprehensive and detailed answer below.
 """,
             ),
             running_summary_prompt=PromptTemplate(

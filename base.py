@@ -2314,6 +2314,9 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     if provide_raw_text:
         per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(additional_docs)
         doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) for doc in additional_docs]
+        if provide_detailed_answers >= 3:
+            doc_search_results_small_futures = [pdf_process_executor.submit(doc.semantic_search_document_small, query_string, per_doc_text_len//2) for doc in
+                additional_docs]
     query_string = (
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
@@ -2331,7 +2334,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
                                    current_doc_summary.strip()) > 0 else '') + f"Current query: '''{query}'''" + f"\n\nAnswers:\n{joined_answers}"
             futures = [pdf_process_executor.submit(doc.get_short_answer, query_string,
                                                    defaultdict(lambda: provide_detailed_answers, {
-                                                       "provide_detailed_answers": 2 if provide_detailed_answers >= 4 else 3}),
+                                                       "provide_detailed_answers": 2}),
                                                    False) for doc in additional_docs]
             answers_stage_2 = [future.result() for future in futures]
             answers_stage_2 = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in
@@ -2342,7 +2345,10 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
 
     if provide_raw_text:
-        doc_search_results = [f.result() for f in doc_search_results_futures]
+        if provide_detailed_answers >= 3:
+            doc_search_results = [f.result() + "\n\n" + q.result() for f, q in zip(doc_search_results_futures, doc_search_results_small_futures)]
+        else:
+            doc_search_results = [f.result() for f in doc_search_results_futures]
         logger.info(
             f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
 
