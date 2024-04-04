@@ -1228,10 +1228,8 @@ def list_conversation_by_user():
             sorted_data_reverse = sorted_data_reverse[1:]
             sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]['last_updated'], reverse=True)
             new_conversation.set_field("memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-            new_conversation.make_stateless()
         else:
             new_conversation = create_conversation_simple(session)
-            new_conversation.make_stateless()
         sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
     sorted_data_reverse = [sd[0] for sd in sorted_data_reverse]
     return jsonify(sorted_data_reverse)
