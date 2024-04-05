@@ -656,7 +656,7 @@ class ScrapingValidityException(Exception):
 from scipy import spatial
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
-    good_page_size = 200
+    good_page_size = 100
     result = dict(text="", title="", link=link, error="")
     st = time.time()
     bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
@@ -703,16 +703,16 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "zenrows"
                 break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+            elif result is None or len(result["text"].strip().split()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 zenrows_exception = True
 
-        if ant_service_result is not None and ant_service_result.done() and ant_service_result.exception() is None and not ant_exception and time.time() - st >= 10:
+        if ant_service_result is not None and ant_service_result.done() and ant_service_result.exception() is None and not ant_exception and time.time() - st >= 4:
             result = ant_service_result.result()
             result_from = "ant_tentative"
             if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "ant"
                 break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+            elif result is None or len(result["text"].strip().split()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 ant_exception = True
 
         # if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
@@ -733,7 +733,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         #     elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
         #         bright_data_selenium_exception = True
 
-        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and time.time() - st >= 23:
+        if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and (time.time() - st >= 18 or zenrows_exception or ant_exception):
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
             # alpha_num = len(re.findall(r'[a-zA-Z0-9]', result["text"]))
@@ -742,10 +742,10 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             except Exception as e:
                 result["text"] = ""
 
-            if result is not None and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+            if result is not None and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "brightdata"
                 break
-            elif result is None or len(result["text"].strip()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
+            elif result is None or len(result["text"].strip().split()) <= good_page_size or result["text"].strip() == DDOS_PROTECTION_STR:
                 brightdata_exception = True
 
         time.sleep(0.5)

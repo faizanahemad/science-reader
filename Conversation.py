@@ -614,7 +614,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 25
+        return 20
 
     def get_preamble(self, preamble_options, field):
         preamble = ""
@@ -968,9 +968,11 @@ Write the extracted information concisely below:
                     read_links = "\nWe read the below links:\n" + "\n".join(
                         [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                     yield {"text": read_links, "status": "web search completed"}
+                    answer += read_links
                 else:
-                    read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+                    read_links = "\nWe could not read any of the links from search results. Please try again later. Timeout at 30s.\n"
                     yield {"text": read_links, "status": "web search completed"}
+                    answer += read_links
                 yield {"text": "\n", "status": "Finished reading few links."}
                 web_text = read_links + "\n" + web_text
 
@@ -1091,9 +1093,11 @@ Write the extracted information concisely below:
             if len(read_links) > 0:
                 read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
                 yield {"text": read_links, "status": "web search completed"}
+                answer += read_links
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "web search completed"}
+                answer += read_links
             yield {"text": "\n", "status": "Finished reading your provided links."}
             web_text = read_links + "\n" + web_text
             time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
