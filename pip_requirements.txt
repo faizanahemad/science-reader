@@ -34,7 +34,7 @@ fastapi==0.88.0
 feedfinder2==0.0.4
 feedparser==6.0.10
 ffmpy
-Flask==2.3.2
+Flask==3.0.2
 Flask-Caching==2.0.2
 Flask-Dance==7.1.0
 Flask-Session==0.5.0
@@ -132,7 +132,7 @@ SQLAlchemy==2.0.18
 starlette==0.22.0
 tabulate==0.8.9
 tenacity==8.2.2
-tiktoken==0.4.0
+tiktoken==0.6.0
 timm==0.9.2
 tinysegmenter==0.3
 tld==0.13

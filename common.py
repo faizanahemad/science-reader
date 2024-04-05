@@ -1141,7 +1141,7 @@ def get_embedding_model(keys) -> Embeddings:
     openai_key = keys["openAIKey"]
     assert openai_key
     # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-ada-002', chunk_size=4096)
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=8000)
     return openai_embed
 
 
