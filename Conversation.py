@@ -477,7 +477,7 @@ Title of the conversation:
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 8000, 10_000)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
         title = self.create_title(query, extract_user_answer(response))
@@ -832,7 +832,7 @@ Write the extracted information concisely below:
             read_links = re.findall(pattern, link_result_text)
             read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in links]))
             if len(all_docs_info) > 0:
-                read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
+                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
@@ -880,12 +880,13 @@ Write the extracted information concisely below:
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
             if len(search_results['queries']) > 0:
-                yield {"text": "#### Web searched with Queries: \n", "status": "displaying web search queries ... "}
-                answer += "#### Web searched with Queries: \n"
+                atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
+                yield {"text": atext, "status": "displaying web search queries ... "}
+                answer += atext
                 queries = two_column_list(search_results['queries'])
                 message_config["web_search_queries"] = search_results['queries']
-                answer += (queries + "\n")
-                yield {"text": queries + "\n", "status": "displaying web search queries ... "}
+                answer += (queries + "</div>\n")
+                yield {"text": queries + "</div>\n", "status": "displaying web search queries ... "}
 
             if len(search_results['search_results']) > 0:
                 if provide_detailed_answers == 1:
@@ -901,20 +902,14 @@ Write the extracted information concisely below:
                 query_results_part1 = search_results['search_results']
                 seen_query_results = query_results_part1[:max(10, cut_off)]
                 unseen_query_results = query_results_part1[max(10, cut_off):]
-                answer += "\n#### Search Results: \n"
-                yield {"text": "\n#### Search Results: \n", "status": "displaying web search results ... "}
+                atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
+                answer += atext
+                yield {"text":atext, "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
                 query_results = two_column_list(query_results)
-                answer += (query_results + "\n")
-                yield {"text": query_results + "\n", "status": "Reading web search results ... "}
+                answer += (query_results + "</div>\n")
+                yield {"text": query_results + "</div>\n", "status": "Reading web search results ... "}
 
-                # if len(unseen_query_results) > 0:
-                #     answer += "\n###### Other Search Results: \n"
-                #     yield {"text": "\n###### Other Search Results: \n", "status": "displaying web search results ... "}
-                #     query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in unseen_query_results]
-                #     query_results = two_column_list(query_results)
-                #     answer += (query_results + "\n")
-                #     yield {"text": query_results + "\n", "status": "Reading web search results ... "}
             result_queue = web_results.result()[1]
             web_text_accumulator = []
             web_results_seen_links = []
@@ -965,8 +960,8 @@ Write the extracted information concisely below:
                 read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links]))
                 message_config["web_search_links_read"] = read_links
                 if len(read_links) > 0:
-                    read_links = "\nWe read the below links:\n" + "\n".join(
-                        [f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
+                    atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage1' role='button'></div> <div class='collapse' id='readLinksStage1'>" + "\n"
+                    read_links = atext + "\n".join([f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "</div>\n\n"
                     yield {"text": read_links, "status": "web search completed"}
                     answer += read_links
                 else:
@@ -1091,7 +1086,8 @@ Write the extracted information concisely below:
             else:
                 message_config["web_search_links_read"] = read_links
             if len(read_links) > 0:
-                read_links = "\nWe read the below links:\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n"
+                atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
+                read_links = atext + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "</div>\n\n"
                 yield {"text": read_links, "status": "web search completed"}
                 answer += read_links
             else:
@@ -1416,17 +1412,18 @@ Write the extracted information concisely below:
         yield {"text": '', "status": "saving answer ..."}
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
-            yield {"text": query_results + "\n", "status": "Showing all results ... "}
+            yield {"text": '', "status": "Showing all results ... "}
             if search_results["type"] == "end":
                 full_results = search_results["full_results"]
-                answer += "\n#### All Search Results: \n"
-                yield {"text": "\n#### All Search Results: \n", "status": "displaying web search results ... "}
+                atext = "\n**All Search Results:** <div data-toggle='collapse' href='#allSearchResults' role='button'></div> <div class='collapse' id='allSearchResults'>" + "\n"
+                answer += atext
+                yield {"text": atext, "status": "displaying web search results ... "}
                 query_results = [f"<a href='{qr['link']}'>{qr['title']} [{qr['count']}]</a>" for qr in full_results]
                 message_config["web_search_links_all"] = full_results
                 message_config["web_search_links_unread"] = sorted([qr for qr in full_results if qr["link"] not in message_config["web_search_links_read"]], key=lambda x: x["count"], reverse=True)
                 query_results = two_column_list(query_results)
-                answer += (query_results + "\n")
-                yield {"text": query_results + "\n", "status": "Showing all results ... "}
+                answer += (query_results + "</div>")
+                yield {"text": query_results + "</div>", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, full_doc_texts)
         message_ids = self.get_message_ids(query["messageText"], answer)

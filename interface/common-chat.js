@@ -102,8 +102,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     let buffer = '';
     let card = null;
     let answerParagraph = null;
+    let elem_to_render = null;
     var content_length = 0;
     var answer = ''
+    var rendered_answer = ''
 
     async function read() {
         const { value, done } = await reader.read();
@@ -126,26 +128,42 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
             part['text'] = part['text'].replace(/\n/g, '  \n');
             answer = answer + part['text'];
+            rendered_answer = rendered_answer + part['text'];
 
 
             if (!answerParagraph) {
                 answerParagraph = card.find('.actual-card-text').last();
+                elem_to_render = answerParagraph
             }
             var statusDiv = card.find('.status-div');
             statusDiv.show();
             statusDiv.find('.spinner-border').show();
-            answerParagraph.append(part['text']);  // Find the last p tag within the card-body and append the message part
-            answer_pre_text = answerParagraph.text()
-            if (answerParagraph.html().length > content_length + 40) {
-                renderInnerContentAsMarkdown(answerParagraph,
-                    callback = null, continuous = true, html = answer)
-                content_length = answerParagraph.html().length
+            
+            if (part['text'].includes('<answer>') && card.find("#message-render-space-md-render").length > 0) {
+                elem_to_render = $('<p class="answer" id="actual-answer-rendering-space"></p>');
+                card.find("#message-render-space-md-render").append(elem_to_render);
+                elem_to_render = card.find("#message-render-space-md-render").last().find('.answer').last().html('');
+                content_length = 0;
+                rendered_answer = ''
+            }
+            
+            elem_to_render.append(part['text']);  // Find the last p tag within the card-body and append the message part
+            if (elem_to_render.html().length > content_length + 40) {
+                renderInnerContentAsMarkdown(elem_to_render,
+                    callback = null, continuous = true, html = rendered_answer)
+                content_length = elem_to_render.html().length
+            }
+            if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
+                elem_to_render = $('<p class="post-answer" id="actual-results-rendering-space"></p>');
+                card.find("#message-render-space-md-render").append(elem_to_render);
+                elem_to_render = card.find("#message-render-space-md-render").last().find('.post-answer').last().html('');
+                content_length = 0;
+                rendered_answer = ''
             }
             if (content_length < 300) {
                 var chatView = $('#chatView');
                 chatView.scrollTop(chatView.prop('scrollHeight'));
             }
-            answer_post_text = answerParagraph.text()
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').text(part['status']);
 

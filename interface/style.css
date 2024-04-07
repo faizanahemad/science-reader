@@ -439,3 +439,27 @@ textarea.form-control.dynamic-textarea {
     width: calc(100% - 90px);
     /* Adjust the width accordingly */
 }
+
+
+[data-toggle="collapse"]::after {
+    display: inline-block;
+    content: '▼';
+    /* content: '▶'; */
+    padding-left: 10px;
+    /* transform: rotate(-90deg); */
+    transition: transform 0.3s ease;
+}
+
+[data-toggle="collapse"].collapsed::after {
+    transform: rotate(-90deg);
+}
+
+[data-toggle="collapse"]:hover::after {
+    color: blue;
+    /* Change this color as needed */
+}
+
+[data-toggle="collapse"].collapsed::before {
+    transform: rotate(90deg);
+}
+

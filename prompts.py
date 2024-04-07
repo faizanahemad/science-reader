@@ -121,7 +121,6 @@ Write a new summary of the conversation. Capture the salient, important and note
 Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references.
 Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
-If we are answering questions on a story, article or some other context then we should provide a summary of the story or article as well, since we will later just ask questions and use the summary to answer the questions.
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
