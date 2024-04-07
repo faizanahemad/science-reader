@@ -11,6 +11,8 @@ server {
 
     ssl_certificate /etc/letsencrypt/live/sci-tldr.pro/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/sci-tldr.pro/privkey.pem;
+    
+    client_max_body_size 100M;
 
     location / { 
         proxy_pass http://localhost:5000;
@@ -22,6 +24,9 @@ server {
     }   
 }
 ```
+`sudo ls -l /etc/nginx/sites-enabled/`
+`sudo rm /etc/nginx/sites-enabled/default`
+`sudo systemctl reload nginx`
 
 ```
 server {                                                                                                                                                                                 

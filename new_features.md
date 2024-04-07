@@ -1,6 +1,81 @@
+# Bugs
+- Auto expand of input textbox not happening. [Done]
+- Run continous rendering only within answer tag once open answer tag is received. [Done]
+
+
+# Startup
+- Sell to Universities with On-Premise installation and per user license.
+- Our USP is to reduce hallucination and increase quality of answers.
+- We also enable search with LLM based summarised answers.
+- Build a code execution environment for LLM based code generation.
+- Teach coding using LLM.
+- Make educational videos, diagrams, explanatory articles, and other content using LLM.
+- Text to explanation or educational video
+
+- Text -> Screenplay, settings and actions and dialogues (Prompt expansion like Dall-E 3) -> to Video.
+- Transcript to Video
+- Video to action recognition and scene identification, object detection etc to text -> Then back to video.
+- Video Continuation from an existing video. Video replace parts or pixels across time by proper tracking.
+- 
 # Next
-- Speed up load time in chat by calling upvote downvote api only after the chat is loaded.
-- Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order.
+- Do a stage 2 filtering for reranking before LLM answers for web search. Or use reranker in stage 1 itself and check.
+- Add Command R+ to list of final models and select it as default for search since it is a good RAG model. Might save uptp 6 seconds.
+- Use top 4 for search and contextual reader.
+- Parallelize pdf reading and web search link reading more for speed.
+- For speed up of web search results, use a RAG based extraction from each link by chunking the link text by newlines and other paragraph breaks and then using the RAG to extract the most relevant part of the link. Do this without LLM call and extract about 1K token per link and then rerank again using Reranker API.
+- 
+- 
+- No AI words setting in prompt.
+- Client side key setting deprecate.
+- Review screen and backend review function deprecate.
+- Add the paper reading part to the chat.
+- Some of the tool and function invocations can be automated by an LLM decision agent with more focus on recall.
+- Debug mobile login frequent logout issues.
+- Add to conference list for other fields of study.
+- Improve quality of search results by searching for more results only if we don't find good results and using a priority order of systems and queries.
+
+- Keep conversation stateful as a start but deprecate and delete after 30 days.
+- Upload doc like openai paperclip button in the message box for better UX. It should open upload window directly. [Done]
+  - No support for drag and drop since its not a UI feature that most people use.
+- Add doc along with asking chat message. i.e. Don't block message typing and ack that a file is being uploaded.
+- Adaptive chunking size for docs based on the size of the doc. [Done]
+- Better retrieval by double different sized indexes (4k vs 1k or 512 vs 128) by masking the semantic similarity function and using that everywhere.
+- Planner.
+  - Plan what mode is needed.
+  - Plan what depth and history context is needed.
+  - Plan which added documents need to be read.
+  - Plan what search needs to be done with what search terms.
+  - What preambles and what system messages are needed.
+  - What field/expert area based prompts are needed.
+  - Assume we need all tools and process them and then if the planner says to use some of them then use them else discard results.
+- Reference which page and part of document contributed to the part of the answer.
+- Perplexity like API as an offering for companies who want Search + LLM.
+- Our USP is higher quality with better speed using multiple LLM tiers
+- Test a 200 page document.
+  - Increase chunk size for longer docs so that less calls are made to embedding models.
+- If only one doc is present then use the main LLM for answering with only text extraction to speed up answering. [Done]
+- For Doc Qna, Create question and follow up question based on the document summary and then ask them in parallel. Use this in L4. [Nope] it will write too much.
+- For multi-doc do [Done]
+  - L4: a criss cross two layer calling strategy. First call all docs and then call all docs again. Use this in L4.
+  - L1 & L2 : use the main LLM for answering with only text extraction to speed up answering. L1 less text.
+  - L3: At L3 use the DocIndex submodule to answer as well as text extract to the main LLM.
+- Use scraping ant or other scraper for pdf as well and 
+- move to unlimited concurrency scraper for faster results. [Done] 
+- Use brightdata for arxiv link. [Nope]
+- Speed up Add doc time
+  - Show upload progress bar.
+  - Don't index docs below 20K tokens.
+    - Do RAG prep only if doc is over 20K tokens.
+- Enhance right click and enhance text selection.
+  - Quotation in next message.
+  - Summarise link
+  - Search this. or Verify this.
+  - Show link summary on hover.
+  - Show references and citations on hover.
+- Move to chat message api based system for past messages.
+- Reduce thread-count. Make multiple async calls to brightdata and zenrows from one thread and then show the results as they come in using a polling mechanism.
+- Speed up load time in chat by calling upvote downvote api only after the chat is loaded. [Done]
+- Read more on same search results! - persist the search results and read results and then try to read the ones that were not read yet in sorted order. [Done]
   - /more command to read more of the search results. Or More button too.
     - Should work if previous was a search, link read or doc reading or general message. But work differently for each.
       - In case of plain messages, it should just go for reply module directly.
@@ -11,7 +86,6 @@
   - Clear current checkboxes once a message is sent by user.
   - Prioritize this over message length checkbox.
   - We use selected messages by running over all messages in chat and seeing if any is selected, if yes then we use this otherwise we don't.
-- Debug Login, Debug Websearch, convert word to pdf (convert_doc_to_pdf) as a call to convertapi.
 - Logging of stdout.
 - Stateless Chat for immediate uses. [Done] 
   - Make initial chats stateless always and only make then stateful if user chooses to. This way no need to make a search tab. 
@@ -20,22 +94,16 @@
 - Fix doc download [Done]
 - Make doc viewable within chat. [Done]
 - How do we do word doc and html link doc type for docs in chat? [Done]
-- On Mobile, given a pdf link or an arxiv link open in pdfjs viewer. Extra functionality since mobile forces pdf download.
+- On Mobile, given a pdf link or an arxiv link open in pdfjs viewer. Extra functionality since mobile forces pdf download. [Nope]
 - Read link from message text itself. [Done]
 - /search_exact command to search for exact text.
-- Use brightdata for arxiv link. [Nope]
 - read_link better [Done]
-- Don't index docs below 20K tokens.
-  - Do RAG prep only if doc is over 20K tokens.
+
 - Deprecate doc view and reviews.
 - Add sonnet, haiku and mistral medium to the list of final models. [Nope]
 - Use google gemini model more.
 - Upload image, do ocr, and then use the text in the image [Nope]
-- Move to chat message api based system for past messages.
-- For Doc Qna, Create question and follow up question based on the document summary and then ask them in parallel. Use this in L4. [Nope] it will write too much.
-- For multi-doc do a criss cross two layer calling strategy. First call all docs and then call all docs again. Use this in L4 as well.
-- For Doc Qna, use two models to create answers.
-- Make async calls to brightdata and zenrows and then show the results as they come in using a polling mechanism.
+- For Doc Qna, use two models to create answers. [Done]
 - 
 - Use cheaper means of web scraping
 - Scrape arxiv also using zenrows and brightdata.
@@ -45,9 +113,9 @@
 - Give option to call other LLM like Mistral Large and Claude Opus as well. [Done]
 - Settings modal where we can set system prompt, model to use for various cases, preamble, etc.
 - Prompt preambles or simpler system messages set which can be selected from a dropdown. [Done]
-- Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc.
+- Functional checkboxes to use markdown formatting, think step by step, or reply so that content can be copy-pasted, or write code,  or blackmail, etc. [Done]
 - Debug if SERPAPI is used? [Done] Brightdata is used.
-- Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level.
+- Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level. [Nope]
 - Keep a 15 sec timeout for web scraping zenrows calls for any page.
 - Block list and whitelist domains for web search for any single chat and global.
 - Targetted site search like reddit or arxiv only.
@@ -58,8 +126,7 @@
 - Per page pdf reading [Nope]
 - Word doc without any unstructured [Nope]
 - Reliability and Exception Handling and Exception capture to separate file.
-- Use gpt4-turbo and mixtral-medium and mixtral-8x7B more.
-- Use larger contexts everywhere.
+- Use larger contexts everywhere. [Done]
 - Enable copy of raw message. [Done]
 - Enable use of gpt-4V or Claude or gemini for vision queries or image inputs. [Nope]
 
