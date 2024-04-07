@@ -195,7 +195,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                         showMore(null, text = null, textElem = answerParagraph, as_html = true, show_at_start = true);
                     }
                 }, continuous = false, html = answer);
-                initialiseVoteBank(card, `${messageText} + '\n\n' + ${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+                initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
             }
             $('#messageText').focus();
             return;
