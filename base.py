@@ -63,7 +63,7 @@ from langchain.prompts import PromptTemplate
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.llms import GPT4All
 from llama_index.node_parser.simple import SimpleNodeParser
-from llama_index.langchain_helpers.text_splitter import TokenTextSplitter
+from llama_index.langchain_helpers.text_splitter import TokenTextSplitter, SentenceSplitter
 from llama_index import (
     GPTVectorStoreIndex, 
     LangchainEmbedding, 
@@ -550,6 +550,30 @@ def ChunkText(text_document: str, chunk_size: int=3400, chunk_overlap:int=100):
     return text_splitter.split_text(text_document)
 
 
+@AddAttribute('name', "ChunkTextSentences")
+@AddAttribute('description', """
+ChunkTextSentences:
+    This tool takes a text document and chunks it into given chunk size lengths, then returns a list of strings as chunked sub-documents.
+
+    Input params/args: 
+        text_document (str): document to create chunks from.
+        chunk_size (int): Size of each chunk. Default is 3400, smaller chunk sizes are needed if downstream systems throw length error or token limit exceeded errors.
+
+    Returns: 
+        List[str]: text_chunks
+
+    Usage:
+        `text_chunks = ChunkText(text_document="document to chunk") # This tool needs no initialization`
+
+    Alternative Usage:
+        `text_chunks = ChunkText(text_document="document to chunk", chunk_size=1800) # Smaller chunk size, more chunks, but avoid token limit exceeded or length errors.
+
+    """)
+def ChunkTextSentences(text_document: str, chunk_size: int = 3400, chunk_overlap: int = 100):
+    text_splitter = SentenceSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap, backup_separators=["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", "</br>", "<br>", "<br/>", "<br />", "<p>", "</p>", ])
+    return text_splitter.split_text(text_document)
+
+
 class Summarizer:
     def __init__(self, keys, is_detailed=False):
         self.keys = keys
@@ -737,9 +761,35 @@ Only provide answer from the document given above.
         assert isinstance(result, str)
         return result
 
+    def get_one_fast(self, context, document):
+        openai_embed = get_embedding_model(self.keys)
+        def get_doc_embeds(document):
+            chunk_size = 512
+            document = document.strip()
+            ds = document.split(" ")
+            document = " ".join(ds[:256_000])
+            chunks = ChunkTextSentences(document, chunk_size=chunk_size, chunk_overlap=128)
+            doc_embeds = openai_embed.embed_documents(chunks)
+            return chunks, chunk_size, np.array(doc_embeds)
+
+        doc_em_future = get_async_future(get_doc_embeds, document)
+        query_em_future = get_async_future(openai_embed.embed_query, context)
+        chunks, chunk_size, doc_embedding = doc_em_future.result()
+        query_embedding = np.array(query_em_future.result())
+        scores = np.dot(doc_embedding, query_embedding)
+        sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
+        top_chunks = sorted_chunks[:3]
+        top_chunks_text = ""
+        for idx, tc in enumerate(top_chunks):
+            top_chunks_text += f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n"
+        top_chunks = top_chunks_text
+        return top_chunks
+
     def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
         st = time.time()
+        return self.get_one_fast(context_user_query, text_document)
+
         doc_word_count = get_gpt3_word_count(text_document)
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
         if short and doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:

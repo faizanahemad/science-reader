@@ -740,7 +740,12 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             try:
                 result["text"] = normalize_whitespace(result["text"])
             except Exception as e:
-                result["text"] = ""
+                if result is None:
+                    brightdata_exception = True
+                elif result is not None and isinstance(result, dict):
+                    result["text"] = ""
+                else:
+                    brightdata_exception = True
 
             if result is not None and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "brightdata"
