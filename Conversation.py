@@ -1373,31 +1373,32 @@ Write the extracted information concisely below:
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
-        next_token_future = get_async_future(lambda: next(main_ans_gen))
-        wt_prior_ctx = time.time()
-        init_one = False
-        init_two = False
-        while time.time() - wt_prior_ctx < 45:
-            # check if next is available on main_ans_gen and can give a response.
-            if next_token_future.done() and next_token_future.exception() is None:
-                t2y = next_token_future.result()
-                break
-            elif time.time() - wt_prior_ctx > 15 and not init_one:
-                init_one = True
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-                main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
-                next_token_future = get_async_future(lambda: next(main_ans_gen))
-            elif time.time() - wt_prior_ctx > 30 and not init_two:
-                init_two = True
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-                main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
-                next_token_future = get_async_future(lambda: next(main_ans_gen))
-            elif time.time() - wt_prior_ctx > 40:
-                logger.error(f"[main_ans_gen] Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.")
-                yield {"text": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.", "status": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds."}
-                break
-
-            time.sleep(0.5)
+        t2y = next(main_ans_gen)
+        # next_token_future = get_async_future(lambda: next(main_ans_gen))
+        # wt_prior_ctx = time.time()
+        # init_one = False
+        # init_two = False
+        # while time.time() - wt_prior_ctx < 45:
+        #     # check if next is available on main_ans_gen and can give a response.
+        #     if next_token_future.done() and next_token_future.exception() is None:
+        #         t2y = next_token_future.result()
+        #         break
+        #     elif time.time() - wt_prior_ctx > 15 and not init_one:
+        #         init_one = True
+        #         llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+        #         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
+        #         next_token_future = get_async_future(lambda: next(main_ans_gen))
+        #     elif time.time() - wt_prior_ctx > 30 and not init_two:
+        #         init_two = True
+        #         llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+        #         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
+        #         next_token_future = get_async_future(lambda: next(main_ans_gen))
+        #     elif time.time() - wt_prior_ctx > 40:
+        #         logger.error(f"[main_ans_gen] Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.")
+        #         yield {"text": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.", "status": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds."}
+        #         break
+        #
+        #     time.sleep(0.5)
 
 
         yield {"text": t2y, "status": "answering in progress"}
