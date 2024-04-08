@@ -1959,7 +1959,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
-    if "full_text" in result and len(result["full_text"].strip()) > 0 and len(result["full_text"].strip().split()) > 100:
+    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0 and len(result["full_text"].strip().split()) > 100:
         result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
                                                                                          'end_of_text').replace(
             '<|endoftext|>', '')
