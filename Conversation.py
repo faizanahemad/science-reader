@@ -1317,6 +1317,8 @@ Write the extracted information concisely below:
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
         if model_name == "gpt-4-turbo":
             model_name = None
+        elif model_name == "cohere/command-r-plus":
+            model_name = "cohere/command-r-plus"
         elif model_name == "gpt-4-32k":
             model_name = "openai/gpt-4-32k"
         elif model_name == "Claude Opus":
@@ -1327,8 +1329,7 @@ Write the extracted information concisely below:
             model_name = "mistralai/mistral-large"
         elif model_name == "Mistral Medium":
             model_name = "mistralai/mistral-medium"
-        elif model_name == "Mixtral":
-            model_name = "mistralai/mixtral-8x7b-instruct:nitro"
+
         elif model_name == "Gemini":
             model_name = "google/gemini-pro"
         else:
