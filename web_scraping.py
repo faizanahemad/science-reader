@@ -660,6 +660,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     #     bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
     # else:
     #     bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
+    bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
+    bright_data_selenium_result = get_async_future(browse_to_page_selenium, link)
     if "zenrows" in apikeys:
         zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
     else:
