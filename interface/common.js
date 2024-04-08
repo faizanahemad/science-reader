@@ -713,11 +713,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>
                 <option>gpt-4-32k</option>
+                <option>cohere/command-r-plus</option>
                 <option>Claude Opus</option>
                 <option>Claude Sonnet</option>
                 <option>Mistral Large</option>
                 <option>Mistral Medium</option>
-                <option>Mixtral</option>
                 <option>Gemini</option>
             </select>
         </div>
