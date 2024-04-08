@@ -55,32 +55,13 @@ def check_js_needed(html):
     # js_warning_pattern_v4 = re.compile(r'javascript.{0,100}?disabled', re.IGNORECASE | re.DOTALL) # js_warning_pattern_v4 = re.compile(r'javascript(?:.|\n){0,100}?disabled', re.IGNORECASE)
     return js_warn
 
-logger = logging.getLogger(__name__)
 
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
-    ]
-)
-logger.setLevel(logging.ERROR)
-time_logger = logging.getLogger(__name__ + " | TIMING")
-time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
-error_logger = logging.getLogger(__name__ + '[ERROR_LOGGER]')
-error_handler = logging.FileHandler(os.path.join(os.getcwd(), "error.txt"))
-error_handler.setLevel(logging.ERROR)
-error_formatter = logging.Formatter(
-    fmt="%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S"
-)
-error_handler.setFormatter(error_formatter)
-error_logger.addHandler(error_handler)
-error_logger.addHandler(logging.StreamHandler(sys.stdout))
 
+
+
+from loggers import getLoggers
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
@@ -665,6 +646,7 @@ class ScrapingValidityException(Exception):
 
 
 from scipy import spatial
+@log_memory_usage
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
     good_page_size = 100
@@ -789,6 +771,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         error_logger.error(f"[DDOS_PROTECTION] DDOS Protection for {link} from {result_from},  zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
         raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
 
+    success_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
     return result
 
 

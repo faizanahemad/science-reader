@@ -115,24 +115,10 @@ pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
-import logging
 from common import *
 
-logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
-    ]
-)
-logger.setLevel(logging.ERROR)
-time_logger = logging.getLogger(__name__ + " | TIMING")
-time_logger.setLevel(logging.INFO)  # Set log level for this logger
-
+from loggers import getLoggers
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
@@ -549,7 +535,7 @@ def ChunkText(text_document: str, chunk_size: int=3400, chunk_overlap:int=100):
     text_splitter = TokenTextSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap)
     return text_splitter.split_text(text_document)
 
-
+@log_memory_usage
 @AddAttribute('name', "ChunkTextSentences")
 @AddAttribute('description', """
 ChunkTextSentences:
@@ -1795,7 +1781,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 except (ValueError, AssertionError):
                     min_key = query
                     min_count = 0
-                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 2) * 10):
+                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10):
                     keys, _ = zip(*query_vs_results_count.most_common()[:-3:-1])
                     qs = temp_queue.qsize()
                     iter_times = 0
@@ -1815,7 +1801,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                             temp_queue.put(r)
                 deduped_results.add(link)
                 seen_titles.add(title)
-    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 2) * 10):
+    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10):
         r = temp_queue.get()
         yield r
         total_count += 1

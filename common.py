@@ -67,21 +67,8 @@ def is_dillable(obj):
         return False
     return False
 
-logger = logging.getLogger(__name__)
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
-    ]
-)
-logger.setLevel(logging.INFO)
-time_logger = logging.getLogger(__name__ + " | TIMING")
-time_logger.setLevel(logging.INFO)  # Set log level for this logger
-
+from loggers import getLoggers
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 
 def convert_html_to_pdf(file_path, output_path):
     api_url = PDF_CONVERT_URL
