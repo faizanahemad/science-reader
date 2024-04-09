@@ -754,7 +754,7 @@ Only provide answer from the document given above.
             document = document.strip()
             ds = document.split(" ")
             document = " ".join(ds[:256_000])
-            chunks = ChunkTextSentences(document, chunk_size=chunk_size, chunk_overlap=128)
+            chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=128) # ChunkTextSentences
             doc_embeds = openai_embed.embed_documents(chunks)
             return chunks, chunk_size, np.array(doc_embeds)
 
@@ -1461,7 +1461,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             except:
                 pass
     return {"text": text, "title": title}
-@typed_memoize(cache, str, int, tuple, bool)
+# @typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
     from langchain.document_loaders import PyPDFLoader, PyMuPDFLoader
     loader = PyMuPDFLoader(url)
@@ -1545,7 +1545,7 @@ class PDFReaderTool:
     def __init__(self, keys):
         self.mathpix_api_id=keys['mathpixId']
         self.mathpix_api_key=keys['mathpixKey']
-    @typed_memoize(cache, str, int, tuple, bool)
+    # @typed_memoize(cache, str, int, tuple, bool)
     def __call__(self, url, page_ranges=None):
         if self.mathpix_api_id is not None and self.mathpix_api_key is not None:
             
