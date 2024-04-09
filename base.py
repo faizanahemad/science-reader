@@ -1584,7 +1584,7 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
 # TODO: Add caching
 def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None,
                      previous_answer=None, previous_search_results=None, extra_queries=None,
-                     gscholar=False, provide_detailed_answers=False, start_time=None,):
+                     gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
 
     # TODO: if it is scientific or knowledge based question, then use google scholar api, use filetype:pdf and site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
     st = time.time()
@@ -1641,17 +1641,18 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
-    num_res = 20 if provide_detailed_answers >= 3 else 10
+    num_res = 20 if provide_detailed_answers >= 3 else 15
     
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     search_st = time.time()
     serps = []
     if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
+        if not gscholar:
 
-        serps.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
-                                  our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                 query_strings])
+            serps.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                      our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                     query_strings])
         if gscholar:
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
@@ -1667,13 +1668,14 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
             serps.extend([get_async_future(brightdata_google_serp,
-                                           generate_science_site_query(query + f" research paper in {str(year)}"),
+                                           generate_science_site_query(query + f" research paper"),
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
     if serp_available:
-        serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                       only_pdf=None, only_science_sites=None) for query in query_strings])
+        if not gscholar:
+            serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
+                                           only_pdf=None, only_science_sites=None) for query in query_strings])
         if gscholar:
             serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
                                            api_keys["serpApiKey"], num_res,
@@ -1695,10 +1697,11 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                           query_strings])
 
     if google_available:
-        serps.extend([get_async_future(googleapi, query,
-                                       dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                       num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
-                      query in query_strings])
+        if not gscholar:
+            serps.extend([get_async_future(googleapi, query,
+                                           dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
+                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
+                          query in query_strings])
         if gscholar:
             serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
@@ -1717,13 +1720,18 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                           enumerate(query_strings)])
 
     if bing_available:
-        serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None,
-                                       only_pdf=None, only_science_sites=None) for query in query_strings])
+        if not gscholar:
+            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in query_strings])
         if gscholar:
             serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
                                            only_pdf=True, only_science_sites=None) for query in
                           query_strings])
             serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res,
+                                           our_datetime=None,
+                                           only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
+            serps.extend([get_async_future(bingapi, query + f" research paper", api_keys["bingKey"], num_res,
                                            our_datetime=None,
                                            only_pdf=None, only_science_sites=None) for query in
                           query_strings])
@@ -1764,7 +1772,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                     continue
 
                 if link not in deduped_results and title not in seen_titles and (
-                        query not in query_vs_results_count or query_vs_results_count[query] <= (4 if provide_detailed_answers <= 2 else 5)):
+                        query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)) and exists_tmp_marker_file(web_search_tmp_marker_name):
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
                          "rank": iqx, "start_time": start_time}
                     query_vs_results_count[query] += 1
@@ -1781,7 +1789,7 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                 except (ValueError, AssertionError):
                     min_key = query
                     min_count = 0
-                if len(query_vs_results_count) >= 4 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10):
+                if len(query_vs_results_count) >= 2 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10) and exists_tmp_marker_file(web_search_tmp_marker_name):
                     keys, _ = zip(*query_vs_results_count.most_common()[:-3:-1])
                     qs = temp_queue.qsize()
                     iter_times = 0
@@ -1801,13 +1809,15 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                             temp_queue.put(r)
                 deduped_results.add(link)
                 seen_titles.add(title)
-    while not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10):
+    while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 3) * 10):
         r = temp_queue.get()
-        yield r
-        total_count += 1
+        if exists_tmp_marker_file(web_search_tmp_marker_name):
+            yield r
+            total_count += 1
+            time_logger.debug(
+                f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
         query_vs_results_count[r.get("query", "")] += 1
-        time_logger.debug(
-            f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+    time_logger.info(f"Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 
@@ -1816,7 +1826,7 @@ def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None
                      gscholar=False, provide_detailed_answers=False,
                      web_search_tmp_marker_name=None):
     if previous_turn_search_results is None:
-        part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers)
+        part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers, time.time(), web_search_tmp_marker_name)
     else:
         def get_pseudo_results():
             queries = previous_turn_search_results["queries"]
@@ -1875,36 +1885,6 @@ def get_part_1_results(part1_res):
 
             end_result["full_results"] = deduplicate_and_sort(end_result["full_results"])
     yield end_result
-
-def web_search_part2(part1_res, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
-    result_queue = queued_read_over_multiple_links(part1_res, api_keys,
-                                                 provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
-                                                 web_search_tmp_marker_name=web_search_tmp_marker_name)
-    web_text_accumulator = []
-    full_info = []
-    qu_st = time.time()
-    cut_off = (10 if provide_detailed_answers <= 1 else 16) if provide_detailed_answers else 6
-    while True:
-        qu_wait = time.time()
-        break_condition = len(web_text_accumulator) >= cut_off or (qu_wait - qu_st) > 45
-        if break_condition and result_queue.empty():
-            break
-        one_web_result = result_queue.get()
-        qu_et = time.time()
-        if one_web_result is None:
-            continue
-        if one_web_result == TERMINATION_SIGNAL:
-            break
-
-        if one_web_result["text"] is not None and one_web_result["text"].strip() != "":
-            web_text_accumulator.append(one_web_result["text"])
-            logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result: {(qu_et - qu_st):.2f}")
-        if one_web_result["full_info"] is not None and isinstance(one_web_result["full_info"], dict):
-            full_info.append(one_web_result["full_info"])
-    web_text = "\n\n".join(web_text_accumulator)
-    all_results_doc, links, titles, contexts, web_links, web_titles, web_contexts, texts, query_strings, rerank_query, rerank_available = part1_res.result()
-    return {"text": web_text, "full_info": full_info, "search_results": all_results_doc, "queries": query_strings}
-
 
 import multiprocessing
 from multiprocessing import Pool
