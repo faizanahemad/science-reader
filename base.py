@@ -2111,16 +2111,33 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     while time.time() - st < (45 if detailed <= 1 else 75) and exists_tmp_marker_file(web_search_tmp_marker_name):
         if pdf_text_future.done() and pdf_text_future.exception() is None:
             text = pdf_text_future.result()
-            result_from = "pdf_reader_tool"
-            break
+            if isinstance(text, str):
+                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
+                                                                                                      '')
+                txt_len = len(txt.strip().split())
+                if txt_len > 500:
+                    result_from = "pdf_reader_tool"
+                    break
         if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
             text = convert_api_pdf_future.result()
-            result_from = "convert_api"
-            break
+            if isinstance(text, str):
+                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
+                                                                                                      '')
+                txt_len = len(txt.strip().split())
+                if txt_len > 500:
+                    result_from = "convert_api"
+                    break
         if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
-            title, text = get_arxiv_pdf_link_future.result()
-            result_from = "arxiv"
-            break
+            maybe_title, text = get_arxiv_pdf_link_future.result()
+            if isinstance(maybe_title, str) and len(maybe_title.strip()) > 0:
+                title = maybe_title
+            if isinstance(text, str):
+                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
+                                                                                                      '')
+                txt_len = len(txt.strip().split())
+                if txt_len > 500:
+                    result_from = "arxiv"
+                    break
         time.sleep(0.5)
 
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
