@@ -231,11 +231,11 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "text-davinci-002": davinci_enc,
 })
 def call_chat_model(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"] if "gpt" in model or "davinci" in model else keys["OPENROUTER_API_KEY"]
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
     if model.startswith("gpt") or "davinci" in model:
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
-    extras = dict(api_base="https://openrouter.ai/api/v1", base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) else dict()
+    extras = dict(api_base="https://openrouter.ai/api/v1", base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
     response = openai.ChatCompletion.create(
         model=model,
         api_key=api_key,
@@ -252,7 +252,7 @@ def call_chat_model(model, text, temperature, system, keys):
         if "content" in chunk["choices"][0]["delta"]:
             text_content = chunk["choices"][0]["delta"]["content"]
             yield text_content
-            if "gpt" in model or "davinci" in model:
+            if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
                 rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
     if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
