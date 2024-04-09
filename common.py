@@ -718,6 +718,7 @@ def typed_memoize(cache, *types):
             # If the result is not in the cache, call the function and store the result in the cache
             if result is None or isinstance(result, Exception) or (isinstance(result, (list, tuple, set)) and len(result) == 0):
                 result = f(*args, **kwargs)
+            if result is not None and not isinstance(result, Exception) and not (isinstance(result, (list, tuple, set)) and len(result) == 0):
                 cache.set(key, result, expire=cache_timeout)
 
             return result
