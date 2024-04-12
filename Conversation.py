@@ -818,9 +818,13 @@ Write the extracted information concisely below:
                 time.sleep(0.5)
 
             read_links = re.findall(pattern, link_result_text)
-            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in links]))
+            link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
+                                 len(splt.strip()) > 0]
+            read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if
+                               len(link.strip()) > 0 and extract_url_from_mardown(link) in links])
+
             if len(all_docs_info) > 0:
-                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "\n\n"
+                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "\n\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
@@ -945,11 +949,16 @@ Write the extracted information concisely below:
                         break
                 web_text = full_web_string
                 read_links = re.findall(pattern, web_text)
-                read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links]))
+                link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
+                                     len(splt.strip()) > 0]
+                read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if
+                                   len(link.strip()) > 0 and extract_url_from_mardown(link) in web_results_seen_links])
+
+
                 message_config["web_search_links_read"] = read_links
                 if len(read_links) > 0:
                     atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage1' role='button'></div> <div class='collapse' id='readLinksStage1'>" + "\n"
-                    read_links = atext + "\n".join([f"{i + 1}. {wta}" for i, wta in enumerate(read_links)]) + "</div>\n\n"
+                    read_links = atext + "\n".join([f"{i + 1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
                     yield {"text": read_links, "status": "web search completed"}
                     answer += read_links
                 else:
@@ -1068,14 +1077,17 @@ Write the extracted information concisely below:
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
             read_links = re.findall(pattern, web_text)
-            read_links = list(set([link.strip() for link in read_links if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links]))
+            link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
+                                 len(splt.strip()) > 0]
+            read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links])
+
             if "web_search_links_read" in message_config:
                 message_config["web_search_links_read"].extend(read_links)
             else:
                 message_config["web_search_links_read"] = read_links
             if len(read_links) > 0:
                 atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
-                read_links = atext + "\n".join([f"{i+1}. {wta}" for i, wta in enumerate(read_links)]) + "</div>\n\n"
+                read_links = atext + "\n".join([f"{i+1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
                 yield {"text": read_links, "status": "web search completed"}
                 answer += read_links
             else:
