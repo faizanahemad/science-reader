@@ -672,6 +672,7 @@ Write the extracted information concisely below:
         get_async_future(self.create_deep_summary)
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
+        time_dict = dict()
         query["messageText"] = query["messageText"].strip()
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         query, attached_docs, attached_docs_names = attached_docs_future.result()
@@ -716,6 +717,9 @@ Write the extracted information concisely below:
                 if "perform_web_search" in previous_message_config and previous_message_config["perform_web_search"]:
                     checkboxes["perform_web_search"] = True
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
+                if "googleScholar" in previous_message_config and previous_message_config["googleScholar"]:
+                    checkboxes["googleScholar"] = True
+                    previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
         message_config = dict(**checkboxes)
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
@@ -756,7 +760,8 @@ Write the extracted information concisely below:
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
             create_tmp_marker_file(web_search_tmp_marker_name)
-            logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
+            time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
+            time_dict["web_search_start"] = time.time() - st
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             message_config["web_search_user_query"] = user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '')
             previous_turn_results = dict(queries=previous_message_config["web_search_queries"], links=previous_message_config["web_search_links_unread"]) if tell_me_more else None
@@ -817,21 +822,22 @@ Write the extracted information concisely below:
                     break
                 time.sleep(0.5)
 
-            read_links = re.findall(pattern, link_result_text)
-            link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
-                                 len(splt.strip()) > 0]
-            read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if
-                               len(link.strip()) > 0 and extract_url_from_mardown(link) in links])
+
+            read_links = parse_mardown_link_text(web_text)
+            read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
+                               len(link.strip()) > 0 and len(title.strip()) > 0 and extract_url_from_mardown(
+                                   link) in links])
 
             if len(all_docs_info) > 0:
-                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "\n\n"
+                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta} : <{link_len} words>" for i, (wta, link_len) in enumerate(read_links)]) + "\n\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
                 yield {"text": read_links, "status": "Finished reading your provided links."}
             yield {"text": "\n", "status": "Finished reading your provided links."}
 
-            logger.info(f"Time taken to read links: {time.time() - st}")
+            time_logger.info(f"Time taken to read links: {time.time() - st}")
+            time_dict["link_reading"] = time.time() - st
             logger.debug(f"Link result text:\n```\n{link_result_text}\n```")
         qu_dst = time.time()
         if len(additional_docs_to_read) > 0:
@@ -907,7 +913,8 @@ Write the extracted information concisely below:
             web_results_seen_links = []
             qu_st = time.time()
             qu_mt = time.time()
-            logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
+            time_logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
+            time_dict["get_web_search_links"] = qu_st - st
             while True:
                 qu_wait = time.time()
                 break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
@@ -948,17 +955,17 @@ Write the extracted information concisely below:
                     if get_gpt4_word_count(full_web_string) > 8000:
                         break
                 web_text = full_web_string
-                read_links = re.findall(pattern, web_text)
-                link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
-                                     len(splt.strip()) > 0]
-                read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if
-                                   len(link.strip()) > 0 and extract_url_from_mardown(link) in web_results_seen_links])
+
+                read_links = parse_mardown_link_text(web_text)
+                read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
+                                   len(link.strip()) > 0 and len(title.strip()) > 0 and extract_url_from_mardown(
+                                       link) in web_results_seen_links])
 
 
                 message_config["web_search_links_read"] = read_links
                 if len(read_links) > 0:
                     atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage1' role='button'></div> <div class='collapse' id='readLinksStage1'>" + "\n"
-                    read_links = atext + "\n".join([f"{i + 1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
+                    read_links = atext + "\n".join([f"{i + 1}. {wta} : <{link_len} words>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
                     yield {"text": read_links, "status": "web search completed"}
                     answer += read_links
                 else:
@@ -994,6 +1001,7 @@ Write the extracted information concisely below:
                 qu_mt = time.time()
                 if len(read_links) > 0:
                     time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
+                    time_dict["start_reply_stage1"] = time.time() - st
                     main_ans_gen = llm(prompt, temperature=0.3, stream=True)
                     answer += "<answer>\n"
                     yield {"text": "<answer>\n", "status": "stage 1 answering in progress"}
@@ -1013,6 +1021,7 @@ Write the extracted information concisely below:
 
                     executed_partial_two_stage_answering = True
                     time_logger.info(f"Time taken to end replying (stage 1) for chatbot: {(time.time() - st):.2f}")
+                    time_dict["end_reply_stage1"] = time.time() - st
 
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
                 while True:
@@ -1076,10 +1085,9 @@ Write the extracted information concisely below:
                     break
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
-            read_links = re.findall(pattern, web_text)
-            link_text_lengths = [len(splt.strip().split()) for splt in re.split(pattern, web_text) if
-                                 len(splt.strip()) > 0]
-            read_links = list([[link.strip(), link_len] for link, link_len in zip(read_links, link_text_lengths) if len(link.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links])
+            # read_links = re.findall(pattern, web_text)
+            read_links = parse_mardown_link_text(web_text)
+            read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if len(link.strip())>0 and len(title.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links])
 
             if "web_search_links_read" in message_config:
                 message_config["web_search_links_read"].extend(read_links)
@@ -1087,7 +1095,7 @@ Write the extracted information concisely below:
                 message_config["web_search_links_read"] = read_links
             if len(read_links) > 0:
                 atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
-                read_links = atext + "\n".join([f"{i+1}. {wta} : <{link_len}>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
+                read_links = atext + "\n".join([f"{i+1}. {wta} : <{link_len} words>" for i, (wta, link_len) in enumerate(read_links)]) + "</div>\n\n"
                 yield {"text": read_links, "status": "web search completed"}
                 answer += read_links
             else:
@@ -1097,6 +1105,7 @@ Write the extracted information concisely below:
             yield {"text": "\n", "status": "Finished reading your provided links."}
             web_text = read_links + "\n" + web_text
             time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
+            time_dict["web_search_all_results"] = time.time() - st
             if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
@@ -1148,7 +1157,7 @@ Write the extracted information concisely below:
         all_expert_answers = ""
         if provide_detailed_answers == 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
             expert_st = time.time()
-            logger.info(f"Trying MOE at {(time.time() - st):.2f}")
+            time_logger.info(f"Trying MOE at {(time.time() - st):.2f}")
             yield {"text": '', "status": "Asking experts to answer ..."}
             
             link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
@@ -1289,7 +1298,7 @@ Write the extracted information concisely below:
             # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
             # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
 
-            logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
+            time_logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
             answer += all_expert_answers
             yield {"text": all_expert_answers, "status": "Expert anwers received ..."}
 
@@ -1424,6 +1433,7 @@ Write the extracted information concisely below:
         final prompt len: {len(enc.encode(prompt))}""")
         et = time.time()
         time_logger.info(f"Time taken to start replying for chatbot: {(et - st):.2f}")
+        time_dict["start_reply_final"] = time.time() - st
         if len(doc_answer) > 0:
             logger.debug(f"Doc Answer: {doc_answer}")
         if len(web_text) > 0:
@@ -1436,6 +1446,8 @@ Write the extracted information concisely below:
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+        time_dict["total_time_to_reply"] = time.time() - st
+        time_dict["bot_time_to_reply"] = time.time() - et
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         if perform_web_search or google_scholar:
@@ -1455,7 +1467,7 @@ Write the extracted information concisely below:
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, full_doc_texts)
         message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
 
     
     def detect_previous_message_type(self):

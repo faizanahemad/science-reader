@@ -106,6 +106,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     var content_length = 0;
     var answer = ''
     var rendered_answer = ''
+    var render_phase = '0'
 
     async function read() {
         const { value, done } = await reader.read();
@@ -140,11 +141,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             statusDiv.find('.spinner-border').show();
             
             if (part['text'].includes('<answer>') && card.find("#message-render-space-md-render").length > 0) {
-                elem_to_render = $('<p class="answer" id="actual-answer-rendering-space"></p>');
+                elem_to_render = $(`<p class="answer" id="actual-answer-rendering-space-${render_phase}"></p>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
                 elem_to_render = card.find("#message-render-space-md-render").last().find('.answer').last().html('');
                 content_length = 0;
                 rendered_answer = ''
+                render_phase = '1'
             }
             
             elem_to_render.append(part['text']);  // Find the last p tag within the card-body and append the message part
@@ -154,11 +156,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 content_length = elem_to_render.html().length
             }
             if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
-                elem_to_render = $('<p class="post-answer" id="actual-results-rendering-space"></p>');
+                elem_to_render = $(`<p class="post-answer" id="actual-results-rendering-space-${render_phase}"></p>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
                 elem_to_render = card.find("#message-render-space-md-render").last().find('.post-answer').last().html('');
                 content_length = 0;
                 rendered_answer = ''
+                render_phase = '1'
             }
             if (content_length < 300) {
                 var chatView = $('#chatView');

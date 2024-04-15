@@ -1291,9 +1291,31 @@ def extract_url_from_mardown(text):
         list: A list of extracted URLs.
     """
 
+    if not text.startswith("(") or not text.endswith(")"):
+        text = f"({text})"
     pattern = r'\((https?://\S+)\)'  # Regular expression pattern
     urls = re.findall(pattern, text)
+    if len(urls) == 0:
+        print(f"No URLs found in the text = ```{text}```")
+
     return urls[0]
+
+import re
+
+def parse_mardown_link_text(text):
+    pattern = r'\[(.*?)\]\((.*?)\)(.*?)(?=\[|$)'
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    results = []
+    for match in matches:
+        title, link, content = match
+        # Cleaning and counting words in content
+        word_count = len(content.strip().split())
+        results.append((link, title, word_count))
+
+    return results
+
+
 
 
 
