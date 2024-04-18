@@ -21,8 +21,25 @@ def getLoggers(name,
             logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
         ]
     )
+    # logging.getLogger().removeHandler(logging.StreamHandler())
     logger.setLevel(logger_level)
     time_logger = logging.getLogger(f"[TIME_LOGGER] {name}")
+    for h in time_logger.handlers:
+        time_logger.removeHandler(h)
+    time_logger.handlers.clear()
+
+    time_handler = logging.FileHandler(os.path.join(os.getcwd(), "timing.txt"))
+    time_formatter = logging.Formatter(
+        fmt="%(asctime)s.%(msecs)01d - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
+        datefmt="%H:%M:%S"
+    )
+    time_handler.setFormatter(time_formatter)
+    time_logger.addHandler(time_handler)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(time_formatter)
+    time_logger.addHandler(stream_handler)
+    time_logger.propagate = False
     time_logger.setLevel(time_logger_level)  # Set log level for this logger
 
     error_logger = logging.getLogger(f"[ERROR_LOGGER] {name}")
@@ -55,19 +72,27 @@ def getLoggers(name,
         datefmt="%m/%d/%Y %H:%M:%S"
     )
     memory_handler.setFormatter(memory_formatter)
-    memory_logger.removeHandler(memory_logger.handlers[:])
+    for h in memory_logger.handlers:
+        memory_logger.removeHandler(h)
+    memory_logger.handlers.clear()
     memory_logger.addHandler(memory_handler)
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(logging.INFO)
     stream_handler.setFormatter(memory_formatter)
     memory_logger.addHandler(stream_handler)
     memory_logger.setLevel(logging.INFO)
+    memory_logger.propagate = False
 
 
     def log_memory_usage(func):
         """
         A decorator that logs memory usage before, during, and after a function call.
         """
+
+        @functools.wraps(func)
+        def wrapper_identity(*args, **kwargs):
+            result = func(*args, **kwargs)
+            return result
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -88,6 +113,6 @@ def getLoggers(name,
 
             return result
 
-        return wrapper
+        return wrapper_identity
 
     return logger, time_logger, error_logger, success_logger, log_memory_usage

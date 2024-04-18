@@ -108,20 +108,8 @@ pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
-import logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
-    ]
-)
-logger.setLevel(logging.INFO)
-time_logger = logging.getLogger(__name__ + " | TIMING")
-time_logger.setLevel(logging.INFO)  # Set log level for this logger
+from loggers import getLoggers
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 
 from tenacity import (
     retry,

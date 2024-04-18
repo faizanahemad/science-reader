@@ -559,9 +559,7 @@ $(document).ready(function() {
                 if (autoselect){
                     if (firstDoc) {
                         firstDocId = activeDocId || doc.doc_id
-                        setTimeout(function () {
-                            setActiveDoc(firstDocId);
-                        }, 5000);
+                        setActiveDoc(firstDocId);
                         firstDoc = false;
                     }
                 }
@@ -1166,13 +1164,22 @@ $(document).ready(function() {
     }
 
     
-    initialiseKeyStore();
     showUserName();
-    loadDocuments();
-    initSearch("searchBox");
-    setupAskQuestionsView();
-    setupPDFModalSubmit();
-    initiliseNavbarHiding();
+    
+    function run_once() {
+        var is_it_run = false
+        return function() {
+            if (!is_it_run) {
+                loadDocuments();
+                initSearch("searchBox");
+                setupAskQuestionsView();
+                setupPDFModalSubmit();
+                initiliseNavbarHiding();
+                is_it_run = true
+            }
+        } 
+    }
+    init_once_pdf_tab = run_once()
     
     $('#refresh-references, #refresh-citations').on('click', function() {
         apiCall('/refetch_paper_details', 'GET', {doc_id: activeDocId}, useFetch = false)
@@ -1222,6 +1229,7 @@ $(document).ready(function() {
         $("#chat-pdf-content").addClass('d-none');
         pdfTabIsActive();
         toggleSidebar();
+        init_once_pdf_tab();
         
         
     });

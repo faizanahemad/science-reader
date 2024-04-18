@@ -6,7 +6,7 @@ $(document).ready(function() {
     // Hide the loader after 10 seconds
     setTimeout(function() {
         $("#loader").hide();
-    }, 5000 * 1);  // 1000 milliseconds = 1 seconds
+    }, 1000 * 1);  // 1000 milliseconds = 1 seconds
     
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();

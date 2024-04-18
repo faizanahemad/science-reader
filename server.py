@@ -638,11 +638,11 @@ class IndexDict(dict):
         __value = __value.copy()
         return super().__setitem__(__key, __value)
 indexed_docs: IndexDict[str, DocIndex] = IndexDict()
-doc_index_cache = SetQueue(maxsize=50)
+doc_index_cache = SetQueue(maxsize=100)
 def load_conversation(conversation_id):
     return Conversation.load_local(os.path.join(conversation_folder, conversation_id))
 
-conversation_cache = DefaultDictQueue(maxsize=50, default_factory=load_conversation)
+conversation_cache = DefaultDictQueue(maxsize=100, default_factory=load_conversation)
     
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")
@@ -784,14 +784,6 @@ def index_document():
     else:
         return jsonify({'error': 'No pdf_url provided'}), 400
 
-@app.route('/set_keys', methods=['POST'])
-@limiter.limit("1000 per minute")
-@login_required
-def set_keys():
-    keys = request.json  # Assuming keys are sent as JSON in the request body
-    for key, value in keys.items():
-        session[key] = value
-    return jsonify({'result': 'success'})
 
 @app.route('/clear_session', methods=['GET'])
 @limiter.limit("1000 per minute")

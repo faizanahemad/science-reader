@@ -1,6 +1,15 @@
 # Bugs
 - Auto expand of input textbox not happening. [Done]
 - Run continous rendering only within answer tag once open answer tag is received. [Done]
+- In two stage answering the 2nd stage deletes the first stage. [Done]
+- GScholar and /more not working together.
+- Read links not working properly. [Done]
+- Less word in website less than 1000 words then don't do embedding based search, just give all text. [Done]
+- Show only PDF in pdf viewer mode doesn't have option to go back.
+- Web Search is Fast and Contextual Reader is fast but overall results slow. [Done]
+- Markdown rendering is buggy since we render entire message when new content arrives. 
+- All read links are not shown in conversation. [Done]
+- 
 
 
 # Startup
@@ -18,8 +27,22 @@
 - Video Continuation from an existing video. Video replace parts or pixels across time by proper tracking.
 - 
 # Next
+- Length of result string from each search result under "we read the following links." [Done]
+- Show what was extracted from the link in the search results.
+- Create a new EmbeddedDoc class that can store document text and embedding which can be used in cached form.
+- Conversation Cache - cache link results and questions and bot replies etc, with "is it cache worthy", and semantic chunking.
+- Cache for near enough queries as well. If embedding of query and cached query is similar then use the cached query and it's result.
+- when did we get each link result?
+- Change Gscholar to search domain as Finance, Education, Reddit, Youtube, Programming, Academic, etc.
+- Finer grained embedding search for contextual reader.
+- More parallel web search. [Done]
+- Show the time taken for generating the answer with search. [Nope]
+- Use other brightdata callers to increase speed. [Done]
+- Use more scraping services for better speed. [Done]
+- Group chats based on tags or themes.
+- Semantic and syntactic search across chats.
 - Do a stage 2 filtering for reranking before LLM answers for web search. Or use reranker in stage 1 itself and check.
-- Add Command R+ to list of final models and select it as default for search since it is a good RAG model. Might save uptp 6 seconds.
+- Add Command R+ to list of final models and select it as default for search since it is a good RAG model. Might save uptp 6 seconds. [Done]
 - Use top 4 for search and contextual reader.
 - Parallelize pdf reading and web search link reading more for speed.
 - For speed up of web search results, use a RAG based extraction from each link by chunking the link text by newlines and other paragraph breaks and then using the RAG to extract the most relevant part of the link. Do this without LLM call and extract about 1K token per link and then rerank again using Reranker API.

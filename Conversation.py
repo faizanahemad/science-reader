@@ -602,7 +602,7 @@ Write the extracted information concisely below:
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
-        return 20
+        return MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
 
     def get_preamble(self, preamble_options, field):
         preamble = ""
@@ -672,6 +672,8 @@ Write the extracted information concisely below:
         get_async_future(self.create_deep_summary)
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
+        tracing_dict = dict()
+        tracing_dict["start_time"] = st
         time_dict = dict()
         query["messageText"] = query["messageText"].strip()
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
@@ -765,6 +767,8 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             message_config["web_search_user_query"] = user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '')
             previous_turn_results = dict(queries=previous_message_config["web_search_queries"], links=previous_message_config["web_search_links_unread"]) if tell_me_more else None
+            tracing_dict["web_search_start_from_conversation"] = time.time()
+            time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             web_results = get_async_future(web_search_queue, user_query + (previous_message_config["web_search_user_query"] if tell_me_more else ''), 'helpful ai assistant',
                                            previous_context,
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
@@ -913,7 +917,7 @@ Write the extracted information concisely below:
             web_results_seen_links = []
             qu_st = time.time()
             qu_mt = time.time()
-            time_logger.info(f"Time to get web search links: {(qu_st - st):.2f}")
+            time_logger.info(f"Time to reach web search links accumulation code: {(qu_st - st):.2f}")
             time_dict["get_web_search_links"] = qu_st - st
             while True:
                 qu_wait = time.time()
@@ -934,15 +938,15 @@ Write the extracted information concisely below:
 
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append(one_web_result["text"])
-                    web_results_seen_links.append(one_web_result["link"])
-                    logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
+                    web_results_seen_links.append(f'[{one_web_result["title"]}]({one_web_result["link"]})')
+                    yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                    time_logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
                 time.sleep(0.5)
 
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
-            word_count = lambda s: len(s.split())
             # Sort the array in reverse order based on the word count
-            web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
-            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
+            web_text_accumulator, web_results_seen_links = sort_two_lists(web_text_accumulator, web_results_seen_links, key=lambda x: len(x.split()), reverse=True)
+            web_text_accumulator, web_results_seen_links = filter_two_lists(web_text_accumulator, web_results_seen_links, filter_criterion_list1=lambda x: len(x.split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x.lower())
             # Join the elements along with serial numbers.
             if len(web_text_accumulator) >= 4 and provide_detailed_answers >= 3:
 
@@ -952,14 +956,15 @@ Write the extracted information concisely below:
                 for i, wta in enumerate(web_text_accumulator[:first_stage_cut_off]):
                     web_string = f"{i + 1}.\n{wta}"
                     full_web_string = full_web_string + web_string + "\n\n"
-                    if get_gpt4_word_count(full_web_string) > 8000:
+                    if get_gpt4_word_count(full_web_string) > 24000:
                         break
                 web_text = full_web_string
 
-                read_links = parse_mardown_link_text(web_text)
-                read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
-                                   len(link.strip()) > 0 and len(title.strip()) > 0 and extract_url_from_mardown(
-                                       link) in web_results_seen_links])
+                read_links = [[link.strip(), len(text.strip().split())] for text, link in
+                              zip(web_text_accumulator[:first_stage_cut_off], web_results_seen_links[:first_stage_cut_off])]
+                # read_links = parse_mardown_link_text(web_text)
+                # read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
+                #                    len(link.strip()) > 0 and len(title.strip()) > 0 and any(extract_url_from_mardown(link) in seen_link for seen_link in web_results_seen_links)])
 
 
                 message_config["web_search_links_read"] = read_links
@@ -1014,8 +1019,9 @@ Write the extracted information concisely below:
                         if one_web_result is not None and one_web_result != TERMINATION_SIGNAL:
                             if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                                 web_text_accumulator.append(one_web_result["text"])
-                                web_results_seen_links.append(one_web_result["link"])
-                                logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
+                                web_results_seen_links.append(f'[{one_web_result["title"]}]({one_web_result["link"]})')
+                                yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                                logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     answer += "</answer>\n"
                     yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
 
@@ -1024,6 +1030,7 @@ Write the extracted information concisely below:
                     time_dict["end_reply_stage1"] = time.time() - st
 
                 web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
+                web_results_seen_links = web_results_seen_links[used_web_text_accumulator_len:]
                 while True:
                     qu_wait = time.time()
                     break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
@@ -1043,10 +1050,20 @@ Write the extracted information concisely below:
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
-                        web_results_seen_links.append(one_web_result["link"])
-                        logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
+                        web_results_seen_links.append(f'[{one_web_result["title"]}]({one_web_result["link"]})')
+                        yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                        time_logger.info(
+                            f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+                        logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
                     time.sleep(0.5)
-                web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
+                web_text_accumulator, web_results_seen_links = sort_two_lists(web_text_accumulator,
+                                                                              web_results_seen_links,
+                                                                              key=lambda x: len(x.split()),
+                                                                              reverse=True)
+                web_text_accumulator, web_results_seen_links = filter_two_lists(web_text_accumulator,
+                                                                                web_results_seen_links,
+                                                                                filter_criterion_list1=lambda x: len(
+                                                                                    x.split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x.lower())
             elif provide_detailed_answers > 2:
                 logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                 while True:
@@ -1068,26 +1085,44 @@ Write the extracted information concisely below:
 
                     if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                         web_text_accumulator.append(one_web_result["text"])
-                        web_results_seen_links.append(one_web_result["link"])
+                        web_results_seen_links.append(f'[{one_web_result["title"]}]({one_web_result["link"]})')
+                        yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
                         logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
-                        logger.info(f"Time taken to get {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
+                        logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
+                        time_logger.info(
+                            f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
                     time.sleep(0.5)
 
-                web_text_accumulator = sorted(web_text_accumulator, key=word_count, reverse=True)
+                web_text_accumulator, web_results_seen_links = sort_two_lists(web_text_accumulator,
+                                                                              web_results_seen_links,
+                                                                              key=lambda x: len(x.split()),
+                                                                              reverse=True)
+                web_text_accumulator, web_results_seen_links = filter_two_lists(web_text_accumulator,
+                                                                                web_results_seen_links,
+                                                                                filter_criterion_list1=lambda x: len(
+                                                                                    x.split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x.lower())
+            remove_tmp_marker_file(web_search_tmp_marker_name)
             logger.info(
                 f"Time taken to get web search results with sorting: {(time.time() - qu_st):.2f} with result len = {len(web_text_accumulator)}")
             full_web_string = ""
-            web_text_accumulator = [ws for ws in web_text_accumulator if len(ws.strip().split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found.".lower() not in ws.lower()]
+            web_text_accumulator, web_results_seen_links = filter_two_lists(web_text_accumulator,
+                                                                            web_results_seen_links,
+                                                                            filter_criterion_list1=lambda x: len(
+                                                                                x.split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x.lower())
             for i, wta in enumerate(web_text_accumulator):
                 web_string = f"{i + 1}.\n{wta}"
                 full_web_string = full_web_string + web_string + "\n\n"
-                if get_gpt4_word_count(full_web_string) > 12000:
+                if get_gpt4_word_count(full_web_string) > 36000:
                     break
             web_text = full_web_string
             # web_text = "\n\n".join(web_text_accumulator)
             # read_links = re.findall(pattern, web_text)
-            read_links = parse_mardown_link_text(web_text)
-            read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if len(link.strip())>0 and len(title.strip())>0 and extract_url_from_mardown(link) in web_results_seen_links])
+
+            # Make an array of links that are read with lengths.
+            read_links = [[link.strip(), len(text.strip().split())] for text, link in zip(web_text_accumulator, web_results_seen_links)]
+
+            # read_links = parse_mardown_link_text(web_text)
+            # read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if len(link.strip())>0 and len(title.strip())>0 and any(extract_url_from_mardown(link) in seen_link for seen_link in web_results_seen_links)])
 
             if "web_search_links_read" in message_config:
                 message_config["web_search_links_read"].extend(read_links)

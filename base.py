@@ -129,7 +129,7 @@ from tenacity import (
 import asyncio
 import threading
 from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 import time
@@ -560,84 +560,6 @@ def ChunkTextSentences(text_document: str, chunk_size: int = 3400, chunk_overlap
     return text_splitter.split_text(text_document)
 
 
-class Summarizer:
-    def __init__(self, keys, is_detailed=False):
-        self.keys = keys
-        self.is_detail = is_detailed
-        self.name = "Summariser"
-        self.description = """
-Summarizer:
-    This tool takes a text document and summarizes it into a shorter version while preserving the main points and context. Useful when the document is too long and needs to be shortened before further processing.
-
-    Input params/args: 
-        text_document (str): document to summarize.
-
-    Returns: 
-        str: summarized_document.
-
-    Usage:
-        `summary = Summarizer()(text_document="document to summarize") # Note: this tool needs to be initialized first.`
-    """
-        template = f""" 
-Write a {"detailed and informational " if is_detailed else ""}summary of the document below while preserving the main points and context, do not miss any important details, do not remove mathematical details and references.
-Document to summarize is given below.
-'''{{document}}'''
-
-Write {"detailed and informational " if is_detailed else ""}Summary below.
-"""
-        self.prompt = PromptTemplate(
-            input_variables=["document"],
-            template=template,
-        )
-    @timer
-    def __call__(self, text_document):
-        prompt = self.prompt.format(document=text_document)
-        return CallLLm(self.keys, model_name="mistralai/mistral-medium", use_gpt4=False)(prompt, temperature=0.5)
-    
-
-process_text_executor = ThreadPoolExecutor(max_workers=1)
-def contrain_text_length_by_summary(text, keys, threshold=2000):
-    summariser = Summarizer(keys)
-    tlc = partial(TextLengthCheck, threshold=threshold)
-    return text if tlc(text) else summariser(text)
-
-def process_text(text, chunk_size, my_function, keys):
-    # Split the text into chunks
-    chunks = [c.strip() for c in list(ChunkText(text, chunk_size)) if len(c.strip()) > 0]
-    if len(chunks) == 0:
-        return 'No relevant information found.'
-    if len(chunks) > 1:
-        futures = [process_text_executor.submit(my_function, chunk) for chunk in chunks]
-        # Get the results from the futures
-        results = [future.result() for future in futures]
-    else:
-        results = [my_function(chunk) for chunk in chunks]
-
-    threshold = 512*3
-    
-    while len(results) > 1:
-        logger.warning(f"--- process_text --- Multiple chunks as result. Results len = {len(results)} and type of results =  {type(results[0])}")
-        assert isinstance(results[0], str)
-        results = [process_text_executor.submit(contrain_text_length_by_summary, r, keys, threshold) for r in results]
-        results = [future.result() for future in results]
-        results = combine_array_two_at_a_time(results, '\n\n')
-    assert len(results) == 1
-    results = results[0]
-    # threshold = 384
-    # tlc = partial(TextLengthCheck, threshold=threshold)
-    # if not tlc(results):
-    #     summariser = Summarizer(keys, is_detailed=True)
-    #     logger.warning(f"--- process_text --- Calling Summarizer on single result with single result len = {len(results.split())}")
-    #     results = summariser(results)
-    #     logger.warning(
-    #         f"--- process_text --- Called Summarizer and final result len = {len(results.split())}")
-    
-    # if not tlc(results):
-    #     logger.warning("--- process_text --- Calling ReduceRepeatTool")
-    #     results = ReduceRepeatTool(keys)(results)
-    assert isinstance(results, str)
-    return results
-
 async def get_url_content(url):
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -698,11 +620,11 @@ Only provide answer from the document given above.
         document = " ".join(document.split()[:64_000])
         prompt = self.prompt.format(context=context, document=document)
         try:
-            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.keys, model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         except Exception as e:
             traceback.print_exc()
-            llm = CallLLm(self.keys, model_name="anthropic/claude-instant-1.2", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -712,7 +634,7 @@ Only provide answer from the document given above.
             openai_embed = get_embedding_model(self.keys)
             def get_doc_embeds(document):
                 document = document.strip()
-                ds = document.split(" ")
+                ds = document.split()
                 document = " ".join(ds[:256_000])
                 wc = len(ds)
                 if wc < 8000:
@@ -727,9 +649,9 @@ Only provide answer from the document given above.
                 doc_embeds = openai_embed.embed_documents(chunks)
                 return chunks, chunk_size, np.array(doc_embeds)
             doc_em_future = get_async_future(get_doc_embeds, document)
-            query_em_future =  get_async_future(openai_embed.embed_query, context)
+            query_em_future = get_async_future(get_text_embedding, context, self.keys)
             chunks, chunk_size, doc_embedding = doc_em_future.result()
-            query_embedding = np.array(query_em_future.result())
+            query_embedding = query_em_future.result()
             # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
             scores = np.dot(doc_embedding, query_embedding)
             sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
@@ -747,24 +669,34 @@ Only provide answer from the document given above.
         assert isinstance(result, str)
         return result
 
-    def get_one_fast(self, context, document):
-        openai_embed = get_embedding_model(self.keys)
-        def get_doc_embeds(document):
-            chunk_size = 512
+    def get_one_fast(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
+        if retriever is None:
             document = document.strip()
-            ds = document.split(" ")
-            document = " ".join(ds[:256_000])
-            chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=128) # ChunkTextSentences
-            doc_embeds = openai_embed.embed_documents(chunks)
-            return chunks, chunk_size, np.array(doc_embeds)
+            len_doc = len(document.split())
+            if len_doc < 1536:
+                return document
+            openai_embed = get_embedding_model(self.keys)
+            def get_doc_embeds(document):
+                chunk_size = 512 if len_doc < 8000 else 1024 if len_doc < 16000 else 2048 if len_doc < 32000 else 4096
+                ds = document.split()
+                document = " ".join(ds[:256_000])
+                chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=128) # ChunkTextSentences
+                doc_embeds = openai_embed.embed_documents(chunks)
+                return chunks, chunk_size, np.array(doc_embeds)
 
-        doc_em_future = get_async_future(get_doc_embeds, document)
-        query_em_future = get_async_future(openai_embed.embed_query, context)
-        chunks, chunk_size, doc_embedding = doc_em_future.result()
-        query_embedding = np.array(query_em_future.result())
-        scores = np.dot(doc_embedding, query_embedding)
-        sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-        top_chunks = sorted_chunks[:3]
+            st = time.time()
+            doc_em_future = get_async_future(get_doc_embeds, document)
+            # query_em_future = get_async_future(openai_embed.embed_query, context)
+            query_em_future = get_async_future(get_text_embedding, context, self.keys)
+            chunks, chunk_size, doc_embedding = doc_em_future.result()
+            # query_embedding = np.array(query_em_future.result())
+            query_embedding = query_em_future.result()
+            time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f} seconds")
+            scores = np.dot(doc_embedding, query_embedding)
+            sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
+            top_chunks = sorted_chunks[:3]
+        else:
+            top_chunks = retriever(document, 16_000)
         top_chunks_text = ""
         for idx, tc in enumerate(top_chunks):
             top_chunks_text += f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n"
@@ -774,9 +706,30 @@ Only provide answer from the document given above.
     def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
         st = time.time()
-        return self.get_one_fast(context_user_query, text_document)
-
         doc_word_count = get_gpt3_word_count(text_document)
+        main_future = get_async_future(self.get_one_fast, context_user_query, text_document, retriever)
+        alternative_future = None
+        # if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+        #     alternative_future = get_async_future(self.get_one, context_user_query, text_document)
+        #     alt_source = "get_one"
+        # else:
+        #     alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
+        #                                       text_document, retriever)
+        #     alt_source = "get_one_with_rag"
+        # wait till at least one future is done or all of them error out. don't use api
+        while not main_future.done():# and not alternative_future.done():
+            time.sleep(0.5)
+
+        if main_future.done() and main_future.exception() is None:
+            time_logger.info(f"[ContextualReader] Main future done with result len = {len(main_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
+            return main_future.result()
+
+        if alternative_future.done() and alternative_future.exception() is None:
+            time_logger.info(f"[ContextualReader] Alternative future done ({alt_source}) with result len = {len(alternative_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
+            return alternative_future.result()
+
+        return ""
+
         short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
         if short and doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
             result = self.get_one(context_user_query, text_document)
@@ -823,11 +776,16 @@ Only provide answer from the document given above.
         time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds with result len = {len(result.split())} and doc len = {doc_word_count}")
         return result
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache, dtype_filters=[str, int, tuple, bool], enabled=False,
+              should_cache_predicate=lambda result: result is not None and len(result.strip().split()) > 100)
 def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, scan=False)->str:
+    start_time = time.time()
     assert isinstance(document, str)
     cr = ContextualReader(keys, provide_short_responses=provide_short_responses, scan=scan)
-    return cr(query, document, retriever=retriever)
+    contextual_response = cr(query, document, retriever=retriever)
+    total_time = time.time() - start_time
+    time_logger.info(f"[call_contextual_reader] Only ContextualReader took {total_time:.2f} seconds with document len = {len(document.split())} and query len = {len(query.split())} and result len = {len(contextual_response.split())}")
+    return contextual_response
 
 
 import json
@@ -1024,7 +982,7 @@ def search_post_processing(query, results, only_science_sites=False, only_pdf=Fa
         seen_links.add(link)
     return dedup_results
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     if our_datetime:
@@ -1063,7 +1021,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     return dedup_results
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     import requests
 
@@ -1119,7 +1077,7 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
     from datetime import datetime, timedelta
@@ -1168,7 +1126,7 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     
     return dedup_results
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1229,7 +1187,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     return dedup_results
 
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1274,7 +1232,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     return dedup_results
     
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1558,7 +1516,7 @@ class PDFReaderTool:
         else:
             return freePDFReader(url, page_ranges)
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
     import requests
     arxiv_id = arxiv_url.split("/")[-1].split(".")[0]
@@ -1570,7 +1528,7 @@ def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
         return semantic_url
     raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def get_paper_details_from_semantic_scholar(arxiv_url):
     print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
     arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
@@ -1763,7 +1721,8 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
                                                                                                               '').replace(
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
-                result_context = context + "?\n" + query
+                result_context = context + ".\n" + query + "?\n"
+                _ = get_async_future(get_text_embedding, result_context, api_keys)
                 full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
                         title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
@@ -1889,13 +1848,10 @@ def get_part_1_results(part1_res):
 import multiprocessing
 from multiprocessing import Pool
 
+@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
+              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
 def process_link(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"process_link-{str([link, context, detailed, use_large_context])}"
-    key = str(mmh3.hash(key, signed=False))
-    result = cache.get(key)
-    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
-        return result
     st = time.time()
     link_data = download_link_data(link_title_context_apikeys)
     title = link_data["title"]
@@ -1903,7 +1859,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     query = f"Lets write a comprehensive summary essay with full details, nuances and caveats about [{title}]({link}). Then lets analyse in detail about [{title}]({link}) ( ```preview - '{text[:1000]}'``` ) in the context of the the below question ```{context}```\n"
     link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
     try:
-        if detailed >= 1:
+        if detailed >= 2:
             more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
         summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
         if detailed >= 2:
@@ -1913,23 +1869,16 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     except AssertionError as e:
         return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
-    cache.set(key, {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed},
-              expire=cache_timeout)
     assert len(link.strip()) > 0, f"[process_link] Link is empty for title {title}"
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
-@timer
+@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
+              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip().split()) > 100)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     assert len(link.strip()) > 0, f"[download_link_data] Link is empty for title {title}"
-    key = f"download_link_data-{str([link])}"
-    key = str(mmh3.hash(key, signed=False))
-    result = cache.get(key)
-    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
-        result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-        return result
     link = convert_to_pdf_link_if_needed(link)
     is_pdf = is_pdf_link(link)
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
@@ -1939,15 +1888,9 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
-    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0 and len(result["full_text"].strip().split()) > 100:
-        result["full_text"] = result["full_text"].replace('<|endoftext|>', '\n').replace('endoftext',
-                                                                                         'end_of_text').replace(
-            '<|endoftext|>', '')
-        cache.set(key, result, expire=cache_timeout)
-    else:
-        assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
+    assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
     et = time.time() - st
-    time_logger.info(f"Time taken to download link data for {link} = {et:.2f}")
+    time_logger.info(f"[download_link_data] Time taken to download link data for {link} = {et:.2f}")
     return result
 
 
@@ -2155,39 +2098,31 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     link, title, context, api_keys, text, query, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
-    input_len = len(txt.split())
-    assert len(txt.strip().split()) > 200, f"Input length is too short, input len = {input_len}, for link: {link}"
+    input_len = len(txt.strip().split())
+    assert input_len > 100, f"Input length is too short, input len = {input_len}, for link: {link}"
     # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-    non_chunk_time = time.time()
     extracted_info = call_contextual_reader(context, txt, None,
                                             api_keys, provide_short_responses=not detailed and not use_large_context,
                                             scan=use_large_context)
     tt = time.time() - st
     tex_len = len(extracted_info.split())
-    time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}, non chunk time = {(time.time() - non_chunk_time):.2f}, chunk time = {(non_chunk_time - st):.2f}")
-    assert len(extracted_info.strip().split()) > 40, f"Extracted info is too short, input len = {input_len}, ( Output len = {tex_len} ) for link: {link}"
-    assert len(link.strip()) > 0, f"[get_downloaded_data_summary] Link is empty for title {title}"
+    time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}")
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
-
+@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
+              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
 def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
-    link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    key = f"get_page_text-{str([link])}"
-    key = str(mmh3.hash(key, signed=False))
-    result = cache.get(key)
-    if result is not None and "full_text" in result and len(result["full_text"].strip()) > 0:
-        return result
     st = time.time()
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
     pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     if len(pgc["text"].strip()) == 0:
         logger.error(f"[process_page_link] Empty text for link: {link}")
         return {"link": link, "title": title, "exception": True, "full_text": '', "detailed": detailed, "context": context, "error": pgc["error"] if "error" in pgc else "Empty text"}
     title = pgc["title"]
     text = pgc["text"]
-    cache.set(key, {"link": link, "title": title, "detailed": detailed, "exception": False, "full_text": text},
-              expire=cache_timeout)
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
+    time_logger.info(f"[get_page_text] Time taken to download page data for {link} = {(time.time() - st):.2f}")
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
@@ -2197,7 +2132,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yeild_one():
         for r in results_generator:
             if isinstance(r, dict) and r["type"] == "result":
-                yield [[r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time()), r["query"]]]
+                yield [r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time()), r["query"]]
             else:
                 continue
 
@@ -2220,51 +2155,45 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             full_result = deepcopy(result)
             result.pop("full_text", None)
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
-        return {"text": text, "full_info": full_result, "link": link}
+        return {"text": text, "full_info": full_result, "link": link, "title": result['title']}
 
-    threads = 64 if provide_detailed_answers else 16
+    threads = 64
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
-    def fn1(*args, **kwargs):
+    def fn2(*args, **kwargs):
         link_title_context_apikeys = args[0]
         link = link_title_context_apikeys[0]
+        st = time.time()
+        time_logger.info(f"[fn2] Start Processing link: {link}")
         title = link_title_context_apikeys[1]
         context = link_title_context_apikeys[2]
         api_keys = link_title_context_apikeys[3]
         text = link_title_context_apikeys[4]
         detailed = link_title_context_apikeys[5]
         start_time = link_title_context_apikeys[6]
-        query = link_title_context_apikeys[7]
-        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
-        web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-        web_res["start_time"] = start_time
-        web_res["query"] = query
-        if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception", False) and "full_text" in web_res and len(web_res["full_text"].split()) > 0:
-            return [web_res, kwargs]
-        else:
-            error = web_res["error"] if "error" in web_res else None
-            raise Exception(f"fn1 Web search stopped for link: {link} due to {error}")
-    def fn2(*args, **kwargs):
-        link_data = args[0]
-        link = link_data["link"]
         assert len(link.strip()) > 0, f"Empty input link in fn2"
-        title = link_data["title"]
-        text = link_data["full_text"]
-        exception = link_data["exception"]
-        elapsed = link_data["start_time"] - time.time()
-        error = link_data["error"] if "error" in link_data else None
-        context = link_data["context"]
-        query = link_data["query"]
-        detailed = link_data["detailed"] if "detailed" in link_data and elapsed <= 30 else False
+        query = link_title_context_apikeys[7]
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
-        if exception:
-            # link_data = {"link": link, "title": title, "text": '', "detailed": detailed, "context": context, "exception": True, "full_text": ''}
-            raise Exception(f"Exception raised for link: {link}, {error}")
-        if exists_tmp_marker_file(web_search_tmp_marker_name):
+        link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+        web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        error = web_res["error"] if "error" in web_res else None
+        elapsed = time.time() - start_time
+        if elapsed > MAX_TIME_TO_WAIT_FOR_WEB_RESULTS:
+            raise Exception(f"fn2 Web search stopped due to too long download time for link: {link}, {error}")
+        time_logger.info(f"[fn2] Time taken for downloading link: = {elapsed:.2f}, fn2 time = {(time.time() - st):.2f} with len = {len(web_res['full_text'].split())}, link = {link}")
+        if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception",
+                                                                                  False) and "full_text" in web_res and len(
+                web_res["full_text"].split()) > 0:
+            text = web_res["full_text"]
             link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
+            st = time.time()
             summary = get_downloaded_data_summary(link_title_context_apikeys)
-            assert "link" in summary and len(summary["link"].strip()) > 0, f"Empty output link in summary"
+            assert "link" in summary and len(summary["link"].strip()) > 10, f"Empty output link in summary"
+            time_logger.info(f"[fn2] Time taken for processing link and summary: = {(time.time() - start_time):.2f}, fn2 time = {(time.time() - st):.2f}, link = {link}")
             return summary
+        elif error or web_res.get("exception", False):
+            raise Exception(f"fn2 Web search stopped for link: {link}, {error}")
+        elif not exists_tmp_marker_file(web_search_tmp_marker_name):
+            raise Exception(f"fn2 Web search stopped for link: {link} due to marker file not found")
         else:
             raise Exception(f"fn2 Web search stopped for link: {link}")
     # def compute_timeout(link):
@@ -2273,7 +2202,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yield_timeout():
         while True:
             yield dict(keep_going_marker=web_search_tmp_marker_name)
-    task_queue = dual_orchestrator(fn1, fn2, zip(yeild_one(), yield_timeout()), call_back, threads, 90, 75)
+    task_queue = orchestrator_with_queue(zip(yeild_one(), yield_timeout()), fn2, call_back, max_workers=threads, timeout=60)
     return task_queue
 
 
@@ -2408,6 +2337,54 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 
+def sort_two_lists(list1, list2, key=None, reverse=False):
+    """
+    Sorts two lists based on the sorting of the first list using an optional sorting key.
 
+    Parameters:
+    - list1: The list to be sorted.
+    - list2: The list to be sorted in the same order as list1.
+    - sort_key: Optional. A function that would serve as a key for the sorting criteria.
+                If None, the list1 elements themselves are used for sorting.
+    - reverse: Optional. If True, the lists are sorted in reverse order.
+
+    Returns:
+    - list1_sorted: The sorted version of list1.
+    - list2_sorted: The sorted version of list2, in the same order as list1_sorted.
+    """
+    # If no sort_key is provided, use the elements of list1 as they are
+    if key is None:
+        key = lambda x: x
+
+        # Pair each element of list1 with its corresponding element in list2
+    paired = list(zip(list1, list2))
+    # Sort the paired list by the provided sort_key applied to the elements of list1
+    paired_sorted = sorted(paired, key=lambda x: key(x[0]), reverse=reverse)
+    # Unzip the pairs back into two lists
+    list1_sorted, list2_sorted = zip(*paired_sorted)
+
+    # Convert the tuples back to lists
+    return list(list1_sorted), list(list2_sorted)
+
+
+def filter_two_lists(list1, list2, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True):
+    """
+    Filters two lists based on a filtering criterion applied to the first list.
+
+    Parameters:
+    - list1: The list whose elements are to be filtered based on the filter_criterion.
+    - list2: The list to be filtered in parallel with list1.
+    - filter_criterion: A function that takes an element of list1 and returns True if the element should be kept.
+
+    Returns:
+    - list1_filtered: The filtered version of list1 based on the filter_criterion.
+    - list2_filtered: The filtered version of list2, corresponding to the filtering of list1.
+    """
+    # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
+    list1_filtered, list2_filtered = zip(
+        *[(item1, item2) for item1, item2 in zip(list1, list2) if filter_criterion_list1(item1) and filter_criterion_list2(item2)])
+
+    # Convert the tuples back to lists
+    return list(list1_filtered), list(list2_filtered)
 
 

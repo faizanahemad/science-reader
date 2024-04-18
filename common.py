@@ -37,6 +37,7 @@ MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 7500))
 MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 3500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
+MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 20))
 
 import requests
 import os
@@ -265,7 +266,49 @@ class AddAttribute:
     def __call__(self, func):
         setattr(func, self.attribute, self.value)
         return func
-    
+
+class CacheResults:
+    def __init__(self, cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args) + str(kwargs), signed=False)),
+                                                  dtype_filters=None,
+                                                  should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
+                                                  enabled=True):
+        self.cache = cache
+        self.key_function = key_function
+        self.dtype_filters = tuple(dtype_filters) if dtype_filters is not None else None
+        self.should_cache_predicate = should_cache_predicate
+        self.enabled = enabled
+
+    def __call__(self, func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if self.enabled:
+                result_computed = False
+                if self.dtype_filters is not None and len(self.dtype_filters) > 0:
+                    sig = signature(func)
+
+                    # Bind the arguments to the signature
+                    bound_args = sig.bind(*args, **kwargs)
+                    bound_args.apply_defaults()
+
+                    # Filter the arguments based on their type
+                    filtered_args = {k: v for k, v in bound_args.arguments.items() if isinstance(v, self.dtype_filters)}
+                    key = f"{func.__module__}:{func.__name__}:{str(mmh3.hash(str(filtered_args), signed=False))}"
+                else:
+                    key = f"{func.__module__}:{func.__name__}:{self.key_function(args, kwargs)}"
+                result = cache.get(key)
+                if result is None or isinstance(result, Exception) or (
+                        isinstance(result, (list, tuple, set)) and len(result) == 0):
+                    result = func(*args, **kwargs)
+                    result_computed = True
+                if result is not None and not isinstance(result, Exception) and not (
+                        isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed:
+                    cache.set(key, result, expire=cache_timeout)
+                return result
+            else:
+                return func(*args, **kwargs)
+
+        return wrapper
+
 def NoneToDefault(x, default=[]):
     if x is None:
         return default
@@ -756,7 +799,7 @@ def exists_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
     return os.path.exists(marker_file_path)
 
-@typed_memoize(cache, str, int, tuple, bool)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def is_pdf_link(link):
     st = time.time()
     result = False
@@ -843,9 +886,6 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                         continue
                     args, kwargs = task
                     futures.append(pool.submit(task_worker, args, kwargs))
-                for future in futures:
-                    future.result()
-                    time.sleep(0.1)
         except Exception as e:
             exc = traceback.format_exc()
             logger.error(f"[orchestrator] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
@@ -888,19 +928,25 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
             futures = []
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 while True:
-                    result = input_queue.get()
+                    # handle if input_queue is a generator or a zip object
+                    if isinstance(input_queue, types.GeneratorType) or isinstance(input_queue, zip):
+                        try:
+                            result = next(input_queue)
+                        except StopIteration:
+                            result = TERMINATION_SIGNAL
+                    elif isinstance(input_queue, Queue):
+                        result = input_queue.get()
+                    elif isinstance(input_queue, (list, tuple)):
+                        result = input_queue.pop(0) if len(input_queue) > 0 else None
+                    else:
+                        raise ValueError("Invalid input_queue type")
                     if result is TERMINATION_SIGNAL or result is FINISHED_TASK or result == FINISHED_TASK:  # End of results
                         break
                     if result is None:
-                        time.sleep(0.1)
                         continue
                     args, kwargs = result
                     future = pool.submit(task_worker, result, [args], kwargs)
                     futures.append(future)
-                    time.sleep(0.1)
-                for future in futures:
-                    future.result()
-                    time.sleep(0.1)
         except Exception as e:
             exc = traceback.format_exc()
             logger.error(f"[orchestrator_with_queue] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
@@ -1133,6 +1179,9 @@ def get_embedding_model(keys) -> Embeddings:
     return openai_embed
 
 
+
+
+
 import re
 
 
@@ -1295,9 +1344,16 @@ def extract_url_from_mardown(text):
         text = f"({text})"
     pattern = r'\((https?://\S+)\)'  # Regular expression pattern
     urls = re.findall(pattern, text)
+
+    if len(urls) == 0:
+        try:
+            urls = enhanced_robust_url_extractor(text)
+        except:
+            urls = []
+
     if len(urls) == 0:
         print(f"No URLs found in the text = ```{text}```")
-
+        return '<NO_URL_FOUND_IN_TEXT>'
     return urls[0]
 
 import re
@@ -1314,6 +1370,36 @@ def parse_mardown_link_text(text):
         results.append((link, title, word_count))
 
     return results
+
+
+from collections import OrderedDict
+from threading import Lock
+
+
+class FixedSizeFIFODict(OrderedDict):
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+        self.lock = Lock()  # Initialize a lock for thread-safe operations
+
+    def __setitem__(self, key, value):
+        with self.lock:  # Use the lock to ensure thread-safe access
+            super().__setitem__(key, value)
+            self.ensure_fixed_size()
+
+    def ensure_fixed_size(self):
+        while len(self) > self.size:
+            self.popitem(last=False)
+
+
+@CacheResults(cache=FixedSizeFIFODict(1000), dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
+def get_text_embedding(text, keys):
+    openai_embed = get_embedding_model(keys)
+    embedding = openai_embed.embed_query(text)
+    embedding = np.array(embedding)
+    return embedding
+
+
 
 
 

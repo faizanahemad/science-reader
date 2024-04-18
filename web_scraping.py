@@ -15,7 +15,7 @@ import threading
 from queue import Queue
 
 from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, FIRST_COMPLETED, wait
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 
@@ -97,7 +97,7 @@ def soup_parser(html):
 
 remove_script_tags = """
 const iframeElements = document.querySelectorAll('body iframe');iframeElements.forEach(iframeElement => iframeElement.remove());
-""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e3))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,3e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
+""".strip() + "var script=document.createElement('script');async function myFunc(){await new Promise((e=>setTimeout(e,1e2))),function e(){if('interactive'===document.readyState||'complete'===document.readyState){var t=document.createElement('script');t.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(t)}else setTimeout(e,5e2)}(),function e(){if('undefined'!=typeof Readability){var t=new Readability(document).parse();const e=document.getElementsByTagName('body')[0];e.innerHTML='';const n=document.createElement('div');n.id='custom_content';const i=document.createElement('div');i.id='title',i.textContent=t.title;const a=document.createElement('div');return a.id='textContent',a.textContent=t.textContent,n.appendChild(i),n.appendChild(a),e.appendChild(n),t}setTimeout(e,1e3)}()}script.src='https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js',document.head.appendChild(script),myFunc();"
 
 def send_request_bee(url, apikey):
     js = '{"instructions":[{"wait_for":"body"},{"evaluate":"' + \
@@ -176,7 +176,7 @@ def send_request_ant_html(url, apikey, readability=True):
     var script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
     document.head.appendChild(script);
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));
 
 
     function myFunction() {
@@ -213,13 +213,13 @@ def send_request_ant_html(url, apikey, readability=True):
             body.appendChild(customContentDiv);
             return myDict;
         } else {
-            setTimeout(myReadable, 2000);
+            setTimeout(myReadable, 1000);
         }
     }
     myReadable();
     '''
 
-    remove_script_tags = """
+    ant_remove_script_tags = """
     // Select all script elements inside the body
     const scriptElements = document.querySelectorAll('body script');
 
@@ -235,7 +235,7 @@ def send_request_ant_html(url, apikey, readability=True):
     });
 
     """ + (add_readability_for_ant if readability else "")
-    rst = base64.b64encode(remove_script_tags.encode()).decode()
+    rst = base64.b64encode(ant_remove_script_tags.encode()).decode()
     ant_url = "https://api.scrapingant.com/v2/general"
     params = {
         'url': url,
@@ -256,7 +256,11 @@ def send_request_ant_html(url, apikey, readability=True):
             error_details = response.text
             raise Exception(
                 f"Error in ant with status code {response.status_code} and error details {error_details}")
-    return response.text
+    html = remove_script_tags_from_html(response.text)
+    time_logger.info(" ".join(
+        ['[send_request_ant_html] ', f"Time = {et:.2f}, ", f"Response length = {len(html.split())}",
+         f"link = {url}"]))
+    return html
 
 
 user_agents = [
@@ -419,6 +423,11 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
     # Make the request
     response = session.get(url, proxies=proxies, verify=False)
     html = response.text
+    js_need = check_js_needed(html)
+
+    if js_need:
+        logger.warning(f"[fetch_content_brightdata_html] Js needed for link {url}")
+        return None
     return html
 
 import re
@@ -440,12 +449,8 @@ def remove_script_tags_from_html(html):
 
 
 def fetch_content_brightdata(url, brightdata_proxy):
+    st = time.time()
     html = fetch_content_brightdata_html(url, brightdata_proxy)
-    js_need = check_js_needed(html)
-
-    if js_need:
-        logger.warning(f"[fetch_content_brightdata] Js needed for link {url}")
-        return None
     html = remove_script_tags_from_html(html)
     result = None
     soup_html_parser_result = get_async_future(soup_html_parser, html)
@@ -465,6 +470,10 @@ def fetch_content_brightdata(url, brightdata_proxy):
     # do the same for title
     if result is not None and "title" in result and len(result["title"]) > 0:
         result["title"] = remove_bad_whitespaces(result["title"])
+    et = time.time() - st
+    time_logger.info(" ".join(
+        ['[fetch_content_brightdata] ', f"Time = {et:.2f}, ", f"Response length = {len(result['text'].split())}",
+         f"link = {url}"]))
     return result
 
 import threading
@@ -498,9 +507,11 @@ def send_request_zenrows_html(url, apikey, readability=True):
             'text': ""
         }
     et = time.time() - st
-    logger.info(" ".join(['send_request_zenrows ', f"Time = {et:.2f}, ", f"Response length = {len(response.text)}"]))
     html = response.text
     html = remove_script_tags_from_html(html)
+    time_logger.info(" ".join(
+        ['[send_request_zenrows_html] ', f"Time = {et:.2f}, ", f"Response length = {len(html.split())}",
+         f"link = {url}"]))
     return html
 
 def fetch_html(url, apikey=None, brightdata_proxy=None):
@@ -558,53 +569,38 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     return html
 
 def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=True):
+    page_fetching_start = time.time()
     if zenrows_or_ant == 'zenrows':
         html = send_request_zenrows_html(url, apikey, readability)
     elif zenrows_or_ant == 'ant':
         html = send_request_ant_html(url, apikey, readability)
+    elif zenrows_or_ant == 'brightdata':
+        html = fetch_content_brightdata_html(url, apikey)
+    html_processing_start = time.time()
     result = get_async_future(soup_parser, html)
-    # local_result = get_async_future(local_browser_reader, html)
-    soup_html_parser_result = get_async_future(soup_html_parser, html)
-    try:
-        result = result.result()
-    except Exception as e:
-        result = None
-        exc = traceback.format_exc()
-        logger.debug(
-            f"[fetch_content_zenrows] link = {url}, Error in soup_parser with exception = {str(e)}\n{exc}")
-    if result is not None and "title" in result and "text" in result and result["text"] is not None and result["text"] != "":
-        return result
-    # try:
-    #     local_result = local_result.result()
-    # except Exception as e:
-    #     local_result = None
-    #     exc = traceback.format_exc()
-    #     logger.error(
-    #         f"[fetch_content_brightdata] link = {url}, Error in local_browser_reader with exception = {str(e)}\n{exc}")
-    try:
-        soup_html_parser_result = soup_html_parser_result.result()
-    except Exception as e:
-        soup_html_parser_result = None
-        exc = traceback.format_exc()
-        logger.debug(
-            f"[fetch_content_brightdata] link = {url}, Error in soup_html_parser with exception = {str(e)}\n{exc}")
+    soup_html_parser_result = get_async_future(soup_html_parser_fast, html) # soup_html_parser_fast_v2
+    soup_html_parser_result_v2 = get_async_future(soup_html_parser_fast_v2, html)
 
-    # if local_result is not None and (result is None or len(result['text']) < len(local_result['text']) // 2):
-    #     result = local_result
-    if soup_html_parser_result is not None and (
-            result is None or len(result['text']) < len(soup_html_parser_result['text']) // 2):
-        result = soup_html_parser_result
+    # wait till any of these future is done.
+    done, _ = wait([result, soup_html_parser_result, soup_html_parser_result_v2], return_when=FIRST_COMPLETED)
+    if done:
+        for future in [result, soup_html_parser_result, soup_html_parser_result_v2]:
+            if future.done() and future.exception() is None:
+                result = future.result()
+                break
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = remove_bad_whitespaces(result["text"])
-    # do the same for title
-    if result is not None and "title" in result and len(result["title"]) > 0:
-        result["title"] = remove_bad_whitespaces(result["title"])
     if result is None:
         result = {
             'title': "",
             'text': ""
         }
+    html_processing_end = time.time()
+    time_logger.info(
+        f"[send_request_for_webpage] Page fetching time = {html_processing_start - page_fetching_start:.2f}, html processing time = {html_processing_end - html_processing_start:.2f}, result len = {len(result['text'].split())}, link = {url}")
+
     return result
+
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -641,18 +637,89 @@ def soup_html_parser(html):
 
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
+def soup_html_parser_fast_v2(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    title = soup.title.string if soup.title else ''
+    for link in soup.find_all('a'):
+        link.decompose()
+    for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
+        header.decompose()
+    element = soup.find(id='bib')
+    # Remove the element
+    if element is not None:
+        element.decompose()
+    elements = soup.find_all('div', {'class': 'arxiv-vanity-wrapper'})
+    for element in elements:
+        element.decompose()
+
+    # content_text = " ".join(soup.findAll(text=True))
+    content_text = soup.text
+    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
+
+def soup_html_parser_fast(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    title = soup.title.string if soup.title else ''
+
+    def extract_text(element):
+        # If the element is a string, return it as is
+        if isinstance(element, NavigableString):
+            return element.strip()
+        # If the element is a tag you're interested in and doesn't contain any child tags of interest, extract its text
+        elif element.name in ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] and not any(child.name in ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] for child in element.children):
+            return element.get_text().strip()
+        # Otherwise, return an empty string
+        return ""
+
+    content_text = ''
+    for child in soup.recursiveChildGenerator():
+        text = extract_text(child)
+        if text:
+            content_text += text.strip() + '\n'
+
+    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
+
 class ScrapingValidityException(Exception):
     pass
 
+
+def validate_web_page_scrape(result):
+    pass
+
+good_page_size = 100
+
+def post_process_web_page_scrape(link, result_from, result, st):
+
+    et = time.time()
+    if result is None or "text" not in result:
+        raise ScrapingValidityException(f"[ALL_FAILED] None succeeded in time. No result for {link} from {result_from}")
+    result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
+    result["title"] = normalize_whitespace(result["title"])
+    if result["text"].strip() == DDOS_PROTECTION_STR:
+        error_logger.error(
+            f"[DDOS_PROTECTION] DDOS Protection for {link} from {result_from},  result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+        raise ScrapingValidityException(
+            f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+
+    elif len(result["text"].strip().split()) < good_page_size:
+        error_logger.error(
+            f"[TOO_SHORT] Text too short for {link} from {result_from}, result len = {len(result['text'])}, and result sample = {result['text'][:50]}")
+        raise ScrapingValidityException(
+            f"Text too short for {link} from {result_from}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
+
+    time_logger.info(
+        f"[web_scrape_page]:: time = {(et - st):.2f}, result len = {len(result['text'].split())}, whitespace_removal_time = {(time.time() - et):.2f}, Got result for link {link} from {result_from}")
+    success_logger.info(
+        f"[web_scrape_page]:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
+
+    return result
 
 from scipy import spatial
 @log_memory_usage
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
-    good_page_size = 100
     result = dict(text="", title="", link=link, error="")
     st = time.time()
-    bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
+    # bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
     bright_data_playwright_result = None
     bright_data_selenium_result = None
 
@@ -672,7 +739,12 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     else:
         ant_service_result = None
 
-    # embedding_model = get_embedding_model(apikeys)
+    if "brightdataUrl" in apikeys:
+        bright_data_result = get_async_future(send_request_for_webpage, link, apikeys['brightdataUrl'], zenrows_or_ant='brightdata', readability=False)
+    else:
+        bright_data_result = None
+
+        # embedding_model = get_embedding_model(apikeys)
     # query_embeddings_future = get_async_future(embedding_model.embed_query, context)
 
     # Also add bright data cdp fetch as a backup.
@@ -684,8 +756,10 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     bright_data_selenium_exception = False
     # TODO: Change timeout based on whether it is a single page link read or multiple pages.
     # TODO: use the cache module with a lock based on url to ensure error is noted and attempts + success rates are noted.
-    while time.time() - st < 75 and exists_tmp_marker_file(web_search_tmp_marker_name):
+    break_loop = False
+    while time.time() - st < 45 and exists_tmp_marker_file(web_search_tmp_marker_name) and not break_loop:
         if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception and ant_exception:
+            break_loop = True
             break
         # if zenrows_exception and brightdata_exception:
         #     if random.random() <= 0.5:
@@ -696,8 +770,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             result = zenrows_service_result.result()
             result_from = "zenrows_tentative"
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
                 result_from = "zenrows"
+                break_loop = True
                 break
             else:
                 zenrows_exception = True
@@ -708,43 +782,43 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             result = ant_service_result.result()
             result_from = "ant_tentative"
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
                 result_from = "ant"
+                break_loop = True
                 break
             else:
                 ant_exception = True
                 error_logger.error(f"[ANT] Error in ant for link {link} with result {result} and exception {ant_service_result.exception()}")
 
-        if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
-            result = bright_data_playwright_result.result()
-            result_from = "bright_data_playwright_tentative"
-            if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
-                result_from = "bright_data_playwright"
-                break
-            else:
-                bright_data_playwright_exception = True
-                error_logger.error(
-                    f"[BRIGHTDATA_PLAYWRIGHT] Error in bright_data_playwright for link {link} with result {result} and exception {bright_data_playwright_result.exception()}")
-
-        if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
-            result = bright_data_selenium_result.result()
-            result_from = "bright_data_selenium_tentative"
-            if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
-                result_from = "bright_data_selenium"
-                break
-            else:
-                bright_data_selenium_exception = True
-                error_logger.error(
-                    f"[BRIGHTDATA_SELENIUM] Error in bright_data_selenium for link {link} with result {result} and exception {bright_data_selenium_result.exception()}")
+        # if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
+        #     result = bright_data_playwright_result.result()
+        #     result_from = "bright_data_playwright_tentative"
+        #     if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #         result_from = "bright_data_playwright"
+        #         break_loop = True
+        #         break
+        #     else:
+        #         bright_data_playwright_exception = True
+        #         error_logger.error(
+        #             f"[BRIGHTDATA_PLAYWRIGHT] Error in bright_data_playwright for link {link} with result {result} and exception {bright_data_playwright_result.exception()}")
+        #
+        # if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
+        #     result = bright_data_selenium_result.result()
+        #     result_from = "bright_data_selenium_tentative"
+        #     if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #         result_from = "bright_data_selenium"
+        #         break_loop = True
+        #         break
+        #     else:
+        #         bright_data_selenium_exception = True
+        #         error_logger.error(
+        #             f"[BRIGHTDATA_SELENIUM] Error in bright_data_selenium for link {link} with result {result} and exception {bright_data_selenium_result.exception()}")
 
         if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and (time.time() - st >= 18 or zenrows_exception or ant_exception):
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-                result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
                 result_from = "brightdata"
+                break_loop = True
                 break
             else:
                 brightdata_exception = True
@@ -752,29 +826,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
                     f"[BRIGHTDATA] Error in brightdata for link {link} with result {result} and exception {bright_data_result.exception()}")
 
         time.sleep(0.5)
-    et = time.time() - st
-    if result is None or (zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception and ant_exception):
-        error_logger.error(f"[ALL_FAILED] None succeeded in time. No result for {link} from {result_from}")
-        raise ScrapingValidityException(f"[ALL_FAILED] None succeeded in time. No result for {link} from {result_from}")
-    result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
-    result["title"] = normalize_whitespace(result["title"])
-    time_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'].split())}, time = {et:.2f}")
-    if len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
-        logger.info(
-            f"web_scrape_page:: Got result from {result_from} for link {link}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'].split())}, time = {et:.2f}")
 
-    elif len(result["text"].strip().split()) < good_page_size:
-        result = {"text": "", "title": "", "link": link, "error": "Text too short", "exception": True}
-        error_logger.error(f"[TOO_SHORT] Text too short for {link} from {result_from}, result len = {len(result['text'])}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception} and result sample = {result['text'][:50]}")
-        raise ScrapingValidityException(f"Text too short for {link} from {result_from},  zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-
-    elif result["text"].strip() == DDOS_PROTECTION_STR:
-        result = {"text": "", "title": "", "link": link, "error": DDOS_PROTECTION_STR, "exception": True}
-        error_logger.error(f"[DDOS_PROTECTION] DDOS Protection for {link} from {result_from},  zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-        raise ScrapingValidityException(f"{DDOS_PROTECTION_STR} DDOS Protection for {link} from {result_from}, zenrows exception = {zenrows_exception}, brightdata exception = {brightdata_exception}, result len = {len(result['text'])} and result sample = {result['text'][:10]}")
-
-    success_logger.info(f"web_scrape_page:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
-    return result
+    return post_process_web_page_scrape(link, result_from, result, st)
 
 
 
