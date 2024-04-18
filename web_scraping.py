@@ -689,7 +689,7 @@ class ScrapingValidityException(Exception):
 
 
 def validate_web_page_scrape(result):
-    pass
+    return result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR
 
 good_page_size = 100
 
@@ -777,8 +777,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if zenrows_service_result is not None and zenrows_service_result.done() and zenrows_service_result.exception() is None and not zenrows_exception:
             result = zenrows_service_result.result()
             result_from = "zenrows_tentative"
-            logger.info(f"[web_scrape_page] [ZENROWS] Got tentative result for link {link}")
-            if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+            validity_of_result = validate_web_page_scrape(result)
+            logger.info(f"[web_scrape_page] [ZENROWS] Got tentative result with validity = {validity_of_result} for link {link}")
+            if validity_of_result:
                 result_from = "zenrows"
                 break_loop = True
                 break
@@ -790,8 +791,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if ant_service_result is not None and ant_service_result.done() and ant_service_result.exception() is None and not ant_exception and time.time() - st >= 4:
             result = ant_service_result.result()
             result_from = "ant_tentative"
-            logger.info(f"[web_scrape_page] [ANT] Got tentative result for link {link}")
-            if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+            validity_of_result = validate_web_page_scrape(result)
+            logger.info(f"[web_scrape_page] [ANT] Got tentative result with validity = {validity_of_result} for link {link}")
+            if validity_of_result:
                 result_from = "ant"
                 break_loop = True
                 break
@@ -802,7 +804,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         # if bright_data_playwright_result is not None and bright_data_playwright_result.done() and bright_data_playwright_result.exception() is None and not bright_data_playwright_exception:
         #     result = bright_data_playwright_result.result()
         #     result_from = "bright_data_playwright_tentative"
-        #     if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #     validity_of_result = validate_web_page_scrape(result)
+        #     if validity_of_result:
         #         result_from = "bright_data_playwright"
         #         break_loop = True
         #         break
@@ -814,7 +817,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         # if bright_data_selenium_result is not None and bright_data_selenium_result.done() and bright_data_selenium_result.exception() is None and not bright_data_selenium_exception:
         #     result = bright_data_selenium_result.result()
         #     result_from = "bright_data_selenium_tentative"
-        #     if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+        #     validity_of_result = validate_web_page_scrape(result)
+        #     if validity_of_result:
         #         result_from = "bright_data_selenium"
         #         break_loop = True
         #         break
@@ -826,8 +830,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and (time.time() - st >= 18 or zenrows_exception or ant_exception):
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
-            logger.info(f"[web_scrape_page] [BRIGHTDATA] Got tentative result for link {link}")
-            if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
+            validity_of_result = validate_web_page_scrape(result)
+            logger.info(f"[web_scrape_page] [BRIGHTDATA] Got tentative result with validity = {validity_of_result} for link {link}")
+            if validity_of_result:
                 result_from = "brightdata"
                 break_loop = True
                 break
