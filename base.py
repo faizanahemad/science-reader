@@ -787,8 +787,6 @@ Only provide answer from the document given above.
         time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds with result len = {len(result.split())} and doc len = {doc_word_count}")
         return result
 
-@CacheResults(cache, dtype_filters=[str, int, tuple, bool], enabled=False,
-              should_cache_predicate=lambda result: result is not None and len(result.strip().split()) > 100)
 def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, scan=False)->str:
     start_time = time.time()
     assert isinstance(document, str)
@@ -1936,8 +1934,6 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
-@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
-              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip().split()) > 100)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
@@ -2174,8 +2170,6 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     time_logger.info(f"Called contextual reader for link: {link}, Input length = {input_len}, Result length = {tex_len} with total time = {tt:.2f}")
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
-@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
-              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
 def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
