@@ -24,6 +24,8 @@ urllib3.disable_warnings()
 import requests
 import re
 import traceback
+import sys
+sys.tracebacklimit = 5
 
 script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
 noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)
@@ -679,7 +681,11 @@ def soup_html_parser_fast(html):
     return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
 
 class ScrapingValidityException(Exception):
-    pass
+    def __init__(self, message=""):
+        super().__init__(message)
+
+    def __str__(self):
+        return self.args[0]
 
 
 def validate_web_page_scrape(result):

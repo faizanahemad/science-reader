@@ -2,6 +2,8 @@ import random
 import tempfile
 import asyncio
 import threading
+import sys
+sys.tracebacklimit = 5
 import traceback
 
 from playwright.async_api import async_playwright
