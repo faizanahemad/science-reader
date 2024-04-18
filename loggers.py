@@ -18,7 +18,7 @@ def getLoggers(name,
         level=logger_level,
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
+            logging.FileHandler(os.path.join(os.getcwd(), "log.log"))
         ]
     )
     # logging.getLogger().removeHandler(logging.StreamHandler())
@@ -28,7 +28,7 @@ def getLoggers(name,
         time_logger.removeHandler(h)
     time_logger.handlers.clear()
 
-    time_handler = logging.FileHandler(os.path.join(os.getcwd(), "timing.txt"))
+    time_handler = logging.FileHandler(os.path.join(os.getcwd(), "timing_log.log"))
     time_formatter = logging.Formatter(
         fmt="%(asctime)s.%(msecs)01d - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
         datefmt="%H:%M:%S"
@@ -43,7 +43,7 @@ def getLoggers(name,
     time_logger.setLevel(time_logger_level)  # Set log level for this logger
 
     error_logger = logging.getLogger(f"[ERROR_LOGGER] {name}")
-    error_handler = logging.FileHandler(os.path.join(os.getcwd(), "error.txt"))
+    error_handler = logging.FileHandler(os.path.join(os.getcwd(), "error_log.txt"))
     error_formatter = logging.Formatter(
         fmt="%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S"
@@ -54,7 +54,7 @@ def getLoggers(name,
     error_logger.setLevel(error_logger_level)
 
     success_logger = logging.getLogger(f"[SUCCESS_LOGGER] {name}")
-    success_handler = logging.FileHandler(os.path.join(os.getcwd(), "success.txt"))
+    success_handler = logging.FileHandler(os.path.join(os.getcwd(), "success_log.log"))
     success_formatter = logging.Formatter(
         fmt="%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S"
@@ -65,7 +65,7 @@ def getLoggers(name,
     success_logger.setLevel(success_logger_level)
 
     memory_logger = logging.getLogger(f"[MEMORY_LOGGER] {name}")
-    memory_handler = logging.FileHandler(os.path.join(os.getcwd(), "memory.txt"))
+    memory_handler = logging.FileHandler(os.path.join(os.getcwd(), "memory_log.log"))
     memory_handler.setLevel(logging.INFO)
     memory_formatter = logging.Formatter(
         fmt="%(asctime)s - %(levelname)s - %(name)s - %(message)s",

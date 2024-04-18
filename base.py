@@ -2356,6 +2356,10 @@ def sort_two_lists(list1, list2, key=None, reverse=False):
     if key is None:
         key = lambda x: x
 
+    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    if len(list1) == 0:
+        return [], []
+
         # Pair each element of list1 with its corresponding element in list2
     paired = list(zip(list1, list2))
     # Sort the paired list by the provided sort_key applied to the elements of list1
@@ -2381,6 +2385,11 @@ def filter_two_lists(list1, list2, filter_criterion_list1 = lambda x: True, filt
     - list2_filtered: The filtered version of list2, corresponding to the filtering of list1.
     """
     # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
+
+    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    if len(list1) == 0:
+        return [], []
+
     list1_filtered, list2_filtered = zip(
         *[(item1, item2) for item1, item2 in zip(list1, list2) if filter_criterion_list1(item1) and filter_criterion_list2(item2)])
 

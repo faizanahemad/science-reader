@@ -61,7 +61,7 @@ def check_js_needed(html):
 
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.INFO, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
@@ -722,6 +722,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     # bright_data_result = get_async_future(fetch_content_brightdata, link, apikeys['brightdataUrl'])
     bright_data_playwright_result = None
     bright_data_selenium_result = None
+    logger.debug(f"[web_scrape_page] Invoke for {link}.")
 
     # if random.random() <= 0.5:
     #     bright_data_playwright_result = get_async_future(browse_to_page_playwright, link)
@@ -760,6 +761,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     while time.time() - st < 45 and exists_tmp_marker_file(web_search_tmp_marker_name) and not break_loop:
         if zenrows_exception and brightdata_exception and bright_data_playwright_exception and bright_data_selenium_exception and ant_exception:
             break_loop = True
+            error_logger.error(f"[web_scrape_page] for {link} zenrows exception \n{zenrows_service_result.exception()} \n brightdata exception \n{bright_data_result.exception()} \n ant exception \n{ant_service_result.exception()} \n bright_data_playwright_exception \n{bright_data_playwright_result.exception()} \n bright_data_selenium_exception \n{bright_data_selenium_result.exception()}")
             break
         # if zenrows_exception and brightdata_exception:
         #     if random.random() <= 0.5:
@@ -769,6 +771,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if zenrows_service_result is not None and zenrows_service_result.done() and zenrows_service_result.exception() is None and not zenrows_exception:
             result = zenrows_service_result.result()
             result_from = "zenrows_tentative"
+            logger.info(f"[web_scrape_page] [ZENROWS] Got tentative result for link {link}")
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "zenrows"
                 break_loop = True
@@ -781,6 +784,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if ant_service_result is not None and ant_service_result.done() and ant_service_result.exception() is None and not ant_exception and time.time() - st >= 4:
             result = ant_service_result.result()
             result_from = "ant_tentative"
+            logger.info(f"[web_scrape_page] [ANT] Got tentative result for link {link}")
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "ant"
                 break_loop = True
@@ -816,6 +820,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         if bright_data_result is not None and bright_data_result.done() and bright_data_result.exception() is None and not brightdata_exception and (time.time() - st >= 18 or zenrows_exception or ant_exception):
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
+            logger.info(f"[web_scrape_page] [BRIGHTDATA] Got tentative result for link {link}")
             if result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR:
                 result_from = "brightdata"
                 break_loop = True
