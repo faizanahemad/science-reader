@@ -117,7 +117,7 @@ def send_request_bee(url, apikey):
 
     )
     if response.status_code != 200:
-        raise Exception(
+        raise GenericShortException(
             f"Error in scrapingbee with status code {response.status_code}")
     et = time.time() - st
     logger.info(" ".join(['send_request_bee ', str(et), "\n", response.content.decode('utf-8')[-100:]]))
@@ -155,7 +155,7 @@ def send_request_scrapeit(url, apikey):
     response = requests.post(
         scrape_api, data=json.dumps(payload), headers=headers)
     if response.status_code != 200:
-        raise Exception(
+        raise GenericShortException(
             f"Error in scrapeit with status code {response.status_code}")
     et = time.time() - st
     data = response.json()['scrapingResult']['content']
@@ -256,7 +256,7 @@ def send_request_ant_html(url, apikey, readability=True):
             response = requests.get(url, params=params)
         if response.status_code != 200:
             error_details = response.text
-            raise Exception(
+            raise GenericShortException(
                 f"Error in ant with status code {response.status_code} and error details {error_details}")
     html = remove_script_tags_from_html(response.text)
     time_logger.info(" ".join(
@@ -501,7 +501,7 @@ def send_request_zenrows_html(url, apikey, readability=True):
     with zenrows_semaphore:
         response = requests.get('https://api.zenrows.com/v1/', params=params)
     if response.status_code != 200:
-        raise Exception(
+        raise GenericShortException(
             f"Error in zenrows with status code {response.status_code} for url {url} with response {response.text}")
     if response is None or response.text is None:
         return {

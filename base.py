@@ -175,7 +175,11 @@ from threading import Lock
 
 # create a new tokenlimit exception class
 class TokenLimitException(Exception):
-    pass
+    def __init__(self, message=""):
+        super().__init__(message)
+
+    def __str__(self):
+        return self.args[0]
 
 class OpenAIRateLimitRollingTokenTracker:
     def __init__(self):
@@ -2179,7 +2183,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         error = web_res["error"] if "error" in web_res else None
         elapsed = time.time() - start_time
         if elapsed > MAX_TIME_TO_WAIT_FOR_WEB_RESULTS:
-            raise Exception(f"fn2 Web search stopped due to too long download time for link: {link}, {error}")
+            raise ForceStoppedException(f"fn2 Web search stopped due to too long download time for link: {link}, {error}")
         time_logger.info(f"[fn2] Time taken for downloading link: = {elapsed:.2f}, fn2 time = {(time.time() - st):.2f} with len = {len(web_res['full_text'].split())}, link = {link}")
         if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception",
                                                                                   False) and "full_text" in web_res and len(
@@ -2192,11 +2196,11 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             time_logger.info(f"[fn2] Time taken for processing link and summary: = {(time.time() - start_time):.2f}, fn2 time = {(time.time() - st):.2f}, link = {link}")
             return summary
         elif error or web_res.get("exception", False):
-            raise Exception(f"fn2 Web search stopped for link: {link}, {error}")
+            raise ForceStoppedException(f"fn2 Web search stopped for link: {link}, {error}")
         elif not exists_tmp_marker_file(web_search_tmp_marker_name):
-            raise Exception(f"fn2 Web search stopped for link: {link} due to marker file not found")
+            raise ForceStoppedException(f"fn2 Web search stopped for link: {link} due to marker file not found")
         else:
-            raise Exception(f"fn2 Web search stopped for link: {link}")
+            raise GenericShortException(f"fn2 Web search stopped for link: {link}")
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))

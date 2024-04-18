@@ -1402,6 +1402,29 @@ def get_text_embedding(text, keys):
     return embedding
 
 
+class ForceStoppedException(Exception):
+    def __init__(self, message=""):
+        super().__init__(message)
+
+    def __str__(self):
+        # Fetch the current stack trace, limit it to the last 2 entries for brevity
+        stack_trace = traceback.format_stack(limit=2)
+        # Print the last one or two lines of the stack trace
+        trace = self.args[0] + "\n" + "\n".join(stack_trace[-2:])
+        return trace
+
+class GenericShortException(Exception):
+    def __init__(self, message=""):
+        super().__init__(message)
+
+    def __str__(self):
+        # Fetch the current stack trace, limit it to the last 2 entries for brevity
+        stack_trace = traceback.format_stack(limit=2)
+        # Print the last one or two lines of the stack trace
+        trace = self.args[0] + "\n" + "\n".join(stack_trace[-2:])
+        return trace
+
+
 
 
 

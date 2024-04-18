@@ -286,7 +286,7 @@ class Conversation:
         try:
             assert top_key in self.store_separate
         except Exception as e:
-            raise ValueError(f"Invalid top_key {top_key} provided")
+            raise GenericShortException(f"Invalid top_key {top_key} provided")
         logger.debug(f"Get doc data for top_key = {top_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
         if getattr(self, top_key, None) is not None:
             return getattr(self, top_key, None)
