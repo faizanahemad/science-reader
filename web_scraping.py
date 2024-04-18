@@ -172,6 +172,7 @@ def send_request_zenrows_shim(url, apikey):
 
     
 def send_request_ant_html(url, apikey, readability=True):
+    st = time.time()
     add_readability_for_ant = '''
     const body = document.getElementsByTagName('body')[0];
     const helloDiv = document.createElement('div');
@@ -258,9 +259,12 @@ def send_request_ant_html(url, apikey, readability=True):
             error_details = response.text
             raise GenericShortException(
                 f"Error in ant with status code {response.status_code} and error details {error_details}")
-    html = remove_script_tags_from_html(response.text)
+    et = time.time()
+    html = remove_bad_tags(response.text)
+    html_et = time.time()
     time_logger.info(" ".join(
-        ['[send_request_ant_html] ', f"Time = {et:.2f}, ", f"Response length = {len(html.split())}",
+        ['[send_request_ant_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ",
+         f"Response length = {len(html.split())}",
          f"link = {url}"]))
     return html
 
@@ -406,6 +410,8 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
     Returns:
     str: The content of the webpage.
     """
+
+    st = time.time()
     if brightdata_proxy is None:
         brightdata_proxy = os.environ.get("BRIGHTDATA_PROXY", None)
 
@@ -430,14 +436,51 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
     if js_need:
         logger.warning(f"[fetch_content_brightdata_html] Js needed for link {url}")
         return None
+    et = time.time()
+    html = remove_bad_tags(html)
+    html_et = time.time()
+    time_logger.info(" ".join(
+        ['[fetch_content_brightdata_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ",
+         f"Response length = {len(html.split())}",
+         f"link = {url}"]))
     return html
 
 import re
 
+# Precompile the regular expression
+script_regex = re.compile(r'<script[^>]*?>.*?</script>', flags=re.DOTALL)
+tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input',
+                  'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption',
+                  'link']
 def remove_script_tags_from_html(html):
     # This regex looks for <script> tags and their content and removes them
-    cleaned_html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
-    soup = BeautifulSoup(cleaned_html, 'html.parser')
+    tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input',
+                      'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption',
+                      'link']
+    html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<noscript[^>]*?>.*?</noscript>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<header[^>]*?>.*?</header>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<footer[^>]*?>.*?</footer>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<style[^>]*?>.*?</style>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<nav[^>]*?>.*?</nav>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<aside[^>]*?>.*?</aside>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<form[^>]*?>.*?</form>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<iframe[^>]*?>.*?</iframe>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<img[^>]*?>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<button[^>]*?>.*?</button>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<input[^>]*?>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<select[^>]*?>.*?</select>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<textarea[^>]*?>.*?</textarea>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<video[^>]*?>.*?</video>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<audio[^>]*?>.*?</audio>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<canvas[^>]*?>.*?</canvas>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<map[^>]*?>.*?</map>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<object[^>]*?>.*?</object>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<svg[^>]*?>.*?</svg>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<figure[^>]*?>.*?</figure>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<figcaption[^>]*?>.*?</figcaption>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<link[^>]*?>', '', html, flags=re.DOTALL)
+    soup = BeautifulSoup(html, 'lxml')
     for header in soup.find_all(['header', 'footer', 'script', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input', 'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption']):
         header.decompose()
     element = soup.find(id='bib')
@@ -448,12 +491,27 @@ def remove_script_tags_from_html(html):
     cleaned_html = str(soup)
     return cleaned_html
 
+# Pattern to match the specified tags and their content, including those without closing tags
+
+# Construct the regex pattern dynamically to match open and close tags and everything in between, including self-closing tags
+html_remove_pattern = '|'.join(f'<{tag}.*?>.*?</{tag}>|<{tag}.*?/?>' for tag in tags_to_remove)
+# Compile the regex pattern for better performance
+html_remove_pattern_compiled = re.compile(html_remove_pattern, flags=re.DOTALL | re.IGNORECASE)
+def remove_tags_with_regex(html):
+
+    # Use the compiled regex to remove the tags
+    cleaned_html = html_remove_pattern_compiled.sub('', html)
+
+    return cleaned_html
+
+remove_bad_tags = remove_script_tags_from_html
+
 
 
 def fetch_content_brightdata(url, brightdata_proxy):
     st = time.time()
     html = fetch_content_brightdata_html(url, brightdata_proxy)
-    html = remove_script_tags_from_html(html)
+    html = remove_bad_tags(html)
     result = None
     soup_html_parser_result = get_async_future(soup_html_parser, html)
     try:
@@ -508,11 +566,12 @@ def send_request_zenrows_html(url, apikey, readability=True):
             'title': "",
             'text': ""
         }
-    et = time.time() - st
+    et = time.time()
     html = response.text
-    html = remove_script_tags_from_html(html)
+    html = remove_bad_tags(html)
+    html_et = time.time()
     time_logger.info(" ".join(
-        ['[send_request_zenrows_html] ', f"Time = {et:.2f}, ", f"Response length = {len(html.split())}",
+        ['[send_request_zenrows_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ", f"Response length = {len(html.split())}",
          f"link = {url}"]))
     return html
 
@@ -530,7 +589,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     while True and time.time() - st < 60:
         if zenrows_html.done() and zenrows_html.exception() is None:
             html = zenrows_html.result() if zenrows_html.exception() is None else ''
-            html = remove_script_tags_from_html(html)
+            html = remove_bad_tags(html)
             soup_html_parser_result = get_async_future(soup_html_parser, html)
             soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
             if soup_html_parser_result != '':
@@ -538,7 +597,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
         if brightdata_scrape.done() and brightdata_scrape.exception() is None:
             html = brightdata_scrape.result() if brightdata_scrape.exception() is None else ''
             js_need = check_js_needed(html)
-            html = remove_script_tags_from_html(html)
+            html = remove_bad_tags(html)
             soup_html_parser_result = get_async_future(soup_html_parser, html)
             soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
             if not js_need and soup_html_parser_result != '':
@@ -546,7 +605,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
 
         if browse_to_page_playwright_result.done() and browse_to_page_playwright_result.exception() is None:
             html = browse_to_page_playwright_result.result() if browse_to_page_playwright_result.exception() is None else ''
-            html = remove_script_tags_from_html(html)
+            html = remove_bad_tags(html)
             soup_html_parser_result = get_async_future(soup_html_parser, html)
             soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
             if soup_html_parser_result != '':
@@ -582,11 +641,12 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
     result = get_async_future(soup_parser, html)
     soup_html_parser_result = get_async_future(soup_html_parser_fast, html) # soup_html_parser_fast_v2
     soup_html_parser_result_v2 = get_async_future(soup_html_parser_fast_v2, html)
+    soup_html_parser_result_v3 = get_async_future(soup_html_parser_fast_v3, html)
 
     # wait till any of these future is done.
-    done, _ = wait([result, soup_html_parser_result, soup_html_parser_result_v2], return_when=FIRST_COMPLETED)
+    done, _ = wait([result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3], return_when=FIRST_COMPLETED)
     if done:
-        for future in [result, soup_html_parser_result, soup_html_parser_result_v2]:
+        for future in [result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3]:
             if future.done() and future.exception() is None:
                 result = future.result()
                 break
@@ -637,7 +697,7 @@ def soup_html_parser(html):
         if text:
             content_text += text.strip() + '\n'
 
-    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
+    return {"text": content_text, "title": title}
 
 def soup_html_parser_fast_v2(html):
     soup = BeautifulSoup(html, 'html.parser')
@@ -656,7 +716,15 @@ def soup_html_parser_fast_v2(html):
 
     # content_text = " ".join(soup.findAll(text=True))
     content_text = soup.text
-    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
+    return {"text": content_text, "title": title}
+
+
+def soup_html_parser_fast_v3(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    title = soup.title.string if soup.title else ''
+    # content_text = " ".join(soup.findAll(text=True))
+    content_text = soup.text
+    return {"text": content_text, "title": title}
 
 def soup_html_parser_fast(html):
     soup = BeautifulSoup(html, 'html.parser')
@@ -678,7 +746,7 @@ def soup_html_parser_fast(html):
         if text:
             content_text += text.strip() + '\n'
 
-    return {"text": normalize_whitespace(content_text.strip()), "title": normalize_whitespace(title)}
+    return {"text": content_text, "title": title}
 
 class ScrapingValidityException(Exception):
     def __init__(self, message=""):

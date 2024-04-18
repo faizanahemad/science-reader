@@ -681,21 +681,21 @@ Only provide answer from the document given above.
             if len_doc < 1536:
                 return document
             openai_embed = get_embedding_model(self.keys)
-            def get_doc_embeds(document):
-                chunk_size = 512 if len_doc < 8000 else 1024 if len_doc < 16000 else 2048 if len_doc < 32000 else 4096
+            def get_doc_embeds(document, len_doc):
+                chunk_size = 1024 if len_doc < 8000 else 2048 if len_doc < 16000 else 3072 if len_doc < 32000 else 4096
                 ds = document.split()
                 document = " ".join(ds[:256_000])
                 st_chnk = time.time()
-                chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=128) # ChunkTextSentences
+                chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=64) # ChunkTextSentences
                 et_chnk = time.time()
-                time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk -st_chnk):.2f} seconds")
+                # time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk - st_chnk):.2f} seconds and doc len = {len_doc} and num chunks = {len(chunks)}")
                 doc_embeds = openai_embed.embed_documents(chunks)
                 et_emb = time.time()
-                time_logger.info(f"[ContextualReader] Actual Embedding time = {(et_emb - et_chnk):.2f} seconds")
+                time_logger.info(f"[ContextualReader] Actual Embedding time = {(et_emb - et_chnk):.2f} seconds, Chunking time = {(et_chnk - st_chnk):.2f} seconds, and doc len = {len_doc} and num chunks = {len(chunks)}")
                 return chunks, chunk_size, np.array(doc_embeds)
 
             st = time.time()
-            doc_em_future = get_async_future(get_doc_embeds, document)
+            doc_em_future = get_async_future(get_doc_embeds, document, len_doc)
             # query_em_future = get_async_future(openai_embed.embed_query, context)
             query_em_future = get_async_future(get_text_embedding, context, self.keys)
             chunks, chunk_size, doc_embedding = doc_em_future.result()
@@ -1656,7 +1656,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         query_strings[i] = q
 
     yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
-    time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f}")
+    time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}")
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)

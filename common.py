@@ -307,6 +307,7 @@ class CacheResults:
                     cache.set(key, result, expire=cache_timeout)
                 return result
             else:
+                assert func is not None
                 return func(*args, **kwargs)
 
         return wrapper
@@ -1067,12 +1068,12 @@ def thread_safe_tee(iterable, n=2):
 from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
 from typing import List, Optional
 import numpy as np
-embed_executor = ThreadPoolExecutor(max_workers=32)
+embed_executor = ThreadPoolExecutor(max_workers=256)
 class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
     def embed_documents(
             self, texts: List[str], chunk_size: Optional[int] = 0
     ) -> List[List[float]]:
-        if len(texts) > 4:
+        if len(texts) >= 2:
             futures = []
             for i in range(0, len(texts), 2):
                 futures.append(embed_executor.submit(self._get_len_safe_embeddings, texts[i:i+2], engine=self.deployment, chunk_size=chunk_size))
@@ -1129,7 +1130,7 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
         else:
             _iter = range(0, len(tokens), _chunk_size)
         _iter = list(_iter)
-        if len(_iter) <= 2:
+        if len(_iter) <= 4:
             for i in _iter:
                 response = embed_with_retry(
                     self,

@@ -487,36 +487,6 @@ Title of the conversation:
         msg_set.result()
         mem_set.result()
 
-    def create_deep_summary(self):
-        indices = get_async_future(self.get_field, "indices")
-        memory = get_async_future(self.get_field, "memory")
-        messages = self.get_field("messages")
-        if len(messages) % 6 != 0 or len(messages) < 6:
-            return
-        memory = memory.result()
-        recent_summary = "".join(memory["running_summary"][-1:])
-        old_summary = "\n\n".join(memory["running_summary"][-4:-3] + memory["running_summary"][-7:-6])
-        message_lookback = 4
-        previous_messages_text = ""
-        prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
-        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 16_000 and message_lookback < 8:
-            previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
-            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
-            message_lookback += 2
-        assert get_gpt3_word_count(previous_messages_text) > 0
-        llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=True)
-        prompt = prompts.long_persist_current_turn_prompt.format(previous_messages=previous_messages_text, previous_summary=recent_summary, older_summary=old_summary)
-        summary = llm(prompt, temperature=0.2, stream=False)
-        memory["running_summary"][-1] = summary
-
-        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
-        indices = indices.result()
-        _ = indices["summary_index"].merge_from(summary_index_new.result())
-        mem_set = get_async_future(self.set_field, "memory", memory)
-        self.set_field("indices", indices)
-        mem_set.result()
-
     def delete_message(self, message_id, index):
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         messages = self.get_field("messages")
@@ -669,16 +639,12 @@ Write the extracted information concisely below:
         return final_preamble
 
     def reply(self, query):
+        time_logger.info(f"[Conversation] reply called for chat Assistant.")
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-        get_async_future(self.create_deep_summary)
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
-        tracing_dict = dict()
-        tracing_dict["start_time"] = st
         time_dict = dict()
-        query["messageText"] = query["messageText"].strip()
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
-        query, attached_docs, attached_docs_names = attached_docs_future.result()
         answer = ''
         summary = "".join(self.get_field("memory")["running_summary"][-1:])
         summary_text_init = summary
@@ -733,9 +699,6 @@ Write the extracted information concisely below:
         user_query = query['messageText']
         link_context = previous_context + user_query + (previous_message_config["link_context"] if tell_me_more else '')
         message_config["link_context"] = link_context
-        if len(attached_docs) > 0:
-            message_config["use_attached_docs"] = True
-            message_config["attached_docs_names"] = attached_docs_names
 
         yield {"text": '', "status": "Getting prior chat context ..."}
         additional_docs_to_read = query["additional_docs_to_read"]
@@ -755,40 +718,42 @@ Write the extracted information concisely below:
 
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
-        if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
-            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
-            message_lookback = min(4, message_lookback)
+
         web_search_tmp_marker_name = None
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
             create_tmp_marker_file(web_search_tmp_marker_name)
-            time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             time_dict["web_search_start"] = time.time() - st
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
             message_config["web_search_user_query"] = user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '')
             previous_turn_results = dict(queries=previous_message_config["web_search_queries"], links=previous_message_config["web_search_links_unread"]) if tell_me_more else None
-            tracing_dict["web_search_start_from_conversation"] = time.time()
             time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
             web_results = get_async_future(web_search_queue, user_query + (previous_message_config["web_search_user_query"] if tell_me_more else ''), 'helpful ai assistant',
                                            previous_context,
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
 
-        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
-            searches) == 0):
-            provide_detailed_answers = 2
+
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
-
+        query, attached_docs, attached_docs_names = attached_docs_future.result()
+        if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
+                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
+            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
+            message_lookback = min(4, message_lookback)
+        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+            searches) == 0):
+            provide_detailed_answers = 2
         provide_raw_text = (len(links) + len(attached_docs) + len(additional_docs_to_read)) <= 3 and provide_detailed_answers <= 3 and not (
                     google_scholar or perform_web_search) and unchanged_message_lookback <= 8
         raw_text_length = 32_000
         if len(attached_docs) > 0:
+            message_config["use_attached_docs"] = True
+            message_config["attached_docs_names"] = attached_docs_names
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
                                                         query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
