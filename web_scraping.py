@@ -599,7 +599,7 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         }
     html_processing_end = time.time()
     time_logger.info(
-        f"[send_request_for_webpage] Page fetching time = {html_processing_start - page_fetching_start:.2f}, html processing time = {html_processing_end - html_processing_start:.2f}, result len = {len(result['text'].split())}, link = {url}")
+        f"[send_request_for_webpage] Page fetching time = {html_processing_start - page_fetching_start:.2f}, html processing time = {html_processing_end - html_processing_start:.2f}, Fetched from {zenrows_or_ant}, result len = {len(result['text'].split())}, link = {url}")
 
     return result
 
@@ -719,9 +719,47 @@ def post_process_web_page_scrape(link, result_from, result, st):
 
     return result
 
-from scipy import spatial
-@log_memory_usage
+@CacheResults(dict(), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
+              should_cache_predicate=lambda result: result is not None)
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
+    result = dict(text="", title="", link=link, error="")
+    st = time.time()
+    logger.debug(f"[web_scrape_page] Invoke for {link}.")
+    scraping_futures_list= []
+    if "zenrows" in apikeys:
+        zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
+        scraping_futures_list.append(zenrows_service_result)
+
+    if "scrapingant" in apikeys:
+        ant_service_result = get_async_future(send_request_for_webpage, link, apikeys['scrapingant'], zenrows_or_ant='ant', readability=False)
+        scraping_futures_list.append(ant_service_result)
+
+    if "brightdataUrl" in apikeys:
+        bright_data_result = get_async_future(send_request_for_webpage, link, apikeys['brightdataUrl'], zenrows_or_ant='brightdata', readability=False)
+        scraping_futures_list.append(bright_data_result)
+
+    done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
+    while True and time.time() - st < 60:
+        for future in done:
+            if future.exception() is None:
+                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+                result = future.result()
+                result_validity = validate_web_page_scrape(result)
+                time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                scraping_futures_list.remove(future)
+                if result_validity:
+                    return post_process_web_page_scrape(link, result_from, result, st)
+                else:
+                    done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
+                    break
+            else:
+                scraping_futures_list.remove(future)
+                done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
+                break
+        if len(scraping_futures_list) == 0:
+            break
+
+def web_scrape_page_deprecated(link, context, apikeys, web_search_tmp_marker_name=None):
     # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
     result = dict(text="", title="", link=link, error="")
     st = time.time()
@@ -778,7 +816,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             result = zenrows_service_result.result()
             result_from = "zenrows_tentative"
             validity_of_result = validate_web_page_scrape(result)
-            logger.info(f"[web_scrape_page] [ZENROWS] Got tentative result with validity = {validity_of_result} for link {link}")
+            logger.info(f"[web_scrape_page] [ZENROWS] Got tentative result with validity = {validity_of_result} and result len = {len(result['text'].strip().split()) if validity_of_result else 0} for link {link}")
             if validity_of_result:
                 result_from = "zenrows"
                 break_loop = True
@@ -792,7 +830,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             result = ant_service_result.result()
             result_from = "ant_tentative"
             validity_of_result = validate_web_page_scrape(result)
-            logger.info(f"[web_scrape_page] [ANT] Got tentative result with validity = {validity_of_result} for link {link}")
+            logger.info(f"[web_scrape_page] [ANT] Got tentative result with validity = {validity_of_result} and result len = {len(result['text'].strip().split()) if validity_of_result else 0} for link {link}")
             if validity_of_result:
                 result_from = "ant"
                 break_loop = True
@@ -831,7 +869,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
             result = bright_data_result.result()
             result_from = "brightdata_tentative"
             validity_of_result = validate_web_page_scrape(result)
-            logger.info(f"[web_scrape_page] [BRIGHTDATA] Got tentative result with validity = {validity_of_result} for link {link}")
+            logger.info(f"[web_scrape_page] [BRIGHTDATA] Got tentative result with validity = {validity_of_result} and result len = {len(result['text'].strip().split()) if validity_of_result else 0} for link {link}")
             if validity_of_result:
                 result_from = "brightdata"
                 break_loop = True

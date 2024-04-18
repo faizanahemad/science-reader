@@ -64,7 +64,7 @@ from langchain.prompts import PromptTemplate
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
 from langchain.llms import GPT4All
 from llama_index.node_parser.simple import SimpleNodeParser
-from llama_index.langchain_helpers.text_splitter import TokenTextSplitter, SentenceSplitter
+from langchain.text_splitter import TokenTextSplitter
 from llama_index import (
     GPTVectorStoreIndex, 
     LangchainEmbedding, 
@@ -685,8 +685,13 @@ Only provide answer from the document given above.
                 chunk_size = 512 if len_doc < 8000 else 1024 if len_doc < 16000 else 2048 if len_doc < 32000 else 4096
                 ds = document.split()
                 document = " ".join(ds[:256_000])
+                st_chnk = time.time()
                 chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=128) # ChunkTextSentences
+                et_chnk = time.time()
+                time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk -st_chnk):.2f} seconds")
                 doc_embeds = openai_embed.embed_documents(chunks)
+                et_emb = time.time()
+                time_logger.info(f"[ContextualReader] Actual Embedding time = {(et_emb - et_chnk):.2f} seconds")
                 return chunks, chunk_size, np.array(doc_embeds)
 
             st = time.time()
@@ -694,9 +699,10 @@ Only provide answer from the document given above.
             # query_em_future = get_async_future(openai_embed.embed_query, context)
             query_em_future = get_async_future(get_text_embedding, context, self.keys)
             chunks, chunk_size, doc_embedding = doc_em_future.result()
+            doc_em_time = time.time()-st
             # query_embedding = np.array(query_em_future.result())
             query_embedding = query_em_future.result()
-            time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f} seconds")
+            time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f}, doc em time = {doc_em_time:.2f} .")
             scores = np.dot(doc_embedding, query_embedding)
             sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
             top_chunks = sorted_chunks[:3]
@@ -1542,10 +1548,60 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
     paper = sch.get_paper(f"ARXIV:{arxiv_id}")
     return paper
 
+def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month=None,
+                     previous_answer=None, previous_search_results=None, extra_queries=None,
+                     gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
+    query_strings = ["Tell me about this."]
+    result_context = context
+    links = [
+        "https://towardsdatascience.com/top-5-deep-learning-frameworks-to-watch-in-2021-and-why-tensorflow-98d8d6667351",
+        "https://www.projectpro.io/article/pytorch-vs-tensorflow-2021-a-head-to-head-comparison/416",
+        "https://www.knowledgehut.com/blog/data-science/pytorch-vs-tensorflow",
+        "https://ulimum.net/2023/05/08/mxnet-vs-tensorflow-vs-pytorch-which-is-best-for-deep/",
+        "https://medium.com/@splitwireml/pytorch-vs-tensorflow-a-hands-on-comparison-febc845c0a00",
+        "https://www.nvidia.com/en-us/glossary/mxnet/",
+        "https://365datascience.com/trending/deep-learning-frameworks/",
+        "https://www.scaler.com/topics/tensorflow/mxnet-vs-tensorflow/",
+        "https://www.tutorialsfreak.com/ai-tutorial/deep-learning-frameworks",
+        "https://www.freecodecamp.org/news/deep-learning-frameworks-compared-mxnet-vs-tensorflow-vs-dl4j-vs-pytorch/",
+        "https://www.educba.com/mxnet-vs-tensorflow/",
+        "https://julsimon.medium.com/keras-shoot-out-tensorflow-vs-mxnet-51ae2b30a9c0",
+        "https://medium.com/syncedreview/tensorflow-pytorch-or-mxnet-a-comprehensive-evaluation-on-nlp-cv-tasks-with-titan-rtx-cdf816fc3935",
+        "https://www.reddit.com/r/MachineLearning/comments/gvqoh8/use_of_mxnet_gluoncv_vs_tensorflow_for_computer/",
+        "https://github.com/sreenivasanramesh/sreenivasanramesh.github.io/blob/master/_posts/2019-12-28-tensorflow-vs-mxnet.markdown",
+        "https://developer.ibm.com/articles/compare-deep-learning-frameworks/",
+        "https://www.projectpro.io/article/machine-learning-frameworks/509",
+        "https://developer.nvidia.com/deep-learning-frameworks",
+        "https://in.indeed.com/career-advice/career-development/what-is-tensorflow",
+        "https://www.knowledgehut.com/blog/data-science/pytorch-vs-tensorflow",
+        "https://mxnet.apache.org/versions/1.6/api/python/docs/tutorials/getting-started/to-mxnet/pytorch.html",
+        "https://stackoverflow.com/questions/61116190/what-are-all-the-formats-to-save-machine-learning-model-in-scikit-learn-keras",
+        "https://www.tensorflow.org/tutorials/images",
+        "https://mxnet.apache.org/",
+        "https://cv.gluon.ai/contents.html",
+        "https://hackernoon.com/object-detection-frameworks-that-will-dominate-2023-and-beyond",
+        "https://iamitcohen.medium.com/a-comparative-analysis-of-tensorflow-pytorch-mxnet-and-scikit-learn-2072fe566df7",
+        "https://towardsdatascience.com/not-just-pytorch-and-tensorflow-4-other-deep-learning-libraries-you-should-lnow-a72cf8be0814",
+        "https://analyticsindiamag.com/can-mxnet-stand-up-to-tensorflow-pytorch/",
 
+
+    ]
+    query = query_strings[0]
+    title = "Deep Learning Frameworks"
+
+    yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month,
+           "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
+    full_queue = []
+    for iqx, link in enumerate(links):
+        full_queue.append(
+            {"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
+        yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+               "rank": iqx, "start_time": start_time}
+    yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month,
+           "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 # TODO: Add caching
-def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None,
+def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month=None,
                      previous_answer=None, previous_search_results=None, extra_queries=None,
                      gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
 
@@ -1784,6 +1840,8 @@ def web_search_part1(context, doc_source, doc_context, api_keys, year_month=None
     time_logger.info(f"Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
+
+web_search_part1 = web_search_part1_real # web_search_part1_real
 
 def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None,
                      previous_turn_search_results=None,
@@ -2107,12 +2165,13 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     assert input_len > 100, f"Input length is too short, input len = {input_len}, for link: {link}"
     # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
+    time_logger.info(f"Invoke contextual reader for link: {link}. Input length = {input_len}")
     extracted_info = call_contextual_reader(context, txt, None,
                                             api_keys, provide_short_responses=not detailed and not use_large_context,
                                             scan=use_large_context)
     tt = time.time() - st
     tex_len = len(extracted_info.split())
-    time_logger.info(f"Called contextual reader for link: {link}, Result length = {tex_len} with total time = {tt:.2f}")
+    time_logger.info(f"Called contextual reader for link: {link}, Input length = {input_len}, Result length = {tex_len} with total time = {tt:.2f}")
     return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 @CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
