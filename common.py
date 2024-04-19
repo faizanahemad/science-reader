@@ -1466,6 +1466,130 @@ class ForceStoppedException(GenericShortException):
     pass
 
 
+import re
+
+
+def chunk_text(text, chunk_size, separators=None):
+    """
+    Splits a given text into chunks of a specified size, retaining the original separators.
+
+    This function takes a string and divides it into smaller chunks, each not exceeding the specified chunk size.
+    It respects the natural breaks in the text, determined by a set of specified separators. If no separators are
+    provided, it defaults to common whitespace characters and punctuation marks. The function ensures that the
+    original structure and separator information of the text are preserved in the output chunks.
+
+    Parameters:
+    - text (str): The text to be chunked.
+    - chunk_size (int): The maximum size of each chunk. The actual chunk size may be smaller to respect the separators.
+    - separators (list of str, optional): A list of separator characters or strings to be used for splitting the text.
+      Defaults to [' ', '\t', '\n', ',', ';', '. ', '!'].
+
+    Returns:
+    - list of str: A list containing the chunked parts of the original text.
+
+    Example usage:
+    >>> chunk_text("This is a sample text, to demonstrate how the chunking function works. It will split the text into chunks!", 20)
+    ['This is a sample text,', ' to demonstrate how', ' the chunking function', ' works. It will split', ' the text into chunks!']
+    """
+
+    # Define default separators if none are provided
+    if separators is None:
+        separators = [' ', '\t', '\n', ',', ';', '. ', '!']
+
+        # Adjust the regex pattern to capture and retain separators in the results
+    pattern = '(%s)' % '|'.join(map(re.escape, separators))
+
+    # Split the text while retaining separators, using the adjusted regex pattern
+    parts = re.split(pattern, text)
+
+    # Initialize variables for the current chunk and the list of chunks
+    current_chunk = ''
+    chunks = []
+
+    for part in parts:
+        # Check if adding the next part exceeds the chunk size and if the current chunk is not empty
+        if len(current_chunk + part) > chunk_size and current_chunk:
+            # Append the current chunk to the list and start a new chunk with the current part
+            chunks.append(current_chunk)
+            current_chunk = part
+        else:
+            # Add the current part to the chunk, including the separator if present
+            current_chunk += part
+
+            # Add the last chunk to the list if it's not empty
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+import re
+
+
+def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
+    """
+    Splits a given text into chunks based on the number of words or elements, retaining the original separators,
+    with an option to overlap chunks by a specified number of elements.
+
+    This function divides the text into smaller chunks, each containing a number of elements (words or separators)
+    that does not exceed the specified chunk size, while allowing for an overlap of elements between consecutive chunks.
+    It respects the natural breaks in the text, determined by a set of specified separators. If no separators are provided,
+    it defaults to common whitespace characters and punctuation marks. The function ensures that the original structure
+    and separator information of the text are preserved in the output chunks.
+
+    Parameters:
+    - text (str): The text to be chunked.
+    - chunk_size (int): The maximum number of elements (words and separators) in each chunk.
+    - chunk_overlap (int): The number of elements to be overlapped between consecutive chunks. Must be less than chunk_size.
+    - separators (list of str, optional): A list of separator characters or strings to be used for splitting the text.
+      Defaults to [' ', '\t', '\n', ',', ';', '. ', '!'].
+
+    Returns:
+    - list of str: A list containing the chunked parts of the original text.
+
+    Example usage:
+    >>> chunk_text("This is a longer example text to demonstrate the overlapping functionality.", 5, 2)
+    ['This is a longer', 'longer example text to', 'text to demonstrate the', 'demonstrate the overlapping functionality.']
+    """
+    if separators is None:
+        separators = [' ', '\t', '\n', ',', ';', '. ', '!']
+    if chunk_overlap >= chunk_size:
+        raise ValueError("chunk_overlap must be less than chunk_size")
+    pattern = '(%s)' % '|'.join(map(re.escape, separators))
+    parts = re.split(pattern, text)
+
+    chunks = []
+    current_chunk = []
+    element_count = 0
+    overlap_buffer = []
+
+    for part in parts:
+        if part in separators:
+            element_count += 1
+            overlap_buffer.append(part)
+        else:
+            words = re.split(r'\s+', part.strip())
+            element_count += len(words)
+            overlap_buffer.extend(words)
+
+        while element_count > chunk_size:
+            chunk_end = chunk_size - len(current_chunk) if current_chunk else chunk_size
+            current_chunk.extend(overlap_buffer[:chunk_end])
+            if len(current_chunk) == chunk_size:
+                chunks.append(''.join(current_chunk))
+                overlap_buffer = overlap_buffer[chunk_size - chunk_overlap:]
+                current_chunk = overlap_buffer[:chunk_overlap]
+                element_count = len(re.split(r'\s+', ''.join(current_chunk).strip()))
+                overlap_buffer = overlap_buffer[chunk_overlap:]
+
+    if overlap_buffer or current_chunk:
+        chunks.append(''.join(overlap_buffer if overlap_buffer else current_chunk))
+
+    return chunks
+
+
+
+
 
 
 

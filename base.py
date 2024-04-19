@@ -685,7 +685,7 @@ Only provide answer from the document given above.
                 ds = document.split()
                 document = " ".join(ds[:256_000])
                 st_chnk = time.time()
-                chunks = ChunkText(document, chunk_size=chunk_size, chunk_overlap=64) # ChunkTextSentences
+                chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=64) # ChunkTextSentences
                 et_chnk = time.time()
                 # time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk - st_chnk):.2f} seconds and doc len = {len_doc} and num chunks = {len(chunks)}")
                 doc_embeds = openai_embed.embed_documents(chunks)

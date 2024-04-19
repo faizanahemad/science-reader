@@ -150,7 +150,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
             
             elem_to_render.append(part['text']);  // Find the last p tag within the card-body and append the message part
-            if (elem_to_render.html().length > content_length + 40) {
+            if (elem_to_render.html().length > content_length + 200) { // && elem_to_render !== answerParagraph
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer)
                 content_length = elem_to_render.html().length

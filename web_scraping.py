@@ -450,9 +450,6 @@ tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form',
                   'link']
 def remove_script_tags_from_html(html):
     # This regex looks for <script> tags and their content and removes them
-    tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input',
-                      'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption',
-                      'link']
     html = re.sub(r'<script[^>]*?>.*?</script>', '', html, flags=re.DOTALL)
     html = re.sub(r'<noscript[^>]*?>.*?</noscript>', '', html, flags=re.DOTALL)
     html = re.sub(r'<header[^>]*?>.*?</header>', '', html, flags=re.DOTALL)
@@ -487,6 +484,19 @@ def remove_script_tags_from_html(html):
     cleaned_html = str(soup)
     return cleaned_html
 
+script_regex = re.compile(r'<script[^>]*?>.*?</script>', flags=re.DOTALL)
+tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input',
+                  'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption',
+                  'link']
+regex_compiled_array = [re.compile(r'<{}[^>]*?>.*?</{}>'.format(tag, tag), flags=re.DOTALL | re.IGNORECASE) for tag in tags_to_remove] + [re.compile(r'<{}[^>]*?>'.format(tag), flags=re.DOTALL | re.IGNORECASE) for tag in tags_to_remove]
+def remove_script_tags_from_html_fast(html):
+    # This regex looks for <script> tags and their content and removes them
+    for regex in regex_compiled_array:
+        html = regex.sub('', html)
+    soup = BeautifulSoup(html, 'lxml')
+    cleaned_html = str(soup)
+    return cleaned_html
+
 # Pattern to match the specified tags and their content, including those without closing tags
 
 # Construct the regex pattern dynamically to match open and close tags and everything in between, including self-closing tags
@@ -500,7 +510,7 @@ def remove_tags_with_regex(html):
 
     return cleaned_html
 
-remove_bad_tags = remove_script_tags_from_html
+remove_bad_tags = remove_script_tags_from_html_fast
 
 
 

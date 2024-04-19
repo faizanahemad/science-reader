@@ -394,10 +394,10 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         } catch (error) { elem_to_render_in.innerHTML = '' }
     }
     try {
-        elem_to_render_in.append(htmlChunk)
+        elem_to_render_in[0].innerHTML = htmlChunk
     } catch (error) {
         try {
-            elem_to_render_in[0].innerHTML = htmlChunk
+            elem_to_render_in.append(htmlChunk)
         } catch (error) {
             elem_to_render_in.innerHTML = htmlChunk
         }
