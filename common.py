@@ -1068,19 +1068,67 @@ def thread_safe_tee(iterable, n=2):
 from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
 from typing import List, Optional
 import numpy as np
+import requests
+from typing import List, Union
+
+
+def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str) -> Union[
+    List[float], List[List[float]]]:
+    """
+    Fetches the embedding(s) for the given input text using the specified model.
+    Parameters:
+    - input_text: The text (or texts) for which to generate the embedding(s).
+    - model_name: The model to use for generating the embedding(s).
+    - api_key: The OpenAI API key for authorization.
+    Returns:
+    - A list of floats representing the embedding, or a list of lists of floats if the input was a list of strings.
+    """
+    # Define the URL for the OpenAI API embeddings endpoint
+    url = "https://api.openai.com/v1/embeddings"
+
+    # Prepare the headers with the Content-Type and Authorization
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    # Prepare the data payload with the input text and model name
+    data = {
+        "input": input_text,
+        "model": model_name
+    }
+
+    # Send a POST request to the API
+    response = requests.post(url, headers=headers, json=data)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Parse the JSON response
+        response_json = response.json()
+        # Extract the embedding(s) from the response
+        embeddings = [item["embedding"] for item in response_json["data"]]
+        return embeddings
+    else:
+        # Handle errors (e.g., invalid API key, rate limits, etc.)
+        raise Exception(f"Failed to fetch embedding(s): {response.text}")
+
+
 embed_executor = ThreadPoolExecutor(max_workers=256)
 class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
+    def embed_query(self, text: str) -> List[float]:
+        return self.embed_documents([text])[0]
+
     def embed_documents(
             self, texts: List[str], chunk_size: Optional[int] = 0
     ) -> List[List[float]]:
         if len(texts) >= 2:
             futures = []
             for i in range(0, len(texts), 2):
-                futures.append(embed_executor.submit(self._get_len_safe_embeddings, texts[i:i+2], engine=self.deployment, chunk_size=chunk_size))
+                futures.append(embed_executor.submit(get_openai_embedding, texts[i:i+2], model_name=self.model, api_key=self.openai_api_key))
             results = [future.result() for future in futures]
             return [item for sublist in results for item in sublist]
         else:
-            return self._get_len_safe_embeddings(texts, engine=self.deployment)
+            return get_openai_embedding(texts, model_name=self.model, api_key=self.openai_api_key)
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:

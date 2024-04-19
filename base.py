@@ -717,18 +717,20 @@ Only provide answer from the document given above.
     def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
         st = time.time()
-        doc_word_count = get_gpt3_word_count(text_document)
+        doc_word_count = len(text_document.split())
+        if doc_word_count < 1536:
+            return text_document
         main_future = get_async_future(self.get_one_fast, context_user_query, text_document, retriever)
         alternative_future = None
-        # if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-        #     alternative_future = get_async_future(self.get_one, context_user_query, text_document)
-        #     alt_source = "get_one"
+        if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
+            alternative_future = get_async_future(self.get_one, context_user_query, text_document)
+            alt_source = "get_one"
         # else:
         #     alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
         #                                       text_document, retriever)
         #     alt_source = "get_one_with_rag"
         # wait till at least one future is done or all of them error out. don't use api
-        while not main_future.done():# and not alternative_future.done():
+        while not main_future.done() and not alternative_future.done():
             time.sleep(0.5)
 
         if main_future.done() and main_future.exception() is None:
@@ -952,7 +954,7 @@ def generate_science_site_query(search_terms):
     return f"{site_query} {search_terms}"
 
 
-def search_post_processing(query, results, only_science_sites=False, only_pdf=False):
+def search_post_processing(query, results, source, only_science_sites=False, only_pdf=False):
     seen_titles = set()
     seen_links = set()
     dedup_results = []
@@ -986,12 +988,12 @@ def search_post_processing(query, results, only_science_sites=False, only_pdf=Fa
                 r["year"] = None
         r['query'] = query
         _ = r.pop("rich_snippet", None)
+        r['source'] = source
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
     return dedup_results
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     if our_datetime:
@@ -1000,6 +1002,8 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         date_string = two_years_ago.strftime("%Y-%m-%d")
     else:
         now = None
+        date_string = ''
+
     search = BingSearchAPIWrapper(bing_subscription_key=key, bing_search_url="https://api.bing.microsoft.com/v7.0/search")
     
     pre_query = query
@@ -1011,6 +1015,8 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         site_string = " (site:arxiv.org OR site:openreview.net) "
     elif not only_science_sites:
         site_string = " -site:arxiv.org AND -site:openreview.net "
+    else:
+        site_string = " "
     og_query = query
     no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
@@ -1025,12 +1031,11 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         results.extend(search.results(no_after_query, num))
     if len(results) < expected_res_length:
         results.extend(search.results(og_query, num))
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "bing", only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     import requests
 
@@ -1083,10 +1088,9 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
         _ = r.pop("image_url", None)
         _ = r.pop("global_rank", None)
         _ = r.pop("image_base64", None)
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "brightdata_google", only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from langchain.utilities import GoogleSearchAPIWrapper
     from datetime import datetime, timedelta
@@ -1123,19 +1127,18 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
         more_res = get_async_future(search.results, query, min(num, 10), search_params={"filter": "1", "start": "11"})
     results = search.results(query, min(num, 10), search_params={"filter":"1", "start": "1"})
     if num > 10:
-        results.extend(more_res.results() if more_res is not None and more_res.exception() is None else [])
+        results.extend(more_res.result() if more_res is not None and more_res.exception() is None else [])
     if len(results) < expected_res_length:
         results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": "1"}))
     if len(results) < expected_res_length:
         results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
     if len(results) < expected_res_length:
         results.extend(search.results(og_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "google", only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1190,13 +1193,12 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "serpapi", only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1235,13 +1237,12 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "gscholar", only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(
         f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     return dedup_results
     
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
 def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1280,7 +1281,7 @@ def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, onl
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, only_science_sites=None, only_pdf=only_pdf)
+    dedup_results = search_post_processing(pre_query, results, "gscholar_published", only_science_sites=None, only_pdf=only_pdf)
     logger.debug(
         f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     return dedup_results
@@ -1598,6 +1599,26 @@ def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month,
            "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
+forbidden_links = ["youtube.com", "twitter.com", "facebook.com", "instagram.com",
+                   "pinterest.com", "tiktok.com", "snapchat.com",
+                   "whatsapp.com", "telegram.com", "discord.com",
+                   # paid science sites
+                "https://ieeexplore.ieee.org", "https://www.sciencedirect.com", "https://www.springer.com", "https://www.jstor.org",
+                   # "t.me", "wa.me", "m.me", "fb.com",
+                   # "bit.ly", "tinyurl.com", "goo.gl",
+                   # "ow.ly", "buff.ly", "dlvr.it", "ift.tt", "t.co", "lnkd.in", "rebrand.ly",
+                   # "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
+                   # "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
+                   # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com",
+                   # "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool",
+                   # "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com",
+                   # "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do",
+                   # "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co",
+                   # "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl",
+                   # "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
+                   # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
+                   ]
+
 # TODO: Add caching
 def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month=None,
                      previous_answer=None, previous_search_results=None, extra_queries=None,
@@ -1654,22 +1675,22 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         query_strings[i] = q
 
     yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
-    time_logger.info(f"Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}")
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
     num_res = 20 if provide_detailed_answers >= 3 else 15
-    
+
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
+    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}")
     search_st = time.time()
     serps = []
     if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
         if not gscholar:
 
             serps.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
-                                      our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                     query_strings])
+                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                          query_strings])
         if gscholar:
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
@@ -1768,8 +1789,14 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     temp_queue = Queue()
     # logger.error(f"Total number of queries = {len(query_strings)} and total serps = {len(serps)}")
     for ix, s in enumerate(as_completed(serps)):
-        time_logger.debug(f"Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f}")
-        if s.exception() is None and s.done():
+        time_logger.info(f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result())> 0}")
+        if s.exception is not None:
+            try:
+                s.result()
+            except Exception as e:
+                traceback.print_exc()
+                logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
+        if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
             for iqx, r in enumerate(s.result()):
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
@@ -1784,56 +1811,32 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 _ = get_async_future(get_text_embedding, result_context, api_keys)
                 full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
-                        title) == 0 or link in deduped_results or "youtube.com" in link or "twitter.com" in link or "https://ieeexplore.ieee.org" in link or "https://www.sciencedirect.com" in link:
+                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
                     deduped_results.add(link)
                     seen_titles.add(title)
                     continue
 
                 if link not in deduped_results and title not in seen_titles and (
-                        query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)) and exists_tmp_marker_file(web_search_tmp_marker_name):
+                        len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx, "start_time": start_time}
+                           "rank": iqx, "start_time": start_time}
                     query_vs_results_count[query] += 1
                     total_count += 1
-                    time_logger.debug(
-                        f"Time taken for getting search results n= {total_count}-th in web search part 1 [Main Loop] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+                    time_logger.info(
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {r['source']} n= {total_count}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
                 elif link not in deduped_results and title not in seen_titles:
                     temp_queue.put(
                         {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
                          "rank": iqx, "start_time": start_time})
 
-                try:
-                    min_key, min_count = min(query_vs_results_count.items(), key=itemgetter(1))
-                except (ValueError, AssertionError):
-                    min_key = query
-                    min_count = 0
-                if len(query_vs_results_count) >= 2 and not temp_queue.empty() and total_count <= ((provide_detailed_answers  + 3) * 10) and exists_tmp_marker_file(web_search_tmp_marker_name):
-                    keys, _ = zip(*query_vs_results_count.most_common()[:-3:-1])
-                    qs = temp_queue.qsize()
-                    iter_times = 0
-                    put_times = 0
-                    while not temp_queue.empty() and iter_times < qs and put_times < 2:
-                        iter_times += 1
-                        r = temp_queue.get()
-                        rq = r.get("query", "")
-                        if rq == min_key or rq in keys:
-                            put_times += 1
-                            yield r
-                            total_count += 1
-                            query_vs_results_count[rq] += 1
-                            time_logger.debug(
-                                f"Time taken for getting search results n= {total_count}-th in web search part 1 [Sub Loop] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
-                        else:
-                            temp_queue.put(r)
                 deduped_results.add(link)
                 seen_titles.add(title)
     while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 3) * 10):
         r = temp_queue.get()
-        if exists_tmp_marker_file(web_search_tmp_marker_name):
-            yield r
-            total_count += 1
-            time_logger.debug(
-                f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+        yield r
+        total_count += 1
+        time_logger.debug(
+            f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
         query_vs_results_count[r.get("query", "")] += 1
     time_logger.info(f"Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
@@ -2180,7 +2183,7 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     title = pgc["title"]
     text = pgc["text"]
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
-    time_logger.info(f"[get_page_text] Time taken to download page data for {link} = {(time.time() - st):.2f}")
+    time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
 
@@ -2232,7 +2235,10 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         query = link_title_context_apikeys[7]
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-        web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        if exists_tmp_marker_file(web_search_tmp_marker_name):
+            web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        else:
+            web_res = {"exception": True, "error": "Marker file not found"}
         error = web_res["error"] if "error" in web_res else None
         elapsed = time.time() - start_time
         if elapsed > MAX_TIME_TO_WAIT_FOR_WEB_RESULTS:

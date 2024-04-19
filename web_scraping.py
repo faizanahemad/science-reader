@@ -259,11 +259,10 @@ def send_request_ant_html(url, apikey, readability=True):
             error_details = response.text
             raise GenericShortException(
                 f"Error in ant with status code {response.status_code} and error details {error_details}")
+    html = response.text
     et = time.time()
-    html = remove_bad_tags(response.text)
-    html_et = time.time()
     time_logger.info(" ".join(
-        ['[send_request_ant_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ",
+        ['[send_request_ant_html] ', f"Time = {(et - st):.2f},",
          f"Response length = {len(html.split())}",
          f"link = {url}"]))
     return html
@@ -437,10 +436,8 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
         logger.warning(f"[fetch_content_brightdata_html] Js needed for link {url}")
         return None
     et = time.time()
-    html = remove_bad_tags(html)
-    html_et = time.time()
     time_logger.info(" ".join(
-        ['[fetch_content_brightdata_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ",
+        ['[fetch_content_brightdata_html] ', f"Time = {(et - st):.2f},",
          f"Response length = {len(html.split())}",
          f"link = {url}"]))
     return html
@@ -566,12 +563,10 @@ def send_request_zenrows_html(url, apikey, readability=True):
             'title': "",
             'text': ""
         }
-    et = time.time()
     html = response.text
-    html = remove_bad_tags(html)
-    html_et = time.time()
+    et = time.time()
     time_logger.info(" ".join(
-        ['[send_request_zenrows_html] ', f"Time = {(et - st):.2f}, html script remove time = {(html_et - et):.2f}, ", f"Response length = {len(html.split())}",
+        ['[send_request_zenrows_html] ', f"Time = {(et - st):.2f}", f"Response length = {len(html.split())}",
          f"link = {url}"]))
     return html
 
@@ -637,19 +632,21 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         html = send_request_ant_html(url, apikey, readability)
     elif zenrows_or_ant == 'brightdata':
         html = fetch_content_brightdata_html(url, apikey)
+    else:
+        raise GenericShortException(f"[send_request_for_webpage] Unknown service {zenrows_or_ant}")
+
     html_processing_start = time.time()
+    html = remove_bad_tags(html)
+    html_bad_tag_removal_end = time.time()
     result = get_async_future(soup_parser, html)
     soup_html_parser_result = get_async_future(soup_html_parser_fast, html) # soup_html_parser_fast_v2
     soup_html_parser_result_v2 = get_async_future(soup_html_parser_fast_v2, html)
     soup_html_parser_result_v3 = get_async_future(soup_html_parser_fast_v3, html)
 
-    # wait till any of these future is done.
-    done, _ = wait([result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3], return_when=FIRST_COMPLETED)
-    if done:
-        for future in [result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3]:
-            if future.done() and future.exception() is None:
-                result = future.result()
-                break
+    for future in as_completed([result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3]):
+        if future.done() and future.exception() is None:
+            result = future.result()
+            break
     if result is not None and "text" in result and len(result["text"]) > 0:
         result["text"] = remove_bad_whitespaces(result["text"])
     if result is None:
@@ -659,7 +656,7 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         }
     html_processing_end = time.time()
     time_logger.info(
-        f"[send_request_for_webpage] Page fetching time = {html_processing_start - page_fetching_start:.2f}, html processing time = {html_processing_end - html_processing_start:.2f}, Fetched from {zenrows_or_ant}, result len = {len(result['text'].split())}, link = {url}")
+        f"[send_request_for_webpage] Page fetching time = {(html_processing_start - page_fetching_start):.2f}, bad tag removal time = {(html_bad_tag_removal_end - html_processing_start):.2f}, html processing time = {(html_processing_end - html_bad_tag_removal_end):.2f}, Fetched from {zenrows_or_ant}, result len = {len(result['text'].split())}, link = {url}")
 
     return result
 
@@ -788,10 +785,12 @@ def post_process_web_page_scrape(link, result_from, result, st):
     return result
 
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
-    result = dict(text="", title="", link=link, error="")
     st = time.time()
     logger.debug(f"[web_scrape_page] Invoke for {link}.")
     scraping_futures_list= []
+    zenrows_service_result = None
+    ant_service_result = None
+    bright_data_result = None
     if "zenrows" in apikeys:
         zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
         scraping_futures_list.append(zenrows_service_result)
@@ -804,27 +803,17 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         bright_data_result = get_async_future(send_request_for_webpage, link, apikeys['brightdataUrl'], zenrows_or_ant='brightdata', readability=False)
         scraping_futures_list.append(bright_data_result)
 
-    done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
-    while True and time.time() - st < 60:
-        for future in done:
-            if future.exception() is None:
-                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
-                result = future.result()
-                result_validity = validate_web_page_scrape(result)
-                time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
-                scraping_futures_list.remove(future)
-                if result_validity and result is not None:
-                    time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
-                    return post_process_web_page_scrape(link, result_from, result, st)
-                else:
-                    done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
-                    break
-            else:
-                scraping_futures_list.remove(future)
-                done, _ = wait(scraping_futures_list, return_when=FIRST_COMPLETED)
-                break
-        if len(scraping_futures_list) == 0:
-            break
+    for future in as_completed(scraping_futures_list):
+        if future.done() and future.exception() is None:
+            result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+            result = future.result()
+            result_validity = validate_web_page_scrape(result)
+            time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+            if result_validity and result is not None:
+                time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                return post_process_web_page_scrape(link, result_from, result, st)
+    logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
+    raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")
 
 def web_scrape_page_deprecated(link, context, apikeys, web_search_tmp_marker_name=None):
     # TODO: implement pre-emptive site blocking here. Also in PDF reading function.
