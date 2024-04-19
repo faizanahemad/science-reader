@@ -238,7 +238,7 @@ class DocIndex:
 
 
         futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data), get_async_future(self.set_doc_data, "qna_data", None, qna_data), get_async_future(self.set_doc_data, "deep_reader_data", None, deep_reader_data), get_async_future(self.set_doc_data, "review_data", None, review_data), get_async_future(self.set_doc_data, "_paper_details", None, _paper_details)]
-        indices = dict(summary_index=create_index_faiss([''], openai_embed, ))
+        indices = dict(summary_index=create_index_faiss(['EMPTY'], openai_embed, ))
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
             f.result()

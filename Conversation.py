@@ -148,7 +148,7 @@ class Conversation:
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
                 }
         messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
-        indices = dict(summary_index=create_index_faiss([''], openai_embed, doc_id=self.conversation_id,))
+        indices = dict(summary_index=create_index_faiss(['EMPTY'], openai_embed, doc_id=self.conversation_id,))
         self.set_field("memory", memory)
         self.set_field("messages", messages)
         self.set_field("indices", indices)
