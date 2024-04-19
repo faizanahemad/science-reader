@@ -25,7 +25,6 @@ import requests
 import re
 import traceback
 import sys
-sys.tracebacklimit = 5
 
 script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
 noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)

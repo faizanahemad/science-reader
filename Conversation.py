@@ -1,7 +1,6 @@
 from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
 import shutil
 import sys
-sys.tracebacklimit = 5
 import random
 from functools import partial
 import glob

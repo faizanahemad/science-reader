@@ -29,7 +29,6 @@ from typing import List, Dict
 from flask import Flask, Response, stream_with_context
 import sys
 sys.setrecursionlimit(sys.getrecursionlimit()*16)
-sys.tracebacklimit = 5
 import logging
 import requests
 from flask_caching import Cache

@@ -1,6 +1,5 @@
 from datetime import datetime
 import sys
-sys.tracebacklimit = 5
 import random
 from functools import partial
 import glob
