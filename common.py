@@ -1109,6 +1109,7 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
         return embeddings
     else:
         # Handle errors (e.g., invalid API key, rate limits, etc.)
+        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text: \n{input_text}")
         raise Exception(f"Failed to fetch embedding(s): {response.text}")
 
 
