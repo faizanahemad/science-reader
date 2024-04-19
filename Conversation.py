@@ -1467,7 +1467,7 @@ Write the extracted information concisely below:
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, full_doc_texts)
         message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
 
     
     def detect_previous_message_type(self):
