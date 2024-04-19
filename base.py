@@ -309,6 +309,7 @@ class CallLLm:
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
+        streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
         if "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
         elif "mistralai" in self.model_name:
@@ -319,7 +320,7 @@ class CallLLm:
             assert get_gpt3_word_count(system + text) < 80_000
         else:
             assert get_gpt3_word_count(system + text) < 14000
-        return call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
+        return streaming_solution
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
     def __call_openai_models(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):

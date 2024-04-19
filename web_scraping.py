@@ -497,6 +497,12 @@ def remove_script_tags_from_html_fast(html):
     cleaned_html = str(soup)
     return cleaned_html
 
+def remove_script_tags_from_html_ulta_fast(html):
+    # This regex looks for <script> tags and their content and removes them
+    for regex in regex_compiled_array:
+        html = regex.sub('', html)
+    return html
+
 # Pattern to match the specified tags and their content, including those without closing tags
 
 # Construct the regex pattern dynamically to match open and close tags and everything in between, including self-closing tags
@@ -510,7 +516,7 @@ def remove_tags_with_regex(html):
 
     return cleaned_html
 
-remove_bad_tags = remove_script_tags_from_html_fast
+remove_bad_tags = remove_script_tags_from_html_ulta_fast
 
 
 
