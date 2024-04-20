@@ -169,75 +169,81 @@ def send_request_zenrows_shim(url, apikey):
     }
 
 
-    
+
+add_readability_for_ant = '''
+const body = document.getElementsByTagName('body')[0];
+const helloDiv = document.createElement('div');
+var script = document.createElement('script');
+script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+document.head.appendChild(script);
+await new Promise(r => setTimeout(r, 200));
+
+
+function myFunction() {
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        var script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
+        document.head.appendChild(script);
+    } else {
+        setTimeout(myFunction, 500);
+    }
+}
+myFunction();
+
+function myReadable() {
+    if (typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')) {
+        var myDict = new Readability(document).parse();
+        const body = document.getElementsByTagName('body')[0];
+        body.innerHTML = '';
+
+        const customContentDiv = document.createElement('div');
+        customContentDiv.id = 'custom_content';
+
+        const titleDiv = document.createElement('div');
+        titleDiv.id = 'title';
+        titleDiv.textContent = myDict.title;
+
+        const textContentDiv = document.createElement('div');
+        textContentDiv.id = 'textContent';
+        textContentDiv.textContent = myDict.textContent;
+
+        customContentDiv.appendChild(titleDiv);
+        customContentDiv.appendChild(textContentDiv);
+
+        body.appendChild(customContentDiv);
+        return myDict;
+    } else {
+        setTimeout(myReadable, 1000);
+    }
+}
+myReadable();
+'''
+
+ant_remove_script_tags = """
+// Select all script elements inside the body
+const scriptElements = document.querySelectorAll('body script');
+
+// Remove each script element
+scriptElements.forEach(scriptElement => {
+  scriptElement.remove();
+});
+const iframeElements = document.querySelectorAll('body iframe');
+
+// Remove each iframe element
+iframeElements.forEach(iframeElement => {
+  iframeElement.remove();
+});
+
+"""
+
+ant_script_v1 = ant_remove_script_tags + add_readability_for_ant
+ant_script_v1 = base64.b64encode(ant_script_v1.encode()).decode()
+
+ant_script_v2 = ant_remove_script_tags
+ant_script_v2 = base64.b64encode(ant_script_v1.encode()).decode()
 def send_request_ant_html(url, apikey, readability=True):
     st = time.time()
-    add_readability_for_ant = '''
-    const body = document.getElementsByTagName('body')[0];
-    const helloDiv = document.createElement('div');
-    var script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-    document.head.appendChild(script);
-    await new Promise(r => setTimeout(r, 200));
-
-
-    function myFunction() {
-        if (document.readyState === 'interactive' || document.readyState === 'complete') {
-            var script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js';
-            document.head.appendChild(script);
-        } else {
-            setTimeout(myFunction, 500);
-        }
-    }
-    myFunction();
-
-    function myReadable() {
-        if (typeof(Readability) !== 'undefined' && (document.readyState === 'complete' || document.readyState === 'interactive')) {
-            var myDict = new Readability(document).parse();
-            const body = document.getElementsByTagName('body')[0];
-            body.innerHTML = '';
-
-            const customContentDiv = document.createElement('div');
-            customContentDiv.id = 'custom_content';
-
-            const titleDiv = document.createElement('div');
-            titleDiv.id = 'title';
-            titleDiv.textContent = myDict.title;
-
-            const textContentDiv = document.createElement('div');
-            textContentDiv.id = 'textContent';
-            textContentDiv.textContent = myDict.textContent;
-
-            customContentDiv.appendChild(titleDiv);
-            customContentDiv.appendChild(textContentDiv);
-
-            body.appendChild(customContentDiv);
-            return myDict;
-        } else {
-            setTimeout(myReadable, 1000);
-        }
-    }
-    myReadable();
-    '''
-
-    ant_remove_script_tags = """
-    // Select all script elements inside the body
-    const scriptElements = document.querySelectorAll('body script');
-
-    // Remove each script element
-    scriptElements.forEach(scriptElement => {
-      scriptElement.remove();
-    });
-    const iframeElements = document.querySelectorAll('body iframe');
-
-    // Remove each iframe element
-    iframeElements.forEach(iframeElement => {
-      iframeElement.remove();
-    });
-
-    """ + (add_readability_for_ant if readability else "")
-    rst = base64.b64encode(ant_remove_script_tags.encode()).decode()
+    ant_script = ant_script_v1 if readability else ant_script_v2
     ant_url = "https://api.scrapingant.com/v2/general"
     params = {
         'url': url,
@@ -245,7 +251,7 @@ def send_request_ant_html(url, apikey, readability=True):
         'proxy_country': 'US',
         'wait_for_selector': 'body',
         'return_page_source': 'true',
-        'js_snippet': rst
+        'js_snippet': ant_script
     }
     response = requests.get(ant_url, params=params)
     if response.status_code != 200:
@@ -412,22 +418,10 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
     st = time.time()
     if brightdata_proxy is None:
         brightdata_proxy = os.environ.get("BRIGHTDATA_PROXY", None)
-
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.retry import Retry
     # Define the proxies
     proxies = {"http": brightdata_proxy, "https": brightdata_proxy}
-
-    # Create a session
-    session = requests.Session()
-
-    # Set up retries
-    retries = Retry(total=0, backoff_factor=2, status_forcelist=[400, 401, 402, 403, 422, 420, 404, 500, 501, 502, 503, 504, 505])
-    session.mount('http://', HTTPAdapter(max_retries=retries))
-    session.mount('https://', HTTPAdapter(max_retries=retries))
-
-    # Make the request
-    response = session.get(url, proxies=proxies, verify=False)
+    # Make the request directly using requests.get instead of a session
+    response = requests.get(url, proxies=proxies, verify=False)
     html = response.text
     js_need = check_js_needed(html)
 
@@ -639,6 +633,19 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     #     html = remove_script_tags_from_html(html)
     return html
 
+
+def validate_scraping_result(html):
+    if html is None or html == '':
+        return False
+    if len(html.split()) < 100:
+        return False
+    if "<body>" not in html and len(html.split().strip()) > 100:
+        return True
+    if "<body>" in html and len(html.split().strip()) > 1000:
+        return True
+    return True
+
+
 def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=True):
     page_fetching_start = time.time()
     if zenrows_or_ant == 'zenrows':
@@ -653,10 +660,12 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
     html_processing_start = time.time()
     html = remove_bad_tags(html)
     html_bad_tag_removal_end = time.time()
+
     result = get_async_future(soup_parser, html)
     soup_html_parser_result = get_async_future(soup_html_parser_fast, html) # soup_html_parser_fast_v2
     soup_html_parser_result_v2 = get_async_future(soup_html_parser_fast_v2, html)
     soup_html_parser_result_v3 = get_async_future(soup_html_parser_fast_v3, html)
+
 
     for future in as_completed([result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3]):
         if future.done() and future.exception() is None:
@@ -769,7 +778,7 @@ class ScrapingValidityException(Exception):
 
 
 def validate_web_page_scrape(result):
-    return result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR
+    return result is not None and isinstance(result, dict) and "text" in result and len(result["text"].strip().split()) > good_page_size and result["text"].strip() != DDOS_PROTECTION_STR
 
 good_page_size = 100
 
@@ -795,14 +804,14 @@ def post_process_web_page_scrape(link, result_from, result, st):
     time_logger.info(
         f"[web_scrape_page]:: time = {(et - st):.2f}, result len = {len(result['text'].split())}, whitespace_removal_time = {(time.time() - et):.2f}, Got result for link {link} from {result_from}")
     success_logger.info(
-        f"[web_scrape_page]:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et:.2f}")
+        f"[web_scrape_page]:: Got result for link {link} from {result_from}, result len = {len(result['text'].split())}, time = {et - st:.2f}")
 
     return result
 
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     logger.debug(f"[web_scrape_page] Invoke for {link}.")
-    scraping_futures_list= []
+    scraping_futures_list = []
     zenrows_service_result = None
     ant_service_result = None
     bright_data_result = None

@@ -650,7 +650,7 @@ Only provide answer from the document given above.
                     chunk_size = 2048
                 else:
                     chunk_size = 4096
-                chunks = ChunkText(text_document=document, chunk_size=chunk_size)
+                chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=64)
                 doc_embeds = openai_embed.embed_documents(chunks)
                 return chunks, chunk_size, np.array(doc_embeds)
             doc_em_future = get_async_future(get_doc_embeds, document)
@@ -725,10 +725,10 @@ Only provide answer from the document given above.
         if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
             alternative_future = get_async_future(self.get_one, context_user_query, text_document)
             alt_source = "get_one"
-        # else:
-        #     alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
-        #                                       text_document, retriever)
-        #     alt_source = "get_one_with_rag"
+        else:
+            alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
+                                              text_document, retriever)
+            alt_source = "get_one_with_rag"
         # wait till at least one future is done or all of them error out. don't use api
         while not main_future.done() and not alternative_future.done():
             time.sleep(0.5)
@@ -1151,7 +1151,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         now = None
 
     
-    location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Washington D.C.", "Seattle", "Amsterdam", "Paris"], 1)[0]
+    location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
     gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
     # format the date as YYYY-MM-DD
     
@@ -1177,6 +1177,10 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         "gl": gl,
        }
     response = requests.get(url, params=params)
+    if response.status_code != 200:
+        logger.error(f"Error in SERP API with query = {query} and response = {response.text}")
+        raise Exception(f"Error in SERP API with query = {query} and response = {response.text}")
+    assert response.status_code == 200
     rjs = response.json()
     if "organic_results" in rjs:
         results = rjs["organic_results"]
@@ -1678,13 +1682,14 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
-    num_res = 20 if provide_detailed_answers >= 3 else 15
+    num_res = 10
 
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
     time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}")
     search_st = time.time()
     serps = []
+    month = int(datetime.now().strftime("%m"))
     if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
         if not gscholar:
 
@@ -1701,10 +1706,11 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
-            serps.extend([get_async_future(brightdata_google_serp, generate_science_site_query(query + f" research paper in {str(year - 1)}"),
-                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
-                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
+            if month <= 3:
+                serps.extend([get_async_future(brightdata_google_serp, generate_science_site_query(query + f" research paper in {str(year - 1)}"),
+                                               os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                               our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                              query_strings])
             serps.extend([get_async_future(brightdata_google_serp,
                                            generate_science_site_query(query + f" research paper"),
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
@@ -1720,6 +1726,11 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
+            if month <= 3:
+                serps.extend([get_async_future(serpapi, query + f" research paper in {str(year - 1)}",
+                                               api_keys["serpApiKey"], num_res,
+                                               our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
+                              query_strings])
             serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
                                            only_pdf=None, only_science_sites=None) for query in
                           query_strings])
@@ -1744,13 +1755,14 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
             serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 0 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                                           only_science_sites=True if ix % 2 == 1 else None) for ix, query in
                           enumerate(query_strings)])
-            serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
-                                           api_keys["serpApiKey"], 10,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                          enumerate(query_strings)])
+            if month <= 3:
+                serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
+                                               api_keys["serpApiKey"], 10,
+                                               our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
+                                               only_science_sites=True if ix % 2 == 0 else None) for ix, query in
+                              enumerate(query_strings)])
             serps.extend([get_async_future(googleapi, generate_science_site_query(query + f" research paper in {year}"),
                                            api_keys["serpApiKey"], 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1831,7 +1843,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
 
                 deduped_results.add(link)
                 seen_titles.add(title)
-    while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 3) * 10):
+    while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 2) * 10):
         r = temp_queue.get()
         yield r
         total_count += 1
@@ -2266,7 +2278,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     def yield_timeout():
         while True:
             yield dict(keep_going_marker=web_search_tmp_marker_name)
-    task_queue = orchestrator_with_queue(zip(yeild_one(), yield_timeout()), fn2, call_back, max_workers=threads, timeout=60)
+    task_queue = orchestrator_with_queue(zip(yeild_one(), yield_timeout()), fn2, call_back, max_workers=threads, timeout=MAX_TIME_TO_WAIT_FOR_WEB_RESULTS * (3 if provide_detailed_answers else 2))
     return task_queue
 
 

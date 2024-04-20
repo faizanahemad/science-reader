@@ -38,7 +38,7 @@ MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 7500))
 MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 3500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
-MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 20))
+MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 25))
 
 import requests
 import os
@@ -1121,10 +1121,10 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
     def embed_documents(
             self, texts: List[str], chunk_size: Optional[int] = 0
     ) -> List[List[float]]:
-        if len(texts) >= 2:
+        if len(texts) >= 8:
             futures = []
-            for i in range(0, len(texts), 2):
-                futures.append(embed_executor.submit(get_openai_embedding, texts[i:i+2], model_name=self.model, api_key=self.openai_api_key))
+            for i in range(0, len(texts), 8):
+                futures.append(embed_executor.submit(get_openai_embedding, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
             results = [future.result() for future in futures]
             return [item for sublist in results for item in sublist]
         else:
@@ -1586,6 +1586,35 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
         chunks.append(''.join(overlap_buffer if overlap_buffer else current_chunk))
 
     return chunks
+
+
+import gevent
+from gevent import Greenlet
+from gevent.event import AsyncResult
+
+
+def run_in_greenlet(fn, args, kwargs, async_result):
+    try:
+        result = fn(*args, **kwargs)
+        async_result.set(result)
+    except Exception as e:
+        print(f"Greenlet failed with exception: {e}")
+
+
+def as_completed_one_of_many_greenlets(tasks):
+    async_result = AsyncResult()
+    greenlets = []
+
+    for fn, args, kwargs in tasks:
+        g = Greenlet(run_in_greenlet, fn, args, kwargs, async_result)
+        greenlets.append(g)
+        g.start()
+
+    result = async_result.get()  # Wait for the first successful completion
+    for g in greenlets:
+        g.kill()  # Kill remaining greenlets to stop execution
+
+    return result
 
 
 
