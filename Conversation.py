@@ -657,6 +657,7 @@ Write the extracted information concisely below:
         tell_me_more = False
         tell_me_more_msg_resp = None
         previous_message_config = None
+        prev_attached_docs, prev_attached_docs_names = None, None
         if "tell_me_more" in checkboxes and checkboxes["tell_me_more"]:
             tell_me_more = True
             query["messageText"] = query["messageText"] + "\n" + "Tell me more about what we discussed in our last message.\n"
@@ -672,16 +673,10 @@ Write the extracted information concisely below:
                 if "use_attached_docs" in previous_message_config and previous_message_config["use_attached_docs"]:
                     prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": " ".join(previous_message_config["attached_docs_names"])}, False)
                     _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
-                    attached_docs.extend(prev_attached_docs)
-                    attached_docs_names.extend(prev_attached_docs_names)
-                    query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
                 else:
                     prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query,
                                                                  {"messageText": last_user_message["text"]}, False)
                     _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
-                    attached_docs.extend(prev_attached_docs)
-                    attached_docs_names.extend(prev_attached_docs_names)
-                    query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
                 if "link_context" in previous_message_config:
                     previous_message_config["link_context"] = "\n" + previous_message_config["link_context"]
                 if "perform_web_search" in previous_message_config and previous_message_config["perform_web_search"]:
@@ -742,6 +737,10 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
         query, attached_docs, attached_docs_names = attached_docs_future.result()
+        if prev_attached_docs is not None:
+            attached_docs.extend(prev_attached_docs)
+            attached_docs_names.extend(prev_attached_docs_names)
+            query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
                 additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
