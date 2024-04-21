@@ -1,3 +1,32 @@
+# Towards monetization
+- Count tokens and cost per user.
+- Fine grained user based message limit and free tier limits and proper way of informing users about it.
+- A way to make payments to you.
+- Faster search results.
+- Prioritize reaching out to more users.
+- Different limit for search enabled messages and search disabled messages.
+- Re-enable caching for link reading and search results.
+- Show what was extracted from the link in the search results.
+- /nohistory or /no_history command in UI to ensure history is set to zero.
+- More power commands
+- Look for more site opening rejection strings from perplexity and filter them out.
+- Code execution environment for LLM based code generation.
+- Image input and image generation
+  - Image input -> Multiple models based captioning and infer.
+  - Chain of mark prompting for image input.
+  - Special handling of different image types like diagrams, plots, OCR, photos, etc.
+- Separate Google login and admin and user management layer which just reverse proxy to the main server.
+- FinChat
+  - Finance Preamble and prompt.
+  - Web search enabled by default.
+  - Finance site settings for web search.
+  - Add general day, month, quarter, year financial info using RAG and history compression extraction from precurated database.
+  - Better Document parsing for financial documents.
+  - No option of Depth, or history length, or links to visit or search phrases or preambles or Field or permanent instruction.
+- Upgrade zenrows to a higher tier.
+- Add another web search provider and web link reading provider.
+- Upgrade convertapi to a higher tier for pdf.
+
 # Bugs
 - Auto expand of input textbox not happening. [Done]
 - Run continous rendering only within answer tag once open answer tag is received. [Done]
@@ -9,7 +38,6 @@
 - Web Search is Fast and Contextual Reader is fast but overall results slow. [Done]
 - Markdown rendering is buggy since we render entire message when new content arrives. 
 - All read links are not shown in conversation. [Done]
-- 
 
 
 # Startup
@@ -27,8 +55,25 @@
 - Video Continuation from an existing video. Video replace parts or pixels across time by proper tracking.
 - 
 # Next
+- Remove paper review tab. Add it to doc tab.
+- 
+- Selected domain affects preferred sites and addition search appended terms. Reddit and subreddit preferences also.
+- Arxiv and other converted PDF link reader (openreview/aclweb) to also read the abstract from the html page so that even if pdf reading fails we still get some details.
+- "Guided model" (History compression with user preference detection), then Large model for creating an "Detailed outline of Answer with the required headings", "Good response must have", "What to include", "thoughts and step by step action plan" using current message and compressed history, then optionally what we might need from history extra or web search or doc reading, then small model for actual answering. Start latency will be high but overall token cost will be low. Train the small model to follow the outline using gpt4 as teacher sft and then gpt4 as reward model for DPO.
+  - A second question is can we make both two small models, where small models perform history compression, history extraction, outline, good answer must have, what to include, thoughts and step by step action plan in parallel and then the final same small model uses all of them to generate the answer.
+  - For history extraction we need to train models to indicate start and end of history to extract or we need to ask the models which messages to extract and use. The message can be formatted using html tag ids so model can indicate which part of the message to extract.
+  - Use large models as KB apart from web search as KB.
 - Length of result string from each search result under "we read the following links." [Done]
-- Show what was extracted from the link in the search results.
+- /nohistory or /no_history command in UI to ensure history is set to zero.
+- Ability to fill up a scratch pad via agentic like process where LLM helps in writing by using internet and slowly fills up the scratch pad. useful to write papers and sections of papers. 
+- Reduce usage of len check of gpt3 and gpt4 tokenizer len checks. (get_gpt3_word_count, get_gpt4_word_count)
+- Use model based summarisation for first few and for last few links just use RAG.
+- Don't do html filtering for all web fetchers, do it only for one fetcher which is successful.
+- Move over to greenlets for web scraping and other async calls.
+- Use command r+ model to summarise extensively the first 6 results and pass the second 6 results as is to the final answerer. This reduces token counts as well.
+- FN2 time out = 60 seconds, no, keep timeout as per wait desired by Conversation API so threads are freed faster. [Done]
+- Chunking is slow in ContextualReader. [Done]
+- Added Dark mode rudimentary.  [Done]
 - Create a new EmbeddedDoc class that can store document text and embedding which can be used in cached form.
 - Conversation Cache - cache link results and questions and bot replies etc, with "is it cache worthy", and semantic chunking.
 - Cache for near enough queries as well. If embedding of query and cached query is similar then use the cached query and it's result.
@@ -140,7 +185,7 @@
 - Debug if SERPAPI is used? [Done] Brightdata is used.
 - Gpt main UI web search, link reading, custom web search, scholar search wtih custom depth level. [Nope]
 - Keep a 15 sec timeout for web scraping zenrows calls for any page.
-- Block list and whitelist domains for web search for any single chat and global.
+- Block list and whitelist domains for web search for any single chat and global for users.
 - Targetted site search like reddit or arxiv only.
 - Fix remove last turn to remove the last summary as well. [Done]
 

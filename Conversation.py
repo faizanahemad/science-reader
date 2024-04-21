@@ -574,12 +574,12 @@ Write the extracted information concisely below:
     def max_time_to_wait_for_web_results(self):
         return MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
 
-    def get_preamble(self, preamble_options, field):
+    def get_preamble(self, preamble_options, field, web_search_or_document_read=False):
         preamble = ""
         if "md format" in preamble_options:
             preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting.\n"
         if "better formatting" in preamble_options:
-            preamble += "\nUse good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. Use tables to provide extensive comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response.\n"
+            preamble += "\nUse good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. When asked to compare or contrast use tables in markdown. Use tables to provide comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response.\n"
         if "Easy Copy" in preamble_options:
             preamble += "\nProvide the answer in a format that can be easily copied and pasted. Provide answer inside a code block so that I can copy it.\n"
         if "Short reply" in preamble_options:
@@ -588,7 +588,7 @@ Write the extracted information concisely below:
             preamble += "\nProvide a long and detailed answer like an essay. Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
-        if "Short references" in preamble_options:
+        if "Short references" in preamble_options and web_search_or_document_read:
             preamble += "\nInclude references inline in wikipedia style as your write the answer. Use any and all the documents provided in your answer to the user's query. Put references closest to where applicable. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
             preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment.\n"
@@ -602,6 +602,8 @@ Write the extracted information concisely below:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
             preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
+        if "Web Search" in preamble_options or web_search_or_document_read:
+            preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
         field_text = ""
         if field == "None":
@@ -778,7 +780,8 @@ Write the extracted information concisely below:
         if provide_detailed_answers >= 3 and "Short reply" not in preambles:
             preambles.append("Long reply")
         preamble = self.get_preamble(preambles,
-                                     checkboxes["field"] if "field" in checkboxes else None)
+                                     checkboxes["field"] if "field" in checkboxes else None,
+                                     perform_web_search or google_scholar or len(links) > 0 or len(attached_docs) > 0 or len(additional_docs_to_read) > 0)
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -1431,6 +1434,12 @@ Write the extracted information concisely below:
         web text length: {len(enc.encode(web_text))}, 
         link result text length: {len(enc.encode(link_result_text))}, 
         final prompt len: {len(enc.encode(prompt))}""")
+        time_dict["prompt_length"] = len(enc.encode(prompt))
+        time_dict["web_text_length"] = len(enc.encode(web_text))
+        time_dict["doc_answer_length"] = len(enc.encode(doc_answer))
+        time_dict["link_result_text_length"] = len(enc.encode(link_result_text))
+        time_dict["summary_text_length"] = len(enc.encode(summary_text))
+        time_dict["previous_messages_length"] = len(enc.encode(previous_messages))
         et = time.time()
         time_logger.info(f"Time taken to start replying for chatbot: {(et - st):.2f}")
         time_dict["start_reply_final"] = time.time() - st
