@@ -666,6 +666,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Argumentative</option>
                 <option>Blackmail</option>
                 <option selected>No Lazy</option>
+                <option selected>Web Search</option>
             </select>
         </div>
         
