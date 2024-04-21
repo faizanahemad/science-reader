@@ -1949,6 +1949,8 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
+@CacheResults(cache=FixedSizeFIFODict(1000), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
+            enabled=True)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys

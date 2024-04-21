@@ -801,7 +801,7 @@ def exists_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
     return os.path.exists(marker_file_path)
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
+@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=True)
 def is_pdf_link(link):
     st = time.time()
     result = False
