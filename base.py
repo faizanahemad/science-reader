@@ -252,6 +252,7 @@ def call_chat_model(model, text, temperature, system, keys):
         stream=True,
         **extras
     )
+    chunk = None
     for chunk in response:
         if "content" in chunk["choices"][0]["delta"]:
             text_content = chunk["choices"][0]["delta"]["content"]
@@ -259,7 +260,7 @@ def call_chat_model(model, text, temperature, system, keys):
             if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
                 rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
+    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
         yield "\n Output truncated due to lack of context Length."
 
 
