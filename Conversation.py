@@ -1397,6 +1397,7 @@ Write the extracted information concisely below:
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
         t2y = next(main_ans_gen)
+        time_dict["first_word_generated"] = time.time() - st
         # next_token_future = get_async_future(lambda: next(main_ans_gen))
         # wt_prior_ctx = time.time()
         # init_one = False
