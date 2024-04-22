@@ -148,10 +148,8 @@ class Conversation:
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
                 }
         messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
-        indices = dict(summary_index=create_index_faiss(['EMPTY'], openai_embed, doc_id=self.conversation_id,))
         self.set_field("memory", memory)
         self.set_field("messages", messages)
-        self.set_field("indices", indices)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self.save_local()
 
@@ -364,9 +362,8 @@ class Conversation:
         token_limit_short = 3000
         token_limit_long = 7500
         token_limit_very_long = 24000
-        summary_lookback = 4
-        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"), get_async_future(self.get_field, "indices")]
-        memory, messages, indices = [f.result() for f in futures]
+        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
+        memory, messages = [f.result() for f in futures]
         message_lookback = 2
         previous_messages_text = ""
         if len(past_message_ids) > 0:
@@ -408,7 +405,7 @@ class Conversation:
             running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
-        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long)
+        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long, summary=running_summary)
         # lets log the length of each of the above in a single log statement
         logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
         return results
@@ -446,14 +443,13 @@ Title of the conversation:
         # set the two messages in the message list as per above format.
         messages = get_async_future(self.get_field, "messages")
         memory = get_async_future(self.get_field, "memory")
-        indices = get_async_future(self.get_field, "indices")
 
         memory = memory.result()
         messages = messages.result()
         message_lookback = 2
         previous_messages_text = ""
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 3000 and message_lookback < 6:
+        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 8000 and message_lookback < 6:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
@@ -471,7 +467,6 @@ Title of the conversation:
         title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary = summary.result()
-        summary_index_new = get_async_future(FAISS.from_texts, [summary], get_embedding_model(self.get_api_keys()))
         memory["running_summary"].append(summary)
         try:
             title = title.result()
@@ -480,9 +475,6 @@ Title of the conversation:
             pass
         mem_set = get_async_future(self.set_field, "memory", memory)
         # self.set_field("memory", memory)
-        indices = indices.result()
-        _ = indices["summary_index"].merge_from(summary_index_new.result())
-        self.set_field("indices", indices)
         msg_set.result()
         mem_set.result()
 
@@ -517,9 +509,8 @@ Title of the conversation:
 
     def get_prior_messages_summary(self, query:str)->str:
         summary_lookback = 8
-        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages"),
-                   get_async_future(self.get_field, "indices")]
-        memory, messages, indices = [f.result() for f in futures]
+        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
+        memory, messages = [f.result() for f in futures]
         previous_messages = messages[-16:]
         previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
         if len(previous_messages) < 2:
@@ -533,11 +524,7 @@ Title of the conversation:
         running_summary = memory["running_summary"][-1:]
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         if len(memory["running_summary"]) > 4:
-            summary_nodes = indices["summary_index"].similarity_search(query, k=8)
-            summary_nodes = [n.page_content for n in summary_nodes]
-            not_taken_summaries = running_summary + memory["running_summary"][-summary_lookback:]
-            summary_nodes = [n for n in summary_nodes if n not in not_taken_summaries]
-            summary_nodes = [n for n in summary_nodes if len(n.strip()) > 0][-2:]
+            summary_nodes = memory["running_summary"][-4:-3]
         else:
             summary_nodes = []
 
@@ -750,7 +737,6 @@ Write the extracted information concisely below:
             provide_detailed_answers = 2
         provide_raw_text = (len(links) + len(attached_docs) + len(additional_docs_to_read)) <= 3 and provide_detailed_answers <= 3 and not (
                     google_scholar or perform_web_search) and unchanged_message_lookback <= 8
-        raw_text_length = 32_000
         if len(attached_docs) > 0:
             message_config["use_attached_docs"] = True
             message_config["attached_docs_names"] = attached_docs_names
@@ -1502,9 +1488,7 @@ Write the extracted information concisely below:
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"] = memory["running_summary"][:-1]
         self.set_field("memory", memory, overwrite=True)
-        
-        indices = self.get_field("indices")
-        # TODO: delete from index as well
+
 
     
     def get_api_keys(self):
@@ -1518,13 +1502,6 @@ Write the extracted information concisely below:
 
     def set_api_keys(self, api_keys: dict):
         assert isinstance(api_keys, dict)
-        indices = self.get_field("indices")
-        for k, j in indices.items():
-            if isinstance(j, (FAISS, VectorStore)):
-                j.embedding_function = get_embedding_model(api_keys).embed_query
-                j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
-                setattr(j.embedding_function.__self__,
-                        "openai_api_key", api_keys["openAIKey"])
         setattr(self, "api_keys", api_keys)
     
     def __copy__(self):
