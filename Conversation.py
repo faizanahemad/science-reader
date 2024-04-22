@@ -438,32 +438,21 @@ Title of the conversation:
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
     @timer
-    def persist_current_turn(self, query, response, config, new_docs):
+    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
-        messages = get_async_future(self.get_field, "messages")
         memory = get_async_future(self.get_field, "memory")
-
-        memory = memory.result()
-        messages = messages.result()
-        message_lookback = 2
-        previous_messages_text = ""
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
-        while get_gpt3_word_count(previous_messages_text + "\n\n" + prompt) < 8000 and message_lookback < 6:
-            previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
-            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
-            message_lookback += 2
         preserved_messages = [
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=get_first_last_parts("".join(memory["running_summary"][-4:-3] + memory["running_summary"][-1:]), 0, 1000))
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
         llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=True)
-        prompt = get_first_last_parts(prompt, 8000, 10_000)
+        prompt = get_first_last_parts(prompt, 18000, 10_000)
         summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
+        memory = memory.result()
         title = self.create_title(query, extract_user_answer(response))
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary = summary.result()
@@ -1097,7 +1086,7 @@ Write the extracted information concisely below:
             if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
-                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
+                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
                 return
@@ -1109,7 +1098,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1119,7 +1108,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1130,14 +1119,14 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and provide_detailed_answers >= 3:
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1460,7 +1449,7 @@ Write the extracted information concisely below:
                 answer += (query_results + "</div>")
                 yield {"text": query_results + "</div>", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, full_doc_texts)
+        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts)
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
 
