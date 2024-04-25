@@ -463,3 +463,24 @@ textarea.form-control.dynamic-textarea {
     transform: rotate(90deg);
 }
 
+.nav-link {
+    padding: 0.1rem 0.5rem;
+    display: block;
+}
+
+.nav-tabs .nav-item.show .nav-link,
+.nav-tabs .nav-link.active {
+    color: #495057;
+    background-color: #fff;
+    border-color: #9ea9b4 #9ea9b4 #fff;
+}
+
+#pdf-details-tab {
+    font-size: small;
+}
+
+pre code.hljs {
+    display: block;
+    overflow-x: auto;
+    padding: 1.5em;
+}

@@ -542,7 +542,7 @@ def add_user_question_feedback():
 
 
 @app.route('/write_review/<doc_id>/<tone>', methods=['GET'])
-@limiter.limit("5 per minute")
+@limiter.limit("10 per minute")
 @login_required
 def write_review(doc_id, tone):
     keys = keyParser(session)
@@ -566,7 +566,7 @@ def write_review(doc_id, tone):
     return Response(stream_with_context(review), content_type='text/plain')
 
 @app.route('/get_reviews/<doc_id>', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def get_all_reviews(doc_id):
     keys = keyParser(session)
@@ -600,7 +600,7 @@ def login():
 
 
 @app.route('/logout')
-@limiter.limit("1 per minute")
+@limiter.limit("10 per minute")
 @login_required
 def logout():
     session.pop('name', None)
@@ -612,7 +612,7 @@ def logout():
 
 
 @app.route('/get_user_info')
-@limiter.limit("15 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def get_user_info():
     if 'email' in session and "name" in session:
@@ -820,7 +820,7 @@ def save_index(doc_index: DocIndex, folder):
 
     
 @app.route('/streaming_get_answer', methods=['POST'])
-@limiter.limit("15 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def streaming_get_answer():
     keys = keyParser(session)
@@ -845,7 +845,7 @@ def streaming_get_answer():
         return Response("Error Document not found", status=404,  content_type='text/plain')
     
 @app.route('/streaming_summary', methods=['GET'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def streaming_summary():
     keys = keyParser(session)
@@ -862,7 +862,7 @@ def streaming_summary():
     
 
 @app.route('/streaming_get_followup_answer', methods=['POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def streaming_get_followup_answer():
     keys = keyParser(session)
@@ -904,7 +904,7 @@ def delete_document():
     return jsonify({'status': 'Document deleted successfully'}), 200
 
 @app.route('/get_paper_details', methods=['GET'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def get_paper_details():
     keys = keyParser(session)
@@ -916,7 +916,7 @@ def get_paper_details():
         return jsonify({'error': 'Document not found'}), 404
 
 @app.route('/refetch_paper_details', methods=['GET'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def refetch_paper_details():
     keys = keyParser(session)
@@ -928,7 +928,7 @@ def refetch_paper_details():
         return jsonify({'error': 'Document not found'}), 404
 
 @app.route('/get_extended_abstract', methods=['GET'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def get_extended_abstract():
     keys = keyParser(session)
@@ -941,7 +941,7 @@ def get_extended_abstract():
         return Response("Error Document not found", content_type='text/plain')
     
 @app.route('/get_fixed_details', methods=['GET'])
-@limiter.limit("30 per minute")
+@limiter.limit("300 per minute")
 @login_required
 def get_fixed_details():
     keys = keyParser(session)
@@ -958,13 +958,13 @@ def get_fixed_details():
 from flask import send_from_directory, send_file
 
 @app.route('/favicon.ico')
-@limiter.limit("30 per minute")
+@limiter.limit("300 per minute")
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'favicon.ico', mimetype='image/vnd.microsoft.icon')
     
 @app.route('/loader.gif')
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 def loader():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'gradient-loader.gif', mimetype='image/gif')
@@ -975,7 +975,7 @@ def send_static(path):
     return send_from_directory('interface', path, max_age=0)
 
 @app.route('/interface')
-@limiter.limit("20 per minute")
+@limiter.limit("200 per minute")
 @login_required
 def interface():
     return send_from_directory('interface', 'interface.html', max_age=0)
@@ -989,7 +989,7 @@ with open(html_file_path, 'r', encoding='utf-8') as file:
     html_content = file.read()
 
 @app.route('/shared/<conversation_id>')
-@limiter.limit("20 per minute")
+@limiter.limit("200 per minute")
 def shared(conversation_id):
     # Insert the <div> element before the closing </body> tag
     div_element = f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
@@ -1015,7 +1015,7 @@ def proxy_shared():
     return Response(stream_with_context(cached_get_file(file_url)), mimetype='application/pdf')
 
 @app.route('/')
-@limiter.limit("20 per minute")
+@limiter.limit("200 per minute")
 @login_required
 def index():
     return redirect('/interface')
@@ -1193,11 +1193,12 @@ def cached_get_file(file_url):
 
 
 ### chat apis
-@app.route('/list_conversation_by_user', methods=['GET'])
-@limiter.limit("50 per minute")
+@app.route('/list_conversation_by_user/<domain>', methods=['GET'])
+@limiter.limit("500 per minute")
 @login_required
-def list_conversation_by_user():
+def list_conversation_by_user(domain:str):
     # TODO: sort by last_updated
+    domain = domain.strip().lower()
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     last_n_conversations = request.args.get('last_n_conversations', 10)
@@ -1209,7 +1210,7 @@ def list_conversation_by_user():
         removeUserFromConversation(email, conversation.conversation_id)
         del conversation_cache[conversation.conversation_id]
         conversation.delete_conversation()
-    conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless]
+    conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless and conversation.domain==domain]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]
     sorted_data_reverse = sorted(data, key=lambda x: x[0]['last_updated'], reverse=True)
@@ -1223,20 +1224,21 @@ def list_conversation_by_user():
             sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]['last_updated'], reverse=True)
             new_conversation.set_field("memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         else:
-            new_conversation = create_conversation_simple(session)
+            new_conversation = create_conversation_simple(session, domain)
         sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
     sorted_data_reverse = [sd[0] for sd in sorted_data_reverse]
     return jsonify(sorted_data_reverse)
 
-@app.route('/create_conversation', methods=['POST'])
-@limiter.limit("5 per minute")
+@app.route('/create_conversation/<domain>', methods=['POST'])
+@limiter.limit("500 per minute")
 @login_required
-def create_conversation():
-    conversation = create_conversation_simple(session)
+def create_conversation(domain: str):
+    domain = domain.strip().lower()
+    conversation = create_conversation_simple(session, domain)
     data = conversation.get_metadata()
     return jsonify(data)
 
-def create_conversation_simple(session):
+def create_conversation_simple(session, domain: str):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     from base import get_embedding_model
@@ -1244,6 +1246,7 @@ def create_conversation_simple(session):
     conversation_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(36))
     conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,
                                 conversation_id=conversation_id)
+    conversation.domain = domain
     conversation = set_keys_on_docs(conversation, keys)
     addConversationToUser(email, conversation.conversation_id)
     return conversation
@@ -1284,7 +1287,7 @@ def list_messages_by_conversation(conversation_id):
     return jsonify(conversation.get_message_list())
 
 @app.route('/list_messages_by_conversation_shareable/<conversation_id>', methods=['GET'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 def list_messages_by_conversation_shareable(conversation_id):
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
@@ -1303,7 +1306,7 @@ def list_messages_by_conversation_shareable(conversation_id):
         return jsonify({'error': 'Conversation not found'}), 404
 
 @app.route('/send_message/<conversation_id>', methods=['POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("50 per minute")
 @login_required
 def send_message(conversation_id):
     keys = keyParser(session)

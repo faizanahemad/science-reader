@@ -249,7 +249,7 @@ $(document).ready(function() {
         }
         var activeTabName = getActiveTabName();
 
-        if (activeTabName === 'assistant-tab') {
+        if (activeTabName === 'assistant-tab' || activeTabName === 'search-tab' || activeTabName === 'finchat-tab') {
             var sidebar = $('#chat-assistant-sidebar');
             var otherSidebar = $('#doc-keys-sidebar');
             var contentCol = $('#chat-assistant');
@@ -1233,30 +1233,52 @@ $(document).ready(function() {
         
         
     });
-    $('#assistant-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
-    $('#assistant-tab').on('shown.bs.tab', function (e) {
-        // Clear the details viewer
-        loadConversations();
-        $('#review-assistant-view').hide();
-        $('#references-view').hide();
-        $('#pdf-view').hide();
-        $('#chat-assistant-view').show();
-        var chatView = $('#chatView');
-        chatView.scrollTop(chatView.prop('scrollHeight'));
-        $('#messageText').focus();
-        $("#chat-pdf-content").addClass('d-none');
-        pdfTabIsActive();
-        // toggleSidebar();
-        var otherSidebar = $('#doc-keys-sidebar');
-        var sidebar = $('#chat-assistant-sidebar');
-        sidebar.addClass('d-none');
-        otherSidebar.addClass('d-none');
-        var contentCol = $('#content-col');
-        contentCol.removeClass('col-md-10').addClass('col-md-12');
-        var contentCol = $('#chat-assistant');
-        contentCol.removeClass('col-md-10').addClass('col-md-12');
-        
+    
 
+    $('#assistant-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
+    $('#search-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
+    $('#finchat-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
+    $('#assistant-tab').on('shown.bs.tab', function (e) {
+        currentDomain["domain"] = "assistant";
+        $("#field-selector").val("None");
+        $('#permanentText').show();
+        $('#linkInput').show();
+        $('#searchInput').show();
+        $("#field-selector").parent().show();
+        $("#chat-options-assistant-use-google-scholar").parent().show();
+        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().show();
+        $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
+        activateChatTab();
+    });
+    $('#search-tab').on('shown.bs.tab', function (e) {
+        currentDomain["domain"] = "search";
+        $("#field-selector").val("None");
+        activateChatTab();
+        $('#permanentText').hide();
+        $('#linkInput').hide();
+        $('#searchInput').hide();
+        
+        $("#field-selector").parent().show();
+        $("#chat-options-assistant-use-google-scholar").parent().show();
+        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
+        $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
+    });
+
+    $('#finchat-tab').on('shown.bs.tab', function (e) {
+        currentDomain["domain"] = "finchat";
+        activateChatTab();
+        $('#linkInput').hide();
+        $('#searchInput').hide();
+        $('#permanentText').hide();
+        $("#field-selector").val("Finance");
+        $("#field-selector").parent().hide();
+        $("#chat-options-assistant-use-google-scholar").parent().hide();
+        $("#chat-options-assistant-use-google-scholar").prop('checked', false);
+        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
+        $("#chat-options-assistant-use-multiple-docs-checkbox").prop('checked', false);
+        $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
+        $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
+        
     });
     
     $('#show-sidebar').on('click', toggleSidebar);
@@ -1281,10 +1303,10 @@ $(document).ready(function() {
         tabContent.style.display = 'block';
     });
 
-    document.getElementById('review-assistant-tab').addEventListener('click', function() {
-        var tabContent = document.querySelector('.tab-content');
-        tabContent.style.display = 'block';
-    });
+    // document.getElementById('review-assistant-tab').addEventListener('click', function() {
+    //     var tabContent = document.querySelector('.tab-content');
+    //     tabContent.style.display = 'block';
+    // });
 
     $(document).on('click', '.copy-code-btn', function() {
         copyToClipboard($(this), undefined,  "code");
@@ -1417,21 +1439,8 @@ $(document).ready(function() {
         pdfTabIsActive();
     });
 
-    function pdfTabIsActive() {
-        if ($("#pdf-tab").hasClass("active")) {
-            // If it is, show the elements
-            $("#hide-navbar").parent().show();
-            $("#toggle-tab-content").parent().show();
-            $("#details-tab").parent().show();
-        } else {
-            // If it's not, hide the elements
-            $("#hide-navbar").parent().hide();
-            $("#toggle-tab-content").parent().hide();
-            $("#details-tab").parent().hide();
-        }
-    }
-    $('#assistant-tab').trigger('shown.bs.tab');
-    $("a#assistant-tab.nav-link").addClass('active');
+    $('#search-tab').trigger('shown.bs.tab');
+    $("a#search-tab.nav-link").addClass('active');
     $("a#pdf-tab.nav-link").removeClass('active');
     pdfTabIsActive();
     // $("#assistant-tab").tigger('click');

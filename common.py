@@ -1616,6 +1616,42 @@ def as_completed_one_of_many_greenlets(tasks):
 
     return result
 
+import requests
+def google_search(query, cx, api_key, num=10, filter=0, start=0):
+    url = 'https://www.googleapis.com/customsearch/v1'
+    params = {
+        'key': api_key,
+        'cx': cx,
+        'q': query,
+        'num': num,
+        'filter': filter,
+        'start': start
+    }
+
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()  # Raise an exception for 4xx or 5xx status codes
+        data = response.json()
+
+        search_results = []
+        for result in data.get('items', []):
+            search_result = {
+                'title': result['title'],
+                'url': result['link'],
+                'snippet': result['snippet'],
+                'query': query,
+                'link': result['link'],
+                'source': 'google',
+            }
+            search_results.append(search_result)
+
+        return search_results
+
+    except requests.exceptions.RequestException as e:
+        print(f'An error occurred: {e}')
+        return None
+
+
 
 
 

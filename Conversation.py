@@ -158,6 +158,20 @@ class Conversation:
     # Make a method to persist important details and encapsulate all logic for persisting important details in a function
 
     @property
+    def domain(self):
+        if hasattr(self, "_domain"):
+            return self._domain
+        return "assistant"
+
+    @domain.setter
+    def domain(self, value):
+        if hasattr(self, "_domain"):
+            self._domain = value
+        else:
+            setattr(self, "_domain", value)
+        self.save_local()
+
+    @property
     def stateless(self):
         if hasattr(self, "_stateless"):
             return self._stateless
@@ -578,7 +592,7 @@ Write the extracted information concisely below:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
             preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
-        if "Web Search" in preamble_options and web_search_or_document_read:
+        if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
         field_text = ""
@@ -595,7 +609,7 @@ Write the extracted information concisely below:
         if field == "Psychology":
             field_text += "\nYou are an expert in psychology, mental health, and human behavior. This is a psychology question.\n"
         if field == "Finance":
-            field_text += "\nYou are an expert in finance, economics, and financial markets. This is a finance and economics question.\n"
+            field_text += "\nYou are an expert in finance, economics, financial markets and stock markets. This is a finance and economics question.\n"
         if field == "Economics":
             field_text += "\nYou are an expert in economics, micro and macro economics, governance, fiscal policy, finance, and financial markets. This is an economics and finance related question.\n"
         if field == "Mathematics":

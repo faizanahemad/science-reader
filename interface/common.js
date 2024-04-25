@@ -1,3 +1,7 @@
+var currentDomain = {
+    domain: 'assistant', // finchat, search
+}
+
 async function responseWaitAndSuccessChecker(url, responsePromise) {
     // Set a timeout for the API call
     const apiTimeout = setTimeout(() => {
@@ -326,6 +330,9 @@ marked.setOptions({
     renderer: markdownParser,
     highlight: function (code, language) {
         const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
+        if (validLanguage === 'plaintext') {
+            return hljs.highlightAuto(validLanguage, code).value;
+        }
         return hljs.highlight(validLanguage, code).value;
     },
     pedantic: false,
@@ -666,7 +673,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Argumentative</option>
                 <option>Blackmail</option>
                 <option selected>No Lazy</option>
-                <option selected>Web Search</option>
+                <option>Web Search</option>
             </select>
         </div>
         
@@ -713,6 +720,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
         `</div></small>`
     );
+
+    // $("#field-selector").on('change', function () {
+    //     activeTab = $('#pdf-details-tab .nav-item .nav-link.active').attr('id');
+    //     $(`#${activeTab}`).trigger('shown.bs.tab');
+    //     if (currentDomain['domain'] !== 'search') {
+    //         activateChatTab();
+    //     }
+    // });
 
 
     // Elements for Multiple Documents option
@@ -965,4 +980,18 @@ function showPDF(pdfUrl, subtree, url=null) {
     };
 
     xhr.send();
+}
+
+function pdfTabIsActive() {
+    if ($("#pdf-tab").hasClass("active")) {
+        // If it is, show the elements
+        $("#hide-navbar").parent().show();
+        $("#toggle-tab-content").parent().show();
+        $("#details-tab").parent().show();
+    } else {
+        // If it's not, hide the elements
+        $("#hide-navbar").parent().hide();
+        $("#toggle-tab-content").parent().hide();
+        $("#details-tab").parent().hide();
+    }
 }

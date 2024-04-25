@@ -6,8 +6,12 @@ var ConversationManager = {
     },
 
     createConversation: function () {
+        // var domain = $("#field-selector").val();
+        // if (domain === 'None') {
+        //     domain = currentDomain['domain']
+        // }
         $.ajax({
-            url: '/create_conversation',
+            url: '/create_conversation/' + currentDomain['domain'],
             type: 'POST',
             success: function (conversation) {
                 $('#linkInput').val('')
@@ -45,7 +49,9 @@ var ConversationManager = {
             type: 'DELETE',
             success: function (result) {
                 // show a small modal that conversation is now stateless and will be deleted on next reload
-                $('#stateless-conversation-modal').modal('show');
+                if (currentDomain['domain'] === 'assistant' || currentDomain['domain'] === 'finance') {
+                    $('#stateless-conversation-modal').modal('show');
+                }
             },
             error: function (result) {
                 alert('Error: ' + result.responseText);
@@ -641,7 +647,11 @@ var ChatManager = {
 
 
 function loadConversations(autoselect = true) {
-    var api = '/list_conversation_by_user';
+    // var domain = $("#field-selector").val();
+    // if (domain === 'None') {
+    //     domain = currentDomain['domain']
+    // }
+    var api = '/list_conversation_by_user/' + currentDomain['domain'];
     var request = apiCall(api, 'GET', {})
 
     request.done(function (data) {
@@ -717,9 +727,38 @@ function loadConversations(autoselect = true) {
                 });
             }
         });
+
+        // find current conversation and highlight it
+        if (currentDomain['domain'] === 'search') {
+            var current_conversation = $('#conversations').find('.list-group-item.active');
+            current_conversation.find('.stateless-button').click();
+        }
+        
     });
 
     return request;
+}
+
+function activateChatTab() {
+    loadConversations();
+    $('#review-assistant-view').hide();
+    $('#references-view').hide();
+    $('#pdf-view').hide();
+    $('#chat-assistant-view').show();
+    var chatView = $('#chatView');
+    chatView.scrollTop(chatView.prop('scrollHeight'));
+    $('#messageText').focus();
+    $("#chat-pdf-content").addClass('d-none');
+    pdfTabIsActive();
+    // toggleSidebar();
+    var otherSidebar = $('#doc-keys-sidebar');
+    var sidebar = $('#chat-assistant-sidebar');
+    sidebar.addClass('d-none');
+    otherSidebar.addClass('d-none');
+    var contentCol = $('#content-col');
+    contentCol.removeClass('col-md-10').addClass('col-md-12');
+    var contentCol = $('#chat-assistant');
+    contentCol.removeClass('col-md-10').addClass('col-md-12');
 }
 
 

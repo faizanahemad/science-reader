@@ -1105,7 +1105,6 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
         now = None
     cse_id = key["cx"]
     google_api_key = key["api_key"]
-    service = build("customsearch", "v1", developerKey=google_api_key)
 
     search = GoogleSearchAPIWrapper(google_api_key=google_api_key, google_cse_id=cse_id)
     pre_query = query
@@ -1140,6 +1139,76 @@ def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_si
     
     return dedup_results
 
+
+def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+    from datetime import datetime, timedelta
+    num = max(num, 10)
+
+    if our_datetime:
+        now = datetime.strptime(our_datetime, "%Y-%m-%d")
+        two_years_ago = now - timedelta(days=365 * 3)
+        date_string = two_years_ago.strftime("%Y-%m-%d")
+    else:
+        now = None
+
+    cse_id = key["cx"]
+    google_api_key = key["api_key"]
+
+    pre_query = query
+    after_string = f"after:{date_string}" if now else ""
+    search_pdf = " filetype:pdf" if only_pdf else ""
+
+    if only_science_sites is None:
+        site_string = " "
+    elif only_science_sites:
+        site_string = " (site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org) "
+    elif not only_science_sites:
+        site_string = " -site:arxiv.org AND -site:openreview.net "
+
+    og_query = query
+    no_after_query = f"{query}{site_string}{search_pdf}"
+    query = f"{query}{site_string}{after_string}{search_pdf}"
+
+    expected_res_length = max(num, 10)
+    results = []
+
+    # Perform initial search
+    initial_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
+    if initial_results:
+        results.extend(initial_results)
+
+        # Perform additional searches if needed
+    if len(results) < expected_res_length:
+        additional_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1,
+                                           start=len(results))
+        if additional_results:
+            results.extend(additional_results)
+
+    if len(results) < expected_res_length:
+        no_after_results = google_search(no_after_query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
+        if no_after_results:
+            results.extend(no_after_results)
+
+    if len(results) < expected_res_length:
+        no_after_additional_results = google_search(no_after_query, cse_id, google_api_key, num=min(num, 10), filter=1,
+                                                    start=len(results))
+        if no_after_additional_results:
+            results.extend(no_after_additional_results)
+
+    if len(results) < expected_res_length:
+        og_query_results = google_search(og_query, cse_id, google_api_key, num=min(num, 10), filter=1,
+                                         start=len(results))
+        if og_query_results:
+            results.extend(og_query_results)
+
+    dedup_results = search_post_processing(pre_query, results, "google", only_science_sites=only_science_sites,
+                                           only_pdf=only_pdf)
+    logger.debug(
+        f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+
+    return dedup_results
+
+
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1154,6 +1223,8 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     
     location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
     gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
+    location_2 = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
+    gl_2 = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
     # format the date as YYYY-MM-DD
     
     url = "https://serpapi.com/search"
@@ -1188,12 +1259,12 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     else:
         return []
     expected_res_length = max(num, 10)
-    if len(results) < expected_res_length:
+    if len(results) < 5:
         rjs = requests.get(url, params={"q": no_after_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location_2, "gl": gl_2}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
@@ -1748,23 +1819,23 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
 
     if google_available:
         if not gscholar:
-            serps.extend([get_async_future(googleapi, query,
+            serps.extend([get_async_future(googleapi_v2, query,
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
                                            num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
                           query in query_strings])
         if gscholar:
-            serps.extend([get_async_future(googleapi, query + f" research paper in {year}",
+            serps.extend([get_async_future(googleapi_v2, query + f" rese2arch paper in {year}",
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 0 else None,
                                            only_science_sites=True if ix % 2 == 1 else None) for ix, query in
                           enumerate(query_strings)])
             if month <= 3:
-                serps.extend([get_async_future(googleapi, query + f" research paper in {str(year - 1)}",
+                serps.extend([get_async_future(googleapi_v2, query + f" research paper in {str(year - 1)}",
                                                api_keys["serpApiKey"], 10,
                                                our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                                only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                               enumerate(query_strings)])
-            serps.extend([get_async_future(googleapi, generate_science_site_query(query + f" research paper in {year}"),
+            serps.extend([get_async_future(googleapi_v2, generate_science_site_query(query + f" research paper in {year}"),
                                            api_keys["serpApiKey"], 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
