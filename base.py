@@ -1545,7 +1545,7 @@ class PDFReaderTool:
         else:
             return freePDFReader(url, page_ranges)
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
+@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=False)
 def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
     import requests
     arxiv_id = arxiv_url.split("/")[-1].split(".")[0]
@@ -1557,7 +1557,7 @@ def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
         return semantic_url
     raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=False)
+@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=False)
 def get_paper_details_from_semantic_scholar(arxiv_url):
     print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
     arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
@@ -1964,7 +1964,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
-@CacheResults(cache=FixedSizeFIFODict(1000), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
+@CacheResults(cache=FixedSizeFIFODict(100), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
             enabled=True)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
@@ -2271,6 +2271,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         else:
             web_res = {"exception": True, "error": "Marker file not found"}
+            raise ForceStoppedException(f"fn2 Web search stopped for link: {link}, {web_res['error']}")
         error = web_res["error"] if "error" in web_res else None
         elapsed = time.time() - start_time
         if elapsed > MAX_TIME_TO_WAIT_FOR_WEB_RESULTS:

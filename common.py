@@ -733,6 +733,25 @@ def round_robin_by_group(dict_list, group_key='group'):
         if group:  # If the group still has dictionaries, put it back at the end
             groups.append(group)
 
+from collections import OrderedDict
+from threading import Lock
+
+
+class FixedSizeFIFODict(OrderedDict):
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+        self.lock = Lock()  # Initialize a lock for thread-safe operations
+
+    def __setitem__(self, key, value):
+        with self.lock:  # Use the lock to ensure thread-safe access
+            super().__setitem__(key, value)
+            self.ensure_fixed_size()
+
+    def ensure_fixed_size(self):
+        while len(self) > self.size:
+            self.popitem(last=False)
+
 from flask_caching import Cache
 from inspect import signature
 from functools import wraps
@@ -800,7 +819,7 @@ def exists_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
     return os.path.exists(marker_file_path)
 
-@CacheResults(cache=dict(), dtype_filters=[str, int, tuple, bool], enabled=True)
+@CacheResults(cache=FixedSizeFIFODict(1000), dtype_filters=[str, int, tuple, bool], enabled=True)
 def is_pdf_link(link):
     st = time.time()
     result = False
@@ -1422,27 +1441,10 @@ def parse_mardown_link_text(text):
     return results
 
 
-from collections import OrderedDict
-from threading import Lock
 
 
-class FixedSizeFIFODict(OrderedDict):
-    def __init__(self, size):
-        super().__init__()
-        self.size = size
-        self.lock = Lock()  # Initialize a lock for thread-safe operations
 
-    def __setitem__(self, key, value):
-        with self.lock:  # Use the lock to ensure thread-safe access
-            super().__setitem__(key, value)
-            self.ensure_fixed_size()
-
-    def ensure_fixed_size(self):
-        while len(self) > self.size:
-            self.popitem(last=False)
-
-
-@CacheResults(cache=FixedSizeFIFODict(1000), dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
+@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
 def get_text_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
     embedding = openai_embed.embed_query(text)
