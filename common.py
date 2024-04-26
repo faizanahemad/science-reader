@@ -34,8 +34,7 @@ TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
 TOKEN_LIMIT_FOR_EXTRA_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_EXTRA_DETAILED", 25000))
 TOKEN_LIMIT_FOR_SUPER_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_SUPER_DETAILED", 50000))
 TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 3000))
-MODEL_TOKENS_SMART = int(os.getenv("MODEL_TOKENS_SMART", 7500))
-MODEL_TOKENS_DUMB = int(os.getenv("MODEL_TOKENS_DUMB", 3500))
+TOKEN_LIMIT_FOR_NORMAL = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 5500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
 MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 25))
@@ -1615,6 +1614,130 @@ def as_completed_one_of_many_greenlets(tasks):
         g.kill()  # Kill remaining greenlets to stop execution
 
     return result
+
+def sort_two_lists(list1, list2, key=None, reverse=False):
+    """
+    Sorts two lists based on the sorting of the first list using an optional sorting key.
+
+    Parameters:
+    - list1: The list to be sorted.
+    - list2: The list to be sorted in the same order as list1.
+    - sort_key: Optional. A function that would serve as a key for the sorting criteria.
+                If None, the list1 elements themselves are used for sorting.
+    - reverse: Optional. If True, the lists are sorted in reverse order.
+
+    Returns:
+    - list1_sorted: The sorted version of list1.
+    - list2_sorted: The sorted version of list2, in the same order as list1_sorted.
+    """
+    # If no sort_key is provided, use the elements of list1 as they are
+    if key is None:
+        key = lambda x: x
+
+    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    if len(list1) == 0:
+        return [], []
+
+        # Pair each element of list1 with its corresponding element in list2
+    paired = list(zip(list1, list2))
+    # Sort the paired list by the provided sort_key applied to the elements of list1
+    paired_sorted = sorted(paired, key=lambda x: key(x[0]), reverse=reverse)
+    # Unzip the pairs back into two lists
+    list1_sorted, list2_sorted = zip(*paired_sorted)
+
+    # Convert the tuples back to lists
+    return list(list1_sorted), list(list2_sorted)
+
+def sort_three_lists(list1, list2, list3, key=None, reverse=False):
+    """
+    Sorts three lists based on the sorting of the first list using an optional sorting key.
+
+    Parameters:
+    - list1: The list to be sorted.
+    - list2: The list to be sorted in the same order as list1.
+    - list3: The list to be sorted in the same order as list1.
+    - sort_key: Optional. A function that would serve as a key for the sorting criteria.
+                If None, the list1 elements themselves are used for sorting.
+    - reverse: Optional. If True, the lists are sorted in reverse order.
+
+    Returns:
+    - list1_sorted: The sorted version of list1.
+    - list2_sorted: The sorted version of list2, in the same order as list1_sorted.
+    - list3_sorted: The sorted version of list3, in the same order as list1_sorted.
+    """
+    # If no sort_key is provided, use the elements of list1 as they are
+    if key is None:
+        key = lambda x: x
+
+    assert len(list1) == len(list2) == len(list3), "[sort_three_lists] The three lists must have the same length."
+    if len(list1) == 0:
+        return [], [], []
+
+    # Pair each element of list1 with its corresponding elements in list2 and list3
+    paired = list(zip(list1, list2, list3))
+    # Sort the paired list by the provided sort_key applied to the elements of list1
+    paired_sorted = sorted(paired, key=lambda x: key(x[0]), reverse=reverse)
+    # Unzip the pairs back into three lists
+    list1_sorted, list2_sorted, list3_sorted = zip(*paired_sorted)
+
+    # Convert the tuples back to lists
+    return list(list1_sorted), list(list2_sorted), list(list3_sorted)
+
+
+def filter_two_lists(list1, list2, combined_filter_criterion = lambda x,y: True, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True):
+    """
+    Filters two lists based on a filtering criterion applied to the first list.
+
+    Parameters:
+    - list1: The list whose elements are to be filtered based on the filter_criterion.
+    - list2: The list to be filtered in parallel with list1.
+    - filter_criterion: A function that takes an element of list1 and returns True if the element should be kept.
+
+    Returns:
+    - list1_filtered: The filtered version of list1 based on the filter_criterion.
+    - list2_filtered: The filtered version of list2, corresponding to the filtering of list1.
+    """
+    # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
+
+    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    if len(list1) == 0:
+        return [], []
+
+    list1_filtered, list2_filtered = zip(
+        *[(item1, item2) for item1, item2 in zip(list1, list2) if filter_criterion_list1(item1) and filter_criterion_list2(item2) and combined_filter_criterion(item1, item2)])
+
+    # Convert the tuples back to lists
+    return list(list1_filtered), list(list2_filtered)
+
+
+def filter_three_lists(list1, list2, list3, combined_filter_criterion = lambda x,y,z: True, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True, filter_criterion_list3 = lambda x: True):
+    """
+    Filters three lists based on a filtering criterion applied to the first list.
+
+    Parameters:
+    - list1: The list whose elements are to be filtered based on the filter_criterion.
+    - list2: The list to be filtered in parallel with list1.
+    - list3: The list to be filtered in parallel with list1.
+    - filter_criterion: A function that takes an element of list1 and returns True if the element should be kept.
+
+    Returns:
+    - list1_filtered: The filtered version of list1 based on the filter_criterion.
+    - list2_filtered: The filtered version of list2, corresponding to the filtering of list1.
+    - list3_filtered: The filtered version of list3, corresponding to the filtering of list1.
+    """
+    # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
+
+    assert len(list1) == len(list2) == len(list3), "[sort_three_lists] The three lists must have the same length."
+    if len(list1) == 0:
+        return [], [], []
+
+    list1_filtered, list2_filtered, list3_filtered = zip(
+        *[(item1, item2, item3) for item1, item2, item3 in zip(list1, list2, list3) if filter_criterion_list1(item1) and filter_criterion_list2(item2) and filter_criterion_list3(item3) and combined_filter_criterion(item1, item2, item3)])
+
+    # Convert the tuples back to lists
+    return list(list1_filtered), list(list2_filtered), list(list3_filtered)
+
+
 
 import requests
 def google_search(query, cx, api_key, num=10, filter=0, start=0):

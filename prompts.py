@@ -331,72 +331,315 @@ Cover the below points while answering and also add other necessary points as ne
 
     @property
     def planner_checker_prompt(self):
+        # TODO: Fire web search and document search prior to planner for speed.
         import datetime
         date = datetime.datetime.now().strftime("%d %B %Y")
         year = datetime.datetime.now().strftime("%Y")
         month = datetime.datetime.now().strftime("%B")
         day = datetime.datetime.now().strftime("%d")
         web_search_prompt = f"""Your task is to decide if we need to do web queries, need to read any uploaded docs, if we need to check our answer for further web search, and what queries we need to generate to search our documents or the web.
-    You are given a user message and conversation context as below. The current date is '{date}', year is {year}, month is {month}, day is {day}. 
-    Current question: 
-    '''{{context}}'''
+You are given a user message and conversation context as below. If we had done web search previously then you will also be given the web search queries and results so that you can decide if we need to do more web search or not. 
+If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
+The current date is '{date}', year is {year}, month is {month}, day is {day}. 
 
-    Conversation context:
-    '''{{doc_context}}'''
+Now based on given user message and conversation context decide if we need to do web search, read any uploaded documents, check our answer for further web search, and generate queries to search our documents or the web.
+Generate 4 well specified and diverse web search queries if web search is needed. 
 
-    Generate web search queries to search the web for more information about the current question. 
-    If the current question or conversation context requires a date, use the current date provided above. If it is asking for latest information or information for certain years ago then use the current date or the year provided above. 
-    {{pqs}}
-    Generate {{n_query}} well specified and diverse web search queries as a valid python list. 
+Your output should look be an xml tree with our reasons and decisions like below example format.
+<planner>
+    <thoughts>Based on the user message and conversation context, the user query is in science domain, we do not have previous links and the question can't be answered by LLM itself so we need to do web search, also since we have attached documents which are relevant so generate queries to search our documents.</thoughts>
+    <domain>Science</domain>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search>yes</web_search>
+    <read_document>yes</read_document>
+    <web_search_queries>
+        <query>diverse google search query based on given document</query>
+        <query>different_web_query based on the document and conversation</query>
+        <query>search engine optimised query based on the question and conversation</query>
+        <query>search query based on the question and conversation</query>
+    </web_search_queries>
+    <document_search_queries>
+        <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>What are the datasets used?</query></document_query>
+    </document_search_queries>
+</planner>
 
-    Your output should look like a python list of strings like below example.
-    Valid python list of web search query strings:
-    ["diverse google search query based on given document", "different_web_query based on the document and conversation", "search engine optimised query based on the question and conversation"]
+web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
 
-    Few examples are given below.
-    <example 1>
-    question:
-    '''What are the best ways to improve my health?'''
+We have the following list of domains to choose from:
+<select class="form-control" id="field-selector">
+    <option>None</option>
+    <option>Science</option>
+    <option>Arts</option>
+    <option>Health</option>
+    <option>Psychology</option>
+    <option>Finance</option>
+    <option>Mathematics</option>
+    <option>QnA</option>
+    <option>AI</option>
+    <option>Software</option>
+</select>
 
-    conversation context:
-    '''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
+Few examples are given below.
+<example 1>
 
-    Valid python list of web search query strings:
-    ["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising", "Ways to improve cardiovascular health in {year}"]
-    </example 1>
+Current user message:
+'''What are the best ways to improve my health?'''
 
-    # Note: Each web search query is different and diverse and focuses on different aspects of the question and conversation context.
+conversation context:
+'''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
 
-    <example 2>
-    question:
-    '''What are the recent developments in medical research for cancer cure?'''
+Previous Web Search Queries:
+["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising", "Ways to improve cardiovascular health in {year}"]
 
-    conversation context:
-    '''I am working on a new painkiller drug which may help cancer patients and want to know what are the latest trends in the field. I can also use ideas from broader developments in medicine.'''
+Previous Web Search Results in mardown format:
+'''
+[title1](link2) information from link1
+[title2](link2) information from link2
+'''
 
-    Valid python list of web search query strings:
-    ["latest discoveries and research in cancer cure in {year}", "latest research works in painkiller for cancer patients in {year}", "Pioneering painkiller research works in {month} {year}.", "Using cancer cure for medical research in {year}"]
+Available Document Details:
+'''
+[Document1](#doc_1) information from doc1
+[Document2](#doc_2) information from doc2
+'''
 
-    # Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+Valid xml tree with our reasons and decisions:
+<planner>
+    <thoughts>Based on the user message and conversation context we do not need to do web search and but we need search our documents and generate queries to search our documents.</thoughts>
+    <domain>Health</domain>
+    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
+    <web_search>no</web_search>
+    <read_document>yes</read_document>
+    <web_search_queries>
+    </web_search_queries>
+    <document_search_queries>
+        <document_query><document_id>#doc_2</document_id><query>What are the benefits of drinking more than 2 litre of water</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>Sleeping 8 hours good or bad</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>How to improve cardiovascular health</query></document_query>
+    </document_search_queries>
+</planner>
+    
 
-    <example 3>
-    question:
-    '''What are the emerging trends in AI and large language models?'''
+</example 1>
 
-    conversation context:
-    '''I am working on a new language model and want to know what are the latest trends in the field. I can also use ideas from broader developments in AI.'''
+# Note: Each web search query is different and diverse and focuses on different aspects of the question and conversation context.
 
-    Valid python list of web search query strings:
-    ["latest discoveries and research in AI in {year}", "research works in large language models {month} {year}", "Pioneering AI research works which can help improve large language models.", "Using large language models for AI research in {year}"]
-    </example 3>
+<example 2>
 
-    # Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+Current user message:
+'''What is the price to earnings ratio of Apple Inc?'''
 
-    Current question: 
-    '''{{context}}'''
-    Output only a valid python list of web search query strings for the current question.
-    Valid python list of web search query strings:
-    """
+conversation context:
+'''I am thinking of investing in Apple Inc and want to know the price to earnings ratio.'''
+
+Previous Web Search Queries:
+["Apple Inc price to earnings ratio", "Apple Inc financials", "Apple Inc stock price", "Apple Inc price to earnings ratio in {year}"]
+
+Previous Web Search Results in mardown format:
+'''
+[title1](Link1) information from link1 - no information on price to earnings ratio, price found.
+'''
+
+Available Document Details:
+'''
+[Apple Q4 earnings](#doc_1) information from doc1 about earnings
+[Apple Inc Financials](#doc_2) information from doc2 about financials
+[Apple Mac Documentation](#doc_3) information from doc3 about Macbooks - not relevant.
+'''
+
+Valid xml tree with our reasons and decisions:
+<planner>
+    <thoughts>Based on the user message and conversation context we need to do web search and also search our documents on apple financials.</thoughts>
+    <domain>Finance</domain>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search>yes</web_search>
+    <read_document>yes</read_document>
+    <web_search_queries>
+        <query>Apple Inc stock price in {date}</query>
+        <query>Apple Inc earning in {month} {year}</query>
+        <query>Apple Inc financial ratios</query>
+    </web_search_queries>
+    <document_search_queries>
+        <document_query><document_id>#doc_2</document_id><query>What are the earnings of Apple Inc in Q4</query></document_query>
+        <document_query><document_id>#doc_2</document_id><query>What are the financial ratios of Apple Inc</query></document_query>
+        <document_query><document_id>#doc_1</document_id><query>What are the earnings and profits of Apple Inc</query></document_query>
+    </document_search_queries>
+</planner> 
+
+</example 2>
+
+# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+<example 3>
+
+Current user message:
+'''What are the emerging trends in AI and large language models?'''
+
+conversation context:
+'''I am working on a new language model and want to know what are the latest trends in the field. I can also use ideas from broader developments in AI.'''
+
+Previous Web Search Queries:
+[]
+
+Previous Web Search Results in mardown format:
+''''''
+
+Available Document Details:
+''''''
+
+Valid xml tree with our reasons and decisions:
+<planner>
+    <thoughts>Based on the user message and conversation context we need to do web search since we have not done any web search and the question is looking for latest information that an LLM can't answer.</thoughts>
+    <domain>AI</domain>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search>yes</web_search>
+    <read_document>no</read_document>
+    <web_search_queries>
+        <query>Emerging trends in AI in {year}</query>
+        <query>Emerging trends in large language models in {year}</query>
+        <query>Recent research works in AI</query>
+        <query>Recent papers in large language models arxiv</query>
+    </web_search_queries>
+    <document_search_queries>
+    </document_search_queries>
+</planner>
+
+</example 3>
+
+# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+<example 4>
+
+Current user message:
+'''Write how to generate fibonacci numbers in python using recursion and iteration.'''
+
+conversation context:
+'''I am learning python and want to understand various algorithms in python.'''
+
+Previous Web Search Queries:
+[]
+
+Previous Web Search Results in mardown format:
+''''''
+
+Available Document Details:
+''''''
+
+Valid xml tree with our reasons and decisions:
+
+<planner>
+    <thoughts>Based on the user message and conversation context we do not need to do web search since this question is easy for an LLM to answer and the question is looking for programming help.</thoughts>
+    <domain>Software</domain>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search>no</web_search>
+    <read_document>no</read_document>
+    <web_search_queries>
+    </web_search_queries>
+    <document_search_queries>
+    </document_search_queries>
+</planner>
+
+</example 4>
+
+<example 5>
+
+Current user message:
+'''Methods to optimise LLM for large scale deployment.'''
+
+conversation context:
+'''I am working on a new language model and want to know how to deploy it at scale.'''
+
+Previous Web Search Queries:
+["optimise LLM for deployment", "deploying large language models"]
+
+Previous Web Search Results in mardown format:
+'''
+[title1](link1) information from link1 - no information on deployment, only on training.
+[Optimizing LLMs for Speed and Memory](https://huggingface.co/docs/transformers/main/en/llm_tutorial_optimization)
+In this guide, we will go over the effective techniques for efficient LLM deployment:
+Lower Precision: Research has shown that operating at reduced numerical precision, namely 8-bit and 4-bit can achieve computational advantages without a considerable decline in model performance.
+Flash Attention: Flash Attention is a variation of the attention algorithm that not only provides a more memory-efficient approach but also realizes increased efficiency due to optimized GPU memory utilization.
+Architectural Innovations: Considering that LLMs are always deployed in the same way during inference, namely autoregressive text generation with a long input context, specialized model architectures have been proposed that allow for more efficient inference. The most important advancement in model architectures hereby are Alibi, Rotary embeddings, Multi-Query Attention (MQA) and Grouped-Query-Attention (GQA).
+'''
+
+Available Document Details:
+''''''
+
+Valid xml tree with our reasons and decisions:
+<planner>
+    <thoughts>Previous search only has one relevant result, we would want at least five relevant results as such we should run web search again with more relevant queries. We should break the problem down based on the previous link and queries</thoughts>
+    <domain>AI</domain>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search>yes</web_search>
+    <read_document>no</read_document>
+    <web_search_queries>
+        <query>Deploying large language models at scale</query>
+        <query>Efficient deployment of large language models</query>
+        <query>Techniques for Optimising LLMs for deployment</query>
+        <query>Optimising LLMs for deployment in {year}</query>
+    </web_search_queries>
+    <document_search_queries>
+    </document_search_queries>
+</planner>
+
+</example 5>
+
+<example 6>
+
+Current user message:
+'''Summarise how Zomato performed in the last quarter.'''
+
+Conversation context:
+'''I am thinking of investing in Zomato and want to know how they have been performing recently.'''
+
+Previous Web Search Queries:
+[]
+
+Previous Web Search Results in mardown format:
+''''''
+
+Available Document Details:
+'''
+[Quarterly report for Zomato](#doc_1) information from doc1 regarding last quarter performance on zomato.
+'''
+
+Valid xml tree with our reasons and decisions:
+<planner>
+    <thoughts>Based on the user message and conversation context we do not need to do web search and but we need search our documents and generate queries to search our documents.</thoughts>
+    <domain>Finance</domain>
+    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
+    <web_search>no</web_search>
+    <read_document>yes</read_document>
+    <web_search_queries>
+    </web_search_queries>
+    <document_search_queries>
+        <document_query><document_id>#doc_1</document_id><query>What are the financials of Zomato in the last quarter</query></document_query>
+        <document_query><document_id>#doc_1</document_id><query>How did Zomato perform in the last quarter</query></document_query>
+        <document_query><document_id>#doc_1</document_id><query>What are the profits of Zomato in the last quarter</query></document_query>
+    </document_search_queries>
+</planner>
+
+</example 6>
+
+Current user message: 
+'''{{context}}'''
+
+Conversation context:
+'''{{doc_context}}'''
+
+Previous Web Search Queries (empty if no previous queries):
+'''{{web_search_queries}}'''
+
+Previous Web Search Results (empty if no previous results):
+'''{{web_search_results}}'''
+
+Available Document Details (empty if no documents):
+'''{{doc_details}}'''
+
+Valid xml tree with our reasons and decisions:
+"""
         web_search_prompt = PromptTemplate(
             input_variables=["context", "doc_context", "pqs", "n_query"],
             template=web_search_prompt)
@@ -449,6 +692,7 @@ conversation context:
 
 Valid python list of web search query strings:
 ["latest discoveries and research in cancer cure in {year}", "latest research works in painkiller for cancer patients in {year}", "Pioneering painkiller research works in {month} {year}.", "Using cancer cure for medical research in {year}"]
+</example 2>
 
 # Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
 

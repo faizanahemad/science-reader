@@ -243,7 +243,7 @@ def call_chat_model(model, text, temperature, system, keys):
     response = openai.ChatCompletion.create(
         model=model,
         api_key=api_key,
-        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###"] if "claude" in model else [],
+        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###", "<|eot_id|>"] if "claude" in model else [],
         messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": text},
@@ -587,21 +587,6 @@ class ContextualReader:
         self.name = "ContextualReader"
         self.provide_short_responses = provide_short_responses
         self.scan = scan
-        self.description = """
-ContextualReader:
-    This tool takes a context/query/instruction, and a text document. It reads the document based on the context or query instruction and outputs only parts of document relevant to the query. Useful when the document is too long and you need to store a short contextual version of it for answering the user request. Sometimes rephrasing the query/question/user request before asking the ContextualReader helps ContextualReader provide better results. You can also specify directives to ContextualReader like "return numbers only", along with the query for better results.
-
-    Input params/args: 
-        context_user_query (str): instructions or query on how to read the document to provide contextually useful content from the document.
-        text_document (str): document to read and provide information from using context_user_query.
-
-    Returns: 
-        str: contextual_content_from_document
-
-    Usage:
-        `contextual_content_from_document = ContextualReader()(context_user_query="instructions on how to read document", text_document="document to read") # Note: this tool needs to be initialized first.`
-
-    """
         # Use markdown formatting to typeset or format your answer better.
         long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
         response_prompt = "Write short, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
@@ -622,11 +607,11 @@ Only provide answer from the document given above.
         )
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
-    def get_one(self, context, document,):
+    def get_one(self, context, document, model_name="google/gemini-pro"):
         document = " ".join(document.split()[:64_000])
         prompt = self.prompt.format(context=context, document=document)
         try:
-            llm = CallLLm(self.keys, model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         except Exception as e:
             traceback.print_exc()
@@ -715,16 +700,22 @@ Only provide answer from the document given above.
         top_chunks = top_chunks_text
         return top_chunks
 
+    def scan(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
+        pass
+
     def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
         if doc_word_count < 1536:
-            return text_document
+            return text_document, get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3-8b-instruct:nitro")
         main_future = get_async_future(self.get_one_fast, context_user_query, text_document, retriever)
         alternative_future = None
         if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            alternative_future = get_async_future(self.get_one, context_user_query, text_document)
+            if doc_word_count <= TOKEN_LIMIT_FOR_NORMAL:
+                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3-8b-instruct:nitro")
+            else:
+                alternative_future = get_async_future(self.get_one, context_user_query, text_document)
             alt_source = "get_one"
         else:
             alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
@@ -736,68 +727,20 @@ Only provide answer from the document given above.
 
         if main_future.done() and main_future.exception() is None:
             time_logger.info(f"[ContextualReader] Main future done with result len = {len(main_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
-            return main_future.result()
+            return main_future.result(), alternative_future
 
         if alternative_future.done() and alternative_future.exception() is None:
             time_logger.info(f"[ContextualReader] Alternative future done ({alt_source}) with result len = {len(alternative_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
-            return alternative_future.result()
+            return alternative_future.result(), alternative_future
 
-        return ""
+        if alternative_future.exception() is not None:
+            while not main_future.done():
+                time.sleep(0.5)
+            error_logger.info(f"[ContextualReader] Alternative future failed with exception = {alternative_future.exception()}, time = {time.time()-st:.2f} seconds")
+            return main_future.result(), wrap_in_future("NO_RESULT")
 
-        short = self.provide_short_responses and doc_word_count < int(TOKEN_LIMIT_FOR_SHORT * 1.0) and not self.scan
-        if short and doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            result = self.get_one(context_user_query, text_document)
-        elif doc_word_count <= TOKEN_LIMIT_FOR_DETAILED:
-            rag_result = None
-            if self.scan:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query,
-                                              text_document, retriever) if not short else None
-            result = self.get_one(context_user_query, text_document)
-            if self.scan:
-                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
-                result = result + "\nMore Details:\n" + rag_result
-        elif doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2:
-            if self.scan:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever) if not short else None
-            result = self.get_one(context_user_query, text_document)
-            if self.scan:
-                rag_result = rag_result.result() if rag_result is not None and rag_result.exception() is None else ""
-                result = result + "\nMore Details:\n" + rag_result
-        elif doc_word_count > TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2:
-            chunks = ChunkText(text_document, chunk_size=TOKEN_LIMIT_FOR_EXTRA_DETAILED * 2, chunk_overlap=0)
-            first_chunk = chunks[0]
-            second_result = None
-            rag_result = None
-            if len(chunks) > 1:
-                first_chunk = first_chunk + "..."
-                second_chunk = first_chunk[:1000] + "\n...\n" + chunks[1]
-                second_result = get_async_future(self.get_one, context_user_query,
-                                                 second_chunk)
-            if self.scan:
-                rag_result = get_async_future(self.get_one_with_rag, context_user_query,
-                                                  text_document, retriever) if not short else None
+        return "NO_RESULT", wrap_in_future("NO_RESULT")
 
-            result = self.get_one(context_user_query, first_chunk)
-            result = result + "\n" + (second_result.result() if len(chunks) > 1 and second_result is not None else "") + "\n" + (rag_result.result() if rag_result is not None and rag_result.exception() is None else "") + "\n"
-        else:
-            raise ValueError(f"[ContextualReader] No matching case found for document length = {doc_word_count}, scan = {self.scan}, short = {short}.")
-
-        assert isinstance(result, str)
-        logger.info(
-            f"[ContextualReader] ContextualReader with result len = {len(result.split())} and doc len = {doc_word_count}")
-        result = get_first_last_parts(result, 512, 384) if short else get_first_last_parts(result, 2048 if self.scan else 1024, 1024 if self.scan else 512)
-        et = time.time()
-        time_logger.info(f"[ContextualReader] ContextualReader took {(et-st):.2f} seconds with result len = {len(result.split())} and doc len = {doc_word_count}")
-        return result
-
-def call_contextual_reader(query, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, keys=None, provide_short_responses=False, scan=False)->str:
-    start_time = time.time()
-    assert isinstance(document, str)
-    cr = ContextualReader(keys, provide_short_responses=provide_short_responses, scan=scan)
-    contextual_response = cr(query, document, retriever=retriever)
-    total_time = time.time() - start_time
-    time_logger.info(f"[call_contextual_reader] Only ContextualReader took {total_time:.2f} seconds with document len = {len(document.split())} and query len = {len(query.split())} and result len = {len(contextual_response.split())}")
-    return contextual_response
 
 
 import json
@@ -1718,7 +1661,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         pqs.extend(extra_queries)
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, pqs=pqs, n_query=n_query)
-    if (len(extra_queries) < 1) or (len(extra_queries) < 2 and provide_detailed_answers >= 2):
+    if (len(extra_queries) == 0) or (len(extra_queries) <= 1 and provide_detailed_answers >= 3):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
         query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
@@ -2011,7 +1954,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
             more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
         summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
         if detailed >= 2:
-            more_summary = more_summary.result() if more_summary.exception() is None else ""
+            more_summary = more_summary.result()["text"] if more_summary.exception() is None else ""
             summary = f"{summary}\n\n{more_summary}"
 
     except AssertionError as e:
@@ -2251,13 +2194,14 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
     time_logger.info(f"Invoke contextual reader for link: {link}. Input length = {input_len}")
-    extracted_info = call_contextual_reader(context, txt, None,
-                                            api_keys, provide_short_responses=not detailed and not use_large_context,
-                                            scan=use_large_context)
+
+    result = ContextualReader(api_keys, provide_short_responses=not detailed and not use_large_context, scan=use_large_context)(context, txt, retriever=None)
+    extracted_info, llm_result_future = result
+
     tt = time.time() - st
     tex_len = len(extracted_info.split())
     time_logger.info(f"Called contextual reader for link: {link}, Input length = {input_len}, Result length = {tex_len} with total time = {tt:.2f}")
-    return {"link": link, "title": title, "context": context, "text": extracted_info, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
+    return {"link": link, "title": title, "context": context, "text": extracted_info, "llm_result_future": llm_result_future, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
 
 def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
@@ -2294,15 +2238,17 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             link = ''
         full_result = None
         text = ''
+        llm_result_future = wrap_in_future("NO_LLM_RESULT")
 
         if result is not None:
             assert isinstance(result, dict)
             result.pop("exception", None)
             result.pop("detailed", None)
+            llm_result_future = result.pop("llm_result_future", wrap_in_future("NO_LLM_RESULT"))
             full_result = deepcopy(result)
             result.pop("full_text", None)
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
-        return {"text": text, "full_info": full_result, "link": link, "title": result['title']}
+        return {"text": text, "llm_result_future": llm_result_future, "full_info": full_result, "link": link, "title": result['title']}
 
     threads = 64
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
@@ -2486,64 +2432,5 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     logger.info(f"[get_multiple_answers]: Time spent = {time_spent:.2f}, Query = ```{query}```\nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}")
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
-
-def sort_two_lists(list1, list2, key=None, reverse=False):
-    """
-    Sorts two lists based on the sorting of the first list using an optional sorting key.
-
-    Parameters:
-    - list1: The list to be sorted.
-    - list2: The list to be sorted in the same order as list1.
-    - sort_key: Optional. A function that would serve as a key for the sorting criteria.
-                If None, the list1 elements themselves are used for sorting.
-    - reverse: Optional. If True, the lists are sorted in reverse order.
-
-    Returns:
-    - list1_sorted: The sorted version of list1.
-    - list2_sorted: The sorted version of list2, in the same order as list1_sorted.
-    """
-    # If no sort_key is provided, use the elements of list1 as they are
-    if key is None:
-        key = lambda x: x
-
-    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
-    if len(list1) == 0:
-        return [], []
-
-        # Pair each element of list1 with its corresponding element in list2
-    paired = list(zip(list1, list2))
-    # Sort the paired list by the provided sort_key applied to the elements of list1
-    paired_sorted = sorted(paired, key=lambda x: key(x[0]), reverse=reverse)
-    # Unzip the pairs back into two lists
-    list1_sorted, list2_sorted = zip(*paired_sorted)
-
-    # Convert the tuples back to lists
-    return list(list1_sorted), list(list2_sorted)
-
-
-def filter_two_lists(list1, list2, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True):
-    """
-    Filters two lists based on a filtering criterion applied to the first list.
-
-    Parameters:
-    - list1: The list whose elements are to be filtered based on the filter_criterion.
-    - list2: The list to be filtered in parallel with list1.
-    - filter_criterion: A function that takes an element of list1 and returns True if the element should be kept.
-
-    Returns:
-    - list1_filtered: The filtered version of list1 based on the filter_criterion.
-    - list2_filtered: The filtered version of list2, corresponding to the filtering of list1.
-    """
-    # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
-
-    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
-    if len(list1) == 0:
-        return [], []
-
-    list1_filtered, list2_filtered = zip(
-        *[(item1, item2) for item1, item2 in zip(list1, list2) if filter_criterion_list1(item1) and filter_criterion_list2(item2)])
-
-    # Convert the tuples back to lists
-    return list(list1_filtered), list(list2_filtered)
 
 

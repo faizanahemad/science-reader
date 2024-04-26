@@ -733,16 +733,16 @@ Detailed and comprehensive summary:
         llm = CallLLm(self.get_api_keys(), use_gpt4=True)
         answer = previous_answer["answer"] + "\n" + (
             previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
-        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer) - 1000
+        rem_word_len = TOKEN_LIMIT_FOR_DETAILED - get_gpt4_word_count(answer) - 1000
         rem_tokens = rem_word_len // self.chunk_size
         raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
         raw_text = "\n".join([n.page_content for n in raw_nodes])
-        rem_word_len = MODEL_TOKENS_SMART - get_gpt4_word_count(answer + raw_text) - 500
+        rem_word_len = TOKEN_LIMIT_FOR_DETAILED - get_gpt4_word_count(answer + raw_text) - 500
         prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"],
                                       answer=answer,
                                       fragment=raw_text)
 
-        prompt = get_first_last_parts(prompt, 1000, MODEL_TOKENS_SMART - 1000)
+        prompt = get_first_last_parts(prompt, 1000, TOKEN_LIMIT_FOR_DETAILED - 1000)
         generator = llm(prompt, temperature=0.7, stream=True)
         answer = ''
         
