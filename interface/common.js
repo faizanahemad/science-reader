@@ -697,16 +697,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option selected>None</option>
                 <option>Science</option>
                 <option>Arts</option>
-                <option>Medicine</option>
-                <option>Fitness</option>
+                <option>Health</option>
                 <option>Psychology</option>
                 <option>Finance</option>
-                <option>Economics</option>
                 <option>Mathematics</option>
                 <option>QnA</option>
                 <option>AI</option>
-                <option>Software (Python)</option>
-                <option>Software (UI)</option>
+                <option>Software</option>
             </select>
         </div>
         
