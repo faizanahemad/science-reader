@@ -641,6 +641,7 @@ Write the extracted information concisely below:
         summary_text_init = summary
         summary_text = summary
         checkboxes = query["checkboxes"]
+        planner_enabled = checkboxes["planner_enabled"] if "planner_enabled" in checkboxes else False
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
@@ -690,6 +691,7 @@ Write the extracted information concisely below:
         additional_docs_to_read = query["additional_docs_to_read"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         google_scholar = checkboxes["googleScholar"]
+        agentic_search = checkboxes["agentic_search"] if "agentic_search" in checkboxes else False
         message_config["googleScholar"] = google_scholar
         message_config["searches"] = searches
         original_user_query = user_query

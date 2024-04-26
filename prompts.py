@@ -330,6 +330,79 @@ Cover the below points while answering and also add other necessary points as ne
         return prompts["chat_slow_reply_prompt"]
 
     @property
+    def planner_checker_prompt(self):
+        import datetime
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+        web_search_prompt = f"""Your task is to decide if we need to do web queries, need to read any uploaded docs, if we need to check our answer for further web search, and what queries we need to generate to search our documents or the web.
+    You are given a user message and conversation context as below. The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+    Current question: 
+    '''{{context}}'''
+
+    Conversation context:
+    '''{{doc_context}}'''
+
+    Generate web search queries to search the web for more information about the current question. 
+    If the current question or conversation context requires a date, use the current date provided above. If it is asking for latest information or information for certain years ago then use the current date or the year provided above. 
+    {{pqs}}
+    Generate {{n_query}} well specified and diverse web search queries as a valid python list. 
+
+    Your output should look like a python list of strings like below example.
+    Valid python list of web search query strings:
+    ["diverse google search query based on given document", "different_web_query based on the document and conversation", "search engine optimised query based on the question and conversation"]
+
+    Few examples are given below.
+    <example 1>
+    question:
+    '''What are the best ways to improve my health?'''
+
+    conversation context:
+    '''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
+
+    Valid python list of web search query strings:
+    ["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising", "Ways to improve cardiovascular health in {year}"]
+    </example 1>
+
+    # Note: Each web search query is different and diverse and focuses on different aspects of the question and conversation context.
+
+    <example 2>
+    question:
+    '''What are the recent developments in medical research for cancer cure?'''
+
+    conversation context:
+    '''I am working on a new painkiller drug which may help cancer patients and want to know what are the latest trends in the field. I can also use ideas from broader developments in medicine.'''
+
+    Valid python list of web search query strings:
+    ["latest discoveries and research in cancer cure in {year}", "latest research works in painkiller for cancer patients in {year}", "Pioneering painkiller research works in {month} {year}.", "Using cancer cure for medical research in {year}"]
+
+    # Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+    <example 3>
+    question:
+    '''What are the emerging trends in AI and large language models?'''
+
+    conversation context:
+    '''I am working on a new language model and want to know what are the latest trends in the field. I can also use ideas from broader developments in AI.'''
+
+    Valid python list of web search query strings:
+    ["latest discoveries and research in AI in {year}", "research works in large language models {month} {year}", "Pioneering AI research works which can help improve large language models.", "Using large language models for AI research in {year}"]
+    </example 3>
+
+    # Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
+
+    Current question: 
+    '''{{context}}'''
+    Output only a valid python list of web search query strings for the current question.
+    Valid python list of web search query strings:
+    """
+        web_search_prompt = PromptTemplate(
+            input_variables=["context", "doc_context", "pqs", "n_query"],
+            template=web_search_prompt)
+        return web_search_prompt
+
+    @property
     def web_search_prompt(self):
         import datetime
         date = datetime.datetime.now().strftime("%d %B %Y")
