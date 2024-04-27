@@ -158,6 +158,43 @@ class Conversation:
     # Make a method to persist important details and encapsulate all logic for persisting important details in a function
 
     @property
+    def memory_pad(self):
+        if hasattr(self, "_memory_pad"):
+            return self._memory_pad
+        return ''
+
+    @memory_pad.setter
+    def memory_pad(self, value):
+        if hasattr(self, "_memory_pad"):
+            self._memory_pad = value
+        else:
+            setattr(self, "_memory_pad", value)
+        self.save_local()
+
+    def set_memory_pad(self, value):
+        self.memory_pad = value
+
+    def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
+        # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
+        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and system response.
+Conversation Summary: '''{conversation_summary}'''
+Previous messages: '''{previous_messages}'''
+Older memory: '''{self.memory_pad}'''
+
+User query: '''{queryText}'''
+Response: '''{responseText}'''
+
+Only add new details, facts, numbers, metrics from the user query and system response that the older memory does not have.
+Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
+Write the new extracted information below in simple bullet points:
+"""
+        llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False) # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        new_memory = llm(prompt, temperature=0.2, stream=False)
+        self.memory_pad += ("\n" + new_memory)
+        time_logger.info(f"Memory pad updated with new memory , with length = {len(self.memory_pad.split())}")
+        return self.memory_pad
+
+    @property
     def domain(self):
         if hasattr(self, "_domain"):
             return self._domain
@@ -456,6 +493,7 @@ Title of the conversation:
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
         memory = get_async_future(self.get_field, "memory")
+        memory_pad = get_async_future(self.add_to_memory_pad_from_response, query, response, previous_messages_text, previous_summary)
         preserved_messages = [
             {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
@@ -480,6 +518,7 @@ Title of the conversation:
         # self.set_field("memory", memory)
         msg_set.result()
         mem_set.result()
+        memory_pad.result()
 
     def delete_message(self, message_id, index):
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})

@@ -1438,6 +1438,37 @@ def delete_last_message(conversation_id):
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
 
+@app.route('/set_memory_pad/<conversation_id>', methods=['POST'])
+@limiter.limit("25 per minute")
+@login_required
+def set_memory_pad(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    memory_pad = request.json.get('text')
+    conversation.set_memory_pad(memory_pad)
+    return jsonify({'message': f'Memory pad set'})
+
+@app.route('/fetch_memory_pad/<conversation_id>', methods=['GET'])
+@limiter.limit("25 per minute")
+@login_required
+def fetch_memory_pad(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    memory_pad = conversation.memory_pad
+    return jsonify({'text': memory_pad})
+
 # Next we build - create_session,
 # Within session the below API can be used - create_document_from_link, create_document_from_link_and_ask_question, list_created_documents, delete_created_document, get_created_document_details
 

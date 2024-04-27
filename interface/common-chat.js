@@ -78,6 +78,29 @@ var ConversationManager = {
         });
     },
 
+    saveMemoryPadText: function (text) {
+        activeConversationId = this.activeConversationId
+        return $.ajax({
+            url: '/set_memory_pad/' + activeConversationId,
+            type: 'POST',
+            data: { 'text': text },
+            success: function (result) {
+                $('#memory-pad-text').val(text);
+            }
+        });
+    },
+
+    fetchMemoryPad: function () {
+        activeConversationId = this.activeConversationId
+        return $.ajax({
+            url: '/fetch_memory_pad/' + activeConversationId,
+            type: 'GET',
+            success: function (result) {
+                $('#memory-pad-text').val(result.text);
+            }
+        });
+    },
+
     setActiveConversation: function (conversationId) {
         this.activeConversationId = conversationId;
         // Load and render the messages in the active conversation, clear chat view
@@ -85,6 +108,9 @@ var ConversationManager = {
             ChatManager.renderMessages(conversationId, messages, true);
             $('#messageText').focus();
 
+        });
+        this.fetchMemoryPad().fail(function () {
+            alert('Error fetching memory pad');
         });
         ChatManager.listDocuments(conversationId).done(function (documents) {
             ChatManager.renderDocuments(conversationId, documents);
@@ -838,6 +864,9 @@ function sendMessageCallback() {
         $('#linkInput').val('')
         $('#searchInput').val('')
         $('#messageText').focus();
+        ConversationManager.fetchMemoryPad().fail(function () {
+            alert('Error fetching memory pad');
+        });
     });
     var chatView = $('#chatView');
     chatView.scrollTop(chatView.prop('scrollHeight'));

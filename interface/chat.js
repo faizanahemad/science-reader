@@ -70,6 +70,17 @@ $(document).ready(function() {
     });
     $(window).scrollTop(0);
     scrollToBottom();
+
+    $('#memory-pad-text-open-button').click(function() {
+        $('#memory-pad-modal').modal('show');
+    });
+
+    $('#memory-pad-text-save-button').click(function() {
+        // get text from textarea with id as memory-pad-text
+        var text = $('#memory-pad-text').val();
+        ConversationManager.saveMemoryPadText(text);
+        $('#memory-pad-modal').modal('hide');
+    });
     // $('#toggleChatDocsView').click();
 })
 
