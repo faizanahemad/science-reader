@@ -184,13 +184,50 @@ Older memory: '''{self.memory_pad}'''
 User query: '''{queryText}'''
 Response: '''{responseText}'''
 
-Only add new details, facts, numbers, metrics from the user query and system response that the older memory does not have.
+Only add new details, facts, numbers, metrics from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
 Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
-Write the new extracted information below in simple bullet points:
+Write the new extracted information below in compact bullet points.
+
+## New Information:
+
 """
         llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False) # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
         new_memory = llm(prompt, temperature=0.2, stream=False)
+        new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
+        # remove double \n
+        memory_parts = self.memory_pad.split("\n")
+
+        if len(self.memory_pad.split()) > 8000 and len(memory_parts) > 64:
+            # split menmory pad into 8 equal parts using \n separator and then merging them back
+
+            part_size = len(memory_parts)//8
+            memory_parts = [memory_parts[i: part_size * (i//part_size + 1)] for i in range(0, len(memory_parts), part_size)]
+            memory_parts = ["\n".join(mp) for mp in memory_parts]
+            shorten_prompt = """You are given important factual information from two sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points.
+The information is as follows:
+First source of information:
+{}
+
+Second source of information:
+{}
+
+Now merge the two sources of information into a single compact list of bullet points. Merge any similar information and also remove any redundant information. Write compactly and in a brief manner while capturing all information.
+Compact list of bullet points:
+"""
+
+            memory_parts_futures = []
+            for i in range(0, len(memory_parts), 2):
+                llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
+                if i + 1 < len(memory_parts):
+                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
+                else:
+                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], ""), temperature=0.2, stream=False))
+
+            memory_parts = [mp.result() for mp in memory_parts_futures]
+            memory_pad = "\n".join(memory_parts)
+            memory_pad = re.sub(r'\n+', '\n', memory_pad)
+            self.memory_pad = memory_pad
         time_logger.info(f"Memory pad updated with new memory , with length = {len(self.memory_pad.split())}")
         return self.memory_pad
 
@@ -664,7 +701,7 @@ Write the extracted information concisely below:
 
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
-        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         time_dict = dict()
@@ -709,7 +746,7 @@ Write the extracted information concisely below:
                 if "googleScholar" in previous_message_config and previous_message_config["googleScholar"]:
                     checkboxes["googleScholar"] = True
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
-        message_config = dict(**checkboxes)
+
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
         else:
@@ -717,6 +754,11 @@ Write the extracted information concisely below:
 
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         user_query = query['messageText']
+        use_memory_pad = False
+        if "memory pad" in user_query or "memory_pad" in user_query or ("use_memory_pad" in checkboxes and checkboxes["use_memory_pad"]):
+            use_memory_pad = True
+            checkboxes["use_memory_pad"] = True
+        message_config = dict(**checkboxes)
         link_context = previous_context + user_query + (previous_message_config["link_context"] if tell_me_more else '')
         message_config["link_context"] = link_context
 
@@ -1415,6 +1457,8 @@ Write the extracted information concisely below:
             previous_messages = previous_messages_short
             truncate_text = truncate_text_for_gpt4_16k
 
+        memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
+
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
             link_result_text, web_text, doc_answer, summary_text, previous_messages,
             query["messageText"], conversation_docs_answer)
@@ -1428,7 +1472,7 @@ Write the extracted information concisely below:
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions=permanent_instructions + partial_answer_text,
+                                                       permanent_instructions=permanent_instructions + partial_answer_text + memory_pad,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)

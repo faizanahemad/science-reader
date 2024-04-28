@@ -709,6 +709,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1">
             <button class="btn btn-primary rounded-pill mt-1" id="memory-pad-text-open-button"><i class="bi bi-pen"></i>&nbsp;Memory</button>
         </div>
+
+        <div class="form-check form-check-inline mt-1">
+            <input class="form-check-input" id="use_memory_pad" type="checkbox">
+            <label class="form-check-label" for="use_memory_pad">Use Pad</label>
+        </div>
         
     </div>
     <div class="col-md-auto mt-1" style="width: 100%;">
@@ -793,6 +798,7 @@ function getOptions(parentElementId, type) {
         perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
         use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
         tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked'),
+        use_memory_pad: $('#use_memory_pad').is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
