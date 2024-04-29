@@ -966,8 +966,8 @@ Write the extracted information concisely below:
                 prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                                summary_text=summary_text,
                                                                previous_messages=previous_messages_short,
-                                                               permanent_instructions='Include references inline in wikipedia format. Answer concisely and briefly while covering all given references.',
-                                                               doc_answer='', web_text=full_web_string,
+                                                               permanent_instructions='Include references inline in wikipedia markdown format. Answer shortly, concisely and briefly while covering all given references.',
+                                                               doc_answer='', web_text="\n"+full_web_string,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
                 answer_summary = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-7b-instruct:nitro", use_16k=True,

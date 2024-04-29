@@ -589,7 +589,7 @@ class ContextualReader:
         self.scan = scan
         # Use markdown formatting to typeset or format your answer better.
         long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
-        response_prompt = "Write short, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
+        response_prompt = "Write short, compact, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
         self.prompt = PromptTemplate(
             input_variables=["context", "document"],
             template=f"""You are an information retrieval agent. {long_or_short}
@@ -2195,7 +2195,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
     time_logger.info(f"Invoke contextual reader for link: {link}. Input length = {input_len}")
 
-    result = ContextualReader(api_keys, provide_short_responses=not detailed and not use_large_context, scan=use_large_context)(context, txt, retriever=None)
+    result = ContextualReader(api_keys, provide_short_responses=True, scan=use_large_context)(context, txt, retriever=None)
     extracted_info, llm_result_future = result
 
     tt = time.time() - st
