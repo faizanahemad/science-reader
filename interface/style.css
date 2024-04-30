@@ -484,3 +484,17 @@ pre code.hljs {
     overflow-x: auto;
     padding: 1.5em;
 }
+
+@media (max-width: 768px) {
+    #pdf-tab-nav {
+        display: none;
+    }
+
+    #review-tab-nav {
+        display: none;
+    }
+
+    #get-chat-transcript {
+        display: none;
+    }
+}

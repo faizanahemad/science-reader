@@ -28,7 +28,8 @@
         MathJax.Hub.Config({
           tex2jax: {
             inlineMath: [['$', '$'], ['$ ', ' $'], ['$$ ', ' $$'], ['$$', '$$'], ['\\(', '\\)']],
-            processEscapes: true
+            processEscapes: true,
+            skipTags: ["code", "pre"],
           }
         });
     </script>
@@ -62,7 +63,7 @@
             <li class="nav-item">
                 <a class="nav-link" id="show-sidebar" href="#"><i class="fa fa-bars"></i></a>
             </li>
-            <li class="nav-item">
+            <li class="nav-item" id="pdf-tab-nav">
                 <a class="nav-link" id="pdf-tab" data-toggle="tab" href="#pdf-content" role="tab">PDF</a>
             </li>
             <li class="nav-item">
@@ -80,11 +81,11 @@
             <li class="nav-item">
                 <a class="nav-link" id="finchat-tab" href="#finchat-view" data-toggle="tab" role="tab">Fin-Chat</a>
             </li>
-            <!--
-            <li class="nav-item">
+            
+            <li class="nav-item" id="review-tab-nav">
               <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Review</a>
             </li>
-            -->
+            
             <li class="nav-item">
                 <a class="nav-link" id="toggle-tab-content" href="#"><i class="bi bi-caret-up-fill"> Hide PDF</i> <i class="bi bi-caret-down-fill"> Show PDF</i></a>
             </li>
