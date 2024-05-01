@@ -391,6 +391,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             try { html = jqelem[0].innerHTML } catch (error) { html = jqelem.innerHTML }
         }
     }
+    // remove <answer> and </answer> tags
+    html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
     var htmlChunk = marked.marked(html, { renderer: markdownParser });
     htmlChunk = removeEmTags(htmlChunk);
     try {
@@ -418,10 +420,25 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (callback) {
         MathJax.Hub.Queue(callback)
     }
-    code_elems = $(elem_to_render_in).find('code')
-    Array.from(code_elems).forEach(function (code_elem) {
-        // hljs.highlightBlock(code_elem);
-    });
+    MathJax.Hub.Queue(function() {
+        mermaid.run({
+            querySelector: 'pre.mermaid',
+            useMaxWidth: false,
+            suppressErrors: true,
+
+        }).then(() => {
+            // find all svg inside .mermaid class pre elements.
+            var svgs = $(document).find('pre.mermaid svg');
+            // iterate over each svg element and unset its height attribute
+            svgs.each(function (index, svg) {
+                $(svg).attr('height', null);
+            });
+        });
+        code_elems = $(elem_to_render_in).find('code')
+        Array.from(code_elems).forEach(function (code_elem) {
+            hljs.highlightBlock(code_elem);
+        });
+    })
 }
 
 function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term = '', activeDocId = null) {

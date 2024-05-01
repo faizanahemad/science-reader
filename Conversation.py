@@ -28,6 +28,8 @@ import requests
 import dill
 import os
 import re
+
+from code_runner import code_runner_with_retry, extract_code
 from prompts import prompts
 from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
@@ -267,9 +269,15 @@ Compact list of bullet points:
     @property
     def store_separate(self):
         return ["indices", "raw_documents", "raw_documents_index", "memory", "messages", "uploaded_documents_list"]
-    def add_uploaded_document(self, pdf_url):
+
+    @property
+    def documents_path(self):
         storage = os.path.join(self._storage, "uploaded_documents")
         os.makedirs(storage, exist_ok=True)
+        return storage
+
+    def add_uploaded_document(self, pdf_url):
+        storage = self.documents_path
         keys = self.get_api_keys()
         keys["mathpixKey"] = None
         keys["mathpixId"] = None
@@ -569,7 +577,8 @@ Title of the conversation:
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
-    def get_uploaded_documents_for_query(self, query, replace_reference=True):
+    def get_uploaded_documents_for_query(self, query, replace_reference=True, ignore_large_data_files=True, choose_only_data_files=False):
+        assert (ignore_large_data_files and not choose_only_data_files) or (not ignore_large_data_files and choose_only_data_files)
         attached_docs = re.findall(r'#doc_\d+', query["messageText"])
         attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
@@ -579,11 +588,16 @@ Title of the conversation:
             uploaded_documents = self.get_uploaded_documents()
             attached_docs: List[int] = [d for d in attached_docs if len(uploaded_documents) >= d >= 1]
             attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
+            if ignore_large_data_files:
+                attached_docs = [d for d in attached_docs if os.path.getsize(d.doc_source) < 100 * 1024 or d.doc_source.endswith(".pdf") or d.doc_source.endswith(".html")]
+            if choose_only_data_files:
+                assert replace_reference
+                attached_docs = [d for d in attached_docs if d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(".tsv") or d.doc_source.endswith(".xlsx")]
             doc_infos = [d.title for d in attached_docs]
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
             if replace_reference:
                 for i, d in enumerate(attached_docs_names):
-                    query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n")
+                    query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n" + (f"file: {d.doc_source}\n" if choose_only_data_files else ""))
         return query, attached_docs, attached_docs_names
 
     def get_prior_messages_summary(self, query:str)->str:
@@ -984,7 +998,7 @@ Write the extracted information concisely below:
             # TODO: CUstom weight time
             while True:
                 qu_wait = time.time()
-                break_condition = (len(web_text_accumulator) >= (cut_off//1) and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
+                break_condition = (len(web_text_accumulator) >= cut_off and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -1122,7 +1136,7 @@ Write the extracted information concisely below:
                     lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
                         0].lower(), web_text_accumulator))
 
-            elif provide_detailed_answers > 2:
+            elif provide_detailed_answers >= 3:
                 logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
                 while True:
                     qu_wait = time.time()
@@ -1469,10 +1483,16 @@ Write the extracted information concisely below:
             f"Time to wait before preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
         yield {"text": '', "status": "Preparing prompt ..."}
         permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes and len(checkboxes["permanentText"].strip()) > 0 else ""
+        query_with_dataf_file_refs, attached_docs, attached_docs_names = self.get_uploaded_documents_for_query(query, replace_reference=True, ignore_large_data_files=False, choose_only_data_files=True)
+        prefix = str(mmh3.hash(self.conversation_id + query["messageText"] + summary_text, signed=False))
+        plot_prefix = f"plot-{prefix}-"
+        file_prefix = f"file-{prefix}-"
+        coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path, output_directory=self.documents_path, input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in zip(attached_docs, attached_docs_names)]), plot_prefix=plot_prefix, file_prefix=file_prefix,
+                                     )
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions=permanent_instructions + partial_answer_text + memory_pad,
+                                                       permanent_instructions=permanent_instructions + partial_answer_text + memory_pad + coding_rules,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
@@ -1494,31 +1514,6 @@ Write the extracted information concisely below:
         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
         t2y = next(main_ans_gen)
         time_dict["first_word_generated"] = time.time() - st
-        # next_token_future = get_async_future(lambda: next(main_ans_gen))
-        # wt_prior_ctx = time.time()
-        # init_one = False
-        # init_two = False
-        # while time.time() - wt_prior_ctx < 45:
-        #     # check if next is available on main_ans_gen and can give a response.
-        #     if next_token_future.done() and next_token_future.exception() is None:
-        #         t2y = next_token_future.result()
-        #         break
-        #     elif time.time() - wt_prior_ctx > 15 and not init_one:
-        #         init_one = True
-        #         llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-        #         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
-        #         next_token_future = get_async_future(lambda: next(main_ans_gen))
-        #     elif time.time() - wt_prior_ctx > 30 and not init_two:
-        #         init_two = True
-        #         llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-        #         main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
-        #         next_token_future = get_async_future(lambda: next(main_ans_gen))
-        #     elif time.time() - wt_prior_ctx > 40:
-        #         logger.error(f"[main_ans_gen] Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.")
-        #         yield {"text": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds.", "status": f"Could not get next token from [main_ans_gen] for model {model_name} in 45 seconds."}
-        #         break
-        #
-        #     time.sleep(0.5)
 
 
         yield {"text": t2y, "status": "answering in progress"}
@@ -1545,9 +1540,48 @@ Write the extracted information concisely below:
             logger.debug(f"Web text: {web_text}")
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
+        already_executed_code = []
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
+            # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
+            code_to_execute = extract_code(answer)
+            if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
+                already_executed_code.append(code_to_execute)
+                success, failure_reason, stdout, stderr = code_runner_with_retry(query["messageText"], coding_rules, CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True), code_to_execute)
+                if success:
+                    if stdout.strip() != "":
+                        stdout = "\n" + f"```shell\n{stdout}\n```\n"
+                        yield {"text": stdout, "status": "answering in progress"}
+                        answer += stdout
+                    # look in self.documents_path directory if any file with start as plot_prefix exists, if yes, then send that file as image in markdown format.
+
+                    files = [f for f in os.listdir(self.documents_path) if f.startswith(plot_prefix)]
+                    for f in files:
+                        image_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                        # TODO: url_encode_image_path with urllib
+                        image_path = image_path.replace(" ", "%20")
+                        image_md = f"![{f}]({image_path})"
+                        yield {"text": image_md, "status": "answering in progress"}
+                        answer += image_md
+
+                        yield {"text": "\n", "status": "answering in progress"}
+                        answer += "\n"
+
+                    files = [f for f in os.listdir(self.documents_path) if f.startswith(file_prefix)]
+                    for f in files:
+                        file_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                        download_link = f"[Download {f}]({file_path})"
+                        yield {"text": download_link, "status": "answering in progress"}
+                        answer += download_link
+                        yield {"text": "\n", "status": "answering in progress"}
+                        answer += "\n"
+                else:
+                    stderr = "\n" + f"```shell\n{stderr}\n{failure_reason}\n```\n"
+                    yield {"text": stderr, "status": "answering in progress"}
+                    answer += stderr
+
+
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")

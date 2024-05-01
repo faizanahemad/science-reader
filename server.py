@@ -1469,6 +1469,24 @@ def fetch_memory_pad(conversation_id):
     memory_pad = conversation.memory_pad
     return jsonify({'text': memory_pad})
 
+@app.route('/get_conversation_output_docs/<conversation_id>/<document_file_name>', methods=['GET'])
+@limiter.limit("25 per minute")
+@login_required
+def get_conversation_output_docs(conversation_id, document_file_name):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    if os.path.exists(os.path.join(conversation.documents_path, document_file_name)):
+        return send_from_directory(conversation.documents_path, document_file_name)
+    else:
+        return jsonify({"message": "Document not found"}), 404
+
+
 # Next we build - create_session,
 # Within session the below API can be used - create_document_from_link, create_document_from_link_and_ask_question, list_created_documents, delete_created_document, get_created_document_details
 

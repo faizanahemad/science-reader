@@ -330,6 +330,38 @@ Cover the below points while answering and also add other necessary points as ne
         return prompts["chat_slow_reply_prompt"]
 
     @property
+    def coding_prompt(self):
+        import datetime
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+
+
+        rules = """
+## Rules for writing code (especially code that needs to be executed and run)
+- Write code that needs to be executed inside <code action="execute"> and </code> tags.
+- Write code that doesn't need to be executed inside <code action="noexecute"> and </code> tags or inside triple ticks.
+- You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
+- If asked to read files, only read these filenames from the input directory: {input_files}.
+- You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
+- Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside triple ticks like (```mermaid <mermaid code> ```) and then copy it inside <pre class="mermaid"> and </pre> tags.
+- You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
+- Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
+- Code in python preferably and write code in a single cell for code execution tasks.
+- Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
+- You are allowed to make plots and graphs and save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
+- You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
+- Make high quality plots with clear and extensive labels and explanations.
+- Allowed to read csv, excel, parquet, tsv only.
+- Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
+- Do not delete any files.
+- Do not use any other libraries other than the ones mentioned above.
+""" + f"\n- The current date is '{date}', year is {year}, month is {month}, day is {day}.\n"
+        return rules
+
+
+    @property
     def planner_checker_prompt(self):
         # TODO: Fire web search and document search prior to planner for speed.
         import datetime
@@ -337,10 +369,16 @@ Cover the below points while answering and also add other necessary points as ne
         year = datetime.datetime.now().strftime("%Y")
         month = datetime.datetime.now().strftime("%B")
         day = datetime.datetime.now().strftime("%d")
-        web_search_prompt = f"""Your task is to decide if we need to do web queries, need to read any uploaded docs, if we need to check our answer for further web search, and what queries we need to generate to search our documents or the web.
+        web_search_prompt = f"""You are an expert AI system that determines which function to call (function calling and tool usage). Your task is to decide if we need to do web queries, need to read any uploaded docs, if we need to check our answer for further web search, and what queries we need to generate to search our documents or the web.
 You are given a user message and conversation context as below. If we had done web search previously then you will also be given the web search queries and results so that you can decide if we need to do more web search or not. 
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+
+Previous web search queries are given below (empty if no web search done previously):
+'''{{previous_web_search_queries}}'''
+
+Previous web search results are given below (empty if no web search done previously):
+'''{{previous_web_search_results}}'''
 
 Now based on given user message and conversation context decide if we need to do web search, read any uploaded documents, check our answer for further web search, and generate queries to search our documents or the web.
 Generate 4 well specified and diverse web search queries if web search is needed. 
@@ -350,7 +388,12 @@ Your output should look be an xml tree with our reasons and decisions like below
     <thoughts>Based on the user message and conversation context, the user query is in science domain, we do not have previous links and the question can't be answered by LLM itself so we need to do web search, also since we have attached documents which are relevant so generate queries to search our documents.</thoughts>
     <domain>Science</domain>
     <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search>yes</web_search>
+    <is_question_about_stocks_mutual_fund_etf>no<is_question_about_stocks_mutual_fund_etf>
+    <company_stock_fund_etf_name></company_stock_fund_etf_name>
+    <code_execution_data_analysis>no</code_execution_data_analysis>
+    <use_writing_pad>no</use_writing_pad>
+    <use_memory_pad>no</use_memory_pad>
+    <web_search_needed>yes</web_search_needed>
     <read_document>yes</read_document>
     <web_search_queries>
         <query>diverse google search query based on given document</query>
@@ -572,6 +615,11 @@ Valid xml tree with our reasons and decisions:
     <thoughts>Previous search only has one relevant result, we would want at least five relevant results as such we should run web search again with more relevant queries. We should break the problem down based on the previous link and queries</thoughts>
     <domain>AI</domain>
     <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <is_question_about_stocks_mutual_fund_etf>no<is_question_about_stocks_mutual_fund_etf>
+    <company_stock_fund_etf_name></company_stock_fund_etf_name>
+    <code_execution_data_analysis>no</code_execution_data_analysis>
+    <use_writing_pad>no</use_writing_pad>
+    <use_memory_pad>no</use_memory_pad>
     <web_search>yes</web_search>
     <read_document>no</read_document>
     <web_search_queries>

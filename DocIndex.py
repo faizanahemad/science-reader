@@ -209,7 +209,7 @@ class DocIndex:
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
-        assert  doc_filetype == "pdf" and ("http" in doc_source or os.path.exists(doc_source))
+        assert doc_filetype == "pdf" and ("http" in doc_source or os.path.exists(doc_source))
         self.is_local = os.path.exists(doc_source)
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():

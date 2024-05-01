@@ -752,7 +752,7 @@ class FixedSizeFIFODict(OrderedDict):
         while len(self) > self.size:
             self.popitem(last=False)
 
-from flask_caching import Cache
+
 from inspect import signature
 from functools import wraps
 import mmh3
