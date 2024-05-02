@@ -865,7 +865,6 @@ Write the extracted information concisely below:
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         new_line = "\n"
-        executed_partial_two_stage_answering = False
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
             if len(search_results['queries']) > 0:
@@ -877,6 +876,7 @@ Write the extracted information concisely below:
                 answer += (queries + "</div>\n")
                 yield {"text": queries + "</div>\n", "status": "displaying web search queries ... "}
 
+            cut_off = 0
             if len(search_results['search_results']) > 0:
                 if provide_detailed_answers == 1:
                     cut_off = 6
@@ -933,13 +933,18 @@ Write the extracted information concisely below:
                     f"Time taken to get web result four summary = {et - st:.2f} , with summary len = {len(answer_summary.split())}")
                 return answer_summary
 
-            first_four_summary = get_async_future(get_first_few_result_summary, 0, 4)
-            second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
-            # TODO: do for 8
-            # TODO: CUstom weight time
+            first_four_summary = wrap_in_future("")
+            second_four_summary = wrap_in_future("")
+            if provide_detailed_answers >= 2:
+                first_four_summary = get_async_future(get_first_few_result_summary, 0, 4)
+                second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
+
+            third_four_summary = wrap_in_future("")
+            if provide_detailed_answers >= 4:
+                third_four_summary = get_async_future(get_first_few_result_summary, 8, 12)
             while True:
                 qu_wait = time.time()
-                break_condition = (len(web_text_accumulator) >= cut_off and provide_detailed_answers <= 2) or (len(web_text_accumulator) >= (cut_off//2) and provide_detailed_answers >= 3) or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
+                break_condition = len(web_text_accumulator) >= cut_off or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -965,150 +970,6 @@ Write the extracted information concisely below:
             web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
             web_text_accumulator = list(filter(lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(), web_text_accumulator))
 
-            # Join the elements along with serial numbers.
-            if len(web_text_accumulator) >= 4 and provide_detailed_answers >= 3:
-
-                first_stage_cut_off = 6 if provide_detailed_answers <= 3 else 10
-                used_web_text_accumulator_len = len(web_text_accumulator[:first_stage_cut_off])
-                full_web_string = ""
-                for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator[:first_stage_cut_off]):
-                    llm_text = llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else ""
-                    web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
-                    full_web_string = full_web_string + web_string + "\n\n"
-                    if get_gpt4_word_count(full_web_string) > 24000:
-                        break
-                web_text = full_web_string
-
-                read_links = [[link.strip(), len(text.strip().split()), llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text] for text, link, llm_future_dict in
-                              web_text_accumulator[:first_stage_cut_off]]
-                # read_links = parse_mardown_link_text(web_text)
-                # read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
-                #                    len(link.strip()) > 0 and len(title.strip()) > 0 and any(extract_url_from_mardown(link) in seen_link for seen_link in web_results_seen_links)])
-
-
-                message_config["web_search_links_read"] = read_links
-                if len(read_links) > 0:
-                    atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage1' role='button'></div> <div class='collapse' id='readLinksStage1'>" + "\n"
-                    read_links = atext + "\n\n".join([f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(128 if 'No Link' not in wta else 1024)])}" for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
-                    yield {"text": read_links, "status": "web search completed"}
-                    answer += read_links
-                else:
-                    read_links = "\nWe could not read any of the links from search results. Please try again later. Timeout at 30s.\n"
-                    yield {"text": read_links, "status": "web search completed"}
-                    answer += read_links
-                yield {"text": "\n", "status": "Finished reading few links."}
-                web_text = read_links + "\n" + web_text
-
-                if provide_detailed_answers > 2:
-                    truncate_method = truncate_text_for_gpt4_32k
-                    previous_messages = previous_messages_long
-                else:
-                    truncate_method = truncate_text_for_gpt4_16k
-                    previous_messages = previous_messages
-
-                link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_method(
-                    link_result_text, web_text, doc_answer, summary_text, previous_messages,
-                    query["messageText"],
-                    conversation_docs_answer)
-                web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-                    web_text, doc_answer, link_result_text, summary_text, previous_messages,
-                    conversation_docs_answer)
-
-                prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                               summary_text=summary_text,
-                                                               previous_messages=previous_messages if provide_detailed_answers > 3 else '',
-                                                               permanent_instructions='Include references inline in wikipedia format. Answer concisely and briefly while covering all given references. Keep your answer short, concise and succinct. We will expand the answer later',
-                                                               doc_answer=doc_answer, web_text=web_text,
-                                                               link_result_text=link_result_text,
-                                                               conversation_docs_answer=conversation_docs_answer)
-                llm = CallLLm(self.get_api_keys(), use_16k=True, use_gpt4=True)
-                qu_mt = time.time()
-                if len(read_links) > 0:
-                    time_logger.info(f"Time taken to start replying (stage 1) for chatbot: {(time.time() - st):.2f}")
-                    time_dict["start_reply_stage1"] = time.time() - st
-                    main_ans_gen = llm(prompt, temperature=0.3, stream=True)
-                    answer += "<answer>\n"
-                    yield {"text": "<answer>\n", "status": "stage 1 answering in progress"}
-                    for txt in main_ans_gen:
-                        yield {"text": txt, "status": "stage 1 answering in progress"}
-                        answer += txt
-                        one_web_result = None
-                        if not result_queue.empty():
-                            one_web_result = result_queue.get()
-                        if one_web_result is not None and one_web_result != TERMINATION_SIGNAL:
-                            if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-                                web_text_accumulator.append((one_web_result["text"], f'[{one_web_result["title"]}]({one_web_result["link"]})', one_web_result["llm_result_future"]))
-                                yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
-                                logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    answer += "</answer>\n"
-                    yield {"text": "</answer>\n", "status": "stage 1 answering in progress"}
-
-                    executed_partial_two_stage_answering = True
-                    time_logger.info(f"Time taken to end replying (stage 1) for chatbot: {(time.time() - st):.2f}")
-                    time_dict["end_reply_stage1"] = time.time() - st
-
-                web_text_accumulator = web_text_accumulator[used_web_text_accumulator_len:]
-                while True:
-                    qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= (cut_off//2)) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
-                    if break_condition and result_queue.empty():
-                        break
-                    one_web_result = None
-                    if not result_queue.empty():
-                        one_web_result = result_queue.get()
-                    qu_et = time.time()
-                    if one_web_result is None and break_condition:
-                        break
-                    if one_web_result is None:
-                        time.sleep(0.5)
-                        continue
-                    if one_web_result == TERMINATION_SIGNAL:
-                        break
-
-                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-                        web_text_accumulator.append((one_web_result["text"], f'[{one_web_result["title"]}]({one_web_result["link"]})', one_web_result["llm_result_future"]))
-                        yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
-                        time_logger.info(
-                            f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
-                        logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                    time.sleep(0.5)
-                web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-                web_text_accumulator = list(filter(
-                    lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
-                        0].lower(), web_text_accumulator))
-
-            elif provide_detailed_answers >= 3:
-                logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
-                while True:
-                    qu_wait = time.time()
-                    break_condition = (len(web_text_accumulator) >= cut_off) or ((qu_wait - qu_mt) > (self.max_time_to_wait_for_web_results * provide_detailed_answers))
-                    if break_condition and result_queue.empty():
-                        break
-                    one_web_result = None
-                    if not result_queue.empty():
-                        one_web_result = result_queue.get()
-                    qu_et = time.time()
-                    if one_web_result is None and break_condition:
-                        break
-                    if one_web_result is None:
-                        time.sleep(0.5)
-                        continue
-                    if one_web_result == TERMINATION_SIGNAL:
-                        break
-
-                    if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-                        web_text_accumulator.append((one_web_result["text"], f'[{one_web_result["title"]}]({one_web_result["link"]})', one_web_result["llm_result_future"]))
-                        yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
-                        logger.info(f"Accumulating more results with result len = {len(web_text_accumulator)}.")
-                        logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}: {(qu_et - qu_st):.2f}")
-                        time_logger.info(
-                            f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
-                    time.sleep(0.5)
-
-                web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-                web_text_accumulator = list(filter(
-                    lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
-                        0].lower(), web_text_accumulator))
             remove_tmp_marker_file(web_search_tmp_marker_name)
             logger.info(
                 f"Time taken to get web search results with sorting: {(time.time() - qu_st):.2f} with result len = {len(web_text_accumulator)}")
@@ -1121,6 +982,10 @@ Write the extracted information concisely below:
                 web_text_accumulator.append((first_four_summary.result(), f"[Generated Answer from {1} to {4}](No Link)", first_four_summary))
             if second_four_summary.done() and second_four_summary.exception() is None:
                 web_text_accumulator.append((second_four_summary.result(), f"[Generated Answer from {5} to {8}](No Link)", second_four_summary))
+            if third_four_summary.done() and third_four_summary.exception() is None:
+                web_text_accumulator.append(
+                    (third_four_summary.result(), f"[Generated Answer from {9} to {12}](No Link)", third_four_summary))
+
             for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
                 llm_text = llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else ""
                 web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
@@ -1195,161 +1060,14 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
-        if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and provide_detailed_answers >= 3:
+        if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0:
             yield {"text": '', "status": "saving answer ..."}
+            answer += '!ERROR WEB SEARCH FAILED\n'
             get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
+            yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
             return
         yield {"text": '', "status": "getting previous context"}
-        all_expert_answers = ""
-        if provide_detailed_answers == 4 and not executed_partial_two_stage_answering and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0 and not (google_scholar or perform_web_search):
-            expert_st = time.time()
-            time_logger.info(f"Trying MOE at {(time.time() - st):.2f}")
-            yield {"text": '', "status": "Asking experts to answer ..."}
-            
-            link_result_text_expert, web_text_expert, doc_answer_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = truncate_text_for_gpt4(
-            link_result_text, web_text, doc_answer, summary_text, previous_messages,
-            query["messageText"], conversation_docs_answer)
-            web_text_expert, doc_answer_expert, link_result_text_expert, summary_text_expert, previous_messages_expert, conversation_docs_answer_expert = format_llm_inputs(
-                web_text_expert, doc_answer_expert, link_result_text_expert, summary_text_expert, previous_messages_expert,
-                conversation_docs_answer_expert)
-            doc_answer_expert = f"Answers from user's stored documents:\n'''{doc_answer_expert}'''\n" if len(
-                doc_answer_expert.strip()) > 0 else ''
-            web_text_expert = f"Answers from web search:\n'''{web_text_expert}'''\n" if len(web_text_expert.strip()) > 0 else ''
-            link_result_text_expert = f"Answers from web links provided by the user:\n'''{link_result_text_expert}'''\n" if len(
-                link_result_text_expert.strip()) > 0 else ''
-            
-            link_result_text_expert_16k, web_text_expert_16k, doc_answer_expert_16k, summary_text_expert_16k, previous_messages_expert_16k, conversation_docs_answer_expert_16k = truncate_text_for_gpt4_16k(
-            link_result_text, web_text, doc_answer, summary_text, previous_messages_long,
-            query["messageText"], conversation_docs_answer)
-            web_text_expert_16k, doc_answer_expert_16k, link_result_text_expert_16k, summary_text_expert_16k, previous_messages_expert_16k, conversation_docs_answer_expert_16k = format_llm_inputs(
-                web_text_expert_16k, doc_answer_expert_16k, link_result_text_expert_16k, summary_text_expert_16k, previous_messages_expert_16k,
-                conversation_docs_answer_expert_16k)
-            doc_answer_expert_16k = f"Answers from user's stored documents:\n'''{doc_answer_expert_16k}'''\n" if len(
-                doc_answer_expert_16k.strip()) > 0 else ''
-            web_text_expert_16k = f"Answers from web search:\n'''{web_text_expert_16k}'''\n" if len(web_text_expert_16k.strip()) > 0 else ''
-            link_result_text_expert_16k = f"Answers from web links provided by the user:\n'''{link_result_text_expert_16k}'''\n" if len(
-                link_result_text_expert_16k.strip()) > 0 else ''
-            
-            
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text_expert_16k,
-                                                       previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an expert in literature, psychology, history and philosophy. Answer the query in a way that is understandable to a layman. Answer quickly and briefly. Write your reasoning and approach in short before writing your answer.",
-                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                       link_result_text=link_result_text_expert_16k,
-                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False, use_16k=False)
-            ans_gen_1_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-            
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text_expert_16k,
-                                                       previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an expert in mathematics, logical reasoning, science and programming. Provide a logical and well thought out answer that is grounded and factual. Answer shortly and simply. Write your logic, reasoning and problem solving process first before you mention your answer.",
-                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                       link_result_text=link_result_text_expert_16k,
-                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-2.0", use_gpt4=True, use_16k=False)
-            ans_gen_2_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
-            
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text_expert_16k,
-                                                       previous_messages=previous_messages_expert_16k,
-                                                       permanent_instructions="You are an experience business leader with an MBA from XLRI institute in India. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. Answer concisely and briefly. First, put forth your reasoning and decision making process in short, then write your answer.",
-                                                       doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                       link_result_text=link_result_text_expert_16k,
-                                                       conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=True, use_16k=False)
-            ans_gen_3_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-
-            ####
-
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an expert in social sciences, simplicity, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Provide your reasoning, approach and thought process in short before writing your answer.",
-                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="google/palm-2-chat-bison", use_gpt4=False, use_16k=False) # cognitivecomputations/dolphin-mixtral-8x7b
-            ans_gen_4_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert,
-                                                           previous_messages=previous_messages_expert,
-                                                           permanent_instructions="You are an expert in physics, biology, medicine, chess, puzzle solving, jeopardy, trivia and video games. Provide a clear, short and simple answer that is realistic and factual. Answer shortly and simply. Explain your logic, reasoning and problem solving process shortly before you mention your answer.",
-                                                           doc_answer=doc_answer_expert, web_text=web_text_expert,
-                                                           link_result_text=link_result_text_expert,
-                                                           conversation_docs_answer=conversation_docs_answer_expert)
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-            ans_gen_5_future = get_async_future(llm, prompt, temperature=0.5, stream=False)
-
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert,
-                                                           previous_messages=previous_messages_expert,
-                                                           permanent_instructions="You are an experienced educator with an MBA from XLRI institute in India. You help students prepare for MBA exams like XAT and GMAT. Write quickly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. We are in a hurry so put forth your reasoning and decision making process in short, then write your answer.",
-                                                           doc_answer=doc_answer_expert, web_text=web_text_expert,
-                                                           link_result_text=link_result_text_expert,
-                                                           conversation_docs_answer=conversation_docs_answer_expert)
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=False)
-            ans_gen_6_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-            
-            ###
-            
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process very shortly, then write your answer.",
-                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
-            ans_gen_7_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-            
-            
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an research scholar in social sciences, arts, teaching, sports, ethics, responsible AI, safety, gender studies and communication. Answer the query in an easy to understand manner. Explain your reasoning, approach and thought process briefly before writing your answer.",
-                                                           doc_answer=doc_answer_expert_16k, web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-2", use_gpt4=True, use_16k=False)
-            ans_gen_8_future = get_async_future(llm, prompt, temperature=0.9, stream=False)
-
-            prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                           summary_text=summary_text_expert_16k,
-                                                           previous_messages=previous_messages_expert_16k,
-                                                           permanent_instructions="You are an experienced teacher with an MBA from XLRI institute in India. You assist students prepare for MBA entrance exams like XAT and GMAT. Write briefly and shortly, we are in a hurry. Think how the XAT XLRI examiner thinks and provide solutions as you would for a business decision making question. First, put forward your reasoning and decision making process in short, then write your answer.",
-                                                           doc_answer=doc_answer_expert_16k,
-                                                           web_text=web_text_expert_16k,
-                                                           link_result_text=link_result_text_expert_16k,
-                                                           conversation_docs_answer=conversation_docs_answer_expert_16k)
-            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-v1", use_gpt4=False, use_16k=False)
-            ans_gen_9_future = get_async_future(llm, prompt, temperature=0.4, stream=False)
-
-            while True:
-                qu_wait = time.time()
-                num_done = (1 if ans_gen_1_future.done() and ans_gen_1_future.exception() is None else 0) + (1 if ans_gen_2_future.done() and ans_gen_2_future.exception() is None else 0) + (1 if ans_gen_3_future.done() and ans_gen_3_future.exception() is None else 0) + (1 if ans_gen_4_future.done() and ans_gen_4_future.exception() is None else 0) + (1 if ans_gen_5_future.done() and ans_gen_5_future.exception() is None else 0) + (1 if ans_gen_6_future.done() and ans_gen_6_future.exception() is None else 0) + (1 if ans_gen_7_future.done() and ans_gen_7_future.exception() is None else 0) + (1 if ans_gen_8_future.done() and ans_gen_8_future.exception() is None else 0) + (1 if ans_gen_9_future.done() and ans_gen_9_future.exception() is None else 0)
-                break_condition = num_done >= 6 or ((qu_wait - expert_st) > (self.max_time_to_wait_for_web_results * 2))
-                if break_condition:
-                    break
-                time.sleep(0.5)
-            # Get results of those experts that are done by now.
-            futures = [ans_gen_1_future, ans_gen_2_future, ans_gen_3_future, ans_gen_4_future, ans_gen_5_future, ans_gen_6_future, ans_gen_7_future, ans_gen_8_future, ans_gen_9_future, ans_gen_10_future]
-            model_names = ["mixtral", "claude-2.0", "claude-v1", "palm-2", "gpt-4-0613", "gpt-4-0314", "gemini-pro", "claude-2.1", "claude-v1.1", "capybara"]
-            for ix, (future, mdn) in enumerate(zip(futures, model_names)):
-                if future.done() and future.exception() is None and isinstance(future.result(), str) and  len(future.result().strip().split()) > 20:
-                    all_expert_answers += "\n\n" + f"<b>Student #{ix + 1}:</b> `{mdn}` answer's:\n<small>{remove_bad_whitespaces(future.result().strip())}</small>"
-            all_expert_answers += "\n\n"
-            # all_expert_answers = (f"First expert's answer: ```{ans_gen_1_future.result()}```" if ans_gen_1_future.exception() is None else '') + "\n\n" + (f"Second expert's answer: ```{ans_gen_2_future.result()}```" if ans_gen_2_future.exception() is None else '') + "\n\n" + (f"Third expert's answer: ```{ans_gen_3_future.result()}```" if ans_gen_3_future.exception() is None else '')
-            # all_expert_answers += "\n\n" + (f"Fourth expert's answer: ```{ans_gen_4_future.result()}```" if ans_gen_4_future.exception() is None else '') + "\n\n" + (f"Fifth expert's answer: ```{ans_gen_5_future.result()}```" if ans_gen_5_future.exception() is None else '') + "\n\n" + (f"Sixth expert's answer: ```{ans_gen_6_future.result()}```" if ans_gen_6_future.exception() is None else '')
-
-            time_logger.info(f"Experts answer len = {len(all_expert_answers.split())}, Ending MOE at {(time.time() - st):.2f}")
-            answer += all_expert_answers
-            yield {"text": all_expert_answers, "status": "Expert anwers received ..."}
-
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         summary_text = summary_text_init
@@ -1396,6 +1114,7 @@ Write the extracted information concisely below:
         if google_scholar or perform_web_search:
             web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
+            web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
 
