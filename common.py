@@ -1792,6 +1792,23 @@ def get_from_env(key: str, env_key: str, default: Optional[str] = None) -> str:
             f"  `{key}` as a named parameter."
         )
 
+import base64
+import zlib
+from urllib.parse import quote
+
+
+def compress_and_encode_drawio_xml(input_string):
+    # Step 1: Base64 Encode
+    base64_encoded = base64.b64encode(input_string.encode('utf-8'))
+
+    # Step 2: Deflate
+    deflated = zlib.compress(base64_encoded)
+
+    # Step 3: URL Encode
+    url_encoded = quote(deflated)
+
+    return url_encoded
+
 
 
 

@@ -39,3 +39,7 @@ def get_ticker_from_company_name(company_name):
     except Exception as e:
         logger.error(f"Error in get_ticker_from_company_name: {e}")
         return None
+
+def get_year_quarter_from_text(text):
+    pass
+

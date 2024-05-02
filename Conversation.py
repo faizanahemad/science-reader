@@ -27,7 +27,7 @@ import dill
 import os
 import re
 
-from code_runner import code_runner_with_retry, extract_code
+from code_runner import code_runner_with_retry, extract_code, extract_drawio
 from prompts import prompts
 from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
@@ -1083,10 +1083,6 @@ Write the extracted information concisely below:
 
         yield {"text": '', "status": "Preparing prompt context ..."}
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
-        partial_answer_text = f"We have written a partial answer for the query as below:\n'''\n{answer}\n'''\nTake the partial answer into consideration and continue from there using the new resources provided and your own knowledge. Don't repeat the partial answer.\n" if executed_partial_two_stage_answering else ""
-        partial_answer_text = (
-                    f"We have answers from different students:\n```\n{all_expert_answers}\n```\nPerform your own analysis independently. First Provide your own thoughts and answer then combine your answer and thoughts with the student's opinions and provide a final appropriate answer.\n" + partial_answer_text) if len(
-            all_expert_answers.strip()) > 0 else partial_answer_text
 
         # TODO: add capability to use mistral-large, Claude OPUS models for answering.
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
@@ -1115,7 +1111,7 @@ Write the extracted information concisely below:
             web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
-        probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text)
+        probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
 
         if probable_prompt_length < 90000 and (model_name is None or not model_name.startswith("mistralai")):
@@ -1152,7 +1148,7 @@ Write the extracted information concisely below:
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
-                                                       permanent_instructions=permanent_instructions + partial_answer_text + memory_pad + coding_rules,
+                                                       permanent_instructions=permanent_instructions + memory_pad + coding_rules,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
@@ -1201,10 +1197,38 @@ Write the extracted information concisely below:
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         already_executed_code = []
+        already_executed_drawio = []
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
+            drawio_code = extract_drawio(answer)
+            if len(drawio_code.strip()) > 0 and drawio_code not in already_executed_drawio:
+                already_executed_drawio.append(drawio_code)
+                save_path = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml")
+                with open(save_path, "w") as f:
+                    f.write(drawio_code)
+                file_path = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml"
+                # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
+                if "</mxfile>" in drawio_code:
+                    drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
+                if "<diagram>" in drawio_code:
+                    drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
+                save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
+                file_path_for_render = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
+                with open(save_path_for_render, "w") as f:
+                    f.write(drawio_code)
+                # base64 encoded drawio_code
+                # drawio_code = "data:image/svg+xml;base64," + base64.b64encode(drawio_code.encode()).decode()
+                diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path_for_render}"></div>\n'
+                yield {"text": diagram_text, "status": "answering in progress"}
+                answer += diagram_text
+                editable_link = f"\n[Edit Diagram](https://www.draw.io/?url=https://sci-tldr.pro{file_path})\n" # https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
+                yield {"text": editable_link, "status": "answering in progress"}
+                answer += editable_link
+                download_link = f"\n[Download XML File]({file_path})\n"
+                yield {"text": download_link, "status": "answering in progress"}
+                answer += download_link
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
                 already_executed_code.append(code_to_execute)

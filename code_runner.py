@@ -108,9 +108,38 @@ def extract_code(code_string):
         code_to_execute = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
         code_to_execute = [c.strip() for c in code_to_execute]
         code_to_execute = "\n".join(code_to_execute)
-        code_string = code_to_execute
+        if "# execute" in code_to_execute.lower():
+            code_string = code_to_execute
+        else:
+            code_string = ""
 
     return code_string
+
+
+
+
+def extract_drawio(code_string):
+    regex = r"```<pre class=\"drawio\">(.*?)</pre>```"
+    drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    drawio = [c.strip() for c in drawio]
+    drawio = "\n".join(drawio)
+    if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+        return drawio
+    else:
+        regex = r"```xml(.*?)```"
+        drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        drawio = [c.strip() for c in drawio]
+        drawio = "\n".join(drawio)
+        if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+            return drawio
+        else:
+            regex = r"```(.*?)```"
+            drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+            drawio = [c.strip() for c in drawio]
+            drawio = "\n".join(drawio)
+            if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+                return drawio
+    return drawio
 
 
 

@@ -436,8 +436,25 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         });
         code_elems = $(elem_to_render_in).find('code')
         Array.from(code_elems).forEach(function (code_elem) {
-            hljs.highlightBlock(code_elem);
+            // hljs.highlightBlock(code_elem);
         });
+        let permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
+        waitForDrawIo(function (timeout) {
+            let diagrams = document.querySelectorAll(".drawio-diagram");
+
+            diagrams.forEach(function (diagram) {
+                if (permittedTagNames.indexOf(diagram.tagName) === -1) {
+                    return; //not included in a permitted tag
+                }
+
+                if (timeout) {
+                    showError(diagram, "Unable to load draw.io renderer");
+                    return;
+                }
+
+                processDiagram(diagram);
+            });
+        })
     })
 }
 

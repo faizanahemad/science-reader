@@ -296,19 +296,22 @@ Cover the below points while answering and also add other necessary points as ne
 
 
         rules = """
-## Rules for writing code (especially code that needs to be executed and run)
-- Write code that needs to be executed inside <code action="execute"> and </code> tags.
-- Write code that doesn't need to be executed inside <code action="noexecute"> and </code> tags or inside triple ticks.
+## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots.
+- Write python code that needs to be executed only inside <code action="execute"> and </code> tags. We can only execute python code.
+- When you write code that needs execution indicate that it needs to be executed by using the <code action="execute"> and </code> tags and also mentioning a comment within code which say "# execute".
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside triple ticks like (```mermaid <mermaid code> ```) and then copy it inside <pre class="mermaid"> and </pre> tags.
 - You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
+- You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
+- Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
 - Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
 - Code in python preferably and write code in a single cell for code execution tasks.
 - Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
 - You are allowed to make plots and graphs and save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
+- Remember to write python code that needs to be executed only inside <code action="execute"> and </code> tags. We can only execute python code.
 - Make high quality plots with clear and extensive labels and explanations.
 - Allowed to read csv, excel, parquet, tsv only.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.

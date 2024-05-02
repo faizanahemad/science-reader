@@ -726,3 +726,139 @@ def create_document_index(pdf_url)->DocIndex:
                 "pdf", 
                 "scientific_article", doc_text, full_summary)
     return doc_index
+
+
+
+js_to_get_html = '''
+
+
+const fullXml = `{fullXml}`;
+async function convertDrawIoXMLToSVG(drawIoXML) {
+    doc = mxUtils.parseXml(drawIoXML);
+    pages = doc.documentElement.getAttribute('pages') || 1;
+    const dup = doc.documentElement.cloneNode(false);
+    while (true) {
+        const n = doc.documentElement.firstChild;
+        dup.appendChild(n);
+        if (n.nodeType === Node.ELEMENT_NODE)
+            break;
+    }
+    obj.xml = dup.outerHTML;
+    render(obj);
+    await document.getElementById('LoadingComplete') || new Promise(resolve => setTimeout(resolve, 1000));
+    bounds = JSON.parse(document.getElementById('LoadingComplete').getAttribute('bounds'));
+    const fixingScale = 1;
+    const w = Math.ceil(bounds.width * fixingScale);
+    const h = Math.ceil(bounds.height * fixingScale);
+
+    svg_elem = Array.from(document.getElementsByTagName("svg"))[0];
+    return svg_elem.outerHTML;
+}
+const svg_data = convertDrawIoXMLToSVG(fullXml)
+const body = document.getElementsByTagName('body')[0];
+body.innerHTML = svg_data;
+const head = document.getElementsByTagName('head')[0];
+head.innerHTML = '';
+'''
+def send_zenrows_request_for_xml_to_svg(xml, apikey):
+    get_html_js = js_to_get_html.replace('{fullXml}', xml)
+    print(get_html_js)
+    js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + get_html_js + '''"}]'''
+    url = 'https://www.draw.io/export3.html'
+    params = {
+        'url': 'https://www.draw.io/export3.html',
+        'apikey': apikey,
+        'js_render': 'true',
+        'wait_for': 'body',
+        'block_resources': 'image,media,stylesheet,font',
+        'js_instructions': js,
+    }
+    with zenrows_semaphore:
+        response = requests.get('https://api.zenrows.com/v1/', params=params)
+    if response.status_code != 200:
+        raise GenericShortException(
+            f"Error in zenrows with status code {response.status_code} for url {url} with response {response.text}")
+    if response is None or response.text is None:
+        return ''
+    html = response.text
+    # get the svg element from html
+    soup = BeautifulSoup(html, 'lxml')
+    svg_elem = soup.find('svg')
+    # return the svg element html
+    return str(svg_elem)
+
+def send_scrapingant_request_for_xml_to_svg(xml, apikey):
+    xml = xml.replace('\n', '') # .replace('"', '\\"')
+    # replace more than one space as well
+    xml = re.sub(r'\s+', ' ', xml)
+    st = time.time()
+    get_html_js = js_to_get_html.replace('{fullXml}', xml)
+    print(get_html_js)
+    ant_script = base64.b64encode(get_html_js.encode()).decode()
+    ant_url = "https://api.scrapingant.com/v2/general"
+    url = 'https://www.draw.io/export3.html'
+    params = {
+        'url': url,
+        'x-api-key': apikey,
+        'proxy_country': 'US',
+        'wait_for_selector': 'body',
+        'return_page_source': 'true',
+        'js_snippet': ant_script
+    }
+    response = requests.get(ant_url, params=params)
+    if response.status_code != 200:
+        error_details = response.text
+        raise GenericShortException(
+            f"Error in ant with status code {response.status_code} and error details {error_details}")
+    html = response.text
+    et = time.time()
+    soup = BeautifulSoup(html, 'lxml')
+    svg_elem = soup.find('svg')
+    time_logger.info(" ".join(
+        ['[send_request_ant_html] ', f"Time = {(et - st):.2f},",
+         f"Response length = {len(html.split())}",
+         f"link = {url}"]))
+    # return the svg element html
+    return str(svg_elem)
+
+
+svg_text = send_scrapingant_request_for_xml_to_svg('''<mxfile>  
+  <diagram>  
+    <mxGraphModel>  
+      <root>  
+        <mxCell id="0"/>  
+        <mxCell id="1" parent="0"/>  
+        <mxCell id="2" value="Start" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00FF00;" vertex="1" parent="1">  
+          <mxGeometry x="100" y="50" width="80" height="40" as="geometry"/>  
+        </mxCell>  
+        <mxCell id="3" value="Step 1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;" vertex="1" parent="1">  
+          <mxGeometry x="100" y="120" width="80" height="40" as="geometry"/>  
+        </mxCell>  
+        <mxCell id="4" value="Step 2" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;" vertex="1" parent="1">  
+          <mxGeometry x="100" y="190" width="80" height="40" as="geometry"/>  
+        </mxCell>  
+        <mxCell id="5" value="End" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FF0000;" vertex="1" parent="1">  
+          <mxGeometry x="100" y="260" width="80" height="40" as="geometry"/>  
+        </mxCell>  
+        <mxCell id="6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="2" target="3" parent="1">  
+          <mxGeometry width="50" height="50" relative="1" as="geometry">  
+            <mxPoint x="140" y="150" as="targetPoint"/>  
+          </mxGeometry>  
+        </mxCell>  
+        <mxCell id="7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="3" target="4" parent="1">  
+          <mxGeometry width="50" height="50" relative="1" as="geometry">  
+            <mxPoint x="140" y="220" as="targetPoint"/>  
+          </mxGeometry>  
+        </mxCell>  
+        <mxCell id="8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" source="4" target="5" parent="1">  
+          <mxGeometry width="50" height="50" relative="1" as="geometry">  
+            <mxPoint x="140" y="290" as="targetPoint"/>  
+          </mxGeometry>  
+        </mxCell>  
+      </root>  
+    </mxGraphModel>  
+  </diagram>  
+</mxfile>  
+''', "XXX")
+print(svg_text)
+
