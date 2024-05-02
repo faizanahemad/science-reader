@@ -1,100 +1,17 @@
 from datetime import datetime
-import sys
-import random
-from functools import partial
-import glob
-import traceback
-from operator import itemgetter
-import itertools
-from queue import Empty
-
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import re
-import inspect
-import random
-import inspect
-from semanticscholar import SemanticScholar
-from semanticscholar.SemanticScholar import Paper
-import mmh3
-from pprint import pprint
-import time
-import concurrent.futures
 import pandas as pd
-import tiktoken
 from copy import deepcopy, copy
-import requests
-import tempfile
-from tqdm import tqdm
 try:
     import ujson as json
 except ImportError:
     import json
-import requests
-import dill
-import os
 from prompts import prompts
-from langchain.document_loaders import MathpixPDFLoader
-from functools import partial
-
-from langchain.llms import OpenAI
-from langchain.agents import load_tools
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
-from langchain import OpenAI, ConversationChain
-from langchain.embeddings import OpenAIEmbeddings
 from collections import defaultdict, Counter
 
 import openai
-import tiktoken
 from typing import Callable, Any, List, Dict, Tuple, Optional, Union
-from vllm_client import get_streaming_vllm_response
-
-
-from langchain.agents import Tool
-from langchain.tools import BaseTool
-from langchain.memory import ConversationBufferMemory
-from langchain.chat_models import ChatOpenAI
-from langchain.llms import OpenAI
-from langchain.text_splitter import SpacyTextSplitter
-from langchain.text_splitter import TokenTextSplitter
-from langchain.text_splitter import NLTKTextSplitter
-from langchain.prompts import PromptTemplate
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from langchain.llms import GPT4All
-from llama_index.node_parser.simple import SimpleNodeParser
-from langchain.text_splitter import TokenTextSplitter
-from llama_index import (
-    GPTVectorStoreIndex, 
-    LangchainEmbedding, 
-    LLMPredictor, 
-    ServiceContext, 
-    StorageContext, 
-    download_loader,
-    PromptHelper
-)
-from llama_index import SimpleDirectoryReader, LangchainEmbedding, GPTListIndex, PromptHelper
-from llama_index import LLMPredictor, ServiceContext
-
-from langchain.vectorstores import FAISS
-from langchain.schema import Document
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.document_loaders import TextLoader
-from llama_index.data_structs.node import Node, DocumentRelationship
-from llama_index import LangchainEmbedding, ServiceContext, Document
-from llama_index import GPTTreeIndex, SimpleDirectoryReader
-
-
-from langchain.utilities import SerpAPIWrapper
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
-from typing import Optional, Type, List
-from langchain.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain.tools import DuckDuckGoSearchRun
-from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
-from langchain.tools import DuckDuckGoSearchResults
-from langchain.prompts import PromptTemplate
+from langchain_community.document_loaders import MathpixPDFLoader
+from langchain_text_splitters import TokenTextSplitter
 
 import tempfile
 from flask_caching import Cache
@@ -590,9 +507,7 @@ class ContextualReader:
         # Use markdown formatting to typeset or format your answer better.
         long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
         response_prompt = "Write short, compact, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
-        self.prompt = PromptTemplate(
-            input_variables=["context", "document"],
-            template=f"""You are an information retrieval agent. {long_or_short}
+        self.prompt = f"""You are an information retrieval agent. {long_or_short}
 Provide relevant and helpful information from the given document for the given user question and conversation context given below.
 '''{{context}}'''
 
@@ -603,8 +518,7 @@ Document to read and extract information from is given below.
 
 Only provide answer from the document given above.
 {response_prompt} response below.
-""",
-        )
+"""
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
     def get_one(self, context, document, model_name="google/gemini-pro"):
@@ -948,6 +862,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         now = None
         date_string = ''
 
+    from langchain_community.utilities.bing_search import BingSearchAPIWrapper
     search = BingSearchAPIWrapper(bing_subscription_key=key, bing_search_url="https://api.bing.microsoft.com/v7.0/search")
     
     pre_query = query
@@ -1034,54 +949,6 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
         _ = r.pop("image_base64", None)
     dedup_results = search_post_processing(pre_query, results, "brightdata_google", only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
-
-def googleapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
-    from langchain.utilities import GoogleSearchAPIWrapper
-    from datetime import datetime, timedelta
-    num=max(num, 10)
-    
-    if our_datetime:
-        now = datetime.strptime(our_datetime, "%Y-%m-%d")
-        two_years_ago = now - timedelta(days=365*3)
-        date_string = two_years_ago.strftime("%Y-%m-%d")
-    else:
-        now = None
-    cse_id = key["cx"]
-    google_api_key = key["api_key"]
-
-    search = GoogleSearchAPIWrapper(google_api_key=google_api_key, google_cse_id=cse_id)
-    pre_query = query
-    after_string = f"after:{date_string}" if now else ""
-    search_pdf = " filetype:pdf" if only_pdf else ""
-    if only_science_sites is None:
-        site_string = " "
-    elif only_science_sites:
-        # site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
-        site_string = " (site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org) "
-    elif not only_science_sites:
-        site_string = " -site:arxiv.org AND -site:openreview.net "
-    og_query = query
-    no_after_query = f"{query}{site_string}{search_pdf}"
-    query = f"{query}{site_string}{after_string}{search_pdf}"
-
-    expected_res_length = max(num, 10)
-    more_res = None
-    if num > 10:
-        more_res = get_async_future(search.results, query, min(num, 10), search_params={"filter": "1", "start": "11"})
-    results = search.results(query, min(num, 10), search_params={"filter":"1", "start": "1"})
-    if num > 10:
-        results.extend(more_res.result() if more_res is not None and more_res.exception() is None else [])
-    if len(results) < expected_res_length:
-        results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": "1"}))
-    if len(results) < expected_res_length:
-        results.extend(search.results(no_after_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
-    if len(results) < expected_res_length:
-        results.extend(search.results(og_query, min(num, 10), search_params={"filter":"1", "start": str(len(results)+1)}))
-    dedup_results = search_post_processing(pre_query, results, "google", only_science_sites=only_science_sites, only_pdf=only_pdf)
-    logger.debug(f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
-    
-    return dedup_results
-
 
 def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
@@ -1450,7 +1317,7 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
     return {"text": text, "title": title}
 # @typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
-    from langchain.document_loaders import PyPDFLoader, PyMuPDFLoader
+    from langchain_community.document_loaders import PyPDFLoader, PyMuPDFLoader
     loader = PyMuPDFLoader(url)
     pages = loader.load_and_split()
     if page_ranges:
@@ -1465,7 +1332,6 @@ class CustomPDFLoader(MathpixPDFLoader):
         max_wait_time_seconds: int = 500,
         should_clean_pdf: bool = False,
         **kwargs):
-        from langchain.utils import get_from_dict_or_env
         from pathlib import Path
         self.file_path = file_path
         self.web_path = None

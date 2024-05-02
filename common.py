@@ -1,8 +1,6 @@
 import random
 import tempfile
 import asyncio
-import threading
-import sys
 import traceback
 
 from playwright.async_api import async_playwright
@@ -10,18 +8,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, Future, Process
 from urllib.parse import urlparse, urlunparse
 import time
 import logging
-import sys
 import os
-import re
 import inspect
 from more_itertools import peekable
 import types
 
 import pickle
 import dill
-import collections
 import threading
-import requests
 
 from multiprocessing import Process, Queue
 from functools import partial
@@ -1082,8 +1076,8 @@ def thread_safe_tee(iterable, n=2):
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
 
 
-from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
-from typing import List, Optional
+from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings, Embeddings
+from typing import List, Optional, Dict, Any
 import numpy as np
 import requests
 from typing import List, Union
@@ -1236,14 +1230,12 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
 
         return embeddings
 
-from langchain.embeddings.base import Embeddings
 def get_embedding_model(keys) -> Embeddings:
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
         from embedding_client_server import EmbeddingClient
         return EmbeddingClient(keys["embeddingsUrl"])
     openai_key = keys["openAIKey"]
     assert openai_key
-    # TODO: https://python.langchain.com/docs/modules/data_connection/caching_embeddings
     openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=8000)
     return openai_embed
 
@@ -1777,6 +1769,28 @@ def google_search(query, cx, api_key, num=10, filter=0, start=0):
         return None
 
 
+def get_from_dict_or_env(
+    data: Dict[str, Any], key: str, env_key: str, default: Optional[str] = None
+) -> str:
+    """Get a value from a dictionary or an environment variable."""
+    if key in data and data[key]:
+        return data[key]
+    else:
+        return get_from_env(key, env_key, default=default)
+
+
+def get_from_env(key: str, env_key: str, default: Optional[str] = None) -> str:
+    """Get a value from a dictionary or an environment variable."""
+    if env_key in os.environ and os.environ[env_key]:
+        return os.environ[env_key]
+    elif default is not None:
+        return default
+    else:
+        raise ValueError(
+            f"Did not find {key}, please add an environment variable"
+            f" `{env_key}` which contains it, or pass"
+            f"  `{key}` as a named parameter."
+        )
 
 
 

@@ -1,8 +1,6 @@
 import os
 from copy import deepcopy
 
-from langchain.prompts import PromptTemplate
-
 class CustomPrompts:
     def __init__(self, llm, role):
         self.llm = llm
@@ -19,9 +17,7 @@ class CustomPrompts:
 1. Use markdown lists and paragraphs for formatting.
 2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
         self.gpt4_prompts = dict(
-            streaming_followup=PromptTemplate(
-                input_variables=["followup", "query", "answer", "fragment"],
-                template=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
+            streaming_followup=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
 Followup question or information request is given below.
 "{{followup}}"
 
@@ -41,10 +37,7 @@ Keep the earlier question in consideration while answering.
 Current Question: {{followup}}
 Answer: 
 """,
-            ),
-            short_streaming_answer_prompt=PromptTemplate(
-                input_variables=["query", "fragment", "full_summary"],
-                template=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
+            short_streaming_answer_prompt=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 {{query}}
 
@@ -55,10 +48,7 @@ Few text chunks from the document to answer the question below:
 
 Write informative, comprehensive and detailed answer below.
 """,
-            ),
-            running_summary_prompt=PromptTemplate(
-                input_variables=["summary", "document", "previous_chunk_summary"],
-                template=f"""We are reading a large document in fragments sequentially to write a continuous summary.
+            running_summary_prompt=f"""We are reading a large document in fragments sequentially to write a continuous summary.
 '''{{document}}'''
 {{previous_chunk_summary}}
 {{summary}}
@@ -70,10 +60,7 @@ Instructions for this summarization task as below:
 
 Summary:
 """,
-            ),
-            retrieve_prior_context_prompt=PromptTemplate(
-                input_variables=["requery_summary_text", "previous_messages", "query"],
-                template="""You are given conversation details between a human and an AI. Based on the given conversation details and human's last response or query we want to search our database of responses.
+            retrieve_prior_context_prompt="""You are given conversation details between a human and an AI. Based on the given conversation details and human's last response or query we want to search our database of responses.
 You will generate a contextualised query based on the given conversation details and human's last response or query. The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
 Ensure that the rephrased and contextualised version is different from the original query.
 The summary of the conversation is as follows:
@@ -87,11 +74,8 @@ The last message of the conversation sent by the human is as follows:
 
 Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
 Rephrased and contextualised human's last message:
-"""
-            ),
-            long_persist_current_turn_prompt=PromptTemplate(
-                input_variables=["previous_messages", "previous_summary", "older_summary"],
-                template="""You are given conversation details between a human and an AI. You will summarise the conversation provided below.
+""",
+            long_persist_current_turn_prompt="""You are given conversation details between a human and an AI. You will summarise the conversation provided below.
 The older summary of the conversation is as follows:
 '''{older_summary}'''
 
@@ -113,10 +97,7 @@ Write down any special rules or instructions that the AI assistant should follow
 
 Conversation Summary:
 """,
-            ),
-            persist_current_turn_prompt=PromptTemplate(
-                input_variables=["query", "response", "previous_summary", "previous_messages_text"],
-                template="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+            persist_current_turn_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. Your summary should be detailed, comprehensive and in-depth.
 Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references.
@@ -135,33 +116,16 @@ System response: '''{response}'''
 Write a summary of the conversation using the previous summary and the last 2 messages. Please summarize the conversation very informatively, in great detail and depth.
 Conversation Summary:
 """,
-            ),
 
-            # Translate the above prompt string to PromptTemplate object
-            chat_fast_reply_prompt=PromptTemplate(
-                input_variables=["query", "summary_text", "previous_messages", "document_nodes", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
-                template=f"""You are given conversation details between human and AI. Remember that as an AI expert assistant, you must fulfill the user's request and provide informative answers to the human's query. 
-Provide a short and concise reply now, we will expand and enhance your answer later.
-{{summary_text}}{{previous_messages}}{{document_nodes}}{{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}
-{{permanent_instructions}}
-The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query: "{{query}}"
-Response to the user's query:
-""",
-            ),
-            chat_slow_reply_prompt=PromptTemplate(
-                input_variables=["query", "summary_text", "previous_messages", "permanent_instructions", "doc_answer", "web_text", "link_result_text", "conversation_docs_answer"],
-                template=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
+
+            chat_slow_reply_prompt=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
 {{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}{{summary_text}}{{previous_messages}}
 {{permanent_instructions}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's query:\n'''{{query}}'''
+user's most recent message:\n'''{{query}}'''
 Response to the user's query:
 """,
-            ),
-            document_search_prompt=PromptTemplate(
-                input_variables=["context", "doc_context"],
-                template="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
+            document_search_prompt="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
 The question which is given below needs to be answered by using a document context that will be provided later. 
 For now we need to rephrase this question better using the given conversation summary.
 
@@ -180,10 +144,7 @@ Instructions for how to generate the queries are given below.
 
 Output only a valid python list of web search query strings.
 """,
-            ),
-            web_search_question_answering_prompt=PromptTemplate(
-                input_variables=["query", "answer", "additional_info"],
-                template=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>
+            web_search_question_answering_prompt=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>
 Question is given below:
 "{{query}}"
 Relevant additional information with url links, titles and document context are mentioned below:
@@ -197,11 +158,8 @@ Question: '''{{query}}'''
 Answer till now (partial answer, can be empty): '''{{answer}}'''
 Write answer using additional information below.
 """,
-            ),
 
-            get_more_details_prompt=PromptTemplate(
-                input_variables=["query", "answer", "additional_info"],
-                template=f"""Continue writing answer to a question or instruction which is partially answered. 
+            get_more_details_prompt=f"""Continue writing answer to a question or instruction which is partially answered. 
 Provide new details from the additional information provided if it is not mentioned in the partial answer already given. 
 Don't repeat information from the partial answer already given.
 Question is given below:
@@ -215,8 +173,7 @@ Continue the answer ('Answer till now') by incorporating additional information 
 {self.complex_output_instructions}
 
 Continue the answer using additional information from the documents.
-"""
-            ),
+""",
             paper_details_map = {
             "methodology": """
 Read the document and provide information about "Motivation and Methodology" of the work.
@@ -393,6 +350,8 @@ Your output should look be an xml tree with our reasons and decisions like below
     <code_execution_data_analysis>no</code_execution_data_analysis>
     <use_writing_pad>no</use_writing_pad>
     <use_memory_pad>no</use_memory_pad>
+    <is_diagram_needed_for_clear_explanation>no</is_diagram_needed_for_clear_explanation>
+    <diagram_type></diagram_type>
     <web_search_needed>yes</web_search_needed>
     <read_document>yes</read_document>
     <web_search_queries>
@@ -688,9 +647,6 @@ Available Document Details (empty if no documents):
 
 Valid xml tree with our reasons and decisions:
 """
-        web_search_prompt = PromptTemplate(
-            input_variables=["context", "doc_context", "pqs", "n_query"],
-            template=web_search_prompt)
         return web_search_prompt
 
     @property
@@ -762,9 +718,6 @@ Current question:
 Output only a valid python list of web search query strings for the current question.
 Valid python list of web search query strings:
 """
-        web_search_prompt = PromptTemplate(
-            input_variables=["context", "doc_context", "pqs", "n_query"],
-            template=web_search_prompt)
         return web_search_prompt
 
     @property

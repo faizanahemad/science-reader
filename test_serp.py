@@ -1,4 +1,4 @@
-from base import serpapi, googleapi, brightdata_google_serp, googleapi_v2
+from base import serpapi, brightdata_google_serp, googleapi_v2
 import json
 from pprint import pprint
 import time
@@ -16,11 +16,6 @@ def serp():
     print("Time taken: ", f"{(end_time - start_time):.2f}")
 
     key = None
-    start_time = time.time()
-    results = googleapi(query, key, num, our_datetime=None, only_pdf=False, only_science_sites=False)
-    end_time = time.time()
-    pprint(results[0].keys())
-    print("Time taken: ", f"{(end_time - start_time):.2f}")
 
     start_time = time.time()
     results = googleapi_v2(query, key, num,

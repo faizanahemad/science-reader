@@ -1,50 +1,7 @@
 import shutil
-import sys
-import random
-from functools import partial
-import glob
 from filelock import FileLock, Timeout
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from collections import defaultdict
-import re
-from semanticscholar import SemanticScholar
-from semanticscholar.SemanticScholar import Paper
-from langchain.utilities import BingSearchAPIWrapper
-from collections import Counter
-import mmh3
-from pprint import pprint
-import time
-import concurrent.futures
-import pandas as pd
-import tiktoken
-from copy import deepcopy, copy
-from collections import defaultdict
-import requests
-import tempfile
-from tqdm import tqdm
-import requests
-import dill
-import os
-import re
-from prompts import prompts
-from langchain.document_loaders import MathpixPDFLoader
-from datetime import datetime, timedelta
-
-from langchain.llms import OpenAI
-from langchain.agents import load_tools
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
-from langchain import OpenAI, ConversationChain
-from langchain.embeddings import OpenAIEmbeddings
 from review_criterias import review_params
 from pathlib import Path
-from more_itertools import peekable
-from concurrent.futures import Future
-
-import openai
-import tiktoken
-
 from web_scraping import fetch_html
 
 try:
@@ -53,56 +10,10 @@ except ImportError:
     import json
 
 
-from langchain.agents import Tool
-from langchain.tools import BaseTool
-from langchain.memory import ConversationBufferMemory
-from langchain.chat_models import ChatOpenAI
-from langchain.llms import OpenAI
-from langchain.text_splitter import SpacyTextSplitter
-from langchain.text_splitter import TokenTextSplitter
-from langchain.text_splitter import NLTKTextSplitter
-from langchain.prompts import PromptTemplate
-from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-from langchain.llms import GPT4All
-from llama_index.node_parser.simple import SimpleNodeParser
-from llama_index.langchain_helpers.text_splitter import TokenTextSplitter
-from llama_index import (
-    GPTVectorStoreIndex, 
-    LangchainEmbedding, 
-    LLMPredictor, 
-    ServiceContext, 
-    StorageContext, 
-    download_loader,
-    PromptHelper
-)
-from llama_index import SimpleDirectoryReader, LangchainEmbedding, GPTListIndex, PromptHelper
-from llama_index import LLMPredictor, ServiceContext
-
-from langchain.vectorstores import FAISS
-from langchain.vectorstores.base import VectorStore
-from langchain.schema import Document as LangchainDocument
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.document_loaders import TextLoader
-from llama_index.data_structs.node import Node, DocumentRelationship
-from llama_index import LangchainEmbedding, ServiceContext
-from llama_index import GPTTreeIndex, SimpleDirectoryReader
-from langchain.document_loaders import PyPDFLoader
-
-
-from langchain.utilities import SerpAPIWrapper
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
-from typing import Optional, Type
-from langchain.callbacks.manager import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain.tools import DuckDuckGoSearchRun
-from langchain.utilities import BingSearchAPIWrapper, DuckDuckGoSearchAPIWrapper
-from langchain.tools import DuckDuckGoSearchResults
-from langchain.prompts import PromptTemplate
-
+from langchain_community.vectorstores.faiss import FAISS
+from langchain_core.vectorstores import VectorStore
 from common import *
 from base import *
-from langchain.schema import Document
 
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
@@ -110,19 +21,6 @@ pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
-
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
-
-import asyncio
-import threading
-from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
 import time
 
 class DocFAISS(FAISS):
