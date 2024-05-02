@@ -139,7 +139,16 @@ def extract_drawio(code_string):
             drawio = "\n".join(drawio)
             if drawio.strip() != "" and "<mxfile>" in drawio.lower():
                 return drawio
-    return drawio
+    return ''
+
+def extract_mermaid(code_string):
+    regex = r"```mermaid(.*?)```"
+    mermaid = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    mermaid = [c.strip() for c in mermaid]
+    mermaid = "\n".join(mermaid)
+    if mermaid.strip() != "" and "graph" in mermaid.lower():
+        return mermaid
+    return ''
 
 
 

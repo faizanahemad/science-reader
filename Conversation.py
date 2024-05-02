@@ -27,7 +27,7 @@ import dill
 import os
 import re
 
-from code_runner import code_runner_with_retry, extract_code, extract_drawio
+from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid
 from prompts import prompts
 from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
@@ -1198,6 +1198,7 @@ Write the extracted information concisely below:
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         already_executed_code = []
         already_executed_drawio = []
+        already_executed_mermaid = []
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
@@ -1221,6 +1222,7 @@ Write the extracted information concisely below:
                 # base64 encoded drawio_code
                 # drawio_code = "data:image/svg+xml;base64," + base64.b64encode(drawio_code.encode()).decode()
                 diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path_for_render}"></div>\n'
+                # diagram_text = f'\n<div class="drawio-diagram" data-diagram-data="{compress_and_encode_drawio_xml(drawio_code)}"></div>\n'
                 yield {"text": diagram_text, "status": "answering in progress"}
                 answer += diagram_text
                 editable_link = f"\n[Edit Diagram](https://www.draw.io/?url=https://sci-tldr.pro{file_path})\n" # https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
@@ -1229,6 +1231,12 @@ Write the extracted information concisely below:
                 download_link = f"\n[Download XML File]({file_path})\n"
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
+            mermaid_to_execute = extract_mermaid(answer)
+            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:
+                already_executed_mermaid.append(mermaid_to_execute)
+                mermaid_text = f"\n<pre class='mermaid'>{mermaid_to_execute}</pre>\n"
+                yield {"text": mermaid_text, "status": "answering in progress"}
+                answer += mermaid_text
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
                 already_executed_code.append(code_to_execute)

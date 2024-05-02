@@ -302,7 +302,7 @@ Cover the below points while answering and also add other necessary points as ne
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
-- Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside triple ticks like (```mermaid <mermaid code> ```) and then copy it inside <pre class="mermaid"> and </pre> tags.
+- Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
 - You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
 - You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
 - Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
@@ -351,6 +351,8 @@ Your output should look be an xml tree with our reasons and decisions like below
     <is_question_about_stocks_mutual_fund_etf>no<is_question_about_stocks_mutual_fund_etf>
     <company_stock_fund_etf_name></company_stock_fund_etf_name>
     <code_execution_data_analysis>no</code_execution_data_analysis>
+    <diagramming_need></diagramming_need>
+    <suggested_diagram_type></suggested_diagram_type>
     <use_writing_pad>no</use_writing_pad>
     <use_memory_pad>no</use_memory_pad>
     <is_diagram_needed_for_clear_explanation>no</is_diagram_needed_for_clear_explanation>

@@ -360,6 +360,40 @@ markdownParser.code = function (code, language) {
         '</div>';
 };
 
+function hasUnclosedMermaidTag(htmlString) {
+    // Regular expression to find <pre class='mermaid'> tags  
+    const openTagRegex = /<pre class='mermaid'>/g;
+
+    // Regular expression to find </pre> tags  
+    const closeTagRegex = /<\/pre>/g;
+
+    // Find all matches for opening and closing tags  
+    const openTags = htmlString.match(openTagRegex) || [];
+    const closeTags = htmlString.match(closeTagRegex) || [];
+
+    // Check if the number of opening tags is greater than the number of closing tags  
+    if (openTags.length > closeTags.length) {
+        return true; // There is at least one unclosed <pre class='mermaid'> tag  
+    }
+
+    // Additional check: Ensure every opening tag is properly closed  
+    let currentIndex = 0;
+    for (let i = 0; i < openTags.length; i++) {
+        const openIndex = htmlString.indexOf(openTags[i], currentIndex);
+        const closeIndex = htmlString.indexOf(closeTags[i], currentIndex);
+
+        // If there's an opening tag without a corresponding closing tag in order  
+        if (closeIndex === -1 || openIndex > closeIndex) {
+            return true;
+        }
+
+        // Update currentIndex to search for the next set of tags  
+        currentIndex = closeIndex + 1;
+    }
+
+    return false; // All <pre class='mermaid'> tags are properly closed  
+}  
+
 
 function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null) {
     parent = jqelem.parent()
@@ -392,6 +426,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         }
     }
     // remove <answer> and </answer> tags
+    // check html has </answer> tag
+    has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
     var htmlChunk = marked.marked(html, { renderer: markdownParser });
     htmlChunk = removeEmTags(htmlChunk);
@@ -421,19 +457,23 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         MathJax.Hub.Queue(callback)
     }
     MathJax.Hub.Queue(function() {
-        mermaid.run({
-            querySelector: 'pre.mermaid',
-            useMaxWidth: false,
-            suppressErrors: true,
+        // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
+        if (!hasUnclosedMermaidTag(html) && has_end_answer_tag) {
+            mermaid.run({
+                querySelector: 'pre.mermaid',
+                useMaxWidth: false,
+                suppressErrors: true,
 
-        }).then(() => {
-            // find all svg inside .mermaid class pre elements.
-            var svgs = $(document).find('pre.mermaid svg');
-            // iterate over each svg element and unset its height attribute
-            svgs.each(function (index, svg) {
-                $(svg).attr('height', null);
+            }).then(() => {
+                // find all svg inside .mermaid class pre elements.
+                var svgs = $(document).find('pre.mermaid svg');
+                // iterate over each svg element and unset its height attribute
+                svgs.each(function (index, svg) {
+                    $(svg).attr('height', null);
+                });
             });
-        });
+        }
+        
         code_elems = $(elem_to_render_in).find('code')
         Array.from(code_elems).forEach(function (code_elem) {
             // hljs.highlightBlock(code_elem);
