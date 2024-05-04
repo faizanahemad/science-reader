@@ -261,21 +261,28 @@ class AddAttribute:
         setattr(func, self.attribute, self.value)
         return func
 
+
+class SetDescription(AddAttribute):
+    def __init__(self, description):
+        super().__init__('description', description)
+
 class CacheResults:
     def __init__(self, cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args) + str(kwargs), signed=False)),
                                                   dtype_filters=None,
                                                   should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
-                                                  enabled=True):
+                                                  enabled=True, expire=3600):
         self.cache = cache
         self.key_function = key_function
         self.dtype_filters = tuple(dtype_filters) if dtype_filters is not None else None
         self.should_cache_predicate = should_cache_predicate
         self.enabled = enabled
+        self.expire = expire
 
     def __call__(self, func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             if self.enabled:
+                cache = self.cache
                 result_computed = False
                 if self.dtype_filters is not None and len(self.dtype_filters) > 0:
                     sig = signature(func)
@@ -296,7 +303,7 @@ class CacheResults:
                     result_computed = True
                 if result is not None and not isinstance(result, Exception) and not (
                         isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed:
-                    cache.set(key, result, expire=cache_timeout)
+                    cache.set(key, result, expire=self.expire)
                 return result
             else:
                 assert func is not None
@@ -728,23 +735,60 @@ def round_robin_by_group(dict_list, group_key='group'):
             groups.append(group)
 
 from collections import OrderedDict
-from threading import Lock
+from threading import Lock, RLock
 
 
 class FixedSizeFIFODict(OrderedDict):
     def __init__(self, size):
         super().__init__()
         self.size = size
-        self.lock = Lock()  # Initialize a lock for thread-safe operations
+        self.lock = RLock()  # Initialize a lock for thread-safe operations
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value, expiry=None):
         with self.lock:  # Use the lock to ensure thread-safe access
-            super().__setitem__(key, value)
+            # Calculate expiry time as current time + expiry seconds
+            expiry_time = None if expiry is None else time.time() + expiry
+            # Store the value along with its expiry time
+            super().__setitem__(key, (value, expiry_time))
+            self.move_to_end(key)  # Move the accessed/updated item to the end
             self.ensure_fixed_size()
+            self.remove_expired_items()  # Remove expired items
+
+    def __getitem__(self, key):
+        with self.lock:
+            value, expiry_time = super().__getitem__(key)
+            # Check if the item has expired
+            if expiry_time is not None and expiry_time < time.time():
+                # If expired, remove the item and raise KeyError
+                del self[key]
+                raise KeyError(f"Key '{key}' is expired and has been removed.")
+            self.move_to_end(key)  # Move the accessed item to the end
+            return value  # Return the actual value
+
+    def set(self, key, value, expiry=None, **kwargs):
+        with self.lock:
+            # Delegate to __setitem__ to handle insertion, order maintenance, and expiry
+            self.__setitem__(key, value, expiry=expiry)
 
     def ensure_fixed_size(self):
         while len(self) > self.size:
-            self.popitem(last=False)
+            self.popitem(last=False)  # Remove the oldest item
+
+    def get(self, key, default=None):
+        with self.lock:
+            try:
+                return self[key]  # Attempt to get the item, which checks for expiry
+            except KeyError:
+                return default  # Return default if the key is not found or expired
+
+    def remove_expired_items(self):
+        # Remove items that have expired
+        with self.lock:
+            current_time = time.time()
+            keys_to_delete = [key for key, (_, expiry_time) in self.items() if
+                              expiry_time is not None and expiry_time < current_time]
+            for key in keys_to_delete:
+                del self[key]
 
 
 from inspect import signature

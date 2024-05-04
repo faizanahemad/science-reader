@@ -475,7 +475,9 @@ Title of the conversation:
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
     @timer
-    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs):
+    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True):
+        if not persist_or_not:
+            return
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
         memory = get_async_future(self.get_field, "memory")
@@ -654,6 +656,24 @@ Write the extracted information concisely below:
             final_preamble = final_preamble.strip()
         return final_preamble
 
+    def agent_level_one_websearch_helper(self, messageText, checkboxes=dict()):
+        query = dict()
+        query["messageText"] = messageText
+        query["checkboxes"] = {"provide_detailed_answers": "1",
+                               "main_model": "anthropic/claude-3-sonnet:beta",
+                               "persist_or_not": False,
+                               "planner_enabled": False,
+                               "perform_web_search": True,
+                               "googleScholar": False,
+                               "use_memory_pad": False,
+                               "tell_me_more": False,
+                               "enable_previous_messages": "2"}
+        query["checkboxes"].update(checkboxes)
+        answer = ''
+        for r in self.reply(query):
+            answer += r["text"]
+        return answer
+
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
@@ -666,6 +686,7 @@ Write the extracted information concisely below:
         summary_text_init = summary
         summary_text = summary
         checkboxes = query["checkboxes"]
+        persist_or_not = checkboxes["persist_or_not"] if "persist_or_not" in checkboxes else True
         planner_enabled = checkboxes["planner_enabled"] if "planner_enabled" in checkboxes else False
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
@@ -906,10 +927,102 @@ Write the extracted information concisely below:
             time_logger.info(f"Time to reach web search links accumulation code: {(qu_st - st):.2f}")
             time_dict["get_web_search_links"] = qu_st - st
 
+            def re_search_if_needed():
+                while len(web_text_accumulator) < 4:
+                    time.sleep(0.5)
+                if not exists_tmp_marker_file(web_search_tmp_marker_name):
+                    yield False
+                    return
+                full_web_string = ""
+                for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
+                    llm_text = llm_future_dict.result() if llm_future_dict.done() and \
+                                                           llm_future_dict.exception() is None else ""
+                    web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
+                    full_web_string = full_web_string + web_string + "\n\n"
+                    if get_gpt4_word_count(full_web_string) > 24000:
+                        break
+                query_is_answered_by_search, parser_fn = prompts.query_is_answered_by_search
+                st_re_search_llm = time.time()
+                query_is_answered_by_search = query_is_answered_by_search.format(query=query["messageText"],
+                                                                                 context=summary_text,
+                                                                                 previous_web_search_results=query_results,
+                                                                                 previous_web_search_queries=queries,
+                                                                                 previous_web_search_results_text=full_web_string)
+                search_decision = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_16k=True,
+                                         use_gpt4=True)(query_is_answered_by_search, temperature=0.3, stream=False)
+                search_decision = search_decision.strip().lower()
+                search_decision = parser_fn(search_decision)
+                time_logger.info(f"Redo Search Decision: {search_decision}, prompt len = {len(query_is_answered_by_search.split())}, time taken = {(time.time() - qu_st):.2f}, only llm time = {(time.time() - st_re_search_llm):.2f}")
+                if search_decision["web_search_needed"] and len(search_decision["web_search_queries"])>0 and exists_tmp_marker_file(web_search_tmp_marker_name):
+                    yield True
+                    new_queries = search_decision["web_search_queries"]
+                    new_web_results = get_async_future(web_search_queue, user_query,
+                                                       'helpful ai assistant',
+                                                       previous_context,
+                                                       self.get_api_keys(), datetime.now().strftime("%Y-%m"),
+                                                       extra_queries=new_queries,
+                                                       previous_turn_search_results=None,
+                                                       gscholar=google_scholar,
+                                                       provide_detailed_answers=1,
+                                                       web_search_tmp_marker_name=web_search_tmp_marker_name)
+                    search_results = next(new_web_results.result()[0].result())
+                    atext = "\n**Re Web searched with Queries:** <div data-toggle='collapse' href='#re_webSearchedQueries' role='button'></div> <div class='collapse' id='re_webSearchedQueries'>"
+                    yield {"text": atext, "status": "displaying web search queries ... "}
+                    new_queries = two_column_list(search_results['queries'])
+                    message_config["web_search_queries"].append(search_results['queries'])
+                    yield {"text": new_queries + "</div>\n", "status": "displaying web search queries ... "}
+                    cut_off = 6
+                    if len(search_results['search_results']) > 0:
+                        query_results_part1 = search_results['search_results']
+                        seen_query_results = query_results_part1[:max(10, cut_off)]
+                        unseen_query_results = query_results_part1[max(10, cut_off):]
+                        atext = "\n**Search Results:** <div data-toggle='collapse' href='#re_searchResults' role='button'></div> <div class='collapse' id='re_searchResults'>" + "\n"
+                        yield {"text": atext, "status": "displaying web search results ... "}
+                        new_query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
+                        new_query_results = two_column_list(new_query_results)
+                        yield {"text": new_query_results + "</div>\n", "status": "Reading web search results ... "}
+
+                    result_queue = new_web_results.result()[1]
+                    while True:
+                        qu_wait = time.time()
+                        break_condition = len(web_text_accumulator) >= cut_off or (
+                                    (qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2,
+                                                            self.max_time_to_wait_for_web_results * provide_detailed_answers))
+                        if break_condition and result_queue.empty():
+                            break
+                        one_web_result = None
+                        if not result_queue.empty():
+                            one_web_result = result_queue.get()
+                        qu_et = time.time()
+                        if one_web_result is None and break_condition:
+                            break
+                        if one_web_result is None:
+                            time.sleep(0.5)
+                            continue
+                        if one_web_result == TERMINATION_SIGNAL:
+                            break
+
+                        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
+                                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
+                            web_text_accumulator.append((one_web_result["text"],
+                                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
+                                                         one_web_result["llm_result_future"]))
+                            yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                            time_logger.info(
+                                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+                        time.sleep(0.5)
+                else:
+                    yield False
+                yield False
+
+            re_search = get_async_future(re_search_if_needed)
+
             def get_first_few_result_summary(start = 0, end=4):
                 st = time.time()
                 while len(web_text_accumulator) < end:
                     time.sleep(0.5)
+                if not exists_tmp_marker_file(web_search_tmp_marker_name):
+                    return ""
                 full_web_string = ""
                 for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator[start:]):
                     llm_text = llm_future_dict.result() if llm_future_dict.done() and \
@@ -937,8 +1050,8 @@ Write the extracted information concisely below:
             second_four_summary = wrap_in_future("")
             if provide_detailed_answers >= 2:
                 first_four_summary = get_async_future(get_first_few_result_summary, 0, 4)
+            if provide_detailed_answers >= 3:
                 second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
-
             third_four_summary = wrap_in_future("")
             if provide_detailed_answers >= 4:
                 third_four_summary = get_async_future(get_first_few_result_summary, 8, 12)
@@ -967,6 +1080,11 @@ Write the extracted information concisely below:
 
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
             # Sort the array in reverse order based on the word count
+            for re_search_yield in re_search.result():
+                if re_search_yield and isinstance(re_search_yield, dict):
+                    yield re_search_yield
+                    answer += re_search_yield["text"]
+
             web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
             web_text_accumulator = list(filter(lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(), web_text_accumulator))
 
@@ -1022,9 +1140,10 @@ Write the extracted information concisely below:
             if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
-                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
                 message_ids = self.get_message_ids(query["messageText"], answer)
-                yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
+                yield {"text": 'WEB_SEARCH_FAILED', "status": "saving answer ...", "message_ids": message_ids}
+                answer += 'WEB_SEARCH_FAILED'
+                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
                 return
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
@@ -1034,7 +1153,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1044,7 +1163,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1055,7 +1174,7 @@ Write the extracted information concisely below:
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1063,7 +1182,7 @@ Write the extracted information concisely below:
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0:
             yield {"text": '', "status": "saving answer ..."}
             answer += '!ERROR WEB SEARCH FAILED\n'
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -1296,7 +1415,7 @@ Write the extracted information concisely below:
                 answer += (query_results + "</div>")
                 yield {"text": query_results + "</div>", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts)
+        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
 

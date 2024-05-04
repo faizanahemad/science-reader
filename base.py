@@ -67,7 +67,7 @@ openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-4": (300000, 10000),
     "gpt-4-0314": (300000, 10000),
     "gpt-4-0613": (300000, 10000),
-    "gpt-4-turbo-preview": (800000, 10000),
+    "gpt-4-turbo": (800000, 10000),
     "gpt-4-32k": (150000, 100),
     "gpt-4-32k-0314": (150000, 100),
     "gpt-4-vision-preview": (150000, 100),
@@ -78,7 +78,7 @@ openai_model_family = {
     "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-1106"],
     "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
     "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613", "gpt-4-32k-0314"],
-    "gpt-4-turbo": ["gpt-4-turbo-preview", "gpt-4-vision-preview"],
+    "gpt-4-turbo": ["gpt-4-turbo", "gpt-4-vision-preview"],
     "gpt-4-0314": ["gpt-4-0314"],
     "gpt-4-0613": ["gpt-4-0613"],
     "gpt-4-32k": ["gpt-4-32k"],
@@ -147,7 +147,7 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "gpt-4-0314": gpt4_enc,
     "gpt-4-0613": gpt4_enc,
     "gpt-4-32k-0314": gpt4_enc,
-    "gpt-4-turbo-preview": gpt4_enc,
+    "gpt-4-turbo": gpt4_enc,
     "text-davinci-003": davinci_enc,
     "text-davinci-002": davinci_enc,
 })
@@ -215,14 +215,16 @@ class CallLLm:
         self.model_type = "openai" if model_name is None or model_name.startswith("gpt") else "openrouter"
 
 
-    def __call__(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        if len(images) > 0:
+            assert (self.model_type == "openai" and self.model_name == "gpt-4-turbo" and self.use_gpt4 and self.use_16k) or self.model_name == "anthropic/claude-3-opus:beta" or self.model_name == "anthropic/claude-3-sonnet:beta"
         if self.model_type == "openai":
-            return self.__call_openai_models(text, temperature, stream, max_tokens, system, *args, **kwargs)
+            return self.__call_openai_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
         else:
-            return self.__call_openrouter_models(text, temperature, stream, max_tokens, system, *args, **kwargs)
+            return self.__call_openrouter_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
 
 
-    def __call_openrouter_models(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+    def __call_openrouter_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
@@ -241,7 +243,7 @@ class CallLLm:
         return streaming_solution
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
-    def __call_openai_models(self, text, temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+    def __call_openai_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))

@@ -298,6 +298,7 @@ Cover the below points while answering and also add other necessary points as ne
         rules = """
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots.
 - Write python code that needs to be executed only inside <code action="execute"> and </code> tags. We can only execute python code.
+- Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. 
 - When you write code that needs execution indicate that it needs to be executed by using the <code action="execute"> and </code> tags and also mentioning a comment within code which say "# execute".
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
@@ -322,6 +323,93 @@ Cover the below points while answering and also add other necessary points as ne
 
 
     @property
+    def query_is_answered_by_search(self):
+        """"""
+        import datetime
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+        import re
+
+        def parse_llm_output(llm_output):
+            # Initialize a dictionary to hold the parsed data
+            parsed_data = {
+                "thoughts": None,
+                "answered_already_by_previous_search": None,
+                "web_search_needed": None,
+                "web_search_queries": []
+            }
+
+            # Define regex patterns for extracting information
+            thoughts_pattern = r"<thoughts>(.*?)</thoughts>"
+            answered_already_pattern = r"<answered_already_by_previous_search>(.*?)</answered_already_by_previous_search>"
+            web_search_needed_pattern = r"<web_search_needed>(.*?)</web_search_needed>"
+            web_search_queries_pattern = r"<query>(.*?)</query>"
+
+            # Extract information using regex
+            thoughts_match = re.search(thoughts_pattern, llm_output, re.DOTALL)
+            answered_already_match = re.search(answered_already_pattern, llm_output, re.DOTALL)
+            web_search_needed_match = re.search(web_search_needed_pattern, llm_output, re.DOTALL)
+            web_search_queries_matches = re.findall(web_search_queries_pattern, llm_output, re.DOTALL)
+
+            # Update the dictionary with the extracted information
+            if thoughts_match:
+                parsed_data["thoughts"] = thoughts_match.group(1).strip()
+            if answered_already_match:
+                parsed_data["answered_already_by_previous_search"] = answered_already_match.group(
+                    1).strip().lower() == "yes"
+            if web_search_needed_match:
+                parsed_data["web_search_needed"] = web_search_needed_match.group(1).strip().lower() == "yes"
+            if web_search_queries_matches:
+                parsed_data["web_search_queries"] = [query.strip() for query in web_search_queries_matches]
+
+            return parsed_data
+
+        prompt = f"""You are an expert AI system which determines whether our search results are useful and can answer a user query or not. If our search results can't answer the user query then you will decide if we need to do more web search and write two new web search queries for performing search again.
+The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+
+Previous web search queries are given below (empty if no web search done previously):
+'''{{previous_web_search_queries}}'''
+
+Previous web search results are given below (empty if no web search done previously):
+'''{{previous_web_search_results}}'''
+
+Previous web search results text is given below:
+'''{{previous_web_search_results_text}}'''
+
+Conversation context:
+'''{{context}}'''
+
+Current user message is given below: 
+'''{{query}}'''
+
+# Note: You can use the current date ({date}) and year ({year}) in the web search queries that you write.
+
+Output Template is given below.
+<planner>
+    <thoughts>Your thoughts in short on whether the previous web search queries and previous web search results are sufficient to answer the user message written shortly.</thoughts>
+    <answered_already_by_previous_search>no</answered_already_by_previous_search>
+    <web_search_needed>yes</web_search_needed>
+    <web_search_queries>
+        <query>web search query 1</query>
+        <query>web search query 2 with year ({year}) or date ({date}) if needed</query>
+    </web_search_queries>
+</planner>
+
+Template if the user query is already answered by previous search:
+<planner>
+    <thoughts>Your thoughts on whether the previous web search queries and previous web search results are sufficient to answer the user message.</thoughts>
+    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
+    <web_search_needed>no</web_search_needed>
+    <web_search_queries></web_search_queries>
+</planner>
+
+Write your output decision in the above xml format.
+"""
+        return prompt, parse_llm_output
+
+    @property
     def planner_checker_prompt(self):
         # TODO: Fire web search and document search prior to planner for speed.
         import datetime
@@ -334,11 +422,10 @@ You are given a user message and conversation context as below. If we had done w
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 The current date is '{date}', year is {year}, month is {month}, day is {day}. 
 
-Previous web search queries are given below (empty if no web search done previously):
-'''{{previous_web_search_queries}}'''
 
-Previous web search results are given below (empty if no web search done previously):
-'''{{previous_web_search_results}}'''
+
+Available Document Details are given below (empty if no documents uploaded):
+'''{{document_details}}'''
 
 Now based on given user message and conversation context decide if we need to do web search, read any uploaded documents, check our answer for further web search, and generate queries to search our documents or the web.
 Generate 4 well specified and diverse web search queries if web search is needed. 
@@ -347,17 +434,17 @@ Your output should look be an xml tree with our reasons and decisions like below
 <planner>
     <thoughts>Based on the user message and conversation context, the user query is in science domain, we do not have previous links and the question can't be answered by LLM itself so we need to do web search, also since we have attached documents which are relevant so generate queries to search our documents.</thoughts>
     <domain>Science</domain>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <is_question_about_stocks_mutual_fund_etf>no<is_question_about_stocks_mutual_fund_etf>
+    <is_question_about_finance_stocks_mutual_fund_etf>no<is_question_about_finance_stocks_mutual_fund_etf>
     <company_stock_fund_etf_name></company_stock_fund_etf_name>
-    <code_execution_data_analysis>no</code_execution_data_analysis>
-    <diagramming_need></diagramming_need>
+    <code_execution_data_analysis_needed>no</code_execution_data_analysis_needed>
+    <diagramming_asked_explicitly></diagramming_asked_explicitly>
+    <is_diagram_needed_for_clear_explanation>no</is_diagram_needed_for_clear_explanation>
     <suggested_diagram_type></suggested_diagram_type>
     <use_writing_pad>no</use_writing_pad>
     <use_memory_pad>no</use_memory_pad>
-    <is_diagram_needed_for_clear_explanation>no</is_diagram_needed_for_clear_explanation>
-    <diagram_type></diagram_type>
-    <web_search_needed>yes</web_search_needed>
+    <web_search_needed_for_clear_explanation>yes</web_search_needed_for_clear_explanation>
+    <web_search_asked_explicitly>yes</web_search_asked_explicitly>
+    <web_search_type>general</web_search_type>
     <read_document>yes</read_document>
     <web_search_queries>
         <query>diverse google search query based on given document</query>
