@@ -331,7 +331,7 @@ marked.setOptions({
     highlight: function (code, language) {
         const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
         if (validLanguage === 'plaintext') {
-            return hljs.highlightAuto(validLanguage, code).value;
+            return hljs.highlightAuto(code).value;
         }
         return hljs.highlight(validLanguage, code).value;
     },
@@ -347,8 +347,15 @@ markdownParser.codespan = function (text) {
     return '<code>' + text + '</code>';
 };
 markdownParser.code = function (code, language) {
-    var validLang = !!(language && hljs.getLanguage(language));
-    var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
+    const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
+    if (validLanguage === 'plaintext') {
+        var highlighted = hljs.highlightAuto(code).value;
+    } else {
+        var highlighted = hljs.highlight(validLanguage, code).value;
+    }
+    
+    // var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
+
     return '<div class="code-block">' +
         '<div class="code-header">' +
         '<span class="code-language">' + (language || 'plaintext') + '</span>' +
@@ -476,7 +483,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         
         code_elems = $(elem_to_render_in).find('code')
         Array.from(code_elems).forEach(function (code_elem) {
-            // hljs.highlightBlock(code_elem);
+            hljs.highlightBlock(code_elem);
         });
         let permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
         waitForDrawIo(function (timeout) {

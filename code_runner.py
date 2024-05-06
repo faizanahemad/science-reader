@@ -60,10 +60,10 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm: CallLLm, co
     for i in range(retry):
         success, failure_reason, stdout, stderr = run_code_with_constraints(code_string)
         if success:
-            return success, failure_reason, stdout, stderr
+            return success, failure_reason, stdout, stderr, code_string
         else:
             code_string = write_code_with_llm(instructions, rules, llm, previous_code=code_string, previous_failure=failure_reason)
-    return success, failure_reason, stdout, stderr
+    return success, failure_reason, stdout, stderr, code_string
 
 
 
@@ -71,15 +71,18 @@ def write_code_with_llm(instructions: str, rules: List[str], llm: CallLLm, previ
     assert llm is not None, "LLM object is None"
     previous_code = previous_code.strip()
     if previous_code:
-        previous_code = f"\n\n## Previous code\n```{previous_code}```"
+        previous_code = f"\n\n## Previous code\n```python\n{previous_code}\n```"
     previous_failure = previous_failure.strip()
+    correction_prompt = ""
     if previous_failure:
-        previous_failure = f"\n\n## Previous failure\n```{previous_failure}```"
+        previous_failure = f"\n\n## Previous failure from above code execution:\n```\n{previous_failure}\n```"
+        correction_prompt = f"""Please correct the code by looking at the exception message and stack trace above."""
 
     prompt = f"""
-You are an expert python programmer and an expert in data analysis, python plotting and graphing. 
+You are an expert python programmer and an expert in data analysis, python plotting and graphing. You are able to write code as well as fix errors and bugs in existing code.
 You know python machine learning, data science and analytics libraries like scikit, pandas, numpy, scipy, matplotlib, seaborn, etc.
 You may need to perform data analysis, data visualization, and output to either stdout or to a file or make a plot or a combination of these.
+
 # Instructions for the task is given below. Please write full python code to help solve this problem with executable code. Please read the instructions carefully before writing the code.
 {instructions}
 
@@ -89,8 +92,8 @@ You may need to perform data analysis, data visualization, and output to either 
 {previous_code}
 
 {previous_failure}
-
-# Write your code below this line inside triple ticks ( ```python ). 
+{correction_prompt}
+# Write corrected code below this line inside triple ticks in python. 
 """
     code_string = llm(prompt, stream=False)
     return extract_code(code_string)
@@ -186,6 +189,17 @@ def set_mem_limit():
 set_mem_limit()  
 """
 
+try_catch_block = """
+import traceback  
+import sys
+try:  
+{code}
+except Exception as e:  
+    print(f"An error {{str(e)}} occurred:", file=sys.stderr)  
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+"""
+
 
 def run_code_with_constraints(code_string, constraints={}):
     """
@@ -202,29 +216,34 @@ def run_code_with_constraints(code_string, constraints={}):
     - stderr (str): The standard error of the code.
     """
     memory = constraints.get("memory", 1500)
-    time = constraints.get("time", 30)
-    code_string = mem_and_cpu_limit_str.format(memory=memory, time=time) + "\n" + code_string
-    # Remove any line with plt.show() from the code
+    time = constraints.get("time", 120)
     code_string = "\n".join([line for line in code_string.split("\n") if "plt.show()" not in line])
+    code_string = "\n".join(["\t" + line for line in code_string.split("\n")])
+    code_string = mem_and_cpu_limit_str.format(memory=memory, time=time) + "\n" + try_catch_block.format(code=code_string)
+    # Remove any line with plt.show() from the code
+    logger.info("Actual Executed code is: \n" + code_string)
     with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.py') as tmp_file:
         tmp_file.write(code_string)
         tmp_file_path = tmp_file.name
     stdout, stderr = None, None
     try:
         proc = subprocess.Popen([sys.executable, tmp_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = proc.communicate(timeout=60)
-        success = True
-        failure_reason = None
-        logger.info("Code executed successfully.")
+        stdout, stderr = proc.communicate(timeout=time)
+        if proc.returncode != 0:
+            logger.info("Code execution failed with error as below:\n" + stderr.decode())
+        else:
+            logger.info("Code executed successfully.")
+        success = (proc.returncode == 0)
+        failure_reason = None if success else stderr.decode()
     except subprocess.CalledProcessError as e:
-        failure_reason = str(e) + "\n" + traceback.format_exc()
+        failure_reason = str(e) + "\n" + traceback.format_exc() + "\n" + (stderr.decode() if stderr else "")
         success = False
     except subprocess.TimeoutExpired as e:
         logger.info("The script exceeded the time limit. Terminating process.")
         proc.kill()
         stdout, stderr = proc.communicate()
         logger.info("Process terminated.")
-        failure_reason = str(e) + "\n" + traceback.format_exc()
+        failure_reason = f"The script exceeded the time limit of {time} seconds."
         success = False
     except Exception as e:
         failure_reason = str(e) + "\n" + traceback.format_exc()
@@ -240,16 +259,18 @@ def run_code_with_constraints(code_string, constraints={}):
         stdout = stdout.decode()
     else:
         stdout = ""
-    failure_reason = f"Raised Exception Message and stack trace:\n```{failure_reason}```" + f"\n\nStd Err Output:\n```{stderr}```"
+    failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n"
     return success, failure_reason, stdout, stderr
 
 if __name__ == "__main__":
     code = """
 import time
+from stocks_lib.equity_data_fetcher import get_equity_history
 print("Starting...")
+print(get_equity_history('RELIANCE', "2 months").head(5))
 time.sleep(10)
 print("Finished.")
 """
-    stdout, stderr = run_code_with_constraints(code)
+    success, falure_reason, stdout, stderr = run_code_with_constraints(code)
     print("STDOUT:", stdout)
     print("STDERR:", stderr)

@@ -297,9 +297,11 @@ Cover the below points while answering and also add other necessary points as ne
 
         rules = """
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots.
-- Write python code that needs to be executed only inside <code action="execute"> and </code> tags. We can only execute python code.
+- Indicate clearly what python code needs execution by writing the first line of code as '# execute'. Write code that needs execution in a single code block.
+- Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute'. We can only execute python code.
 - Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. 
-- When you write code that needs execution indicate that it needs to be executed by using the <code action="execute"> and </code> tags and also mentioning a comment within code which say "# execute".
+- When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
+- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute".
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
@@ -310,10 +312,11 @@ Cover the below points while answering and also add other necessary points as ne
 - Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
 - Code in python preferably and write code in a single cell for code execution tasks.
 - Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
-- You are allowed to make plots and graphs and save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
+- When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
-- Remember to write python code that needs to be executed only inside <code action="execute"> and </code> tags. We can only execute python code.
-- Make high quality plots with clear and extensive labels and explanations.
+- Convert all pandas dataframe data to pure numpy explicitly before using libraries like scikit-learn, matplotlib and seaborn plotting. Remember to convert the data to numpy array explicitly before plotting.
+- Remember to write python code that needs to be executed with first line comment as '# execute'. We can only execute python code.
+- Make high quality plots with clear and extensive labels and explanations. Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
 - Allowed to read csv, excel, parquet, tsv only.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
 - Do not delete any files.

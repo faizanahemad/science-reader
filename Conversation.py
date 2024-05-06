@@ -1359,15 +1359,20 @@ Write the extracted information concisely below:
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
                 already_executed_code.append(code_to_execute)
-                success, failure_reason, stdout, stderr = code_runner_with_retry(query["messageText"], coding_rules, CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True), code_to_execute)
+                success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"], coding_rules, CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True), code_to_execute)
                 if success:
+                    successfull_code = code_string
+                    if successfull_code != code_to_execute:
+                        answer = answer.replace(code_to_execute, successfull_code)
+                        yield {"text": f"\n```python\n{successfull_code}\n```\n", "status": "answering in progress"}
+                        already_executed_code.append(successfull_code)
                     if stdout.strip() != "":
                         stdout = "\n" + f"```shell\n{stdout}\n```\n"
                         yield {"text": stdout, "status": "answering in progress"}
                         answer += stdout
                     # look in self.documents_path directory if any file with start as plot_prefix exists, if yes, then send that file as image in markdown format.
 
-                    files = [f for f in os.listdir(self.documents_path) if f.startswith(plot_prefix)]
+                    files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(plot_prefix)]))
                     for f in files:
                         image_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
                         # TODO: url_encode_image_path with urllib
@@ -1379,7 +1384,7 @@ Write the extracted information concisely below:
                         yield {"text": "\n", "status": "answering in progress"}
                         answer += "\n"
 
-                    files = [f for f in os.listdir(self.documents_path) if f.startswith(file_prefix)]
+                    files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(file_prefix)]))
                     for f in files:
                         file_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
                         download_link = f"[Download {f}]({file_path})"
