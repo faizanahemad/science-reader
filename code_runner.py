@@ -107,8 +107,8 @@ class PersistentPythonEnvironment:
             stderr = strip_formatting(stderr)
 
             if output.success:
-                logger.info(f"Code that we ran is: \n{code_string}\n, success = {output.success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
-                logger.info("Code executed successfully.")
+                # logger.info(f"Code that we ran is: \n{code_string}\n, success = {output.success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
+                # logger.info("Code executed successfully.")
                 return True, None, stdout, stderr
             else:
                 if output.error_before_exec:
@@ -164,7 +164,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
     all_stdout = []
     for i in range(retry):
         success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=session)
-        logger.info(f"[code_runner_with_retry] Code execution attempt {i+1} with success: {success}, failure_reason: {failure_reason}, stdout: {stdout}, stderr: {stderr}")
+        # logger.info(f"[code_runner_with_retry] Code execution attempt {i+1} with success: {success}, failure_reason: {failure_reason}, stdout: {stdout}, stderr: {stderr}")
         if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
             success, failure_reason, stdout, stderr, code_string_from_checker = code_checker_and_continuer(instructions, rules, llm_easy, session, code_string, stdout, failure_reason)
             if code_string_from_checker != code_string:
@@ -604,7 +604,7 @@ print = prnt
         if not success or stderr.strip()!= "":
             logger.info("Code execution failed with error as below:\n" + stderr)
         else:
-            logger.info(f"Code that we ran is: \n{code_string}\n, success = {success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
+            # logger.info(f"Code that we ran is: \n{code_string}\n, success = {success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
             logger.info("Code executed successfully.")
         failure_reason = f"{failure_reason}\n{stderr}".strip()
 
