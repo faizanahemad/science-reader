@@ -107,6 +107,7 @@ class PersistentPythonEnvironment:
             stderr = strip_formatting(stderr)
 
             if output.success:
+                logger.info(f"Code that we ran is: \n{code_string}\n, success = {output.success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
                 logger.info("Code executed successfully.")
                 return True, None, stdout, stderr
             else:
@@ -166,7 +167,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
         if failure_reason is not None and failure_reason.strip() != "":
             success, failure_reason, stdout, stderr, code_string_from_checker = code_checker_and_continuer(instructions, rules, llm_easy, session, code_string, stdout, failure_reason)
         else:
-            if not code_checker(instructions, rules, llm_easy, session, code_string, stdout, failure_reason):
+            if not code_checker(instructions, rules, llm_easy, session, code_string, stdout):
                 success, failure_reason, stdout, stderr, code_string_from_checker = code_checker_and_continuer(
                     instructions, rules, llm_easy, session, code_string, stdout, failure_reason)
         all_stdout.append(stdout)
@@ -272,24 +273,17 @@ except Exception as e:
 {new_code_string}
 """
         new_stdout = previous_stdout + "\n" + stdout.strip()
+        logger.info(f"[code_checker_and_continuer] Code and output correctness decision is: {False}, from LLM answer: `\n{llm_answer}\n`")
         return False, failure_reason, new_stdout, stderr, code_string
     else:
+        logger.info(f"[code_checker_and_continuer] Code and output correctness decision is: {True}, from LLM answer: `\n{llm_answer}\n`")
         return True, "None", previous_stdout, "", code_string
 
-def code_checker(instructions: str, rules: List[str], llm: CallLLm, session: PersistentPythonEnvironment, previous_code: str, previous_stdout: str, previous_failure: str) -> bool:
+def code_checker(instructions: str, rules: List[str], llm: CallLLm, session: PersistentPythonEnvironment, previous_code: str, previous_stdout: str) -> bool:
     assert llm is not None, "LLM object is None"
     previous_code = previous_code.strip()
     if previous_code:
         previous_code = f"\n\n## Previous code\n```python\n{previous_code}\n```\n\nConvert any pseudo-code or incomplete code (or placeholder) from previous code while correcting code to actual complete executable code with proper and full implementation.\n"
-    if previous_failure:
-        previous_failure = previous_failure.strip()
-    correction_prompt = ""
-    if previous_failure:
-        previous_failure = f"\n\n## Previous failure or errors from above code execution:\n```\n{previous_failure}\n```"
-        correction_prompt = f"""Please correct the code by looking at the exception message and stack trace above and write code only after the point of failure. Make any other changes as needed to solve the task and get the code running.\nConvert any pseudo-code or incomplete code (or placeholder) from previous code while correcting code to actual complete executable code with proper and full implementation.\nAnalyse the previous code and describe what it was supposed to do and where it failed.\nAnalyse each line of code previously written and correct any line that is a placeholder or needs correction.\nFirst write your thoughts on why the previous code failed. Then write how you plan to correct the code and what steps you will take. Then write partial code from the point from which correction needs to be made.\n"""
-    llm_input_stdout = ""
-    if previous_stdout:
-        llm_input_stdout = f"\n\n## Previous stdout from above code execution:\n```\n{previous_stdout}\n```"
 
     prompt = f"""
 You are an expert python programmer, a seasoned code reviewer, a test and qa engineer, a sincere and earnest software engineer, and an expert in data analysis, python plotting and graphing.
@@ -327,6 +321,7 @@ Write your decision on the code and output correctness inside <is_code_and_outpu
             decision = True
         else:
             decision = False
+    logger.info(f"[code_checker] Code and output correctness decision is: {decision}, from LLM answer: `{llm_answer}`")
     return decision
 
 def write_code_with_llm(instructions: str, rules: List[str], llm: CallLLm, previous_code: str = "", previous_stdout: str='', previous_failure: str = '') -> str:
@@ -419,9 +414,6 @@ def extract_mermaid(code_string):
     if mermaid.strip() != "" and "graph" in mermaid.lower():
         return mermaid
     return ''
-
-
-
 
 
 mem_and_cpu_limit_str = """
@@ -608,6 +600,7 @@ print = prnt
         if not success or stderr.strip()!= "":
             logger.info("Code execution failed with error as below:\n" + stderr)
         else:
+            logger.info(f"Code that we ran is: \n{code_string}\n, success = {success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
             logger.info("Code executed successfully.")
         failure_reason = f"{failure_reason}\n{stderr}".strip()
 
