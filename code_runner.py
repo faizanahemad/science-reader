@@ -164,6 +164,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
     all_stdout = []
     for i in range(retry):
         success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=session)
+        logger.info(f"[code_runner_with_retry] Code execution attempt {i+1} with success: {success}, failure_reason: {failure_reason}, stdout: {stdout}, stderr: {stderr}")
         if failure_reason is not None and failure_reason.strip() != "":
             success, failure_reason, stdout, stderr, code_string_from_checker = code_checker_and_continuer(instructions, rules, llm_easy, session, code_string, stdout, failure_reason)
         else:
