@@ -299,9 +299,10 @@ Cover the below points while answering and also add other necessary points as ne
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots.
 - Indicate clearly what python code needs execution by writing the first line of code as '# execute'. Write code that needs execution in a single code block.
 - Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute'. We can only execute python code.
-- Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. 
+- Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
 - When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
-- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute".
+- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute". Write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state.
+- Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments. 
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
@@ -315,7 +316,7 @@ Cover the below points while answering and also add other necessary points as ne
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
 - Convert all pandas dataframe data to pure numpy explicitly before using libraries like scikit-learn, matplotlib and seaborn plotting. Remember to convert the data to numpy array explicitly before plotting.
-- Remember to write python code that needs to be executed with first line comment as '# execute'. We can only execute python code.
+- Remember to write python code that needs to be executed with first line comment as '# execute'. We can only execute python code. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
 - Make high quality plots with clear and extensive labels and explanations. Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
 - Allowed to read csv, excel, parquet, tsv only.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
@@ -420,20 +421,27 @@ Write your output decision in the above xml format.
         year = datetime.datetime.now().strftime("%Y")
         month = datetime.datetime.now().strftime("%B")
         day = datetime.datetime.now().strftime("%d")
-        web_search_prompt = f"""You are an expert AI system that determines which function to call (function calling and tool usage). Your task is to decide if we need to do web queries, need to read any uploaded docs, if we need to check our answer for further web search, and what queries we need to generate to search our documents or the web.
-You are given a user message and conversation context as below. If we had done web search previously then you will also be given the web search queries and results so that you can decide if we need to do more web search or not. 
+        web_search_prompt = f"""You are an expert AI system that determines which function to call (function calling and tool usage) and what plan to follow to best answer to a user's message. 
+Based on conversation summary and user's messages, Your task is to decide:
+1. Domain of the query.
+2. If we need to do web search or not. Is web search needed for clear explanation? and Is web search asked explicitly by the user?
+3. Web search type if web search is needed. It could be general or academic.
+4. If we need to read any uploaded documents or not.
+5. Is question about finance, stocks, mutual funds or ETFs?
+6. If code execution or data analysis is needed?
+7. If diagramming or plotting is asked explicitly by the user?
+8. If diagram is needed for clear explanation?
+9. What type of diagram is needed or useful?
+10. If memory pad or writing pad is needed for better answering?
+11. Web search queries to generate if web search is needed.
+12. Document search queries to generate if document search is needed along with document ids.
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 The current date is '{date}', year is {year}, month is {month}, day is {day}. 
-
-
-
-Available Document Details are given below (empty if no documents uploaded):
-'''{{document_details}}'''
 
 Now based on given user message and conversation context decide if we need to do web search, read any uploaded documents, check our answer for further web search, and generate queries to search our documents or the web.
 Generate 4 well specified and diverse web search queries if web search is needed. 
 
-Your output should look be an xml tree with our reasons and decisions like below example format.
+Your output should look be a valid xml tree with our reasons and decisions like below example format.
 <planner>
     <thoughts>Based on the user message and conversation context, the user query is in science domain, we do not have previous links and the question can't be answered by LLM itself so we need to do web search, also since we have attached documents which are relevant so generate queries to search our documents.</thoughts>
     <domain>Science</domain>
@@ -478,266 +486,16 @@ We have the following list of domains to choose from:
     <option>Software</option>
 </select>
 
-Few examples are given below.
-<example 1>
-
-Current user message:
-'''What are the best ways to improve my health?'''
-
-conversation context:
-'''I am having bad sleep and feel tired a lot. Doctor suggested to drink lots of water as well.'''
-
-Previous Web Search Queries:
-["how to improve health", "how does drinking more water help improve my body?", "how to improve health and sleep by drinking water and exercising", "Ways to improve cardiovascular health in {year}"]
-
-Previous Web Search Results in mardown format:
-'''
-[title1](link2) information from link1
-[title2](link2) information from link2
-'''
-
-Available Document Details:
-'''
-[Document1](#doc_1) information from doc1
-[Document2](#doc_2) information from doc2
-'''
-
-Valid xml tree with our reasons and decisions:
-<planner>
-    <thoughts>Based on the user message and conversation context we do not need to do web search and but we need search our documents and generate queries to search our documents.</thoughts>
-    <domain>Health</domain>
-    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
-    <web_search>no</web_search>
-    <read_document>yes</read_document>
-    <web_search_queries>
-    </web_search_queries>
-    <document_search_queries>
-        <document_query><document_id>#doc_2</document_id><query>What are the benefits of drinking more than 2 litre of water</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>Sleeping 8 hours good or bad</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>How to improve cardiovascular health</query></document_query>
-    </document_search_queries>
-</planner>
-    
-
-</example 1>
-
-# Note: Each web search query is different and diverse and focuses on different aspects of the question and conversation context.
-
-<example 2>
-
-Current user message:
-'''What is the price to earnings ratio of Apple Inc?'''
-
-conversation context:
-'''I am thinking of investing in Apple Inc and want to know the price to earnings ratio.'''
-
-Previous Web Search Queries:
-["Apple Inc price to earnings ratio", "Apple Inc financials", "Apple Inc stock price", "Apple Inc price to earnings ratio in {year}"]
-
-Previous Web Search Results in mardown format:
-'''
-[title1](Link1) information from link1 - no information on price to earnings ratio, price found.
-'''
-
-Available Document Details:
-'''
-[Apple Q4 earnings](#doc_1) information from doc1 about earnings
-[Apple Inc Financials](#doc_2) information from doc2 about financials
-[Apple Mac Documentation](#doc_3) information from doc3 about Macbooks - not relevant.
-'''
-
-Valid xml tree with our reasons and decisions:
-<planner>
-    <thoughts>Based on the user message and conversation context we need to do web search and also search our documents on apple financials.</thoughts>
-    <domain>Finance</domain>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search>yes</web_search>
-    <read_document>yes</read_document>
-    <web_search_queries>
-        <query>Apple Inc stock price in {date}</query>
-        <query>Apple Inc earning in {month} {year}</query>
-        <query>Apple Inc financial ratios</query>
-    </web_search_queries>
-    <document_search_queries>
-        <document_query><document_id>#doc_2</document_id><query>What are the earnings of Apple Inc in Q4</query></document_query>
-        <document_query><document_id>#doc_2</document_id><query>What are the financial ratios of Apple Inc</query></document_query>
-        <document_query><document_id>#doc_1</document_id><query>What are the earnings and profits of Apple Inc</query></document_query>
-    </document_search_queries>
-</planner> 
-
-</example 2>
-
-# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
-
-<example 3>
-
-Current user message:
-'''What are the emerging trends in AI and large language models?'''
-
-conversation context:
-'''I am working on a new language model and want to know what are the latest trends in the field. I can also use ideas from broader developments in AI.'''
-
-Previous Web Search Queries:
-[]
-
-Previous Web Search Results in mardown format:
-''''''
-
-Available Document Details:
-''''''
-
-Valid xml tree with our reasons and decisions:
-<planner>
-    <thoughts>Based on the user message and conversation context we need to do web search since we have not done any web search and the question is looking for latest information that an LLM can't answer.</thoughts>
-    <domain>AI</domain>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search>yes</web_search>
-    <read_document>no</read_document>
-    <web_search_queries>
-        <query>Emerging trends in AI in {year}</query>
-        <query>Emerging trends in large language models in {year}</query>
-        <query>Recent research works in AI</query>
-        <query>Recent papers in large language models arxiv</query>
-    </web_search_queries>
-    <document_search_queries>
-    </document_search_queries>
-</planner>
-
-</example 3>
-
-# Note: You can use the current date ({date}) and year ({year}) provided in the web search query.
-
-<example 4>
-
-Current user message:
-'''Write how to generate fibonacci numbers in python using recursion and iteration.'''
-
-conversation context:
-'''I am learning python and want to understand various algorithms in python.'''
-
-Previous Web Search Queries:
-[]
-
-Previous Web Search Results in mardown format:
-''''''
-
-Available Document Details:
-''''''
-
-Valid xml tree with our reasons and decisions:
-
-<planner>
-    <thoughts>Based on the user message and conversation context we do not need to do web search since this question is easy for an LLM to answer and the question is looking for programming help.</thoughts>
-    <domain>Software</domain>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search>no</web_search>
-    <read_document>no</read_document>
-    <web_search_queries>
-    </web_search_queries>
-    <document_search_queries>
-    </document_search_queries>
-</planner>
-
-</example 4>
-
-<example 5>
-
-Current user message:
-'''Methods to optimise LLM for large scale deployment.'''
-
-conversation context:
-'''I am working on a new language model and want to know how to deploy it at scale.'''
-
-Previous Web Search Queries:
-["optimise LLM for deployment", "deploying large language models"]
-
-Previous Web Search Results in mardown format:
-'''
-[title1](link1) information from link1 - no information on deployment, only on training.
-[Optimizing LLMs for Speed and Memory](https://huggingface.co/docs/transformers/main/en/llm_tutorial_optimization)
-In this guide, we will go over the effective techniques for efficient LLM deployment:
-Lower Precision: Research has shown that operating at reduced numerical precision, namely 8-bit and 4-bit can achieve computational advantages without a considerable decline in model performance.
-Flash Attention: Flash Attention is a variation of the attention algorithm that not only provides a more memory-efficient approach but also realizes increased efficiency due to optimized GPU memory utilization.
-Architectural Innovations: Considering that LLMs are always deployed in the same way during inference, namely autoregressive text generation with a long input context, specialized model architectures have been proposed that allow for more efficient inference. The most important advancement in model architectures hereby are Alibi, Rotary embeddings, Multi-Query Attention (MQA) and Grouped-Query-Attention (GQA).
-'''
-
-Available Document Details:
-''''''
-
-Valid xml tree with our reasons and decisions:
-<planner>
-    <thoughts>Previous search only has one relevant result, we would want at least five relevant results as such we should run web search again with more relevant queries. We should break the problem down based on the previous link and queries</thoughts>
-    <domain>AI</domain>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <is_question_about_stocks_mutual_fund_etf>no<is_question_about_stocks_mutual_fund_etf>
-    <company_stock_fund_etf_name></company_stock_fund_etf_name>
-    <code_execution_data_analysis>no</code_execution_data_analysis>
-    <use_writing_pad>no</use_writing_pad>
-    <use_memory_pad>no</use_memory_pad>
-    <web_search>yes</web_search>
-    <read_document>no</read_document>
-    <web_search_queries>
-        <query>Deploying large language models at scale</query>
-        <query>Efficient deployment of large language models</query>
-        <query>Techniques for Optimising LLMs for deployment</query>
-        <query>Optimising LLMs for deployment in {year}</query>
-    </web_search_queries>
-    <document_search_queries>
-    </document_search_queries>
-</planner>
-
-</example 5>
-
-<example 6>
-
-Current user message:
-'''Summarise how Zomato performed in the last quarter.'''
-
-Conversation context:
-'''I am thinking of investing in Zomato and want to know how they have been performing recently.'''
-
-Previous Web Search Queries:
-[]
-
-Previous Web Search Results in mardown format:
-''''''
-
-Available Document Details:
-'''
-[Quarterly report for Zomato](#doc_1) information from doc1 regarding last quarter performance on zomato.
-'''
-
-Valid xml tree with our reasons and decisions:
-<planner>
-    <thoughts>Based on the user message and conversation context we do not need to do web search and but we need search our documents and generate queries to search our documents.</thoughts>
-    <domain>Finance</domain>
-    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
-    <web_search>no</web_search>
-    <read_document>yes</read_document>
-    <web_search_queries>
-    </web_search_queries>
-    <document_search_queries>
-        <document_query><document_id>#doc_1</document_id><query>What are the financials of Zomato in the last quarter</query></document_query>
-        <document_query><document_id>#doc_1</document_id><query>How did Zomato perform in the last quarter</query></document_query>
-        <document_query><document_id>#doc_1</document_id><query>What are the profits of Zomato in the last quarter</query></document_query>
-    </document_search_queries>
-</planner>
-
-</example 6>
-
 Current user message: 
 '''{{context}}'''
 
 Conversation context:
 '''{{doc_context}}'''
 
-Previous Web Search Queries (empty if no previous queries):
-'''{{web_search_queries}}'''
+Previous User Messages:
+'''{{previous_messages}}'''
 
-Previous Web Search Results (empty if no previous results):
-'''{{web_search_results}}'''
-
-Available Document Details (empty if no documents):
+Available Document Details (empty if no documents are uploaded):
 '''{{doc_details}}'''
 
 Valid xml tree with our reasons and decisions:

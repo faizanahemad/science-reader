@@ -27,7 +27,7 @@ import dill
 import os
 import re
 
-from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid
+from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, PersistentPythonEnvironment
 from prompts import prompts
 from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
@@ -96,9 +96,6 @@ class Conversation:
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self.save_local()
 
-    
-    # Make a method to get useful prior context and encapsulate all logic for getting prior context
-    # Make a method to persist important details and encapsulate all logic for persisting important details in a function
 
     @property
     def memory_pad(self):
@@ -394,8 +391,9 @@ Compact list of bullet points:
 
 
     @timer
-    def retrieve_prior_context(self, query, links=None, past_message_ids=[], required_message_lookback=12):
+    def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
+        st = time.time()
         token_limit_short = 3000
         token_limit_long = 7500
         token_limit_very_long = 24000
@@ -406,45 +404,32 @@ Compact list of bullet points:
         if len(past_message_ids) > 0:
             messages = [m for m in messages if m["message_id"] in past_message_ids]
             required_message_lookback = 12
-        while get_gpt4_word_count(previous_messages_text) < token_limit_short and message_lookback <= required_message_lookback and required_message_lookback > 0:
+        word_count = 0
+        previous_messages_short = previous_messages_long = previous_messages_very_long = ''
+        while word_count < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+            word_count = get_gpt4_word_count(previous_messages_text)
+            if word_count < token_limit_short:
+                previous_messages_short = previous_messages_text
+            if word_count < token_limit_long:
+                previous_messages_long = previous_messages_text
+            if word_count < token_limit_very_long:
+                previous_messages_very_long = previous_messages_text
             message_lookback += 2
-        previous_messages_short = previous_messages_text
-
-        message_lookback = 2
-        previous_messages_text = ""
-        while get_gpt4_word_count(
-                previous_messages_text) < token_limit_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
-            previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in
-                                 previous_messages]
-            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
-            message_lookback += 2
-        previous_messages_long = previous_messages_text
-
-        message_lookback = 2
-        previous_messages_text = ""
-        while get_gpt4_word_count(
-                previous_messages_text) < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
-            previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in
-                                 previous_messages]
-            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
-            message_lookback += 2
-        previous_messages_very_long = previous_messages_text
 
         running_summary = memory["running_summary"][-1:]
-        older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
-
-        if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
-            running_summary = [older_extensive_summary] + running_summary
+        # older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
+        # if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
+        #     running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
         results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long, summary=running_summary)
         # lets log the length of each of the above in a single log statement
+        time_spend = time.time() - st
         logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
+        time_logger.info(f"Time taken to retrieve prior context = {time_spend} seconds")
         return results
 
     def create_title(self, query, response):
@@ -624,7 +609,7 @@ Write the extracted information concisely below:
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We need to answer completely in a way that our work can be used by others directly without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
+            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We are hardworking, earnest and sincere. We need to answer completely in a way that our work can be used by others directly in production settings without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer that can be used in critical situations. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
@@ -816,7 +801,7 @@ Write the extracted information concisely below:
                                           dont_join_answers=False)
         web_text = ''
         prior_context_future = get_async_future(self.retrieve_prior_context,
-            query["messageText"], links=links if len(links) > 0 else None, past_message_ids=past_message_ids, required_message_lookback=unchanged_message_lookback)
+            query["messageText"], past_message_ids=past_message_ids, required_message_lookback=unchanged_message_lookback)
         preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
         if provide_detailed_answers >= 3 and "Short reply" not in preambles:
             preambles.append("Long reply")
@@ -1318,6 +1303,7 @@ Write the extracted information concisely below:
         already_executed_code = []
         already_executed_drawio = []
         already_executed_mermaid = []
+        code_session = PersistentPythonEnvironment()
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
@@ -1359,7 +1345,11 @@ Write the extracted information concisely below:
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
                 already_executed_code.append(code_to_execute)
-                success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"], coding_rules, CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True), code_to_execute)
+
+                success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],
+                                                                                              coding_rules,
+                                                                                              CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True),
+                                                                                              code_to_execute, session=code_session)
                 if success:
                     successfull_code = code_string
                     if successfull_code != code_to_execute:
