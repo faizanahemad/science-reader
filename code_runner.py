@@ -442,7 +442,7 @@ def set_mem_limit():
     current_mem_limits = resource.getrlimit(resource.RLIMIT_AS)  
     current_cpu_limits = resource.getrlimit(resource.RLIMIT_CPU)  
     current_write_limits = resource.getrlimit(resource.RLIMIT_FSIZE)  
-    assert MEMORY_LIMIT <= current_mem_limits[1]
+    # assert MEMORY_LIMIT <= current_mem_limits[1]
       
     # Set new limits within allowable range  
     new_mem_limit = min(500 * 1024 * 1024, current_mem_limits[1])  
