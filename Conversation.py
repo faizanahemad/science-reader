@@ -1348,7 +1348,7 @@ Write the extracted information concisely below:
 
                 success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],
                                                                                               coding_rules,
-                                                                                              CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True),
+                                                                                              CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True),
                                                                                               code_to_execute, session=code_session)
                 if success:
                     successfull_code = code_string
