@@ -19,7 +19,7 @@ import pandas as pd
 import tiktoken
 from copy import deepcopy, copy
 import requests
-
+import re
 import json
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed, FIRST_COMPLETED, wait
@@ -114,6 +114,7 @@ class PersistentPythonEnvironment:
                     failure_reason = f"Error before execution: {output.error_before_exec}"
                     return False, failure_reason, stdout, stderr
                 exception = output.error_in_exec
+                logger.info(f"Code that we ran is: \n{code_string}\n, success = {output.success}, \nstdout is: \n{stdout}\n, stderr is: \n{stderr}")
                 logger.info(f"Code execution failed with error: {exception}")
                 # Extracting the exception trace from the error object
                 if isinstance(exception, UsageError):
