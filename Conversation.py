@@ -507,6 +507,7 @@ Title of the conversation:
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True, ignore_large_data_files=True, choose_only_data_files=False):
         assert (ignore_large_data_files and not choose_only_data_files) or (not ignore_large_data_files and choose_only_data_files)
+        query["messageText"], code_blocks = extract_code_blocks(query["messageText"])
         attached_docs = re.findall(r'#doc_\d+', query["messageText"])
         attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
@@ -526,6 +527,7 @@ Title of the conversation:
             if replace_reference:
                 for i, d in enumerate(attached_docs_names):
                     query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n" + (f"file: {d.doc_source}\n" if choose_only_data_files else ""))
+        query["messageText"] = restore_code_blocks(query["messageText"], code_blocks)
         return query, attached_docs, attached_docs_names
 
     def get_prior_messages_summary(self, query:str)->str:
