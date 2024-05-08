@@ -438,31 +438,37 @@ Based on conversation summary and user's messages, Your task is to decide:
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 The current date is '{date}', year is {year}, month is {month}, day is {day}. 
 
-Now based on given user message and conversation context decide if we need to do web search, read any uploaded documents, check our answer for further web search, and generate queries to search our documents or the web.
+Now based on given user message and conversation context decide if we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
 Generate 4 well specified and diverse web search queries if web search is needed. 
 
 Your output should look be a valid xml tree with our reasons and decisions like below example format.
 <planner>
-    <thoughts>Based on the user message and conversation context, the user query is in science domain, we do not have previous links and the question can't be answered by LLM itself so we need to do web search, also since we have attached documents which are relevant so generate queries to search our documents.</thoughts>
+    <thoughts>Your thoughts on the user message and how best we can answer it and why the below categories may be yes or no.</thoughts>
+    <a_good_answer_must_have>What should a good answer to this user message contain?</a_good_answer_must_have>
+    <high_level_structure_of_answer>What should be the high level structure of the answer?</high_level_structure_of_answer>
     <domain>Science</domain>
-    <is_question_about_finance_stocks_mutual_fund_etf>no<is_question_about_finance_stocks_mutual_fund_etf>
-    <company_stock_fund_etf_name></company_stock_fund_etf_name>
-    <code_execution_data_analysis_needed>no</code_execution_data_analysis_needed>
-    <diagramming_asked_explicitly></diagramming_asked_explicitly>
-    <is_diagram_needed_for_clear_explanation>no</is_diagram_needed_for_clear_explanation>
-    <suggested_diagram_type></suggested_diagram_type>
-    <use_writing_pad>no</use_writing_pad>
+    <is_question_about_finance_stocks_mutual_fund_etf>yes/no<is_question_about_finance_stocks_mutual_fund_etf>
+    <company_stock_fund_etf_name>company_ticker</company_stock_fund_etf_name>
+    <diagramming_asked_explicitly>yes/no</diagramming_asked_explicitly>
+    <is_diagram_needed_for_clear_explanation>yes/no</is_diagram_needed_for_clear_explanation>
+    <suggested_diagram_type>
+        <diagram_type>Flowchart</diagram_type>
+        <drawing_library>Which Library from among mermaid js, draw.io (diagrams.net) xml, or python matplotlib/seaborn code is to be used</drawing_library>
+    </suggested_diagram_type>
+    <code_execution_explicitly_asked>yes/no</code_execution_explicitly_asked>
+    <can_we_just_write_python_code_without_code_execution>yes</can_we_just_write_python_code_without_code_execution>
+    <python_code_execution_or_data_analysis_or_matplotlib_needed>no</python_code_execution_or_data_analysis_or_matplotlib_needed>
     <use_memory_pad>no</use_memory_pad>
     <web_search_needed_for_clear_explanation>yes</web_search_needed_for_clear_explanation>
     <web_search_asked_explicitly>yes</web_search_asked_explicitly>
     <web_search_type>general</web_search_type>
-    <read_document>yes</read_document>
     <web_search_queries>
         <query>diverse google search query based on given document</query>
         <query>different_web_query based on the document and conversation</query>
         <query>search engine optimised query based on the question and conversation</query>
         <query>search query based on the question and conversation</query>
     </web_search_queries>
+    <read_uploaded_document>yes</read_uploaded_document>
     <document_search_queries>
         <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
         <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
@@ -471,7 +477,7 @@ Your output should look be a valid xml tree with our reasons and decisions like 
 </planner>
 
 web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
-
+We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
 We have the following list of domains to choose from:
 <select class="form-control" id="field-selector">
     <option>None</option>
@@ -486,6 +492,10 @@ We have the following list of domains to choose from:
     <option>Software</option>
 </select>
 
+Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
+
+if python_code_execution_or_data_analysis_or_matplotlib_needed is no,  web_search_needed_for_clear_explanation is no, web_search_asked_explicitly is no, and read_uploaded_document is also no, then we can directly answer the question without any further search, hence keep writing answer to the question after you write the valid xml planner tree with our reasons and decisions.
+
 Current user message: 
 '''{{context}}'''
 
@@ -495,10 +505,10 @@ Conversation context:
 Previous User Messages:
 '''{{previous_messages}}'''
 
-Available Document Details (empty if no documents are uploaded):
+Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
 '''{{doc_details}}'''
 
-Valid xml tree with our reasons and decisions:
+Valid xml planner tree with our reasons and decisions:
 """
         return web_search_prompt
 
