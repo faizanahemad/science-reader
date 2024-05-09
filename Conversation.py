@@ -209,16 +209,54 @@ Compact list of bullet points:
         return ["indices", "raw_documents", "raw_documents_index", "memory", "messages", "uploaded_documents_list"]
 
     @property
+    def running_summary(self):
+        if hasattr(self, "_running_summary"):
+            return self._running_summary
+        running_summary = "".join(self.get_field("memory")["running_summary"][-1:])
+        setattr(self, "_running_summary", running_summary)
+        return running_summary
+
+    @running_summary.setter
+    def running_summary(self, value):
+        if hasattr(self, "_running_summary"):
+            self._running_summary = value
+        else:
+            setattr(self, "_running_summary", value)
+        self.save_local()
+
+    @property
     def documents_path(self):
         storage = os.path.join(self._storage, "uploaded_documents")
         os.makedirs(storage, exist_ok=True)
         return storage
 
+    @property
+    def doc_infos(self) -> str:
+        if hasattr(self, "_doc_infos"):
+            return self._doc_infos
+        return ""
+
+    @doc_infos.setter
+    def doc_infos(self, value: str):
+        if hasattr(self, "_doc_infos"):
+            self._doc_infos = value
+        else:
+            setattr(self, "_doc_infos", value)
+        self.save_local()
+
     def add_uploaded_document(self, pdf_url):
+        # TODO: check file md5 hash to see if it is already uploaded
         storage = self.documents_path
         keys = self.get_api_keys()
         keys["mathpixKey"] = None
         keys["mathpixId"] = None
+        previous_docs = self.get_field("uploaded_documents_list")
+        previous_docs = previous_docs if previous_docs is not None else []
+        # deduplicate on basis of doc_id
+        previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
+        pdf_urls = [d[2] for d in previous_docs]
+        if pdf_url in pdf_urls:
+            return None
         current_documents: List[DocIndex] = self.get_uploaded_documents()
         current_sources = [d.doc_source for d in current_documents]
         if pdf_url in current_sources:
@@ -228,11 +266,14 @@ Compact list of bullet points:
         doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        previous_docs = self.get_field("uploaded_documents_list")
-        previous_docs = previous_docs if previous_docs is not None else []
-        # deduplicate on basis of doc_id
-        previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
-        self.set_field("uploaded_documents_list", previous_docs + [(doc_id, doc_storage)], overwrite=True)
+        all_docs = previous_docs + [(doc_id, doc_storage, pdf_url)]
+
+        attached_docs: List[int] = list(range(1, len(current_documents) + 1))
+        attached_docs: List[DocIndex] = [current_documents[d - 1] for d in attached_docs]
+        attached_docs.append(doc_index)
+        doc_infos = "\n".join([f"#doc_{i+1}: ({d.title})[{d.doc_source}]" for i, d in enumerate(attached_docs)])
+        self.doc_infos = doc_infos
+        self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 
     def get_uploaded_documents(self, doc_id=None, readonly=False)->List[DocIndex]:
         try:
@@ -253,7 +294,14 @@ Compact list of bullet points:
         return docs
 
     def delete_uploaded_document(self, doc_id):
-        self.set_field("uploaded_documents_list", [d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id], overwrite=True)
+        all_docs = [d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id]
+        self.set_field("uploaded_documents_list", all_docs, overwrite=True)
+        current_documents: List[DocIndex] = self.get_uploaded_documents()
+        attached_docs: List[int] = list(range(1, len(current_documents) + 1))
+        attached_docs: List[DocIndex] = [current_documents[d - 1] for d in attached_docs]
+        doc_infos = "\n".join([f"#doc_{i + 1}: ({d.title})[{d.doc_source}]" for i, d in enumerate(attached_docs)])
+        self.doc_infos = doc_infos
+
 
     @staticmethod
     def load_local(folder):
@@ -394,6 +442,7 @@ Compact list of bullet points:
     def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
+        token_limit_very_short = 2000
         token_limit_short = 3000
         token_limit_long = 7500
         token_limit_very_long = 24000
@@ -405,12 +454,14 @@ Compact list of bullet points:
             messages = [m for m in messages if m["message_id"] in past_message_ids]
             required_message_lookback = 12
         word_count = 0
-        previous_messages_short = previous_messages_long = previous_messages_very_long = ''
+        previous_messages_very_short = previous_messages_short = previous_messages_long = previous_messages_very_long = ''
         while word_count < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
             previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
             word_count = get_gpt4_word_count(previous_messages_text)
+            if word_count < token_limit_very_short:
+                previous_messages_very_short = previous_messages_text
             if word_count < token_limit_short:
                 previous_messages_short = previous_messages_text
             if word_count < token_limit_long:
@@ -419,13 +470,17 @@ Compact list of bullet points:
                 previous_messages_very_long = previous_messages_text
             message_lookback += 2
 
-        running_summary = memory["running_summary"][-1:]
+        running_summary = self.running_summary
         # older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         # if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
         #     running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
-        results = dict(previous_messages=previous_messages_short, previous_messages_long=previous_messages_long, previous_messages_very_long=previous_messages_very_long, summary=running_summary)
+        results = dict(previous_messages=previous_messages_short,
+                       previous_messages_long=previous_messages_long,
+                       previous_messages_very_long=previous_messages_very_long,
+                       previous_messages_very_short=previous_messages_very_short,
+                       summary=running_summary)
         # lets log the length of each of the above in a single log statement
         time_spend = time.time() - st
         logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
@@ -488,6 +543,7 @@ Title of the conversation:
         except Exception as e:
             pass
         mem_set = get_async_future(self.set_field, "memory", memory)
+        self.running_summary = summary
         # self.set_field("memory", memory)
         msg_set.result()
         mem_set.result()
@@ -505,30 +561,47 @@ Title of the conversation:
         for txt in self.reply(query):
             yield json.dumps(txt)+"\n"
 
-    def get_uploaded_documents_for_query(self, query, replace_reference=True, ignore_large_data_files=True, choose_only_data_files=False):
-        assert (ignore_large_data_files and not choose_only_data_files) or (not ignore_large_data_files and choose_only_data_files)
-        query["messageText"], code_blocks = extract_code_blocks(query["messageText"])
-        attached_docs = re.findall(r'#doc_\d+', query["messageText"])
+    def get_uploaded_documents_for_query(self, query, replace_reference=True):
+        messageText = query["messageText"]
+        messageText, code_blocks = extract_code_blocks(messageText)
+        attached_docs = re.findall(r'#doc_\d+', messageText)
         attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
         attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
+        attached_docs_readable = []
+        attached_docs_readable_names = []
+        attached_docs_data = []
+        attached_docs_data_names = []
+        doc_names_and_docs = list(zip(attached_docs_names, attached_docs))
         if len(attached_docs) > 0:
             # assert that all elements of attached docs are greater than equal to 1.
             uploaded_documents = self.get_uploaded_documents()
-            attached_docs: List[int] = [d for d in attached_docs if len(uploaded_documents) >= d >= 1]
+            attached_docs_names, attached_docs = zip(*[(n, d) for n, d in doc_names_and_docs if len(uploaded_documents) >= d >= 1])
             attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
-            if ignore_large_data_files:
-                attached_docs = [d for d in attached_docs if os.path.getsize(d.doc_source) < 100 * 1024 or d.doc_source.endswith(".pdf") or d.doc_source.endswith(".html")]
-            if choose_only_data_files:
-                assert replace_reference
-                attached_docs = [d for d in attached_docs if d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(".tsv") or d.doc_source.endswith(".xlsx")]
-            doc_infos = [d.title for d in attached_docs]
+            attached_docs_readable = []
+            attached_docs_readable_names = []
+            attached_docs_data = []
+            attached_docs_data_names = []
+            for n, d in zip(attached_docs_names, attached_docs):
+                if os.path.getsize(d.doc_source) < 100 * 1024 or d.doc_source.endswith(".pdf") or d.doc_source.endswith(
+                    ".html"):
+                    attached_docs_readable.append(d)
+                    attached_docs_readable_names.append(n)
+                if d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
+                    ".tsv") or d.doc_source.endswith(".xlsx"):
+                    attached_docs_data.append(d)
+                    attached_docs_data_names.append(n)
+            attached_docs = attached_docs_readable + attached_docs_data
+            doc_infos = [d.title for d in attached_docs_data + attached_docs_readable]
+            doc_infos_data = [d.title for d in attached_docs_data]
+            doc_infos_readable = [d.title for d in attached_docs_readable]
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
             if replace_reference:
                 for i, d in enumerate(attached_docs_names):
-                    query["messageText"] = query["messageText"].replace(d, f"{d} (Title of {d} '{doc_infos[i]}')\n" + (f"file: {d.doc_source}\n" if choose_only_data_files else ""))
-        query["messageText"] = restore_code_blocks(query["messageText"], code_blocks)
-        return query, attached_docs, attached_docs_names
+                    doc_title = doc_infos[i]
+                    messageText = messageText.replace(d, f"{d} (Title of {d} '{doc_title}')\n" + (f"data file: {d.doc_source}\n" if doc_title in doc_infos_data else ""))
+        query["messageText"] = restore_code_blocks(messageText, code_blocks)
+        return query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (attached_docs_data, attached_docs_data_names)
 
     def get_prior_messages_summary(self, query:str)->str:
         summary_lookback = 8
@@ -544,7 +617,7 @@ Title of the conversation:
             if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 20000:
                 break
         previous_messages = "\n\n".join(reversed(prev_msg_text))
-        running_summary = memory["running_summary"][-1:]
+        running_summary = self.running_summary
         older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
         if len(memory["running_summary"]) > 4:
             summary_nodes = memory["running_summary"][-4:-3]
@@ -594,6 +667,8 @@ Write the extracted information concisely below:
             preamble += "\nProvide the answer in a format that can be easily copied and pasted. Provide answer inside a code block so that I can copy it.\n"
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
+        if "No Code Exec" in preamble_options:
+            preamble += "\nDon't execute any code unless user explicitly asks to.\n"
         if "Long reply" in preamble_options:
             preamble += "\nProvide a long and detailed answer like an essay. Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "CoT" in preamble_options:
@@ -661,6 +736,17 @@ Write the extracted information concisely below:
             answer += r["text"]
         return answer
 
+    def get_coding_rules(self, query, attached_docs_data, attached_docs_data_names):
+        prefix = str(mmh3.hash(self.conversation_id + query["messageText"], signed=False))
+        plot_prefix = f"plot-{prefix}-"
+        file_prefix = f"file-{prefix}-"
+        coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path,
+                                                    output_directory=self.documents_path,
+                                                    input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
+                                                                     zip(attached_docs_data, attached_docs_data_names)]),
+                                                    plot_prefix=plot_prefix, file_prefix=file_prefix, )
+        return coding_rules, prefix
+
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
@@ -669,7 +755,7 @@ Write the extracted information concisely below:
         time_dict = dict()
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         answer = ''
-        summary = "".join(self.get_field("memory")["running_summary"][-1:])
+        summary = self.running_summary
         summary_text_init = summary
         summary_text = summary
         checkboxes = query["checkboxes"]
@@ -678,10 +764,48 @@ Write the extracted information concisely below:
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
+        if enablePreviousMessages == "infinite":
+            message_lookback = provide_detailed_answers * 4
+        else:
+            message_lookback = int(enablePreviousMessages) * 2
+
+        prior_context_future = get_async_future(self.retrieve_prior_context,
+                                                query["messageText"], past_message_ids=past_message_ids,
+                                                required_message_lookback=message_lookback)
+        prior_context = prior_context_future.result()
+        previous_messages = prior_context["previous_messages"]
+        previous_messages_very_short = prior_context["previous_messages_very_short"]
+        previous_messages_short = previous_messages
+        previous_messages_long = prior_context["previous_messages_long"]
+        previous_messages_very_long = prior_context["previous_messages_very_long"]
+        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes[
+            "permanentText"] + "\n") if "permanentText" in checkboxes and len(
+            checkboxes["permanentText"].strip()) > 0 else ""
+        # TODO: Pre-cache this prompt except user message.
+        # TODO: Add a deciding a plan to answer your query yield before this.
+        # TODO: If plan parsing fails then proceed as usual.
+        # TODO: make 4 parallel calls instead of one planner call. Faster by parallel. Invoke those parts which get results faster.
+        # TODO: exec web search before hand.
+        yield {"text": '', "status": "Getting planner response ..."}
+        planner_prompt = prompts.planner_checker_prompt_short.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
+                                              summary_text=summary, previous_messages=remove_code_blocks(previous_messages_very_short), context=remove_code_blocks(query["messageText"]))
+        st_planner = time.time()
+        planner_text = ''
+        planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+        for t in planner_text_gen:
+            planner_text += t
+            if "<planner>" in planner_text and "</planner>" in planner_text:
+                # use regex to get planner plan
+                planner_text = re.search(r'<planner>(.*?)</planner>', planner_text, re.DOTALL).group(1)
+                break
+
+        et_planner = time.time()
+        time_logger.info(f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n")
         tell_me_more = False
         tell_me_more_msg_resp = None
         previous_message_config = None
         prev_attached_docs, prev_attached_docs_names = None, None
+        prev_attached_docs_data, prev_attached_docs_names_data = None, None
         if "tell_me_more" in checkboxes and checkboxes["tell_me_more"]:
             tell_me_more = True
             query["messageText"] = query["messageText"] + "\n" + "Tell me more about what we discussed in our last message.\n"
@@ -695,12 +819,14 @@ Write the extracted information concisely below:
                 tell_me_more_msg_resp = "User:" + "\n'''" + last_user_message["text"] + "'''\nResponse:\n'''" + last_message["text"] + "'''\n"
                 query["links"].extend(previous_message_config["links"])
                 if "use_attached_docs" in previous_message_config and previous_message_config["use_attached_docs"]:
-                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": " ".join(previous_message_config["attached_docs_names"])}, False)
-                    _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
+                    mtext = " ".join(previous_message_config["attached_docs_names"]) if "attached_docs_names" in previous_message_config else ""
+                    mtext += " ".join(previous_message_config["attached_docs_names_data"]) if "attached_docs_names_data" in previous_message_config else ""
+                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": mtext}, False)
+                    _, _, _, (prev_attached_docs, prev_attached_docs_names), (prev_attached_docs_data, prev_attached_docs_names_data) = prev_attached_docs_future.result()
                 else:
                     prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query,
                                                                  {"messageText": last_user_message["text"]}, False)
-                    _, prev_attached_docs, prev_attached_docs_names = prev_attached_docs_future.result()
+                    _, _, _, (prev_attached_docs, prev_attached_docs_names), (prev_attached_docs_data, prev_attached_docs_names_data) = prev_attached_docs_future.result()
                 if "link_context" in previous_message_config:
                     previous_message_config["link_context"] = "\n" + previous_message_config["link_context"]
                 if "perform_web_search" in previous_message_config and previous_message_config["perform_web_search"]:
@@ -710,10 +836,6 @@ Write the extracted information concisely below:
                     checkboxes["googleScholar"] = True
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
 
-        if enablePreviousMessages == "infinite":
-            message_lookback = provide_detailed_answers * 4
-        else:
-            message_lookback = int(enablePreviousMessages) * 2
 
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         user_query = query['messageText']
@@ -766,10 +888,19 @@ Write the extracted information concisely below:
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
-        query, attached_docs, attached_docs_names = attached_docs_future.result()
+
+        query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
+            attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
+        attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
+        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names)
         if prev_attached_docs is not None:
             attached_docs.extend(prev_attached_docs)
             attached_docs_names.extend(prev_attached_docs_names)
+            query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
+
+        if prev_attached_docs_data is not None:
+            attached_docs_data.extend(prev_attached_docs_data)
+            attached_docs_data_names.extend(prev_attached_docs_names_data)
             query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
                 additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
@@ -783,6 +914,9 @@ Write the extracted information concisely below:
         if len(attached_docs) > 0:
             message_config["use_attached_docs"] = True
             message_config["attached_docs_names"] = attached_docs_names
+        if len(attached_docs_data) > 0:
+            message_config["attached_docs_data_names"] = attached_docs_data_names
+            message_config["use_attached_docs"] = True
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
                                                         query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
@@ -802,8 +936,7 @@ Write the extracted information concisely below:
                                           provide_raw_text=provide_raw_text,
                                           dont_join_answers=False)
         web_text = ''
-        prior_context_future = get_async_future(self.retrieve_prior_context,
-            query["messageText"], past_message_ids=past_message_ids, required_message_lookback=unchanged_message_lookback)
+
         preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
         if provide_detailed_answers >= 3 and "Short reply" not in preambles:
             preambles.append("Long reply")
@@ -1244,13 +1377,6 @@ Write the extracted information concisely below:
         time_logger.info(
             f"Time to wait before preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
         yield {"text": '', "status": "Preparing prompt ..."}
-        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes["permanentText"] + "\n") if "permanentText" in checkboxes and len(checkboxes["permanentText"].strip()) > 0 else ""
-        query_with_dataf_file_refs, attached_docs, attached_docs_names = self.get_uploaded_documents_for_query(query, replace_reference=True, ignore_large_data_files=False, choose_only_data_files=True)
-        prefix = str(mmh3.hash(self.conversation_id + query["messageText"] + summary_text, signed=False))
-        plot_prefix = f"plot-{prefix}-"
-        file_prefix = f"file-{prefix}-"
-        coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path, output_directory=self.documents_path, input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in zip(attached_docs, attached_docs_names)]), plot_prefix=plot_prefix, file_prefix=file_prefix,
-                                     )
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages,
@@ -1305,6 +1431,7 @@ Write the extracted information concisely below:
         already_executed_code = []
         already_executed_drawio = []
         already_executed_mermaid = []
+        # TODO: create coding env if coding is needed.
         code_session = PersistentPythonEnvironment()
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
@@ -1320,7 +1447,7 @@ Write the extracted information concisely below:
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
                 if "</mxfile>" in drawio_code:
                     drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
-                if "<diagram>" in drawio_code:
+                if "</diagram>" in drawio_code:
                     drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
                 save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
                 file_path_for_render = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
@@ -1429,7 +1556,7 @@ Write the extracted information concisely below:
     def get_metadata(self):
         memory = self.get_field("memory")
         return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=memory["title"],
-                    summary_till_now="".join(memory["running_summary"][-1:]),
+                    summary_till_now=self.running_summary,
                     last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
     
     def delete_last_turn(self):
@@ -1439,6 +1566,7 @@ Write the extracted information concisely below:
         memory = self.get_field("memory")
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"] = memory["running_summary"][:-1]
+        self.running_summary = "".join(memory["running_summary"][-1:])
         self.set_field("memory", memory, overwrite=True)
 
 

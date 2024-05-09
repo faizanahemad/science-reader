@@ -392,21 +392,23 @@ def extract_drawio(code_string):
     drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
     drawio = [c.strip() for c in drawio]
     drawio = "\n".join(drawio)
-    if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+    if drawio.strip() != "" and "<mxfile>" in drawio.lower() or "<mxfile " in drawio.lower():
         return drawio
     else:
         regex = r"```xml(.*?)```"
         drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
         drawio = [c.strip() for c in drawio]
         drawio = "\n".join(drawio)
-        if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+        if drawio.strip() != "" and "<mxfile>" in drawio.lower() or "<mxfile " in drawio.lower():
             return drawio
         else:
             regex = r"```(.*?)```"
             drawio = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
             drawio = [c.strip() for c in drawio]
             drawio = "\n".join(drawio)
-            if drawio.strip() != "" and "<mxfile>" in drawio.lower():
+            # separate lines and if any line just has xml as text and nothing else then discard that line then join them again.
+            drawio = "\n".join([line for line in drawio.split("\n") if line.strip().lower() != "xml"])
+            if drawio.strip() != "" and "<mxfile>" in drawio.lower() or "<mxfile " in drawio.lower():
                 return drawio
     return ''
 

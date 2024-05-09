@@ -368,38 +368,34 @@ markdownParser.code = function (code, language) {
 };
 
 function hasUnclosedMermaidTag(htmlString) {
-    // Regular expression to find <pre class='mermaid'> tags  
-    const openTagRegex = /<pre class='mermaid'>/g;
+    // Regular expression to identify all relevant mermaid tags
+    const tagRegex = /<pre class='mermaid'>|<\/pre>|```mermaid|```(?!\w)/g;
+    let stack = [];
+    let match;
 
-    // Regular expression to find </pre> tags  
-    const closeTagRegex = /<\/pre>/g;
-
-    // Find all matches for opening and closing tags  
-    const openTags = htmlString.match(openTagRegex) || [];
-    const closeTags = htmlString.match(closeTagRegex) || [];
-
-    // Check if the number of opening tags is greater than the number of closing tags  
-    if (openTags.length > closeTags.length) {
-        return true; // There is at least one unclosed <pre class='mermaid'> tag  
-    }
-
-    // Additional check: Ensure every opening tag is properly closed  
-    let currentIndex = 0;
-    for (let i = 0; i < openTags.length; i++) {
-        const openIndex = htmlString.indexOf(openTags[i], currentIndex);
-        const closeIndex = htmlString.indexOf(closeTags[i], currentIndex);
-
-        // If there's an opening tag without a corresponding closing tag in order  
-        if (closeIndex === -1 || openIndex > closeIndex) {
-            return true;
+    while ((match = tagRegex.exec(htmlString)) !== null) {
+        switch (match[0]) {
+            case "<pre class='mermaid'>":
+                // Push the expected closing tag for <pre class='mermaid'>
+                stack.push("</pre>");
+                break;
+            case "```mermaid":
+                // Push the expected closing tag for ```mermaid
+                stack.push("```");
+                break;
+            case "</pre>":
+            case "```":
+                // Check if the closing tag matches the expected one from the stack
+                if (stack.length === 0 || stack.pop() !== match[0]) {
+                    return true; // Mismatch found or stack is empty (unmatched closing tag)
+                }
+                break;
         }
-
-        // Update currentIndex to search for the next set of tags  
-        currentIndex = closeIndex + 1;
     }
 
-    return false; // All <pre class='mermaid'> tags are properly closed  
-}  
+    return stack.length > 0; // If the stack is not empty, there is at least one unclosed tag
+}
+ 
 
 
 function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null) {
@@ -466,6 +462,15 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     MathJax.Hub.Queue(function() {
         // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
         if (!hasUnclosedMermaidTag(html) && has_end_answer_tag) {
+            possible_mermaid_elem = elem_to_render_in.find(".hljs.mermaid")
+            // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
+            if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid')) {
+                mermaid_text = possible_mermaid_elem[0].textContent
+                mermaid_elem = $("<pre class='mermaid'></div>")
+                mermaid_elem.text(mermaid_text)
+                // append as sibling to the possible_mermaid_elem
+                possible_mermaid_elem.after(mermaid_elem)
+            }
             mermaid.run({
                 querySelector: 'pre.mermaid',
                 useMaxWidth: false,

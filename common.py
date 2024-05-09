@@ -1120,7 +1120,7 @@ def thread_safe_tee(iterable, n=2):
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
 
 
-from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings, Embeddings
+from langchain.embeddings.openai import embed_with_retry, OpenAIEmbeddings
 from typing import List, Optional, Dict, Any
 import numpy as np
 import requests
@@ -1274,7 +1274,7 @@ class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
 
         return embeddings
 
-def get_embedding_model(keys) -> Embeddings:
+def get_embedding_model(keys):
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
         from embedding_client_server import EmbeddingClient
         return EmbeddingClient(keys["embeddingsUrl"])
@@ -1333,11 +1333,57 @@ def enhanced_robust_url_extractor_v0(text):
 
 import re
 
+
 def extract_code_blocks(text):
+    # Pattern to find code blocks
     code_block_pattern = re.compile(r'(?s)(```.*?```|`.*?`|<code>.*?</code>)')
+    # Find all code blocks
     code_blocks = code_block_pattern.findall(text)
-    modified_text = code_block_pattern.sub('CODE_BLOCK_{}', text)
+
+    # Function to replace each match with an incrementing number
+    def replace_with_counter(match):
+        replace_with_counter.counter += 1
+        return f"CODE_BLOCK_{replace_with_counter.counter}"
+
+        # Initialize the counter attribute
+
+    replace_with_counter.counter = -1
+
+    # Replace code blocks with unique identifiers
+    modified_text = code_block_pattern.sub(replace_with_counter, text)
+
     return modified_text, code_blocks
+
+
+# execute
+import re
+
+
+def extract_code_blocks_with_lang(text):
+    # Pattern to find code blocks with optional language specifier
+    code_block_pattern = re.compile(r'(?s)(```(\w+)?\s.*?```|`.*?`|<code>.*?</code>)')
+
+    # Find all code blocks
+    code_blocks = code_block_pattern.findall(text)
+
+    # Function to replace each match with an incrementing number and include language
+    def replace_with_counter(match):
+        replace_with_counter.counter += 1
+        # Extract language if present, default to 'no_lang'
+        language = match.group(2) if match.group(2) else 'no_lang'
+        return f"CODE_BLOCK_{language}_{replace_with_counter.counter}"
+
+        # Initialize the counter attribute
+
+    replace_with_counter.counter = -1
+
+    # Replace code blocks with unique identifiers including language
+    modified_text = code_block_pattern.sub(replace_with_counter, text)
+    return modified_text, [block[0] for block in code_blocks]
+
+def remove_code_blocks(text):
+    modified_text, code_blocks = extract_code_blocks_with_lang(text)
+    return modified_text
 
 
 def restore_code_blocks(modified_text, code_blocks):

@@ -15,10 +15,6 @@ from flask_session import Session
 from collections import defaultdict
 import requests
 from io import BytesIO
-from langchain.vectorstores import FAISS
-from langchain.embeddings.base import Embeddings
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores.base import VectorStore
 from collections import defaultdict
 from Conversation import Conversation
 from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex
@@ -41,9 +37,8 @@ from sqlite3 import Error
 from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed, \
     verify_openai_key_and_fetch_models
 from base import convert_doc_to_pdf
-import spacy
-from spacy.lang.en import English
-from spacy.pipeline import Lemmatizer
+# from spacy.lang.en import English
+# from spacy.pipeline import Lemmatizer
 from flask.json.provider import JSONProvider
 from common import SetQueue
 import secrets
@@ -426,9 +421,9 @@ os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(users_dir, exist_ok=True)
 os.makedirs(pdfs_dir, exist_ok=True)
 os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
-nlp = English()  # just the language with no model
-_ = nlp.add_pipe("lemmatizer")
-nlp.initialize()
+# nlp = English()  # just the language with no model
+# _ = nlp.add_pipe("lemmatizer")
+# nlp.initialize()
 conversation_folder = os.path.join(os.getcwd(), folder, "conversations")
 folder = os.path.join(os.getcwd(), folder, "documents")
 os.makedirs(folder, exist_ok=True)
@@ -671,11 +666,11 @@ def get_bm25_grams(text):
     unigrams = text.split()
     bigrams = generate_ngrams(unigrams, 2)
     trigrams = generate_ngrams(unigrams, 3)
-    doc = nlp(text)
-    lemmas = [token.lemma_ for token in doc]
-    bigrams_lemma = generate_ngrams(lemmas, 2)
-    trigrams_lemma = generate_ngrams(lemmas, 3)
-    return unigrams + bigrams + trigrams + lemmas + bigrams_lemma + trigrams_lemma
+    # doc = nlp(text)
+    # lemmas = [token.lemma_ for token in doc]
+    # bigrams_lemma = generate_ngrams(lemmas, 2)
+    # trigrams_lemma = generate_ngrams(lemmas, 3)
+    return unigrams + bigrams + trigrams # + lemmas + bigrams_lemma + trigrams_lemma
 
 def add_to_bm25_corpus(doc_index: DocIndex):
     global bm25_corpus, doc_id_to_bm25_index

@@ -75,32 +75,11 @@ The last message of the conversation sent by the human is as follows:
 Rephrase and contextualise the last message of the human as a question or a statement using the given previous conversation details so that we can search our database.
 Rephrased and contextualised human's last message:
 """,
-            long_persist_current_turn_prompt="""You are given conversation details between a human and an AI. You will summarise the conversation provided below.
-The older summary of the conversation is as follows:
-'''{older_summary}'''
 
-The recent summary of the conversation is as follows:
-'''{previous_summary}'''
-
-The last few messages of the conversation from which we will derive the summary are as follows:
-'''
-{previous_messages}
-'''
-             
-Please summarize the conversation very informatively, in great detail and depth. Your summary should be detailed, comprehensive, thoughtful, insightful, informative, and in-depth. Ensure you capture all nuances and key points from the dialogue. Capture all essential details mentioned by both user and assistant.
-If we are answering questions on a story, article or some other context then we should provide a summary of the story or article as well, since we will later just ask questions and use the summary to answer the questions.
-
-Format your summary using markdown, starting with a long comprehensive overview paragraph. Follow this with in depth bullet points with good detailing highlighting about all the details of the conversation. Finally, conclude with an extensive final remark about the overall conversation including any plans or action items. Mention all solutions, suggestions, references, methods and techniques we discussed in depth and proper detail. Capture any solutions, ideas, thoughts, suggestions, action items we had discussed in depth and comprehensively.
-
-Prioritise clarity, informativeness, wide coverage, density and depth in your summary to fully represent the conversation and all its smaller details. Keep your response dense in information and details.
-Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
-
-Conversation Summary:
-""",
             persist_current_turn_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. Your summary should be detailed, comprehensive and in-depth.
-Capture all important details in your conversation summary including code, factual details, names and other details mentioned by the human and the AI. 
-Preserve important details that have been mentioned in the previous summary especially including factual details and references.
+Capture all important details in your conversation summary including factual details, names and other details mentioned by the human and the AI. 
+Preserve important details that have been mentioned in the previous summary especially including factual details and references while adding more details from current user query and system response.
 Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
 
 The previous summary and salient points of the conversation is as follows:
@@ -113,12 +92,13 @@ The last 2 messages of the conversation from which we will derive the summary an
 User query: '''{query}'''
 System response: '''{response}'''
 
-Write a summary of the conversation using the previous summary and the last 2 messages. Please summarize the conversation very informatively, in great detail and depth.
+Write a summary of the conversation using the previous summary and the last 2 messages. Please summarize the conversation very informatively, in detail and depth.
 Conversation Summary:
 """,
 
 
             chat_slow_reply_prompt=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
+{self.date_string}
 {{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}{{summary_text}}{{previous_messages}}
 {{permanent_instructions}}
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
@@ -322,7 +302,7 @@ Cover the below points while answering and also add other necessary points as ne
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
 - Do not delete any files.
 - Do not use any other libraries other than the ones mentioned above.
-""" + f"\n- The current date is '{date}', year is {year}, month is {month}, day is {day}.\n"
+""" + f"\n- {self.date_string}\n"
         return rules
 
 
@@ -371,7 +351,7 @@ Cover the below points while answering and also add other necessary points as ne
             return parsed_data
 
         prompt = f"""You are an expert AI system which determines whether our search results are useful and can answer a user query or not. If our search results can't answer the user query then you will decide if we need to do more web search and write two new web search queries for performing search again.
-The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+{self.date_string} 
 
 Previous web search queries are given below (empty if no web search done previously):
 '''{{previous_web_search_queries}}'''
@@ -414,61 +394,52 @@ Write your output decision in the above xml format.
         return prompt, parse_llm_output
 
     @property
-    def planner_checker_prompt(self):
+    def date_string(self):
+        import datetime
+        import calendar
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+        weekday = datetime.datetime.now().weekday()
+        weekday_name = calendar.day_name[weekday]
+        time = datetime.datetime.now().strftime("%H:%M:%S")
+        return f"The current date is '{date}', year is {year}, month is {month}, day is {day}. It is a {weekday_name}. The current time is {time}."
+
+    @property
+    def planner_checker_prompt_short(self):
         # TODO: Fire web search and document search prior to planner for speed.
         import datetime
         date = datetime.datetime.now().strftime("%d %B %Y")
         year = datetime.datetime.now().strftime("%Y")
         month = datetime.datetime.now().strftime("%B")
         day = datetime.datetime.now().strftime("%d")
-        web_search_prompt = f"""You are an expert AI system that determines which function to call (function calling and tool usage) and what plan to follow to best answer to a user's message. 
-Based on conversation summary and user's messages, Your task is to decide:
-1. Domain of the query.
-2. If we need to do web search or not. Is web search needed for clear explanation? and Is web search asked explicitly by the user?
-3. Web search type if web search is needed. It could be general or academic.
-4. If we need to read any uploaded documents or not.
-5. Is question about finance, stocks, mutual funds or ETFs?
-6. If code execution or data analysis is needed?
-7. If diagramming or plotting is asked explicitly by the user?
-8. If diagram is needed for clear explanation?
-9. What type of diagram is needed or useful?
-10. If memory pad or writing pad is needed for better answering?
-11. Web search queries to generate if web search is needed.
-12. Document search queries to generate if document search is needed along with document ids.
-If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
-The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+        web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message and then answers the user's message if needed by themselves. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
+{self.date_string}
 
-Now based on given user message and conversation context decide if we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
-Generate 4 well specified and diverse web search queries if web search is needed. 
+Now based on given user message and conversation context we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
 
-Your output should look be a valid xml tree with our reasons and decisions like below example format.
+Planner rules:
+- Inside need_finance_data tag, you will write yes if the user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
+- Inside need_diagram tag, you will write yes if a diagram is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need a diagram for clear explanation or if user has explicitly asked us to draw a diagram or plot or graph.
+- Inside code_execution tag, you will write yes if python code execution or data analysis or matplotlib/seaborn is needed or asked explicitly in the user message. Data analysis and plotting may also be needed for finance use cases and when user asks plotting or diagramming of specific types. This will be needed for questions which need python code execution or data analysis or matplotlib plot or graph or if user has explicitly asked us to write python code.
+- Inside web_search_needed tag, you will write yes if web search is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need web search for clear explanation, or questions needs recent updated information or if user has explicitly asked us to do web search.
+
+Your output should look be a valid xml tree with our plan of execution like below example format.
 <planner>
-    <thoughts>Your thoughts on the user message and how best we can answer it and why the below categories may be yes or no.</thoughts>
-    <a_good_answer_must_have>What should a good answer to this user message contain?</a_good_answer_must_have>
-    <high_level_structure_of_answer>What should be the high level structure of the answer?</high_level_structure_of_answer>
     <domain>Science</domain>
-    <is_question_about_finance_stocks_mutual_fund_etf>yes/no<is_question_about_finance_stocks_mutual_fund_etf>
-    <company_stock_fund_etf_name>company_ticker</company_stock_fund_etf_name>
-    <diagramming_asked_explicitly>yes/no</diagramming_asked_explicitly>
-    <is_diagram_needed_for_clear_explanation>yes/no</is_diagram_needed_for_clear_explanation>
-    <suggested_diagram_type>
-        <diagram_type>Flowchart</diagram_type>
-        <drawing_library>Which Library from among mermaid js, draw.io (diagrams.net) xml, or python matplotlib/seaborn code is to be used</drawing_library>
-    </suggested_diagram_type>
-    <code_execution_explicitly_asked>yes/no</code_execution_explicitly_asked>
-    <can_we_just_write_python_code_without_code_execution>yes</can_we_just_write_python_code_without_code_execution>
-    <python_code_execution_or_data_analysis_or_matplotlib_needed>no</python_code_execution_or_data_analysis_or_matplotlib_needed>
-    <use_memory_pad>no</use_memory_pad>
-    <web_search_needed_for_clear_explanation>yes</web_search_needed_for_clear_explanation>
-    <web_search_asked_explicitly>yes</web_search_asked_explicitly>
-    <web_search_type>general</web_search_type>
+    <need_finance_data>yes/no</need_finance_data>
+    <need_diagram>yes/no</need_diagram>
+    <code_execution>yes/no</code_execution>
+    <web_search_needed>yes/no</web_search_needed>
+    <web_search_type>general/academic/NA</web_search_type>
     <web_search_queries>
-        <query>diverse google search query based on given document</query>
-        <query>different_web_query based on the document and conversation</query>
+        <query>diverse google search query based on given user message with year ({year}) if recent results are important.</query>
+        <query>different_web_query based on the user message and conversation</query>
         <query>search engine optimised query based on the question and conversation</query>
         <query>search query based on the question and conversation</query>
     </web_search_queries>
-    <read_uploaded_document>yes</read_uploaded_document>
+    <read_uploaded_document>yes/no</read_uploaded_document>
     <document_search_queries>
         <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
         <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
@@ -476,37 +447,136 @@ Your output should look be a valid xml tree with our reasons and decisions like 
     </document_search_queries>
 </planner>
 
+<document_search_queries> will be empty and not needed in the planner xml at all if no documents are uploaded or no documents need to be read.
+<web_search_queries> will be empty if no web search is needed, and not needed in the planner xml at all.
+<web_search_type> will not be needed in the planner xml if web search is not needed.
+Example of how planner xml looks like if both web search is not needed and document search is not needed.
+<planner>
+    <domain>Identified Domain</domain>
+    <need_finance_data>yes/no</need_finance_data>
+    <need_diagram>yes/no</need_diagram>
+    <code_execution>yes/no</code_execution>
+    <web_search_needed>no</web_search_needed>
+    <read_uploaded_document>no</read_uploaded_document>
+</planner>
+
 web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
-We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
-We have the following list of domains to choose from:
-<select class="form-control" id="field-selector">
-    <option>None</option>
-    <option>Science</option>
-    <option>Arts</option>
-    <option>Health</option>
-    <option>Psychology</option>
-    <option>Finance</option>
-    <option>Mathematics</option>
-    <option>QnA</option>
-    <option>AI</option>
-    <option>Software</option>
-</select>
-
 Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
+Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
+We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
+<need_finance_data> will be yes if user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
 
-if python_code_execution_or_data_analysis_or_matplotlib_needed is no,  web_search_needed_for_clear_explanation is no, web_search_asked_explicitly is no, and read_uploaded_document is also no, then we can directly answer the question without any further search, hence keep writing answer to the question after you write the valid xml planner tree with our reasons and decisions.
+Possible Domains:
+- None
+- Science
+- Arts
+- Health
+- Psychology
+- Finance
+- Stock Market, Trading & Investing
+- Mathematics
+- QnA
+- AI
+- Software
 
-Current user message: 
-'''{{context}}'''
 
-Conversation context:
-'''{{doc_context}}'''
+Choose Domain as None if the user message query doesn't fit into any of the other domains.
+{{permanent_instructions}}
+
+If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
+Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
+'''{{doc_details}}'''
+
+Conversation context and summary:
+'''{{summary_text}}'''
 
 Previous User Messages:
 '''{{previous_messages}}'''
 
+
+Current user message: 
+'''{{context}}'''
+
+Valid xml planner tree with our reasons and decisions:
+    """
+        return web_search_prompt
+
+    @property
+    def planner_checker_prompt(self):
+        # TODO: Fire web search and document search prior to planner for speed.
+        import datetime
+        date = datetime.datetime.now().strftime("%d %B %Y")
+        year = datetime.datetime.now().strftime("%Y")
+        month = datetime.datetime.now().strftime("%B")
+        day = datetime.datetime.now().strftime("%d")
+        web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message and then answers the user's message if needed by themselves. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
+{self.date_string}
+
+Now based on given user message and conversation context we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
+
+Your output should look be a valid xml tree with our plan of execution like below example format.
+<planner>
+    <domain>Science</domain>
+    <is_question_about_finance_stocks_mutual_fund_etf>yes/no<is_question_about_finance_stocks_mutual_fund_etf>
+    <company_stock_fund_etf_name>company_ticker</company_stock_fund_etf_name>
+    <is_diagram_needed_for_clear_explanation_or_asked_explicitly>yes/no</is_diagram_needed_for_clear_explanation_or_asked_explicitly>
+    <suggested_diagram_type>
+        <diagram_type>What type of diagram best explains what is asked or needed by user.</diagram_type>
+        <drawing_library>Which Library from among mermaid js, draw.io (diagrams.net) xml, or python matplotlib/seaborn code is to be used</drawing_library>
+    </suggested_diagram_type>
+    <python_code_execution_or_data_analysis_or_matplotlib_needed_or_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_needed_or_asked_explicitly>
+    <use_memory_pad>no</use_memory_pad>
+    <web_search_needed_for_clear_explanation_or_asked_explicitly>yes/no</web_search_needed_for_clear_explanation_or_asked_explicitly>
+    <web_search_type>general</web_search_type>
+    <web_search_queries>
+        <query>diverse google search query based on given document</query>
+        <query>different_web_query based on the document and conversation</query>
+        <query>search engine optimised query based on the question and conversation</query>
+        <query>search query based on the question and conversation</query>
+    </web_search_queries>
+    <read_uploaded_document>yes/no</read_uploaded_document>
+    <document_search_queries>
+        <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
+        <document_query><document_id>#doc_3</document_id><query>What are the datasets used?</query></document_query>
+    </document_search_queries>
+</planner>
+
+<document_search_queries> will be empty if no documents are uploaded or no documents need to be read.
+<web_search_queries> will be empty if no web search is needed.
+web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
+Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
+Generate 4 well specified and diverse web search queries if web search is needed. 
+We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
+
+Possible Domains:
+- None
+- Science
+- Arts
+- Health
+- Psychology
+- Finance
+- Mathematics
+- QnA
+- AI
+- Software
+
+Choose Domain as None if the user message query doesn't fit into any of the other domains.
+{{permanent_instructions}}
+
+If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
 '''{{doc_details}}'''
+
+Conversation context and summary:
+'''{{summary_text}}'''
+
+Previous User Messages:
+'''{{previous_messages}}'''
+
+
+Current user message: 
+'''{{context}}'''
 
 Valid xml planner tree with our reasons and decisions:
 """
@@ -520,7 +590,7 @@ Valid xml planner tree with our reasons and decisions:
         month = datetime.datetime.now().strftime("%B")
         day = datetime.datetime.now().strftime("%d")
         web_search_prompt = f"""Your task is to generate web search queries for given question and conversation context.
-You are given a question and conversation context as below. The current date is '{date}', year is {year}, month is {month}, day is {day}. 
+You are given a question and conversation context as below. {self.date_string} 
 Current question: 
 '''{{context}}'''
 
