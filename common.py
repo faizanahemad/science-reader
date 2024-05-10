@@ -36,7 +36,14 @@ MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESUL
 import requests
 import os
 
-
+import tempfile
+from flask_caching import Cache
+temp_dir = tempfile.gettempdir()
+import diskcache as dc
+cache = dc.Cache(temp_dir)
+cache_days = 1
+cache_timeout = cache_days * 24 * 60 * 60
+# cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': cache_days * 24 * 60 * 60})
 
 def is_int(s):
     try:
@@ -266,44 +273,69 @@ class SetDescription(AddAttribute):
     def __init__(self, description):
         super().__init__('description', description)
 
+from collections import deque
 class CacheResults:
     def __init__(self, cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args) + str(kwargs), signed=False)),
                                                   dtype_filters=None,
                                                   should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
-                                                  enabled=True, expire=3600):
+                                                  enabled=True, expire=cache_timeout):
         self.cache = cache
         self.key_function = key_function
         self.dtype_filters = tuple(dtype_filters) if dtype_filters is not None else None
         self.should_cache_predicate = should_cache_predicate
         self.enabled = enabled
         self.expire = expire
+        self.part_key = None
+        self.cache_metrics = deque([], maxlen=100) # each element is a dict with keys as module, get, set where get and set are seconds to get and set the cache
+
+    def get_agg_cache_metrics(self):
+        get_time = 0
+        set_time = 0
+        total_items = len(self.cache_metrics)
+        for cache_time_dict in self.cache_metrics:
+            get_time += cache_time_dict.get('get', 0)
+            set_time += cache_time_dict.get('set', 0)
+        time_logger.info(f"[CacheResults] [get_agg_cache_metrics] [Metrics] Total items: {total_items}, get_time: {get_time/total_items}, set_time: {set_time/total_items}, module: {self.part_key}")
+        return {'get': get_time/total_items , 'set': set_time/total_items, 'module': self.part_key}
+
 
     def __call__(self, func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             if self.enabled:
                 cache = self.cache
+                if self.part_key is None:
+                    self.part_key = f"{func.__module__}:{func.__name__}"
                 result_computed = False
                 if self.dtype_filters is not None and len(self.dtype_filters) > 0:
                     sig = signature(func)
-
                     # Bind the arguments to the signature
                     bound_args = sig.bind(*args, **kwargs)
                     bound_args.apply_defaults()
 
                     # Filter the arguments based on their type
                     filtered_args = {k: v for k, v in bound_args.arguments.items() if isinstance(v, self.dtype_filters)}
-                    key = f"{func.__module__}:{func.__name__}:{str(mmh3.hash(str(filtered_args), signed=False))}"
+                    key = f"{self.part_key}:{str(mmh3.hash(str(filtered_args), signed=False))}"
                 else:
-                    key = f"{func.__module__}:{func.__name__}:{self.key_function(args, kwargs)}"
+                    key = f"{self.part_key}:{self.key_function(args, kwargs)}"
+                cache_time_dict = dict()
+                st = time.time()
                 result = cache.get(key)
-                if result is None or isinstance(result, Exception) or (
+                et_get = time.time() - st
+                cache_time_dict["module"] = self.part_key
+                cache_time_dict['get'] = et_get
+                self.cache_metrics.append(cache_time_dict)
+                if result is None or isinstance(result, (Exception, AssertionError, ValueError, RetryError)) or (
                         isinstance(result, (list, tuple, set)) and len(result) == 0):
                     result = func(*args, **kwargs)
                     result_computed = True
-                if result is not None and not isinstance(result, Exception) and not (
+                if result is not None and not isinstance(result, (Exception, AssertionError, ValueError, RetryError)) and not (
                         isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed:
+                    st_set = time.time()
                     cache.set(key, result, expire=self.expire)
+                    et_set = time.time() - st_set
+                    cache_time_dict['set'] = et_set
+                self.get_agg_cache_metrics()
                 return result
             else:
                 assert func is not None
@@ -857,7 +889,7 @@ def exists_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
     return os.path.exists(marker_file_path)
 
-@CacheResults(cache=FixedSizeFIFODict(1000), dtype_filters=[str, int, tuple, bool], enabled=True)
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def is_pdf_link(link):
     st = time.time()
     result = False
@@ -1526,7 +1558,7 @@ def parse_mardown_link_text(text):
 
 
 
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
+@CacheResults(cache=cache, dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
 def get_text_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
     embedding = openai_embed.embed_query(text)

@@ -13,13 +13,7 @@ from typing import Callable, Any, List, Dict, Tuple, Optional, Union
 from langchain_community.document_loaders import MathpixPDFLoader
 from langchain_text_splitters import TokenTextSplitter
 
-import tempfile
-from flask_caching import Cache
-temp_dir = tempfile.gettempdir()
-import diskcache as dc
-cache = dc.Cache(temp_dir)
-cache_timeout = 7 * 24 * 60 * 60
-# cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
+
 
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
@@ -846,7 +840,7 @@ def search_post_processing(query, results, source, only_science_sites=False, onl
         seen_titles.add(title)
         seen_links.add(link)
     return dedup_results
-
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     if our_datetime:
@@ -889,7 +883,7 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
-
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     import requests
 
@@ -945,6 +939,7 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     dedup_results = search_post_processing(pre_query, results, "brightdata_google", only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
 
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     num = max(num, 10)
@@ -1014,6 +1009,7 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
     return dedup_results
 
 
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1080,6 +1076,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     return dedup_results
 
 
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1122,8 +1119,9 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     logger.debug(
         f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     return dedup_results
-    
 
+
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
     from datetime import datetime, timedelta
     import requests
@@ -1825,7 +1823,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
 
 from concurrent.futures import ThreadPoolExecutor
-@CacheResults(cache=FixedSizeFIFODict(100), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
+@CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
             enabled=True)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
@@ -1986,9 +1984,6 @@ def get_arxiv_pdf_link(link):
 
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, _, detailed = link_title_context_apikeys
-    key = f"read_pdf-{str([link])}"
-    key = str(mmh3.hash(key, signed=False))
-    result = cache.get(key)
     if result is not None:
         return result
     st = time.time()
@@ -2040,8 +2035,6 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     txt = normalize_whitespace(txt)
     txt_len = len(txt.strip().split())
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
-    cache.set(key, {"link": link, "title": title, "context": context, "detailed": detailed, "exception": False, "full_text": txt},
-              expire=cache_timeout)
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for title {title}"
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 

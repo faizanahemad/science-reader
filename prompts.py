@@ -424,8 +424,9 @@ Now based on given user message and conversation context we need to decide a pla
 Planner rules:
 - Inside need_finance_data tag, you will write yes if the user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
 - Inside need_diagram tag, you will write yes if a diagram is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need a diagram for clear explanation or if user has explicitly asked us to draw a diagram or plot or graph.
-- Inside code_execution tag, you will write yes if python code execution or data analysis or matplotlib/seaborn is needed or asked explicitly in the user message. Data analysis and plotting may also be needed for finance use cases and when user asks plotting or diagramming of specific types. This will be needed for questions which need python code execution or data analysis or matplotlib plot or graph or if user has explicitly asked us to write python code.
-- Inside web_search_needed tag, you will write yes if web search is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need web search for clear explanation, or questions needs recent updated information or if user has explicitly asked us to do web search.
+- Inside code_execution tag, you will write yes if python code execution or data analysis or matplotlib/seaborn is really needed or asked explicitly in the user message. Data analysis and plotting may also be needed for finance data use cases or when user asks plotting or diagramming of specific types with python. This will be needed for questions which need python code execution or data analysis or matplotlib plot or if user has explicitly asked us to write python code.
+- Inside code_execution tag, you will write no if user has asked for code or about python code but we don't need to execute code to answer the user query.
+- Inside web_search_needed tag, you will write yes if web search is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need web search for clear explanation, or questions needs recent updated information or if user has explicitly asked us to do web search. Web search takes extra time and user has to wait for the answer so if an LLM or you can answer well without web search then put web search needed as no.
 
 Your output should look be a valid xml tree with our plan of execution like below example format.
 <planner>
@@ -467,9 +468,9 @@ Web search type can be general or academic. If the question is looking for gener
 Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
 We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
 <need_finance_data> will be yes if user message needs finance historical data, stocks historical data or stock market daily data like price and volume or company financial and quarterly/annual reports data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
-<need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions doesn't need finance data so <need_finance_data> will be no.
+<need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions, doesn't need finance data so <need_finance_data> will be no.
 
-Possible Domains:
+List of possible domains:
 - None
 - Science
 - Arts
@@ -501,7 +502,7 @@ Current user message:
 '''{{context}}'''
 
 Valid xml planner tree with our reasons and decisions:
-    """
+"""
         return web_search_prompt
 
     @property
