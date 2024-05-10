@@ -792,7 +792,7 @@ Write the extracted information concisely below:
             checkboxes["permanentText"].strip()) > 0 else ""
 
         yield {"text": '', "status": "Getting planner response ..."}
-        planner_prompt = prompts.planner_checker_prompt_short.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
+        planner_prompt = prompts.planner_checker_prompt_explicit.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
                                               summary_text=summary, previous_messages=remove_code_blocks(previous_messages_very_short), context=remove_code_blocks(query["messageText"]))
 
         st_planner = time.time()
@@ -806,8 +806,8 @@ Write the extracted information concisely below:
         if checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
         else:
-            planner_text_gen = ""
-            # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            # planner_text_gen = ""
+            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
 
         tell_me_more = False

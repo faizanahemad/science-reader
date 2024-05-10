@@ -51,114 +51,6 @@ def get_year_quarter_from_text(text):
     pass
 
 
-from nsepython import *
-from nsepython import nse_marketStatus, nse_fiidii, nse_index, niftyindices_headers
-from dateparser import parse
-logging.basicConfig(level=logging.DEBUG)
-
-indices_headers = headers = {
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Connection": "keep-alive",
-    # "Content-Length": "70", # This is usually calculated automatically by the requests library
-    "Content-Type": "application/json; charset=UTF-8",
-    "Host": "niftyindices.com",
-    "Origin": "https://niftyindices.com",
-    "Referer": "https://niftyindices.com/market-data/advanced-charting?Iname=Nifty%20100",
-    "Sec-Ch-Ua": "\"Google Chrome\";v=\"123\", \"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"123\"",
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": "\"macOS\"",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "X-Requested-With": "XMLHttpRequest"
-}
-niftyindices_headers.update(indices_headers)
-
-@CacheResults(cache=FixedSizeFIFODict(10), dtype_filters=[str, int, tuple, bool], enabled=True)
-def run_nse_fetch():
-    positions = nsefetch('https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O')
-    return positions
-
-def nse_custom_function_secfno(symbol):
-    positions = nsefetch('https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O')
-    endp = len(positions['data'])
-    for x in range(0, endp):
-        if(positions['data'][x]['symbol']==symbol.upper()):
-            return positions['data'][x]
-
-def get_dates(start_date = None, end_date = None):
-    from datetime import datetime, timedelta
-    # Assuming you meant to use the datetime module to calculate dates
-    # start date 2 years ago
-    if start_date is None:
-        start_date = datetime.now() - timedelta(days=365 * 2)
-    if end_date is None or end_date == "now":
-        end_date = datetime.now()
-
-        # Convert dates to strings in the format expected by equity_history function
-    # start date could be like 3 months ago , or like 2 years ago, or like 3 years 6 months ago. Lets parse such strings
-    if isinstance(start_date, str):
-        start_date = parse(start_date)
-    if isinstance(end_date, str) and end_date != "now":
-        end_date = parse(end_date)
-    start_date_str = start_date.strftime("%d-%m-%Y")
-    end_date_str = end_date.strftime("%d-%m-%Y")
-    return start_date_str, end_date_str
-
-def parse_date(date_str):
-    from dateparser import parse
-    return parse(date_str)
-
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_equity_history(symbol, start_date=None, end_date=None):
-    start_date_str, end_date_str = get_dates(start_date, end_date)
-
-    # Assuming the recursive call was a mistake and you meant to fetch equity history
-    # Replace the following line with the actual code to fetch the equity history
-    # For demonstration, I'll just return the symbol, start_date_str, and end_date_str
-    # Corrected the function call to use the string formatted dates
-    return equity_history(symbol.upper(), "EQ", start_date_str, end_date_str)
-
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_nse_eq(symbol):
-    assert symbol in get_nse_eq_symbols(), f"Symbol {symbol} not found in NSE Equity list"
-    return nse_eq(symbol)
-
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_fno_list():
-    return fnolist()
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_nse_fno(symbol):
-    assert symbol in get_fno_list(), f"Symbol {symbol} not found in F&O list"
-    return nse_fno(symbol)
-
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def nse_quote(symbol, section=""):
-#https://forum.unofficed.com/t/nsetools-get-quote-is-not-fetching-delivery-data-and-delivery-can-you-include-this-as-part-of-feature-request/1115/4
-    symbol = nsesymbolpurify(symbol)
-
-    if(section==""):
-        if any(x in symbol for x in fnolist()):
-            payload = nsefetch('https://www.nseindia.com/api/quote-derivative?symbol='+symbol)
-        else:
-            payload = nsefetch('https://www.nseindia.com/api/quote-equity?symbol='+symbol)
-        return payload
-
-    if(section!=""):
-        payload = nsefetch('https://www.nseindia.com/api/quote-equity?symbol='+symbol+'&section='+section)
-        return payload
-
-
-def get_delivery_info(symbol):
-    return nse_quote(symbol, "trade_info")
 
 @CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
 def get_quote_ltp_meta(symbol, *args):
@@ -167,9 +59,7 @@ def get_quote_ltp_meta(symbol, *args):
     return {"meta": quote_meta, "ltp": quote_ltp}
 
 
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_expiry_list(symbol):
-    return expiry_list(symbol)
+
 
 def get_nse_past_results(symbol):
     return nse_past_results(symbol)
@@ -194,36 +84,12 @@ def get_beta(symbol, days=365, symbol2="NIFTY 50"):
 
     return get_beta(symbol, days, symbol2)
 
-def get_nse_most_active():
-    securities_by_value = nse_most_active(type="securities", sort="value")
-    securities_by_volume = nse_most_active(type="securities", sort="volume")
+from nsepython import *
+from common_stock_functions import get_dates
 
-    sme_by_value = nse_most_active(type="sme", sort="value")
-    sme_by_volume = nse_most_active(type="sme", sort="volume")
-    return dict(securities_by_value=securities_by_value, securities_by_volume=securities_by_volume, sme_by_value=sme_by_value, sme_by_volume=sme_by_volume)
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_nse_eq_symbols():
-    return nse_eq_symbols()
-
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_nse_get_index_list():
-    return nse_get_index_list()
-
-def get_index_quote(symbol):
-    assert symbol in get_nse_get_index_list(), f"Symbol {symbol} not found in NSE Index list"
-    return nse_get_index_quote(symbol)
-
-def get_top_gainers_losers():
-    top_gainers = nse_get_top_gainers()
-    top_losers = nse_get_top_losers()
-    return dict(top_gainers=top_gainers, top_losers=top_losers)
-
-def get_daily_bhav_copy():
-    return get_bhavcopy()
 
 def get_index_history(symbol,start_date=None, end_date=None):
-    start_date_str, end_date_str = get_dates(start_date, end_date)
+    start_date_str, end_date_str = get_dates(start_date, end_date, format="%m-%d-%Y")
     assert symbol in get_nse_get_index_list(), f"Symbol {symbol} not found in NSE Index list"
     return index_history(symbol, start_date_str, end_date_str)
 
@@ -238,19 +104,13 @@ def get_index_total_returns(symbol, start_date=None, end_date=None):
     return index_total_returns(symbol, start_date_str, end_date_str)
 
 def get_index_details(symbol, start_date=None, end_date=None):
-    start_date_str, end_date_str = get_dates(start_date, end_date)
+    start_date_str, end_date_str = get_dates(start_date, end_date, format="%m-%d-%Y")
     assert symbol in get_nse_get_index_list(), f"Symbol {symbol} not found in NSE Index list"
     index_total_returns = None # get_index_total_returns(symbol, start_date_str, end_date_str)
-    index_pe_pb_div = get_index_pe_pb_div(symbol, start_date_str, end_date_str)
+    index_pe_pb_div = None # get_index_pe_pb_div(symbol, start_date_str, end_date_str)
     index_history = get_index_history(symbol, start_date_str, end_date_str)
     index_quote = get_index_quote(symbol)
     return dict(index_total_returns=index_total_returns, index_pe_pb_div=index_pe_pb_div, index_history=index_history, index_quote=index_quote)
-
-def get_get_bhavcopy_by_date(date=None):
-    if date is None:
-        date = datetime.now().strftime("%d-%m-%Y")
-    date = parse(date).strftime("%d-%m-%Y")
-    return get_bhavcopy(date)
 
 
 
@@ -271,5 +131,15 @@ if __name__ == "__main__":
 
     # print(get_nse_past_results('SBIN'))
     # print(get_nse_results())
-    print(get_index_details("NIFTY 50"))
+    # print(get_index_details("NIFTY 50"))
     # print(get_index_total_returns("NIFTY 50"))
+
+    # print(get_index_quote("NIFTY 50"))
+    # print(get_index_history("NIFTY 50"))
+    # print(get_index_pe_pb_div("NIFTY 50"))
+    # print(get_index_total_returns("NIFTY 50"))
+    # print(get_index_details("NIFTY 50"))
+    # print(get_equity_history("reliance"))
+    # print(get_nse_past_results("SBIN"))
+    # print(get_daily_bhav_copy("03-03-2024"))
+    print(get_quote_ltp_meta("RELIANCE"))
