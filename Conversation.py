@@ -797,7 +797,14 @@ Write the extracted information concisely below:
 
         st_planner = time.time()
         time_dict["before_planner_time"] = time.time() - st
-        planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+        if checkboxes["googleScholar"] or checkboxes["perform_web_search"]:
+            planner_text_gen = ""
+            checkboxes["need_diagram"] = False
+            checkboxes["code_execution"] = False
+        else:
+            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            checkboxes["need_diagram"] = False
+            checkboxes["code_execution"] = False
 
 
         tell_me_more = False
@@ -835,8 +842,7 @@ Write the extracted information concisely below:
                     checkboxes["googleScholar"] = True
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
 
-        checkboxes["need_diagram"] = False
-        checkboxes["code_execution"] = False
+
         links_in_text = enhanced_robust_url_extractor(query['messageText'])
         query['links'].extend(links_in_text)
         links = list(set([l.strip() for l in query["links"] if
