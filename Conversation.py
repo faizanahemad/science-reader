@@ -797,14 +797,16 @@ Write the extracted information concisely below:
 
         st_planner = time.time()
         time_dict["before_planner_time"] = time.time() - st
-        if checkboxes["googleScholar"] or checkboxes["perform_web_search"]:
+        checkboxes["need_diagram"] = checkboxes["draw"] if "draw" in checkboxes and bool(checkboxes["draw"]) else False
+        checkboxes["code_execution"] = checkboxes["execute"] if "execute" in checkboxes and bool(checkboxes["execute"]) else False
+        if checkboxes["code_execution"]:
+            permanent_instructions += "User has requested to execute the code and write executable code which we can run.\n"
+        if checkboxes["need_diagram"]:
+            permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
+        if checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
-            checkboxes["need_diagram"] = False
-            checkboxes["code_execution"] = False
         else:
             planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
-            checkboxes["need_diagram"] = False
-            checkboxes["code_execution"] = False
 
 
         tell_me_more = False
