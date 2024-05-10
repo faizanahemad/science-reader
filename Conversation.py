@@ -1208,7 +1208,8 @@ Write the extracted information concisely below:
                     yield False
                 yield False
 
-            re_search = get_async_future(re_search_if_needed)
+            # re_search = get_async_future(re_search_if_needed)
+            re_search = None
 
             def get_first_few_result_summary(start = 0, end=4):
                 st = time.time()
@@ -1274,10 +1275,11 @@ Write the extracted information concisely below:
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
             # Sort the array in reverse order based on the word count
             try:
-                for re_search_yield in re_search.result():
-                    if re_search_yield and isinstance(re_search_yield, dict):
-                        yield re_search_yield
-                        answer += re_search_yield["text"]
+                if re_search is not None:
+                    for re_search_yield in re_search.result():
+                        if re_search_yield and isinstance(re_search_yield, dict):
+                            yield re_search_yield
+                            answer += re_search_yield["text"]
             except Exception as e:
                 error_logger.error(f"Error in re_search_if_needed: {e}, stack: {traceback.format_exc()}")
 
@@ -1292,11 +1294,11 @@ Write the extracted information concisely below:
             web_text_accumulator = list(filter(
                 lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
                     0].lower(), web_text_accumulator))
-            if first_four_summary.done() and first_four_summary.exception() is None:
+            if first_four_summary.done() and first_four_summary.exception() is None and first_four_summary.result().strip()!="":
                 web_text_accumulator.append((first_four_summary.result(), f"[Generated Answer from {1} to {4}](No Link)", first_four_summary))
-            if second_four_summary.done() and second_four_summary.exception() is None:
+            if second_four_summary.done() and second_four_summary.exception() is None and second_four_summary.result().strip()!="":
                 web_text_accumulator.append((second_four_summary.result(), f"[Generated Answer from {5} to {8}](No Link)", second_four_summary))
-            if third_four_summary.done() and third_four_summary.exception() is None:
+            if third_four_summary.done() and third_four_summary.exception() is None and third_four_summary.result().strip()!="":
                 web_text_accumulator.append(
                     (third_four_summary.result(), f"[Generated Answer from {9} to {12}](No Link)", third_four_summary))
 
