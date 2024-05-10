@@ -464,7 +464,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         if (!hasUnclosedMermaidTag(html) && has_end_answer_tag) {
             possible_mermaid_elem = elem_to_render_in.find(".hljs.mermaid")
             // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
-            if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid')) {
+            if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')) {
                 mermaid_text = possible_mermaid_elem[0].textContent
                 mermaid_elem = $("<pre class='mermaid'></div>")
                 mermaid_elem.text(mermaid_text)

@@ -806,7 +806,8 @@ Write the extracted information concisely below:
         if checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
         else:
-            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            planner_text_gen = ""
+            # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
 
         tell_me_more = False
