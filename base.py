@@ -20,13 +20,6 @@ import diskcache as dc
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
 # cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
-try:
-    from googleapiclient.discovery import build
-except ImportError:
-    raise ImportError(
-        "google-api-python-client is not installed. "
-        "Please install it with `pip install google-api-python-client`"
-    )
 
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)

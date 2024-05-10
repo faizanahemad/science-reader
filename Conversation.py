@@ -28,7 +28,7 @@ import os
 import re
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, PersistentPythonEnvironment
-from prompts import prompts
+from prompts import prompts, xml_to_dict
 from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
 
@@ -96,6 +96,12 @@ class Conversation:
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self.save_local()
 
+
+    def set_memory_if_None(self):
+        if self.get_field("memory") is None:
+            self.set_field("memory", {"title": 'Start the Conversation',
+                                      "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                      "running_summary": []})
 
     @property
     def memory_pad(self):
@@ -212,6 +218,9 @@ Compact list of bullet points:
     def running_summary(self):
         if hasattr(self, "_running_summary"):
             return self._running_summary
+        self.set_memory_if_None()
+        if len(self.get_field("memory")["running_summary"]) == 0:
+            return ""
         running_summary = "".join(self.get_field("memory")["running_summary"][-1:])
         setattr(self, "_running_summary", running_summary)
         return running_summary
@@ -736,7 +745,7 @@ Write the extracted information concisely below:
             answer += r["text"]
         return answer
 
-    def get_coding_rules(self, query, attached_docs_data, attached_docs_data_names):
+    def get_coding_rules(self, query, attached_docs_data, attached_docs_data_names, need_diagram=True, code_execution=True):
         prefix = str(mmh3.hash(self.conversation_id + query["messageText"], signed=False))
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
@@ -745,7 +754,7 @@ Write the extracted information concisely below:
                                                     input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
                                                                      zip(attached_docs_data, attached_docs_data_names)]),
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
-        return coding_rules, prefix
+        return coding_rules if need_diagram or code_execution else "", prefix
 
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
@@ -753,7 +762,6 @@ Write the extracted information concisely below:
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         time_dict = dict()
-        attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         answer = ''
         summary = self.running_summary
         summary_text_init = summary
@@ -773,6 +781,7 @@ Write the extracted information concisely below:
                                                 query["messageText"], past_message_ids=past_message_ids,
                                                 required_message_lookback=message_lookback)
         prior_context = prior_context_future.result()
+        time_dict["prior_context_time"] = time.time() - st
         previous_messages = prior_context["previous_messages"]
         previous_messages_very_short = prior_context["previous_messages_very_short"]
         previous_messages_short = previous_messages
@@ -781,26 +790,16 @@ Write the extracted information concisely below:
         permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes[
             "permanentText"] + "\n") if "permanentText" in checkboxes and len(
             checkboxes["permanentText"].strip()) > 0 else ""
-        # TODO: Pre-cache this prompt except user message.
-        # TODO: Add a deciding a plan to answer your query yield before this.
-        # TODO: If plan parsing fails then proceed as usual.
-        # TODO: make 4 parallel calls instead of one planner call. Faster by parallel. Invoke those parts which get results faster.
-        # TODO: exec web search before hand.
+
         yield {"text": '', "status": "Getting planner response ..."}
         planner_prompt = prompts.planner_checker_prompt_short.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
                                               summary_text=summary, previous_messages=remove_code_blocks(previous_messages_very_short), context=remove_code_blocks(query["messageText"]))
-        st_planner = time.time()
-        planner_text = ''
-        planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
-        for t in planner_text_gen:
-            planner_text += t
-            if "<planner>" in planner_text and "</planner>" in planner_text:
-                # use regex to get planner plan
-                planner_text = re.search(r'<planner>(.*?)</planner>', planner_text, re.DOTALL).group(1)
-                break
 
-        et_planner = time.time()
-        time_logger.info(f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n")
+        st_planner = time.time()
+        time_dict["before_planner_time"] = time.time() - st
+        planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+
+
         tell_me_more = False
         tell_me_more_msg_resp = None
         previous_message_config = None
@@ -836,15 +835,86 @@ Write the extracted information concisely below:
                     checkboxes["googleScholar"] = True
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
 
-
+        checkboxes["need_diagram"] = False
+        checkboxes["code_execution"] = False
+        links_in_text = enhanced_robust_url_extractor(query['messageText'])
+        query['links'].extend(links_in_text)
+        links = list(set([l.strip() for l in query["links"] if
+                          l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
+        link_context = previous_context + query['messageText'] + (
+            previous_message_config["link_context"] if tell_me_more else '')
+        if len(links) > 0:
+            yield {"text": '', "status": "Reading your provided links."}
+            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links),
+                                           [link_context] * (len(links)), self.get_api_keys(),
+                                           provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(
+                                               links) <= 2)
+
+
+        planner_text = ''
+        # TODO: Pre-cache this prompt except user message.
+        # TODO: Add a deciding a plan to answer your query yield before this.
+        # TODO: If plan parsing fails then proceed as usual.
+        # TODO: make 4 parallel calls instead of one planner call. Faster by parallel. Invoke those parts which get results faster.
+        # TODO: exec web search before hand.
+        # TODO: WE can do fin data extraction right after planner call?.
+        for t in planner_text_gen:
+            if len(planner_text.strip()) == 0:
+                time_dict["planner_first_word"] = time.time() - st
+                time_logger.info(f"Time to get first word of planner text = {time.time() - st_planner:.2f} seconds with full text as \n{t}")
+            planner_text += t
+            if "<planner>" in planner_text and "</planner>" in planner_text:
+                # use regex to get planner plan
+                # get planner text along with planner tags included in the result text.
+                time_dict["planner_full"] = time.time() - st
+                planner_text_full = planner_text
+                time_logger.info(f"Time to get planner text = {time.time() - st_planner:.2f} seconds with full text as \n{planner_text_full}")
+                planner_text = re.search(r'<planner>(.*?)</planner>', planner_text, re.DOTALL).group(1)
+                planner_text = "<planner>" + planner_text + "</planner>"
+                planner_dict = xml_to_dict(planner_text)
+
+                if planner_dict["domain"] != "None":
+                    checkboxes["domain"] = planner_dict["domain"]
+                if planner_dict["need_finance_data"]:
+                    pass
+                if planner_dict["need_diagram"]:
+                    checkboxes["need_diagram"] = True
+
+                if planner_dict["code_execution"]:
+                    checkboxes["code_execution"] = True
+
+                if planner_dict["web_search_needed"] and len(links) == 0:
+                    checkboxes["perform_web_search"] = True
+                    if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
+                        if "search" in query and isinstance(query["search"], list):
+                            query["search"].extend(planner_dict["web_search_queries"])
+                        else:
+                            query["search"] = planner_dict["web_search_queries"]
+                    if 'web_search_type' in planner_dict and planner_dict['web_search_type'] != "None" and planner_dict[
+                        'web_search_type'] != "" and planner_dict['web_search_type'] is not None and planner_dict[
+                        'web_search_type'] != "NA":
+                        if planner_dict['web_search_type'].lower() == "academic":
+                            checkboxes["googleScholar"] = True
+
+                if planner_dict["read_uploaded_document"] and 'document_search_queries' in planner_dict and len(
+                        planner_dict['document_search_queries']) > 0:
+                    document_query = "\n".join(
+                        [f"{d['document_id']}: {d['query']}" for d in planner_dict['document_search_queries']])
+                    query["messageText"] = query["messageText"] + "\n" + document_query
+
+                break
+        et_planner = time.time()
+        time_logger.info(
+            f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n")
+        attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         user_query = query['messageText']
         use_memory_pad = False
         if "memory pad" in user_query or "memory_pad" in user_query or ("use_memory_pad" in checkboxes and checkboxes["use_memory_pad"]):
             use_memory_pad = True
             checkboxes["use_memory_pad"] = True
         message_config = dict(**checkboxes)
-        link_context = previous_context + user_query + (previous_message_config["link_context"] if tell_me_more else '')
+
         message_config["link_context"] = link_context
 
         yield {"text": '', "status": "Getting prior chat context ..."}
@@ -858,12 +928,7 @@ Write the extracted information concisely below:
 
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         message_config["perform_web_search"] = perform_web_search
-        links_in_text = enhanced_robust_url_extractor(user_query)
-        query['links'].extend(links_in_text)
         message_config["links"] = query['links']
-        links = list(set([l.strip() for l in query["links"] if
-                 l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
-
         prior_chat_summary_future = None
         unchanged_message_lookback = message_lookback
 
@@ -885,14 +950,11 @@ Write the extracted information concisely below:
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
         full_doc_texts = {}
-        if len(links) > 0:
-            yield {"text": '', "status": "Reading your provided links."}
-            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links), [link_context] * (len(links)), self.get_api_keys(), provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(links) <= 2)
 
         query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
             attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
-        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names)
+        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"], code_execution=checkboxes["code_execution"])
         if prev_attached_docs is not None:
             attached_docs.extend(prev_attached_docs)
             attached_docs_names.extend(prev_attached_docs_names)
@@ -1057,9 +1119,11 @@ Write the extracted information concisely below:
                 for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
                     llm_text = llm_future_dict.result() if llm_future_dict.done() and \
                                                            llm_future_dict.exception() is None else ""
+                    wta = get_first_last_parts(wta, 200, 200)
+                    llm_text = get_first_last_parts(llm_text, 200, 200)
                     web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
                     full_web_string = full_web_string + web_string + "\n\n"
-                    if get_gpt4_word_count(full_web_string) > 24000:
+                    if get_gpt4_word_count(full_web_string) > 3000:
                         break
                 query_is_answered_by_search, parser_fn = prompts.query_is_answered_by_search
                 st_re_search_llm = time.time()
@@ -1068,8 +1132,8 @@ Write the extracted information concisely below:
                                                                                  previous_web_search_results=query_results,
                                                                                  previous_web_search_queries=queries,
                                                                                  previous_web_search_results_text=full_web_string)
-                search_decision = CallLLm(self.get_api_keys(), model_name="mistralai/mixtral-8x7b-instruct:nitro", use_16k=True,
-                                         use_gpt4=True)(query_is_answered_by_search, temperature=0.3, stream=False)
+                search_decision = CallLLm(self.get_api_keys(), use_16k=True,
+                                         use_gpt4=False)(query_is_answered_by_search, temperature=0.3, stream=False)
                 search_decision = search_decision.strip().lower()
                 search_decision = parser_fn(search_decision)
                 time_logger.info(f"Redo Search Decision: {search_decision}, prompt len = {len(query_is_answered_by_search.split())}, time taken = {(time.time() - qu_st):.2f}, only llm time = {(time.time() - st_re_search_llm):.2f}")
@@ -1200,10 +1264,13 @@ Write the extracted information concisely below:
 
             time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
             # Sort the array in reverse order based on the word count
-            for re_search_yield in re_search.result():
-                if re_search_yield and isinstance(re_search_yield, dict):
-                    yield re_search_yield
-                    answer += re_search_yield["text"]
+            try:
+                for re_search_yield in re_search.result():
+                    if re_search_yield and isinstance(re_search_yield, dict):
+                        yield re_search_yield
+                        answer += re_search_yield["text"]
+            except Exception as e:
+                error_logger.error(f"Error in re_search_if_needed: {e}, stack: {traceback.format_exc()}")
 
             web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
             web_text_accumulator = list(filter(lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(), web_text_accumulator))
@@ -1554,9 +1621,13 @@ Write the extracted information concisely below:
         return self.get_field("messages")
     
     def get_metadata(self):
+        self.set_memory_if_None()
         memory = self.get_field("memory")
-        return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=memory["title"],
-                    summary_till_now=self.running_summary,
+
+        summary_till_now = self.running_summary
+        title = memory["title"]
+        return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
+                    summary_till_now=summary_till_now,
                     last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
     
     def delete_last_turn(self):

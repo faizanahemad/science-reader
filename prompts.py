@@ -268,15 +268,9 @@ Cover the below points while answering and also add other necessary points as ne
 
     @property
     def coding_prompt(self):
-        import datetime
-        date = datetime.datetime.now().strftime("%d %B %Y")
-        year = datetime.datetime.now().strftime("%Y")
-        month = datetime.datetime.now().strftime("%B")
-        day = datetime.datetime.now().strftime("%d")
-
-
         rules = """
-## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots.
+## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots are given below inside <executable_code_and_diagramming_rules> </executable_code_and_diagramming_rules> tags.
+<executable_code_and_diagramming_rules>
 - Indicate clearly what python code needs execution by writing the first line of code as '# execute'. Write code that needs execution in a single code block.
 - Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute'. We can only execute python code.
 - Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
@@ -286,22 +280,26 @@ Cover the below points while answering and also add other necessary points as ne
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
+
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
+- When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
 - You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
 - Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
+- Make high quality plots with clear and extensive labels and explanations. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
+
 - Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
-- Code in python preferably and write code in a single cell for code execution tasks.
+- Code in python and write code in a single cell for code execution tasks.
 - Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
-- When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
 - Convert all pandas dataframe data to pure numpy explicitly before using libraries like scikit-learn, matplotlib and seaborn plotting. Remember to convert the data to numpy array explicitly before plotting.
 - Remember to write python code that needs to be executed with first line comment as '# execute'. We can only execute python code. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
-- Make high quality plots with clear and extensive labels and explanations. Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
+- Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting.
 - Allowed to read csv, excel, parquet, tsv only.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
 - Do not delete any files.
 - Do not use any other libraries other than the ones mentioned above.
+</executable_code_and_diagramming_rules>
 """ + f"\n- {self.date_string}\n"
         return rules
 
@@ -350,7 +348,9 @@ Cover the below points while answering and also add other necessary points as ne
 
             return parsed_data
 
-        prompt = f"""You are an expert AI system which determines whether our search results are useful and can answer a user query or not. If our search results can't answer the user query then you will decide if we need to do more web search and write two new web search queries for performing search again.
+        prompt = f"""You are an expert AI system which determines whether our search results are useful and can answer a user query or not. If our search results can't answer the user query satisfactorily then you will decide if we need to do more web search and write two new web search queries for performing search again.
+If our search results answer the query nicely and satisfactorily then <answered_already_by_previous_search> will be yes. If our search queries are sensible and work well to represent what should be searched then <answered_already_by_previous_search> will be yes. 
+Usually our searches work well and we don't need to do more web search and <web_search_needed> will be no. Decide to do further web search only if absolutely needed and if our queries are not related or useful for user message. Mostly put <web_search_needed> as no.
 {self.date_string} 
 
 Previous web search queries are given below (empty if no web search done previously):
@@ -368,28 +368,30 @@ Conversation context:
 Current user message is given below: 
 '''{{query}}'''
 
-# Note: You can use the current date ({date}) and year ({year}) in the web search queries that you write.
+# Note: You can use the current date ({date}) and year ({year}) in the web search queries that you write. If our search queries are sensible and correct for user message and work well to represent what should be searched then <answered_already_by_previous_search> will be yes and <web_search_needed> will be no.
 
-Output Template is given below.
+Output Template for our decision planner xml is given below.
 <planner>
     <thoughts>Your thoughts in short on whether the previous web search queries and previous web search results are sufficient to answer the user message written shortly.</thoughts>
     <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search_needed>yes</web_search_needed>
+    <web_search_needed>yes/no</web_search_needed>
     <web_search_queries>
         <query>web search query 1</query>
         <query>web search query 2 with year ({year}) or date ({date}) if needed</query>
     </web_search_queries>
 </planner>
 
-Template if the user query is already answered by previous search:
+<web_search_queries> will be empty if no web search is needed, and not needed in the planner xml at all.
+
+planner xml template if the user query is already answered by previous search:
 <planner>
-    <thoughts>Your thoughts on whether the previous web search queries and previous web search results are sufficient to answer the user message.</thoughts>
+    <thoughts>Your thoughts on how the web search queries and previous web search results are sufficient to answer the user message.</thoughts>
     <answered_already_by_previous_search>yes</answered_already_by_previous_search>
     <web_search_needed>no</web_search_needed>
     <web_search_queries></web_search_queries>
 </planner>
 
-Write your output decision in the above xml format.
+Write your output decision in the above planner xml format.
 """
         return prompt, parse_llm_output
 
@@ -432,7 +434,7 @@ Your output should look be a valid xml tree with our plan of execution like belo
     <need_diagram>yes/no</need_diagram>
     <code_execution>yes/no</code_execution>
     <web_search_needed>yes/no</web_search_needed>
-    <web_search_type>general/academic/NA</web_search_type>
+    <web_search_type>general/academic</web_search_type>
     <web_search_queries>
         <query>diverse google search query based on given user message with year ({year}) if recent results are important.</query>
         <query>different_web_query based on the user message and conversation</query>
@@ -464,7 +466,8 @@ web_search will usually be yes if we have not done any web search previously or 
 Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
 Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
 We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
-<need_finance_data> will be yes if user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
+<need_finance_data> will be yes if user message needs finance historical data, stocks historical data or stock market daily data like price and volume or company financial and quarterly/annual reports data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
+<need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions doesn't need finance data so <need_finance_data> will be no.
 
 Possible Domains:
 - None
@@ -671,5 +674,58 @@ Valid python list of web search query strings:
 
 prompts = CustomPrompts(os.environ.get("LLM_FAMILY", "gpt4"), os.environ.get("ROLE", "science"))
 
+import xml.etree.ElementTree as ET
 
 
+def xml_to_dict(xml_string):
+    try:
+        root = ET.fromstring(xml_string)
+    except ET.ParseError:
+        return "Invalid XML: Check if every opening tag has a corresponding closing tag."
+
+    def parse_element(element):
+        # Check if element has text content and is not None
+        if element.text is not None:
+            text = element.text.strip()
+            # Convert yes/no to Boolean
+            if text.lower() in ["yes", "no", "true", "false"]:
+                return text.lower() == "yes" or text.lower() == "true"
+                # Try converting text to float or int if possible
+            try:
+                return int(text)
+            except ValueError:
+                try:
+                    return float(text)
+                except ValueError:
+                    return text
+        else:
+            # Return None if element has no text content
+            return None
+
+    def parse_list_elements(element):
+        # Parse elements that should be lists
+        result = []
+        for subchild in element:
+            if subchild.tag == "document_query":
+                sub_result = {}
+                for item in subchild:
+                    sub_result[item.tag] = parse_element(item)
+                result.append(sub_result)
+            else:
+                result.append(parse_element(subchild))
+        return result
+
+    def parse_nested_elements(element):
+        # Parse nested elements and return a dictionary
+        return {subchild.tag: parse_element(subchild) for subchild in element}
+
+    result_dict = {}
+    for child in root:
+        if child.tag in ["web_search_queries", "document_search_queries"]:
+            result_dict[child.tag] = parse_list_elements(child)
+        elif child.tag == "suggested_diagram_type":
+            result_dict[child.tag] = parse_nested_elements(child)
+        else:
+            result_dict[child.tag] = parse_element(child)
+
+    return result_dict
