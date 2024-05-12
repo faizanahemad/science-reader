@@ -1166,7 +1166,8 @@ def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, onl
     return dedup_results
 
 # TODO: Add caching
-from web_scraping import web_scrape_page, soup_html_parser
+from web_scraping import web_scrape_page, soup_html_parser, soup_html_parser_fast_v3, fetch_content_brightdata_html, \
+    send_request_zenrows_html
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
@@ -1633,12 +1634,12 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                           enumerate(query_strings)])
             if month <= 3:
                 serps.extend([get_async_future(googleapi_v2, query + f" research paper in {str(year - 1)}",
-                                               api_keys["serpApiKey"], 10,
+                                               dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
                                                our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                                only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                               enumerate(query_strings)])
             serps.extend([get_async_future(googleapi_v2, generate_science_site_query(query + f" research paper in {year}"),
-                                           api_keys["serpApiKey"], 10,
+                                           dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
@@ -1942,19 +1943,50 @@ def convert_pdf_to_txt(file_url, secret_key):
         raise Exception(f"Failed to convert PDF: {response.status_code} {response.text}")
 
 
+def convert_arxiv_link_to_html(link):
+    if "pdf" in link:
+        arxiv_id = link.replace(".pdf", "").split("/")[-1]
+        new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+    if "abs" in link:
+        arxiv_id = link.split("/")[-1]
+        new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+    if "html" in link:
+        arxiv_id = link.split("/")[-1]
+        new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+
+    return new_link, new_link_2
+
 def get_arxiv_pdf_link(link):
     try:
         assert "arxiv.org" in link
         import re
         from bs4 import BeautifulSoup, SoupStrainer
         # convert to ar5iv link
-        arxiv_id = link.replace(".pdf", "").split("/")[-1]
-        new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+        if "pdf" in link:
+            arxiv_id = link.replace(".pdf", "").split("/")[-1]
+            new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+            new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+        if "abs" in link:
+            arxiv_id = link.split("/")[-1]
+            new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+            new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+        if "html" in link:
+            arxiv_id = link.split("/")[-1]
+            new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
+            new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
         logger.debug(f"Converted arxiv link {link} to {new_link}")
-        status_future = get_async_future(requests.head, new_link, timeout=10)
-        arxiv_text = requests.get(new_link, timeout=10).text
-        status = status_future.result()
-        assert status.status_code == 200, f"Error converting arxiv link {link} to ar5iv link with status code {status.status_code}"
+        arxiv_request_v2 = get_async_future(requests.get, new_link_2, timeout=10)
+        arxiv_request = requests.get(new_link, timeout=10)
+        if arxiv_request.status_code == 200:
+            arxiv_text = arxiv_request.text
+        else:
+            arxiv_request = arxiv_request_v2.result()
+            arxiv_text = arxiv_request.text
+        assert arxiv_request.status_code == 200 or arxiv_request_v2.status_code == 200, f"Error converting arxiv link {link} to ar5iv link with status code {arxiv_request.status_code}"
+        arxiv_pdf_html_parse_start = time.time()
         soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
         element = soup.find(id='bib')
         title = ''
@@ -1968,9 +2000,11 @@ def get_arxiv_pdf_link(link):
         try:
             text = soup.select("article")[0].text
         except:
-            soupy = soup_html_parser(arxiv_text)
+            soupy = soup_html_parser_fast_v3(arxiv_text)
             text = soupy["text"]
             title = soupy["title"]
+        arxiv_pdf_html_parse_end = time.time()
+        time_logger.info(f"Time taken to parse arxiv html {link} = {(arxiv_pdf_html_parse_end - arxiv_pdf_html_parse_start):.2f}")
         text = normalize_whitespace(text)
         text = re.sub('\n{3,}', '\n\n', text)
         assert len(text.strip().split()) > 500, f"Extracted arxiv info is too short for link: {link}"
@@ -1984,22 +2018,30 @@ def get_arxiv_pdf_link(link):
 
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, _, detailed = link_title_context_apikeys
-    if result is not None:
-        return result
     st = time.time()
     # Reading PDF
-    extracted_info = ''
-
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
-    pdf_text_future = get_async_future(pdfReader, link)
+    # convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
+    convert_api_pdf_future = None
+    pdf_text_future = None
+    if "arxiv.org" in link and ("html" in link or "pdf" not in link):
+        pass
+    else:
+        pdf_text_future = get_async_future(pdfReader, link)
     get_arxiv_pdf_link_future = None
+    arxiv_brightdata_future_1 = None
+    arxiv_brightdata_future_2 = None
+    arxiv_zenrows_future = None
     result_from = "TIMEOUT_PDF_READER"
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
+        arxiv_html_link = convert_arxiv_link_to_html(link)
+        arxiv_brightdata_future_1 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[0], api_keys['brightdataUrl'], False, True)
+        arxiv_brightdata_future_2 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[1], api_keys['brightdataUrl'], False, True)
+        arxiv_zenrows_future = get_async_future(send_request_zenrows_html, arxiv_html_link[0], api_keys['zenrows'], readability=False, js_render=False, clean_parse=True)
     text = ''
-    while time.time() - st < (45 if detailed <= 1 else 75) and exists_tmp_marker_file(web_search_tmp_marker_name):
-        if pdf_text_future.done() and pdf_text_future.exception() is None:
+    while time.time() - st < (45 if detailed <= 1 else 75):
+        if pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None:
             text = pdf_text_future.result()
             if isinstance(text, str):
                 txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
@@ -2008,7 +2050,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                 if txt_len > 500:
                     result_from = "pdf_reader_tool"
                     break
-        if convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
+        if convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
             text = convert_api_pdf_future.result()
             if isinstance(text, str):
                 txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
@@ -2028,14 +2070,37 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                 if txt_len > 500:
                     result_from = "arxiv"
                     break
+        if arxiv_brightdata_future_1 is not None and arxiv_brightdata_future_1.done() and arxiv_brightdata_future_1.exception() is None:
+            text = str(arxiv_brightdata_future_1.result())
+            if isinstance(text, str):
+                txt_len = len(text.strip().split())
+                if txt_len > 500:
+                    result_from = "arxiv_brightdata"
+                    break
+
+        if arxiv_brightdata_future_2 is not None and arxiv_brightdata_future_2.done() and arxiv_brightdata_future_2.exception() is None:
+            text = str(arxiv_brightdata_future_2.result())
+            if isinstance(text, str):
+                txt_len = len(text.strip().split())
+                if txt_len > 500:
+                    result_from = "arxiv_brightdata"
+                    break
+
+        if arxiv_zenrows_future is not None and arxiv_zenrows_future.done() and arxiv_zenrows_future.exception() is None:
+            text = str(arxiv_zenrows_future.result())
+            if isinstance(text, str):
+                txt_len = len(text.strip().split())
+                if txt_len > 500:
+                    result_from = "arxiv_brightdata"
+                    break
         time.sleep(0.5)
 
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
     txt = normalize_whitespace(txt)
     txt_len = len(txt.strip().split())
-    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for link: {link}"
-    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for title {title}"
+    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
+    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
 
@@ -2061,11 +2126,9 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-    if len(pgc["text"].strip()) == 0:
-        logger.error(f"[process_page_link] Empty text for link: {link}")
-        return {"link": link, "title": title, "exception": True, "full_text": '', "detailed": detailed, "context": context, "error": pgc["error"] if "error" in pgc else "Empty text"}
     title = pgc["title"]
     text = pgc["text"]
+    assert len(text.strip().split()) > 100, f"Extracted Web text is too short for link: {link}"
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
     time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}

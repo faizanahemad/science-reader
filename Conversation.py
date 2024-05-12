@@ -1200,7 +1200,7 @@ Write the extracted information concisely below:
                             web_text_accumulator.append((one_web_result["text"],
                                                          f'[{one_web_result["title"]}]({one_web_result["link"]})',
                                                          one_web_result["llm_result_future"]))
-                            yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                            yield {"text": '', "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
                             time_logger.info(
                                 f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
                         time.sleep(0.5)
@@ -1242,9 +1242,9 @@ Write the extracted information concisely below:
 
             first_four_summary = wrap_in_future("")
             second_four_summary = wrap_in_future("")
-            if provide_detailed_answers >= 2:
+            if provide_detailed_answers >= 1:
                 first_four_summary = get_async_future(get_first_few_result_summary, 0, 4)
-            if provide_detailed_answers >= 3:
+            if provide_detailed_answers >= 2:
                 second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
             third_four_summary = wrap_in_future("")
             if provide_detailed_answers >= 4:
@@ -1268,7 +1268,7 @@ Write the extracted information concisely below:
 
                 if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
                     web_text_accumulator.append((one_web_result["text"], f'[{one_web_result["title"]}]({one_web_result["link"]})', one_web_result["llm_result_future"]))
-                    yield {"text": '', "status": f"Reading {one_web_result['link']} ... "}
+                    yield {"text": '', "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
                     time_logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
                 time.sleep(0.5)
 

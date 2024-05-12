@@ -491,7 +491,7 @@ def get_first_last_parts(my_string, first_n=250, last_n=750, enc=None):
     return first_part + "\n" + last_part
 
 def convert_to_pdf_link_if_needed(link):
-    if "arxiv.org" in link and "pdf" not in link:
+    if "arxiv.org" in link and "pdf" not in link and "html" not in link:
         link = link.replace("abs", "pdf") + ".pdf"
         # convert arxiv link to pdf
     if "openreview.net" in link and "pdf" not in link:
@@ -893,7 +893,7 @@ def exists_tmp_marker_file(file_path):
 def is_pdf_link(link):
     st = time.time()
     result = False
-    science_doc = ("arxiv.org" in link and "pdf" in link) or ("openreview.net" in link and "pdf" in link) or ("aclanthology.org" in link and "pdf" in link) or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
+    science_doc = ("arxiv.org" in link and ("pdf" in link or "html" in link or "abs" in link)) or ("openreview.net" in link and "pdf" in link) or ("aclanthology.org" in link and "pdf" in link) or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
     ends_with_pdf = link.endswith(".pdf")
     if science_doc or ends_with_pdf:
         result = True
@@ -1331,12 +1331,6 @@ def remove_year_month_substring(s):
     s = re.sub(pattern, '', s)
     # Substitute the pattern with an empty string
     return normalize_whitespace(s)
-
-
-# Test the function
-test_str = "This event happened in 2023 December and was repeated in 2021 January, but not in 2022 summer."
-result = remove_year_month_substring(test_str)
-print(result)  # The string with specified substrings removed
 
 import re
 

@@ -502,7 +502,7 @@ def get_votes_by_question_and_user():
     question_id = data.get('question_id')
     if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
 
-        logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
+        # logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
         if "question_text" in data and "doc_id" in data:
             source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
             question_id = str(mmh3.hash(source + data["question_text"], signed=False))

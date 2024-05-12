@@ -404,7 +404,7 @@ def fetch_content_brightdata_shim(url, brightdata_proxy):
         'text': ""
     }
 
-def fetch_content_brightdata_html(url, brightdata_proxy=None):
+def fetch_content_brightdata_html(url, brightdata_proxy=None, js_needed_check=True, clean_parse=False):
     """
     Fetch the content of the webpage at the specified URL using a proxy.
 
@@ -423,16 +423,22 @@ def fetch_content_brightdata_html(url, brightdata_proxy=None):
     # Make the request directly using requests.get instead of a session
     response = requests.get(url, proxies=proxies, verify=False)
     html = response.text
-    js_need = check_js_needed(html)
-
-    if js_need:
-        logger.warning(f"[fetch_content_brightdata_html] Js needed for link {url}")
-        return None
+    if js_needed_check:
+        js_need = check_js_needed(html)
+        if js_need:
+            logger.warning(f"[fetch_content_brightdata_html] Js needed for link {url}")
+            return None
+    if clean_parse:
+        html = remove_bad_tags(html)
+        html = soup_html_parser_fast_v3(html)
+        html = html["title"] + "\n\n" + html["text"]
+        html = remove_bad_whitespaces(html)
     et = time.time()
     time_logger.info(" ".join(
         ['[fetch_content_brightdata_html] ', f"Time = {(et - st):.2f},",
          f"Response length = {len(html.split())}",
          f"link = {url}"]))
+
     return html
 
 import re
@@ -481,7 +487,8 @@ def remove_script_tags_from_html(html):
 script_regex = re.compile(r'<script[^>]*?>.*?</script>', flags=re.DOTALL)
 tags_to_remove = ['script', 'header', 'footer', 'style', 'nav', 'aside', 'form', 'iframe', 'img', 'button', 'input',
                   'select', 'textarea', 'video', 'audio', 'canvas', 'map', 'object', 'svg', 'figure', 'figcaption',
-                  'link']
+                  'link'
+                  ]
 regex_compiled_array = [re.compile(r'<{}[^>]*?>.*?</{}>'.format(tag, tag), flags=re.DOTALL | re.IGNORECASE) for tag in tags_to_remove] + [re.compile(r'<{}[^>]*?>'.format(tag), flags=re.DOTALL | re.IGNORECASE) for tag in tags_to_remove]
 def remove_script_tags_from_html_fast(html):
     # This regex looks for <script> tags and their content and removes them
@@ -547,7 +554,7 @@ import time
 ZENROW_PARALLELISM = 10
 zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 
-def send_request_zenrows_html(url, apikey, readability=True):
+def send_request_zenrows_html(url, apikey, readability=True, js_render=True, clean_parse=False):
     st = time.time()
     if readability:
         js = '''[{"wait":500},{"wait_for":"body"},{"evaluate":"''' + remove_script_tags + '''"}]'''
@@ -557,11 +564,12 @@ def send_request_zenrows_html(url, apikey, readability=True):
     params = {
         'url': url,
         'apikey': apikey,
-        'js_render': 'true',
         'wait_for': 'body',
         'block_resources': 'image,media,stylesheet,font',
         'js_instructions': js,
     }
+    if js_render:
+        params.update({'js_render': 'true'})
     with zenrows_semaphore:
         response = requests.get('https://api.zenrows.com/v1/', params=params)
     if response.status_code != 200:
@@ -573,6 +581,11 @@ def send_request_zenrows_html(url, apikey, readability=True):
             'text': ""
         }
     html = response.text
+    if clean_parse:
+        html = remove_bad_tags(html)
+        html = soup_html_parser_fast_v3(html)
+        html = html["title"] + "\n\n" + html["text"]
+        html = remove_bad_whitespaces(html)
     et = time.time()
     time_logger.info(" ".join(
         ['[send_request_zenrows_html] ', f"Time = {(et - st):.2f}", f"Response length = {len(html.split())}",
