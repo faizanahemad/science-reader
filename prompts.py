@@ -424,7 +424,8 @@ Planner rules:
 - Inside code_execution tag, you will write no if user has asked for code but did not ask to execute the code or user did not ask for data analysis or python plotting.
 - Inside web_search_needed tag, you will write yes if asked explicitly for web search or google search in the user message. This will be needed if user has explicitly asked us to do web search. If user has not asked for web search then put web search needed as no.
 - Inside read_uploaded_document tag, you will write yes if we need to read any uploaded document given under 'Available Document Details' to answer the user query. This will be needed if user has uploaded a document relevant to this current user message and we need to read that particular document to answer the query.
-
+- When user wants to refer to a particular document themselves they write as 'refer to document #doc_id' or 'refer to document titled "title of document"'. For example - "Summarise #doc_1" means we need to read the uploaded #doc_1 and summarise it. So read_uploaded_document will be yes, and within document_search_queries we will write <document_query><document_id>#doc_1</document_id><query>Summarise this document.</query></document_query>.
+- User may also refer to uploaded docs by title or by their short names.
 Your output should look be a valid xml tree with our plan of execution like below example format.
 <planner>
     <domain>Science</domain>
