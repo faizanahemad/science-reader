@@ -291,7 +291,7 @@ Compact list of bullet points:
             doc_list = None
             self.set_field("uploaded_documents_list", [])
         if doc_list is not None:
-            docs = [DocIndex.load_local(doc_storage) for doc_id, doc_storage in doc_list]
+            docs = [DocIndex.load_local(doc_storage) for doc_id, doc_storage, pdf_url in doc_list]
         else:
             docs = []
         if doc_id is not None:

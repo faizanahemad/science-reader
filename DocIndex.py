@@ -537,7 +537,10 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
         try:
             if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
                 return dict()
-            elif self.get_doc_data("_paper_details") is not None:
+            elif self.get_doc_data("_paper_details") is not None and isinstance(self.get_doc_data("_paper_details"),
+                                                                                bool):
+                return dict()
+            elif self.get_doc_data("_paper_details") is not None and isinstance(self.get_doc_data("_paper_details"), dict):
                 pd = deepcopy(self.get_doc_data("_paper_details"))
                 if self.get_doc_data("qna_data", "extended_abstract") is None:
                     self.set_doc_data("qna_data", "extended_abstract", dict())
@@ -545,8 +548,13 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
                 return DocIndex.process_one_paper(pd, extended_abstract)
             else:
                 arxiv_url = self.doc_source
-                paper = get_paper_details_from_semantic_scholar(arxiv_url)
-                self.set_doc_data("_paper_details", None, paper)
+                try:
+                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 8, arxiv_url)
+                    self.set_doc_data("_paper_details", None, paper)
+                except:
+                    logger.error(f"Error in fetching paper details for {self.doc_source}")
+                    self.set_doc_data("_paper_details", None, False)
+                    return dict()
                 return self.paper_details
         except Exception as e:
             logger.error(f"Error in fetching paper details for {self.doc_source}")

@@ -1424,6 +1424,7 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
     from semanticscholar import SemanticScholar
     sch = SemanticScholar()
     paper = sch.get_paper(f"ARXIV:{arxiv_id}")
+    time_logger.info(f"get_paper_details_from_semantic_scholar with {arxiv_url} and got details")
     return paper
 
 def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month=None,
