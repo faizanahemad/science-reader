@@ -988,6 +988,8 @@ Write the extracted information concisely below:
         if len(attached_docs_data) > 0:
             message_config["attached_docs_data_names"] = attached_docs_data_names
             message_config["use_attached_docs"] = True
+
+        if len(attached_docs) > 0:
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
                                                         query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
