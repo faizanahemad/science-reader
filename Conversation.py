@@ -592,12 +592,12 @@ Title of the conversation:
             attached_docs_data = []
             attached_docs_data_names = []
             for n, d in zip(attached_docs_names, attached_docs):
-                if os.path.getsize(d.doc_source) < 100 * 1024 or d.doc_source.endswith(".pdf") or d.doc_source.endswith(
-                    ".html"):
+                if (d.is_local and os.path.getsize(d.doc_source) < 100 * 1024) or (d.is_local and d.doc_source.endswith(".pdf")) or (d.is_local and d.doc_source.endswith(
+                    ".html")):
                     attached_docs_readable.append(d)
                     attached_docs_readable_names.append(n)
-                if d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
-                    ".tsv") or d.doc_source.endswith(".xlsx"):
+                if d.is_local and (d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
+                    ".tsv") or d.doc_source.endswith(".xlsx")):
                     attached_docs_data.append(d)
                     attached_docs_data_names.append(n)
             attached_docs = attached_docs_readable + attached_docs_data
