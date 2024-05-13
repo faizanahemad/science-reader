@@ -202,6 +202,13 @@ def getCoversationsForUser(user_email):
     conn.close()
     return rows
 
+def deleteConversationForUser(user_email, conversation_id):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM UserToConversationId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
+    conn.commit()
+    conn.close()
+
 def getAllCoversations():
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
@@ -637,7 +644,9 @@ class IndexDict(dict):
 indexed_docs: IndexDict[str, DocIndex] = IndexDict()
 doc_index_cache = SetQueue(maxsize=100)
 def load_conversation(conversation_id):
-    return Conversation.load_local(os.path.join(conversation_folder, conversation_id))
+    path = os.path.join(conversation_folder, conversation_id)
+    conversation = Conversation.load_local(path)
+    return conversation
 
 conversation_cache = DefaultDictQueue(maxsize=100, default_factory=load_conversation)
     
@@ -1204,6 +1213,7 @@ def list_conversation_by_user(domain:str):
     for conversation in stateless_conversations:
         removeUserFromConversation(email, conversation.conversation_id)
         del conversation_cache[conversation.conversation_id]
+        deleteConversationForUser(email, conversation.conversation_id)
         conversation.delete_conversation()
     conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless and conversation.domain==domain]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
@@ -1240,8 +1250,7 @@ def create_conversation_simple(session, domain: str):
     # str(mmh3.hash(email, signed=False))
     conversation_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(36))
     conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,
-                                conversation_id=conversation_id)
-    conversation.domain = domain
+                                conversation_id=conversation_id, domain=domain)
     conversation = set_keys_on_docs(conversation, keys)
     addConversationToUser(email, conversation.conversation_id)
     return conversation
@@ -1397,6 +1406,7 @@ def delete_conversation(conversation_id):
         conversation = set_keys_on_docs(conversation, keys)
         del conversation_cache[conversation_id]
         conversation.delete_conversation()
+        deleteConversationForUser(email, conversation_id)
     removeUserFromConversation(email, conversation_id)
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})

@@ -79,7 +79,7 @@ import json
 alphabet = string.ascii_letters + string.digits
 
 class Conversation:
-    def __init__(self, user_id, openai_embed, storage, conversation_id) -> None:
+    def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:
         self.conversation_id = conversation_id
         self.user_id = user_id
         folder = os.path.join(storage, f"{self.conversation_id}")
@@ -94,6 +94,7 @@ class Conversation:
         self.set_field("memory", memory)
         self.set_field("messages", messages)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
+        self._domain = domain
         self.save_local()
 
 
@@ -179,7 +180,7 @@ Compact list of bullet points:
 
     @property
     def domain(self):
-        if hasattr(self, "_domain"):
+        if hasattr(self, "_domain") and self._domain is not None:
             return self._domain
         return "assistant"
 
@@ -1638,6 +1639,8 @@ Write the extracted information concisely below:
         memory = self.get_field("memory")
 
         summary_till_now = self.running_summary
+        if "title" not in memory:
+            memory["title"] = ""
         title = memory["title"]
         return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
                     summary_till_now=summary_till_now,
