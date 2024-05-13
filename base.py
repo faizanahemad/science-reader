@@ -1417,7 +1417,7 @@ def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
         return semantic_url
     raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
 
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=False)
+
 def get_paper_details_from_semantic_scholar(arxiv_url):
     print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
     arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()

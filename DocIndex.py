@@ -1,4 +1,6 @@
 import shutil
+
+import semanticscholar.Paper
 from filelock import FileLock, Timeout
 from review_criterias import review_params
 from pathlib import Path
@@ -534,14 +536,15 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
         
     @property
     def paper_details(self)->dict:
+        pd = self.get_doc_data("_paper_details")
         try:
             if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
                 return dict()
-            elif self.get_doc_data("_paper_details") is not None and isinstance(self.get_doc_data("_paper_details"),
+            elif pd is not None and isinstance(pd,
                                                                                 bool):
                 return dict()
-            elif self.get_doc_data("_paper_details") is not None and isinstance(self.get_doc_data("_paper_details"), dict):
-                pd = deepcopy(self.get_doc_data("_paper_details"))
+            elif pd is not None and isinstance(pd, (dict, semanticscholar.Paper.Paper)):
+                pd = deepcopy(pd)
                 if self.get_doc_data("qna_data", "extended_abstract") is None:
                     self.set_doc_data("qna_data", "extended_abstract", dict())
                 extended_abstract = self.get_doc_data("qna_data", "extended_abstract").get(pd["paperId"], None)

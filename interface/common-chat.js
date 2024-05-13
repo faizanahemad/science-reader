@@ -182,7 +182,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
             
             elem_to_render.append(part['text']);  // Find the last p tag within the card-body and append the message part
-            if (elem_to_render.html().length > content_length + 200) { // && elem_to_render !== answerParagraph
+            if (elem_to_render.html().length > content_length + 50) { // && elem_to_render !== answerParagraph
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer)
                 content_length = elem_to_render.html().length
@@ -195,7 +195,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 rendered_answer = ''
                 render_phase = '1'
             }
-            if (content_length < 300) {
+            if (content_length < 100) {
                 var chatView = $('#chatView');
                 chatView.scrollTop(chatView.prop('scrollHeight'));
             }
@@ -227,7 +227,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             if (answerParagraph) {
                 renderInnerContentAsMarkdown(answerParagraph, function () {
                     if (answerParagraph.text().length > 300) {
-                        showMore(null, text = null, textElem = answerParagraph, as_html = true, show_at_start = true);
+                        // showMore(null, text = null, textElem = answerParagraph, as_html = true, show_at_start = true);
                     }
                 }, continuous = false, html = answer);
                 initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);

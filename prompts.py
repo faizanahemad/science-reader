@@ -425,7 +425,8 @@ Planner rules:
 - Inside web_search_needed tag, you will write yes if asked explicitly for web search or google search in the user message. This will be needed if user has explicitly asked us to do web search. If user has not asked for web search then put web search needed as no.
 - Inside read_uploaded_document tag, you will write yes if we need to read any uploaded document given under 'Available Document Details' to answer the user query. This will be needed if user has uploaded a document relevant to this current user message and we need to read that particular document to answer the query.
 - When user wants to refer to a particular document themselves they write as 'refer to document #doc_id' or 'refer to document titled "title of document"'. For example - "Summarise #doc_1" means we need to read the uploaded #doc_1 and summarise it. So read_uploaded_document will be yes, and within document_search_queries we will write <document_query><document_id>#doc_1</document_id><query>Summarise this document.</query></document_query>.
-- User may also refer to uploaded docs by title or by their short names.
+- User may also refer to uploaded docs by title or by their short names. Look at Previous User Messages as well to understand if current user message refers to any document in a hidden way.
+- Sometimes the user may have referred to document title or document id as #doc_id in previous messages instead of the current user message. Infer the document id or title from the previous messages and write the document id or title in the document_query.
 Your output should look be a valid xml tree with our plan of execution like below example format.
 <planner>
     <domain>Science</domain>
@@ -465,7 +466,7 @@ Web search type can be general or academic. If the question is looking for gener
 Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
 <need_finance_data> will be yes if user message needs finance historical data, stocks historical data or stock market daily data like price and volume or company financial and quarterly/annual reports data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
 <need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions, doesn't need finance data so <need_finance_data> will be no.
-
+<read_uploaded_document> could be yes if this current user message or any previous user message refers to an uploaded document and current message is asking indirectly about the uploaded document with phrases like "how does the work ... " or "what are their unqiue contributions?" etc. Here you need to infer document id or title from the previous messages and write the document id in the document_query.
 List of possible domains:
 - None
 - Science

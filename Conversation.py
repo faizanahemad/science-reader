@@ -468,7 +468,7 @@ Compact list of bullet points:
         while word_count < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
             previous_messages = messages[-message_lookback:]
             previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
-            previous_messages_text = '\n\n'.join([f"{m['sender']}:\n'''{m['text']}'''\n" for m in previous_messages])
+            previous_messages_text = '\n\n'.join([f"<{m['sender']}>\n{m['text']}\n</{m['sender']}>" for m in previous_messages])
             word_count = get_gpt4_word_count(previous_messages_text)
             if word_count < token_limit_very_short:
                 previous_messages_very_short = previous_messages_text
@@ -486,6 +486,10 @@ Compact list of bullet points:
         #     running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
+        previous_messages_short = "<messages>\n" + previous_messages_short + "\n</messages>"
+        previous_messages_long = "<messages>\n" + previous_messages_long + "\n</messages>"
+        previous_messages_very_long = "<messages>\n" + previous_messages_very_long + "\n</messages>"
+        previous_messages_very_short = "<messages>\n" + previous_messages_very_short + "\n</messages>"
         results = dict(previous_messages=previous_messages_short,
                        previous_messages_long=previous_messages_long,
                        previous_messages_very_long=previous_messages_very_long,
@@ -734,7 +738,7 @@ Write the extracted information concisely below:
         query["checkboxes"] = {"provide_detailed_answers": "1",
                                "main_model": "anthropic/claude-3-sonnet:beta",
                                "persist_or_not": False,
-                               "planner_enabled": False,
+                               "enable_planner": False,
                                "perform_web_search": True,
                                "googleScholar": False,
                                "use_memory_pad": False,
@@ -769,7 +773,7 @@ Write the extracted information concisely below:
         summary_text = summary
         checkboxes = query["checkboxes"]
         persist_or_not = checkboxes["persist_or_not"] if "persist_or_not" in checkboxes else True
-        planner_enabled = checkboxes["planner_enabled"] if "planner_enabled" in checkboxes else False
+        enable_planner = checkboxes["enable_planner"] if "enable_planner" in checkboxes else False
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
@@ -804,11 +808,14 @@ Write the extracted information concisely below:
             permanent_instructions += "User has requested to execute the code and write executable code which we can run.\n"
         if checkboxes["need_diagram"]:
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
-        if checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
+        if enable_planner:
+            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt,
+                                                                                          temperature=0.2, stream=True)
+        elif checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
         else:
-            # planner_text_gen = ""
-            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            planner_text_gen = ""
+            # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
 
         tell_me_more = False

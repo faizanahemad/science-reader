@@ -800,6 +800,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <input class="form-check-input" id="use_memory_pad" type="checkbox">
             <label class="form-check-label" for="use_memory_pad">Use Pad</label>
         </div>
+
+        <div class="form-check form-check-inline mt-1">
+            <input class="form-check-input" id="enable_planner" type="checkbox" checked>
+            <label class="form-check-label" for="enable_planner">Planner</label>
+        </div>
         
     </div>
     <div class="col-md-auto mt-1" style="width: 100%;">
@@ -885,6 +890,7 @@ function getOptions(parentElementId, type) {
         use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
         tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked'),
         use_memory_pad: $('#use_memory_pad').is(':checked'),
+        enable_planner: $('#enable_planner').is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
