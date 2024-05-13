@@ -200,7 +200,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 chatView.scrollTop(chatView.prop('scrollHeight'));
             }
             var statusDiv = card.find('.status-div');
-            statusDiv.find('.status-text').text(part['status']);
+            statusDiv.find('.status-text').html(part['status']);
 
             if (part['message_ids']) {
                 user_message_id = part['message_ids']['user_message_id']
