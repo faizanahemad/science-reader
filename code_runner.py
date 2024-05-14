@@ -377,7 +377,7 @@ def extract_code(code_string, relax=False):
         code_to_execute = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
         code_to_execute = [c.strip() for c in code_to_execute]
         code_to_execute = "\n".join(code_to_execute)
-        if "# execute" in code_to_execute.lower() or relax:
+        if "# execute_code" in code_to_execute.lower() or relax:
             code_string = code_to_execute
         else:
             code_string = ""
@@ -635,8 +635,7 @@ time.sleep(5)
 print("Finished.")
 """
 
-    code_2 = """
-# execute  
+    code_2 = """  
 import pandas as pd  
 import numpy as np  
 from stocks_lib.equity_data_fetcher import get_equity_history  
@@ -648,7 +647,6 @@ history_df = get_equity_history('RELIANCE', "2 months")
 std_deviation = history_df['CH_CLOSING_PRICE'].std()  
 print("Standard Deviation of Closing Prices: ", std_deviation)  
 
-# execute  
 # Placeholder for market returns  
 market_returns = pd.Series([...])  # This should be the actual market returns  
   
@@ -663,7 +661,6 @@ beta = covariance / variance
 print("Beta of Reliance: ", beta)  
 
 
-# execute  
 # Calculating moving average  
 history_df['moving_average'] = history_df['CH_CLOSING_PRICE'].rolling(window=20).mean()  
   

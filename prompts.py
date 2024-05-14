@@ -271,11 +271,11 @@ Cover the below points while answering and also add other necessary points as ne
         rules = """
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots are given below inside <executable_code_and_diagramming_rules> </executable_code_and_diagramming_rules> tags.
 <executable_code_and_diagramming_rules>
-- Indicate clearly what python code needs execution by writing the first line of code as '# execute'. Write code that needs execution in a single code block.
-- Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute'. We can only execute python code.
+- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block.
+- Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute_code'. We can only execute python code.
 - Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
 - When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
-- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute". Write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state.
+- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute_code". Write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state.
 - Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments. 
 - You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
 - If asked to read files, only read these filenames from the input directory: {input_files}.
@@ -293,7 +293,7 @@ Cover the below points while answering and also add other necessary points as ne
 - Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
 - Convert all pandas dataframe data to pure numpy explicitly before using libraries like scikit-learn, matplotlib and seaborn plotting. Remember to convert the data to numpy array explicitly before plotting.
-- Remember to write python code that needs to be executed with first line comment as '# execute'. We can only execute python code. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
+- Remember to write python code that needs to be executed with first line comment as '# execute_code'. We can only execute python code. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
 - Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting.
 - Allowed to read csv, excel, parquet, tsv only.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.

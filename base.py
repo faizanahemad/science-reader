@@ -58,6 +58,7 @@ openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-4-32k": (150000, 100),
     "gpt-4-32k-0314": (150000, 100),
     "gpt-4-vision-preview": (150000, 100),
+    "gpt-4o": (800000, 10000),
 })
 
 openai_model_family = {
@@ -70,6 +71,7 @@ openai_model_family = {
     "gpt-4-0613": ["gpt-4-0613"],
     "gpt-4-32k": ["gpt-4-32k"],
     "gpt-4-vision-preview": ["gpt-4-vision-preview"],
+    "gpt-4o": ["gpt-4o"]
 }
 
 import time
@@ -240,123 +242,33 @@ class CallLLm:
         else:
             assert self.keys["openAIKey"] is not None
 
+        model_name = "gpt-4-turbo" if self.use_gpt4 and self.use_16k else "gpt-3.5-turbo" if not self.use_16k else "gpt-3.5-turbo-16k"
 
-        if self.use_gpt4 and self.use_16k:
+        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len > 3000 and model_name == "gpt-3.5-turbo"):
+            model_name = "gpt-3.5-turbo-16k"
+        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len < 3000 and model_name == "gpt-3.5-turbo-16k"):
+            model_name = "gpt-3.5-turbo"
+        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
+            model_name = "gpt-4o"
+
+        try:
+            assert text_len < 98000
+        except AssertionError as e:
+            text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
+        try:
+            model = rate_limit_model_choice.select_model(model_name)
+            return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+        except TokenLimitException as e:
+            time.sleep(5)
             try:
-                assert text_len < 98000
-            except AssertionError as e:
-                text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
-            try:
-                model = rate_limit_model_choice.select_model("gpt-4-turbo")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-            except TokenLimitException as e:
-                time.sleep(5)
+                model = rate_limit_model_choice.select_model(model_name)
+            except:
                 try:
-                    model = rate_limit_model_choice.select_model("gpt-4-turbo")
+                    model = rate_limit_model_choice.select_model("gpt-4o")
                 except:
-                    try:
-                        text = get_first_last_parts(text, 7000, 6000, self.turbo_enc)
-                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    except:
-                        raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
                     raise e
-                time.sleep(5)
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-4-turbo")
-                except:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    except:
-                        raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
 
-        elif self.use_gpt4:
-#             logger.info(f"Try GPT4 models with stream = {stream}, use_gpt4 = {self.use_gpt4}")
-            try:
-                assert text_len < 7600
-            except AssertionError as e:
-                text = get_first_last_parts(text, 4000, 3500, self.gpt4_enc)
-            try:
-                model = rate_limit_model_choice.select_model("gpt-4")
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-            except TokenLimitException as e:
-                time.sleep(5)
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-4")
-                except:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    except:
-                        raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
-                    raise e
-                time.sleep(5)
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-4")
-                except:
-                    try:
-                        model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    except:
-                        raise e
-                return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
-        elif not self.use_16k:
-            assert text_len < 3800
-            try:
-
-                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
-            except TokenLimitException as e:
-                time.sleep(5)
-                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-                fn = call_chat_model if "instruct" not in model else call_non_chat_model
-
-                return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
-                    raise e
-                model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-                fn = call_chat_model if "instruct" not in model else call_non_chat_model
-
-                return call_with_stream(fn, stream, model, text, temperature, system, self.keys)
-        elif self.use_16k:
-            try:
-                if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
-                else:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-
-                    logger.debug(f"Try Turbo model with stream = {stream} with text len = {text_len}")
-                assert text_len < 15000
-#                 logger.info(f"Try 16k model with stream = {stream}")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream, model, text, temperature, system, self.keys)
-            except TokenLimitException as e:
-                time.sleep(5)
-                if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
-                else:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
-                                        model, text, temperature, system, self.keys)
-            except Exception as e:
-                if type(e).__name__ == 'AssertionError':
-                    raise e
-                if text_len > 3400:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-16k")
-                    logger.debug(f"Try 16k model with stream = {stream} with text len = {text_len}")
-                else:
-                    model = rate_limit_model_choice.select_model("gpt-3.5-turbo")
-                return call_with_stream(call_chat_model if "instruct" not in model else call_non_chat_model, stream,
-                                        model, text, temperature, system, self.keys)
-        else:
-            raise ValueError("No model use criteria met")
 
 
 

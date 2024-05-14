@@ -770,10 +770,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>gpt-4-32k</option>
                 <option>cohere/command-r-plus</option>
                 <option>Claude Opus</option>
-                <option>Claude Sonnet</option>
+                <option>DeepSeek-V2 Chat</option>
                 <option>Mistral Large</option>
-                <option>Mistral Medium</option>
-                <option>Gemini</option>
+                <option>Gemini 1.5</option>
+                <option>Qwen 1.5</option>
             </select>
         </div>
         

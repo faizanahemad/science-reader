@@ -1421,15 +1421,15 @@ Write the extracted information concisely below:
             model_name = "openai/gpt-4-32k"
         elif model_name == "Claude Opus":
             model_name = "anthropic/claude-3-opus:beta"
-        elif model_name == "Claude Sonnet":
-            model_name = "anthropic/claude-3-sonnet:beta"
         elif model_name == "Mistral Large":
             model_name = "mistralai/mistral-large"
-        elif model_name == "Mistral Medium":
-            model_name = "mistralai/mistral-medium"
+        elif model_name == "DeepSeek-V2 Chat":
+            model_name = "deepseek/deepseek-chat"
+        elif model_name == "Qwen 1.5":
+            model_name = "qwen/qwen-110b-chat"
 
-        elif model_name == "Gemini":
-            model_name = "google/gemini-pro"
+        elif model_name == "Gemini 1.5":
+            model_name = "google/gemini-pro-1.5"
         else:
             model_name = None
         yield {"text": f"", "status": "starting answer generation"}
