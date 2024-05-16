@@ -197,7 +197,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
             if (content_length < 100) {
                 var chatView = $('#chatView');
-                chatView.scrollTop(chatView.prop('scrollHeight'));
+                // chatView.scrollTop(chatView.prop('scrollHeight'));
             }
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').html(part['status']);
@@ -351,7 +351,7 @@ var ChatManager = {
             doc_modal.modal('hide');
         }
 
-        function uploadFile(file) {
+        function uploadFile_internal(file) {
             let xhr = new XMLHttpRequest();
             var formData = new FormData();
             formData.append('pdf_file', file);
@@ -404,6 +404,17 @@ var ChatManager = {
             xhr.send(formData);
         }
 
+        function uploadFile(file) {
+            if (isValidFileType(file)) {
+                uploadFile_internal(file);  // Call the file upload function
+            } else {
+                console.log(`Invalid file type ${file.type}.`)
+                console.log(`Invalid file type ${getFileType(file, ()=>{})}.`)
+                console.log(`Invalid file type ${getMimeType(file)}.`)
+                alert(`Invalid file type ${file.type}. Supported types are: ` + fileInput.attr('accept').replace(/, /g, ', ').replace(/application\//g, '').replace(/vnd.openxmlformats-officedocument.wordprocessingml.document/g, 'docx').replace(/vnd.openxmlformats-officedocument.spreadsheetml.sheet/g, 'xlsx').replace(/vnd.ms-excel/g, 'xls').replace(/text\//g, '').replace(/image\//g, '').replace(/svg\+xml/g, 'svg'));
+            } 
+        }
+
         doc_modal.find('#file-upload-button').off().on('click', function () {
             doc_modal.find('#pdf-file').click();
         });
@@ -412,7 +423,7 @@ var ChatManager = {
         doc_modal.find('#pdf-file').off().on('change', function (e) {
             var file = $(this)[0].files[0];  // Get the selected file
             // check pdf or doc docx
-            if (file && (file.type === 'application/pdf' || file.type === 'application/msword' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+            if (file) {
                 uploadFile(file);  // Call the file upload function
             }
         });
@@ -429,6 +440,7 @@ var ChatManager = {
         });
 
         // Handle filedrop
+        var fileInput = $('#chat-file-upload');
         let dropArea = doc_modal.find('#drop-area').off();
         dropArea.on('dragover', function (e) {
             e.preventDefault();  // Prevent the default dragover behavior
@@ -445,9 +457,9 @@ var ChatManager = {
             if (e.originalEvent.dataTransfer.items) {
                 for (var i = 0; i < e.originalEvent.dataTransfer.items.length; i++) {
                     // If the dropped item is a file and it's a PDF, word doc docx
-                    if (e.originalEvent.dataTransfer.items[i].kind === 'file' && (e.originalEvent.dataTransfer.items[i].type === 'application/pdf' || e.originalEvent.dataTransfer.items[i].type === 'application/msword' || e.originalEvent.dataTransfer.items[i].type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
+                    if (e.originalEvent.dataTransfer.items[i].kind === 'file') {
                         var file = e.originalEvent.dataTransfer.items[i].getAsFile();
-                        uploadFile(file);  // Call the file upload function
+                        uploadFile(file);
                     }
                 }
             }
@@ -465,6 +477,32 @@ var ChatManager = {
                 alert('Please enter a PDF URL');
             }
         });
+
+        
+        // Function to check if the file type is valid  
+        function isValidFileType(file) {
+            var validTypes = fileInput.attr('accept').split(', ');
+            filetype = file.type ? file.type : getMimeType(file);
+            return validTypes.includes(filetype);
+        } 
+
+        $(document).off().on('dragover', function (event) {
+            event.preventDefault(); // Prevent default behavior (Prevent file from being opened)  
+            $(this).css('background-color', '#eee');  // Change the color of the drop area
+        }); 
+
+        $(document).on('dragleave', function (e) {
+            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
+        });
+
+        $(document).on('drop', function (event) {
+            event.preventDefault();
+            var files = event.originalEvent.dataTransfer.files;
+            for (var i = 0; i < files.length; i++) {
+                var file = files[i];
+                uploadFile(file);  // Call the file upload function
+            }
+        });  
     },
     renderDocuments: function (conversation_id, documents) {
         console.log(documents);
@@ -869,7 +907,7 @@ function sendMessageCallback() {
         });
     });
     var chatView = $('#chatView');
-    chatView.scrollTop(chatView.prop('scrollHeight'));
+    // chatView.scrollTop(chatView.prop('scrollHeight'));
 }
 
 function scrollToBottom() {
@@ -896,6 +934,16 @@ function scrollToBottom() {
     $chatView.on('scroll', function () {
         checkScroll();
     });
+
+    $chatView.on('change', function () {
+        checkScroll();
+    });
+
+    // check for any dom node change or insert or edit or inner html change in $chatView
+    $chatView.on('DOMSubtreeModified', function () {
+        checkScroll();
+    });
+
 
     // Click event for the button
     $scrollToBottomBtn.click(function () {

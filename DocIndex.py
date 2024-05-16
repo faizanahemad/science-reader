@@ -947,8 +947,10 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain.document_loaders import JSONLoader
     from langchain.document_loaders import UnstructuredHTMLLoader
     from langchain.document_loaders.csv_loader import CSVLoader
+    from langchain.document_loaders.tsv import UnstructuredTSVLoader
     from langchain.document_loaders import UnstructuredWordDocumentLoader
     from langchain.document_loaders import TextLoader
+    import pandas as pd
     pdf_url = pdf_url.strip()
     # check if the link is local or remote
     is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
@@ -985,23 +987,27 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     elif pdf_url.endswith(".json"):
         doc_text = JSONLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".csv"):
-        doc_text = CSVLoader(pdf_url).load()[0].page_content
+        df = pd.read_csv(pdf_url, engine="python")
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".tsv"):
+        df = pd.read_csv(pdf_url, sep="\t")
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".parquet"):
+        df = pd.read_parquet(pdf_url)
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".xlsx") or pdf_url.endswith(".xls"):
+        df = pd.read_excel(pdf_url, engine='openpyxl')
+        doc_text = df.to_markdown()
+    elif pdf_url.endswith(".jsonlines") or pdf_url.endswith(".jsonl"):
+        df = pd.read_json(pdf_url, lines=True)
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".json"):
+        df = pd.read_json(pdf_url)
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".txt"):
         doc_text = TextLoader(pdf_url).load()[0].page_content
     else:
-        try:
-            doc_text = PDFReaderTool(keys)(pdf_url.strip())
-        except Exception as e:
-            try:
-                doc_text = UnstructuredWordDocumentLoader()(pdf_url.strip()).load()[0].page_content
-            except Exception as e:
-                try:
-                    doc_text = UnstructuredHTMLLoader()(pdf_url.strip()).load()[0].page_content
-                except Exception as e:
-                    try:
-                        doc_text = UnstructuredMarkdownLoader()(pdf_url.strip()).load()[0].page_content
-                    except Exception as e:
-                        raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
+        raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
     
         
     doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')

@@ -43,6 +43,48 @@ async function responseWaitAndSuccessChecker(url, responsePromise) {
     }
 }
 
+function getMimeType(file) {
+    var extension = file.name.split('.').pop().toLowerCase();
+    var mimeTypeMap = {
+        'pdf': 'application/pdf',
+        'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'txt': 'text/plain',
+        'jpeg': 'image/jpeg',
+        'jpg': 'image/jpeg',
+        'png': 'image/png',
+        'svg': 'image/svg+xml',
+        'bmp': 'image/bmp',
+        'rtf': 'application/rtf',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'csv': 'text/csv',
+        'tsv': 'text/tab-separated-values',
+        'parquet': 'application/parquet',
+        'json': 'application/json',
+        'jsonl': 'application/x-jsonlines',
+        'ndjson': 'application/x-ndjson'
+    };
+    return mimeTypeMap[extension] || 'application/octet-stream'; // Default MIME type  
+}  
+
+function getFileType(file, callback) {
+    var filetypedict = {};
+    var reader = new FileReader();
+    reader.onload = function (e) {
+        var mimeType = e.target.result.match(/data:([^;]*);/)[1];
+        filetypedict["mimeType"] = mimeType;
+        callback(mimeType); // Pass the MIME type to the callback function  
+    };
+    reader.onerror = function (e) {
+        console.error("Error reading file:", e);
+        callback(null); // Pass null to the callback in case of an error  
+    };
+    reader.readAsDataURL(file);
+    return filetypedict;
+}  
+
+
 function addNewlineToTextbox(textboxId) {
     var messageText = $('#' + textboxId);
     var cursorPos = messageText.prop('selectionStart');
@@ -802,7 +844,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
 
         <div class="form-check form-check-inline mt-1">
-            <input class="form-check-input" id="enable_planner" type="checkbox" checked>
+            <input class="form-check-input" id="enable_planner" type="checkbox">
             <label class="form-check-label" for="enable_planner">Planner</label>
         </div>
         

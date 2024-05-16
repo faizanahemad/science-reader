@@ -178,7 +178,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
         all_stdout.append(stdout)
 
         if success:
-            if len(stdout.split("\n")) > 10:
+            if len(stdout.split("\n")) > 50:
                 stdout = extract_relevant_from_stdout(instructions, llm_easy, code_string, stdout)
             return success, failure_reason, stdout, stderr, code_string
         else:

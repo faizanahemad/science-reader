@@ -206,7 +206,7 @@ class CallLLm:
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name == "gpt-4-turbo" and self.use_gpt4 and self.use_16k) or self.model_name == "anthropic/claude-3-opus:beta" or self.model_name == "anthropic/claude-3-sonnet:beta"
+            assert (self.model_type == "openai" and self.model_name in ["gpt-4-turbo", "gpt-4o"] and self.use_gpt4 and self.use_16k) or self.model_name == "anthropic/claude-3-opus:beta" or self.model_name == "anthropic/claude-3-sonnet:beta"
         if self.model_type == "openai":
             return self.__call_openai_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
         else:
@@ -243,12 +243,15 @@ class CallLLm:
             assert self.keys["openAIKey"] is not None
 
         model_name = "gpt-4-turbo" if self.use_gpt4 and self.use_16k else "gpt-3.5-turbo" if not self.use_16k else "gpt-3.5-turbo-16k"
-
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len > 3000 and model_name == "gpt-3.5-turbo"):
             model_name = "gpt-3.5-turbo-16k"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len < 3000 and model_name == "gpt-3.5-turbo-16k"):
             model_name = "gpt-3.5-turbo"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
+            model_name = "gpt-4o"
+        if len(images) > 0:
+            model_name = "gpt-4o"
+        if self.model_name == "gpt-4o":
             model_name = "gpt-4o"
 
         try:

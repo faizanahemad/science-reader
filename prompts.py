@@ -277,9 +277,10 @@ Cover the below points while answering and also add other necessary points as ne
 - When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
 - When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute_code". Write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state.
 - Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments. 
-- You are allowed to read files from the input directory {input_directory} and write files to the directory {output_directory}.
+- You are allowed to read files from the input directory {input_directory} and write files to the output directory {output_directory}. You can also read files from the output directory {output_directory}.
+- If you need to download a file from the internet, you can download it to the output directory {output_directory} and then read it in your python code, make sure to mention the file name in comments before you download and store. 
 - If asked to read files, only read these filenames from the input directory: {input_files}.
-- You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot etc.
+- You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot, requests, beautifulsoup etc.
 
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.

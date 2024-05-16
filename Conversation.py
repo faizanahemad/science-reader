@@ -590,7 +590,11 @@ Title of the conversation:
         if len(attached_docs) > 0:
             # assert that all elements of attached docs are greater than equal to 1.
             uploaded_documents = self.get_uploaded_documents()
-            attached_docs_names, attached_docs = zip(*[(n, d) for n, d in doc_names_and_docs if len(uploaded_documents) >= d >= 1])
+            filtered_docs_by_actual = [(n, d) for n, d in doc_names_and_docs if len(uploaded_documents) >= d >= 1]
+            if len(filtered_docs_by_actual) > 0:
+                attached_docs_names, attached_docs = zip(*filtered_docs_by_actual)
+            else:
+                attached_docs_names, attached_docs = [], []
             attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
             attached_docs_readable = []
             attached_docs_readable_names = []
@@ -602,7 +606,7 @@ Title of the conversation:
                     attached_docs_readable.append(d)
                     attached_docs_readable_names.append(n)
                 if d.is_local and (d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
-                    ".tsv") or d.doc_source.endswith(".xlsx")):
+                    ".tsv") or d.doc_source.endswith(".xlsx") or d.doc_source.endswith(".xls") or d.doc_source.endswith(".jsonl") or d.doc_source.endswith(".jsonlines") or d.doc_source.endswith(".json")):
                     attached_docs_data.append(d)
                     attached_docs_data_names.append(n)
             attached_docs = attached_docs_readable + attached_docs_data
@@ -612,8 +616,9 @@ Title of the conversation:
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
             if replace_reference:
                 for i, d in enumerate(attached_docs_names):
+                    doc = attached_docs[i]
                     doc_title = doc_infos[i]
-                    messageText = messageText.replace(d, f"{d} (Title of {d} '{doc_title}')\n" + (f"data file: {d.doc_source}\n" if doc_title in doc_infos_data else ""))
+                    messageText = messageText.replace(d, f"{d} (Title of {d} '{doc_title}')\n" + (f"data file: {doc.doc_source}\n" if doc_title in doc_infos_data else ""))
         query["messageText"] = restore_code_blocks(messageText, code_blocks)
         return query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (attached_docs_data, attached_docs_data_names)
 
@@ -809,7 +814,8 @@ Write the extracted information concisely below:
         if checkboxes["need_diagram"]:
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
         if enable_planner:
-            planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt,
+            # TODO: use gpt4o with planner. Don't execute code unless user has asked to explicitly execute code.
+            planner_text_gen = CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True)(planner_prompt,
                                                                                           temperature=0.2, stream=True)
         elif checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
@@ -972,6 +978,8 @@ Write the extracted information concisely below:
             attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"], code_execution=checkboxes["code_execution"])
+        plot_prefix = f"plot-{prefix}-"
+        file_prefix = f"file-{prefix}-"
         if prev_attached_docs is not None:
             attached_docs.extend(prev_attached_docs)
             attached_docs_names.extend(prev_attached_docs_names)
