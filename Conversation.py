@@ -138,7 +138,7 @@ Write the new extracted information below in compact bullet points.
 ## New Information:
 
 """
-        llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False) # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
         new_memory = llm(prompt, temperature=0.2, stream=False)
         new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
@@ -165,7 +165,7 @@ Compact list of bullet points:
 
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 2):
-                llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False, use_16k=False)
+                llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False, use_16k=False)
                 if i + 1 < len(memory_parts):
                     memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
                 else:
@@ -504,7 +504,7 @@ Compact list of bullet points:
     def create_title(self, query, response):
         memory = self.get_field("memory")
         if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
-            llm = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-medium", use_gpt4=False)
+            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)
             running_summary = memory["running_summary"][-1:]
             running_summary = "".join(running_summary)
             running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
@@ -517,7 +517,7 @@ System response: '''{response}'''
 Now lets write a title of the conversation.
 Title of the conversation:
 """
-            prompt = get_first_last_parts(prompt, 1000, 2200)
+            prompt = get_first_last_parts(prompt, 5000, 2200)
             title = get_async_future(llm, prompt, temperature=0.2, stream=False)
         else:
             title = wrap_in_future(self.get_field("memory")["title"])
@@ -667,7 +667,7 @@ Extract and copy relevant information verbatim from the above conversation messa
 Write the extracted information concisely below:
 """
         # final_information = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(prompt, temperature=0.2, stream=False)
-        final_information = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False,
                                 use_16k=False)(prompt, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:2000])
@@ -1423,6 +1423,8 @@ Write the extracted information concisely below:
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
         if model_name == "gpt-4-turbo":
             model_name = None
+        if model_name == "gpt-4o":
+            model_name = "gpt-4o"
         elif model_name == "cohere/command-r-plus":
             model_name = "cohere/command-r-plus"
         elif model_name == "gpt-4-32k":
@@ -1511,7 +1513,7 @@ Write the extracted information concisely below:
         final prompt len: {len(enc.encode(prompt))}""")
         time_dict["prompt_length"] = len(enc.encode(prompt))
         time_dict["web_text_length"] = len(enc.encode(web_text))
-        time_dict["doc_answer_length"] = len(enc.encode(doc_answer))
+        time_dict["doc_answer_length"] = len(enc.encode(doc_answer + conversation_docs_answer))
         time_dict["link_result_text_length"] = len(enc.encode(link_result_text))
         time_dict["summary_text_length"] = len(enc.encode(summary_text))
         time_dict["previous_messages_length"] = len(enc.encode(previous_messages))

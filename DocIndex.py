@@ -96,7 +96,7 @@ class DocIndex:
 
         self._visible = False
         self._chunk_size = chunk_size
-        self.result_cutoff = 2
+        self.result_cutoff = 4
         self.version = 0
         self.last_access_time = time.time()
 
@@ -113,7 +113,8 @@ class DocIndex:
         self.is_local = os.path.exists(doc_source)
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
-                short_summary = CallLLm(keys, model_name="google/gemini-pro", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{raw_data['chunks'][0]}''' \nSummary: \n""", )
+                chunks = "\n\n".join(raw_data['chunks'][0:4])
+                short_summary = CallLLm(keys, model_name="google/gemini-flash-1.5", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
                 title = CallLLm(keys, use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
                 setattr(self, "_title", title)
                 setattr(self, "_short_summary", short_summary)
@@ -152,6 +153,7 @@ class DocIndex:
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
             self._raw_index = raw_index_future.result()
+            self._raw_index_small = raw_index_small_future.result()
             time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
         set_raw_index_small()
 
@@ -398,7 +400,7 @@ class DocIndex:
         if self.raw_index is None:
             text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
             logger.warn(f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text.")
-            return ChunkText(text, token_limit)[0]
+            return chunk_text_words(text, chunk_size=token_limit, chunk_overlap=0)[0]
         raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
 
         raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
@@ -431,7 +433,7 @@ class DocIndex:
             if tex_len < 28000:
                 chunked_text = text
             else:
-                chunked_text = ChunkText(text, 64000)[0]
+                chunked_text = chunk_text_words(text, chunk_size=48000, chunk_overlap=0)[0]
             prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
@@ -442,10 +444,36 @@ Context is given below.
 Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
 """
 
-            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-pro" if detail_level <= 2 else "anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
-            additional_info = get_async_future(llm, prompt, temperature=0.9)
-            if detail_level >= 3 and self.raw_index is not None:
-                raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))
+            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5" if detail_level <= 2 else "anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
+            additional_info_v0 = get_async_future(llm, prompt, temperature=0.9)
+            if tex_len > 4000:
+                tx = "\n".join(chunk_text_words(text, chunk_size=3800, chunk_overlap=0)[1:])
+                chunked_text = chunk_text_words(tx, chunk_size=48000, chunk_overlap=0)[0]
+                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
+Question or Query is given below.
+{query}
+
+Context is given below.
+{chunked_text}
+
+Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
+"""
+
+                def get_additional_info():
+                    llm = CallLLm(self.get_api_keys(),
+                                  model_name="google/gemini-flash-1.5",
+                                  use_gpt4=False,
+                                  use_16k=True)
+                    ad_info = get_async_future(llm, prompt, temperature=0.8)
+                    init_add_info = additional_info_v0.result()
+                    return init_add_info + "\n\n" + ad_info.result()
+
+                additional_info = get_async_future(get_additional_info)
+            else:
+                additional_info = additional_info_v0
+
+            if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
+                raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
                 if detail_level >= 4 and self.raw_index_small is not None:
                     small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
@@ -457,7 +485,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
-                    llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-sonnet:beta" if detail_level >= 4 else "google/gemini-pro", use_gpt4=False,
+                    llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level >= 3 else "google/gemini-flash-1.5", use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
                     init_add_info = additional_info_v1.result()

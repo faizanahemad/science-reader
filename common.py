@@ -1203,6 +1203,16 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
 
 embed_executor = ThreadPoolExecutor(max_workers=256)
 class OpenAIEmbeddingsParallel(OpenAIEmbeddings):
+    def __call__(self, text: str) -> List[float]:
+        return self.embed_query(text)
+
+    def _embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.embed_documents(texts, chunk_size=self.chunk_size)
+
+
+    def _embed_query(self, text: str) -> List[float]:
+        return self.embed_query(text)
+
     def embed_query(self, text: str) -> List[float]:
         return self.embed_documents([text])[0]
 

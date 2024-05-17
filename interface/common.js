@@ -808,7 +808,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
-                <option selected>gpt-4-turbo</option>
+                <option selected>gpt-4o</option>    
+                <option>gpt-4-turbo</option>
                 <option>gpt-4-32k</option>
                 <option>cohere/command-r-plus</option>
                 <option>Claude Opus</option>

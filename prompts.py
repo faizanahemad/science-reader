@@ -281,6 +281,7 @@ Cover the below points while answering and also add other necessary points as ne
 - If you need to download a file from the internet, you can download it to the output directory {output_directory} and then read it in your python code, make sure to mention the file name in comments before you download and store. 
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot, requests, beautifulsoup etc.
+- Files like csv, xlsx, xls, tsv, parquet, json, jsonl are data files and can be used in python for data analysis, xls and xlsx can be read with `openpyxl` and pandas and have multiple sheets so analysing xls, xlsx would require looking at all sheets.
 
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
