@@ -1235,7 +1235,9 @@ $(document).ready(function() {
     });
     
 
-    $('#assistant-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
+    $('#assistant-tab').on('click', function () { 
+        $("#chat-pdf-content").addClass('d-none'); 
+    })
     $('#search-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
     $('#finchat-tab').on('click', function () { $("#chat-pdf-content").addClass('d-none'); })
     $('#assistant-tab').on('shown.bs.tab', function (e) {

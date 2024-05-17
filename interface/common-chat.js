@@ -486,7 +486,7 @@ var ChatManager = {
             return validTypes.includes(filetype);
         } 
 
-        $(document).off().on('dragover', function (event) {
+        $(document).on('dragover', function (event) {
             event.preventDefault(); // Prevent default behavior (Prevent file from being opened)  
             $(this).css('background-color', '#eee');  // Change the color of the drop area
         }); 
