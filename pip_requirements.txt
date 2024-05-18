@@ -57,11 +57,17 @@ httplib2==0.22.0
 httpx==0.23.1
 huggingface-hub==0.14.1
 humanfriendly==10.0
-langchain==0.0.230
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-core==0.1.52
+langchain-openai==0.1.7
+langchain-text-splitters==0.0.1
 langchainplus-sdk==0.0.20
 layoutparser==0.3.4
 linkify-it-py==1.0.3
-llama-index==0.6.9
+llama-index==0.10.33
+llama-index-core==0.10.33
+llama-index-llms-openai==0.1.16
 lxml==4.9.2
 macholib==1.16.2
 markdown-it-py==2.1.0
@@ -81,6 +87,7 @@ oauthlib==3.2.2
 omegaconf==2.2.3
 openai==1.14.1
 opencv-python==4.6.0.66
+openpyxl==3.1.2
 orjson==3.8.3
 outcome==1.2.0
 packaging==23.1

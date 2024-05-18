@@ -475,7 +475,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
             if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
                 raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
                 raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-                if detail_level >= 4 and self.raw_index_small is not None:
+                if (detail_level >= 4 or len(raw_nodes) == 0) and self.raw_index_small is not None:
                     small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
                                                                               12_000 // self.chunk_size))
                     small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
@@ -971,13 +971,13 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
-    from langchain.document_loaders import UnstructuredMarkdownLoader
-    from langchain.document_loaders import JSONLoader
-    from langchain.document_loaders import UnstructuredHTMLLoader
-    from langchain.document_loaders.csv_loader import CSVLoader
-    from langchain.document_loaders.tsv import UnstructuredTSVLoader
-    from langchain.document_loaders import UnstructuredWordDocumentLoader
-    from langchain.document_loaders import TextLoader
+    from langchain_community.document_loaders import UnstructuredMarkdownLoader
+    from langchain_community.document_loaders import JSONLoader
+    from langchain_community.document_loaders import UnstructuredHTMLLoader
+    from langchain_community.document_loaders.csv_loader import CSVLoader
+    from langchain_community.document_loaders.tsv import UnstructuredTSVLoader
+    from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+    from langchain_community.document_loaders import TextLoader
     import pandas as pd
     pdf_url = pdf_url.strip()
     # check if the link is local or remote
@@ -1048,8 +1048,10 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunk_size = LARGE_CHUNK_LEN // 2
     else:
         chunk_size = LARGE_CHUNK_LEN
-    chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
-    chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
+    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=128)
+    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//4, chunk_overlap=128)
+    # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
+    # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
     chunks = chunks.result()
     chunks_small = chunks_small.result()
     nested_dict = {

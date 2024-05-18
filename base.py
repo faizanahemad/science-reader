@@ -140,7 +140,42 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "text-davinci-003": davinci_enc,
     "text-davinci-002": davinci_enc,
 })
+
 def call_chat_model(model, text, temperature, system, keys):
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
+    if model.startswith("gpt") or "davinci" in model:
+        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
+        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
+    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, **extras)
+    response = client.chat.completions.create(
+        model=model,
+        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :",
+              "###", "<|eot_id|>"] if "claude" in model else [],
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": text},
+        ],
+        temperature=temperature,
+        stream=True,
+    )
+
+
+    chunk = None
+    for chk in response:
+        chunk = chk.model_dump()
+        if "content" in chunk["choices"][0]["delta"]:
+            text_content = chunk["choices"][0]["delta"]["content"]
+            if isinstance(text_content, str):
+                yield text_content
+                if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
+                    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
+
+    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
+        yield "\n Output truncated due to lack of context Length."
+
+def call_chat_model_old(model, text, temperature, system, keys):
     api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
     if model.startswith("gpt") or "davinci" in model:
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
@@ -170,25 +205,7 @@ def call_chat_model(model, text, temperature, system, keys):
         yield "\n Output truncated due to lack of context Length."
 
 
-def call_non_chat_model(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"]
-    text = f"{system}\n\n{text}\n"
-    input_len = len(easy_enc.encode(text))
-    assert 3600 - input_len > 0
-    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
-    completions = openai.Completion.create(
-        api_key=api_key,
-        engine=model,
-        prompt=text,
-        temperature=temperature,
-        max_tokens = 4000 - input_len,
-    )
-    message = completions.choices[0].text
-    finish_reason = completions.choices[0].finish_reason
-    if finish_reason.lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
-        message = message + "\n Output truncated due to lack of context Length."
-    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(message)))
-    return message
+
 
 class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):

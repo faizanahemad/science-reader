@@ -29,7 +29,6 @@ import re
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, PersistentPythonEnvironment
 from prompts import prompts, xml_to_dict
-from langchain.document_loaders import MathpixPDFLoader
 from datetime import datetime, timedelta
 
 from review_criterias import review_params
