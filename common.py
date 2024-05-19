@@ -862,6 +862,8 @@ def typed_memoize(cache, *types):
 import requests
 os_temp_dir = tempfile.gettempdir()
 temp_dir = os.path.join(os.getcwd(), "storage", "cache")
+# Create temp dir if not present
+os.makedirs(temp_dir, exist_ok=True)
 cache = dc.Cache(temp_dir)
 cache_timeout = 7 * 24 * 60 * 60
 
@@ -903,6 +905,25 @@ def is_pdf_link(link):
         result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
     et = time.time() - st
     logger.debug(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
+    return result
+
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
+def is_image_link(link):
+    st = time.time()
+    result = False
+    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg', '.ico']
+    # Check if the link is an image based on the file extension
+    # remove query params from link
+    link = link.split('?')[0]
+    is_image = any([link.endswith(ext) for ext in image_extensions])
+    if is_image:
+        result = True
+    else:
+        response = ProcessFnWithTimeout(Queue())(requests.head, 8, link)
+        content_type = response.headers.get('Content-Type') if response is not None else None
+        result = (content_type is not None and ('image' in content_type))
+    et = time.time() - st
+    logger.debug(f"Time taken to check if link is image: {et:.2f} sec, is image link: {link}, result: {result}")
     return result
 
 
@@ -1362,14 +1383,20 @@ def enhanced_robust_url_extractor(text):
     for url in raw_urls:
         # Remove surrounding parentheses and trailing punctuation
         cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
-        # Split URLs separated by pipe (|), semicolon (;), or comma (,)
-        split_urls = re.split(r'[|;,]', cleaned_url)
-        for split_url in split_urls:
-            # Avoid appending empty or duplicate URLs
-            if split_url and split_url not in cleaned_urls:
-                cleaned_urls.append(split_url)
+
+        # Check if the cleaned_url is a valid URL
+        if re.match(r'^(https?://|www\.)\S+$', cleaned_url):
+            if cleaned_url not in cleaned_urls:
+                cleaned_urls.append(cleaned_url)
+        else:
+            # Split URLs separated by pipe (|) or semicolon (;), but not comma (,)
+            split_urls = re.split(r'[|;]', cleaned_url)
+            for split_url in split_urls:
+                if split_url and split_url not in cleaned_urls:
+                    cleaned_urls.append(split_url)
     restored_text = restore_code_blocks(modified_text, code_blocks)
     return cleaned_urls
+
 
 
 def test_enhanced_robust_url_extraction():
@@ -1858,6 +1885,11 @@ def compress_and_encode_drawio_xml(input_string):
     url_encoded = quote(deflated)
 
     return url_encoded
+
+
+def encode_image(image_path):
+  with open(image_path, "rb") as image_file:
+    return base64.b64encode(image_file.read()).decode('utf-8')
 
 
 

@@ -1,3 +1,4 @@
+import os.path
 from datetime import datetime
 import pandas as pd
 from copy import deepcopy, copy
@@ -70,7 +71,7 @@ openai_model_family = {
     "gpt-4-0314": ["gpt-4-0314"],
     "gpt-4-0613": ["gpt-4-0613"],
     "gpt-4-32k": ["gpt-4-32k"],
-    "gpt-4-vision-preview": ["gpt-4-vision-preview"],
+    "gpt-4-vision-preview": ["gpt-4-vision-preview", "gpt-4-1106-vision-preview"],
     "gpt-4o": ["gpt-4o"]
 }
 
@@ -141,26 +142,40 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "text-davinci-002": davinci_enc,
 })
 
-def call_chat_model(model, text, temperature, system, keys):
+def call_chat_model(model, text, images, temperature, system, keys):
     api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
     if model.startswith("gpt") or "davinci" in model:
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
+    openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
+    extras_2 = dict(stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :",
+              "###", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
+    messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [
+                {"type": "text", "text": text},
+                *[{
+                    "type": "image_url",
+                    "image_url": {
+                        "url": base64_image
+                    }
+                } for base64_image in images]
+            ]},
+        ]
+
     response = client.chat.completions.create(
         model=model,
-        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :",
-              "###", "<|eot_id|>"] if "claude" in model else [],
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": text},
-        ],
+        messages=messages,
         temperature=temperature,
         stream=True,
+        # max_tokens=300,
+        **extras_2,
     )
-
+    # yield response.choices[0].message.content
+    # return
 
     chunk = None
     for chk in response:
@@ -212,7 +227,7 @@ class CallLLm:
 
         self.keys = keys
         self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide comprehensive, detailed and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
-        self.self_hosted_model_url = self.keys["vllmUrl"] if not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
+        self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
         self.gpt4_enc = encoders_map.get("gpt-4")
@@ -223,7 +238,26 @@ class CallLLm:
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name in ["gpt-4-turbo", "gpt-4o"] and self.use_gpt4 and self.use_16k) or self.model_name == "anthropic/claude-3-opus:beta" or self.model_name == "anthropic/claude-3-sonnet:beta"
+            assert (self.model_type == "openai" and self.model_name in ["gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
+                                                                                                                                                 "anthropic/claude-3-opus:beta",
+                                                                                                                                                 "anthropic/claude-3-sonnet:beta",
+                                                                                                                                                 "fireworks/firellava-13b",
+                                                                                                                                                 "google/gemini-pro-1.5",
+                                                                                                                                                 "google/gemini-flash-1.5",
+                                                                                                                                                 "liuhaotian/llava-yi-34b"]
+            encoded_images = []
+            for img in images:
+                if os.path.exists(img):
+                    base64_image = encode_image(img)
+                    # get image type from extension of img
+                    image_type = img.split(".")[-1]
+                    encoded_images.append(f"data:image/{image_type};base64,{base64_image}")
+
+                else:
+                    assert len(enhanced_robust_url_extractor(img))==1
+                    encoded_images.append(img)
+            images = encoded_images
+            system = f"{self.light_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned.\n"
         if self.model_type == "openai":
             return self.__call_openai_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
         else:
@@ -235,7 +269,7 @@ class CallLLm:
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-        streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, temperature, system, self.keys)
+        streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, images, temperature, system, self.keys)
         if "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
         elif "mistralai" in self.model_name:
@@ -248,7 +282,7 @@ class CallLLm:
             assert get_gpt3_word_count(system + text) < 14000
         return streaming_solution
 
-    @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(2))
+    @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(0))
     def __call_openai_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
@@ -277,7 +311,7 @@ class CallLLm:
             text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
         try:
             model = rate_limit_model_choice.select_model(model_name)
-            return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            return call_with_stream(call_chat_model, stream, model, text, images, temperature, system, self.keys)
         except TokenLimitException as e:
             time.sleep(5)
             try:
@@ -287,7 +321,7 @@ class CallLLm:
                     model = rate_limit_model_choice.select_model("gpt-4o")
                 except:
                     raise e
-            return call_with_stream(call_chat_model, stream, model, text, temperature, system, self.keys)
+            return call_with_stream(call_chat_model, stream, model, text, images, temperature, system, self.keys)
 
 
 
@@ -1735,26 +1769,31 @@ from multiprocessing import Pool
 @CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
               should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
 def process_link(link_title_context_apikeys, use_large_context=False):
+    # TODO: process links which are images as well.
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     st = time.time()
     link_data = download_link_data(link_title_context_apikeys)
     title = link_data["title"]
     text = link_data["full_text"]
+    is_image = link_data["is_image"]
     query = f"Lets write a comprehensive summary essay with full details, nuances and caveats about [{title}]({link}). Then lets analyse in detail about [{title}]({link}) ( ```preview - '{text[:1000]}'``` ) in the context of the the below question ```{context}```\n"
     link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
     try:
-        if detailed >= 2:
-            more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
-        summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
-        if detailed >= 2:
-            more_summary = more_summary.result()["text"] if more_summary.exception() is None else ""
-            summary = f"{summary}\n\n{more_summary}"
+        if is_image:
+            summary = link_data["full_text"]
+        else:
+            if detailed >= 2:
+                more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
+            summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
+            if detailed >= 2:
+                more_summary = more_summary.result()["text"] if more_summary.exception() is None else ""
+                summary = f"{summary}\n\n{more_summary}"
 
     except AssertionError as e:
         return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     assert len(link.strip()) > 0, f"[process_link] Link is empty for title {title}"
-    return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed}
+    return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed, "is_image": is_image}
 
 from concurrent.futures import ThreadPoolExecutor
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
@@ -1764,14 +1803,29 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     assert len(link.strip()) > 0, f"[download_link_data] Link is empty for title {title}"
     link = convert_to_pdf_link_if_needed(link)
+    is_image_link_future = get_async_future(is_image_link, link)
     is_pdf = is_pdf_link(link)
+    is_image = is_image_link_future.result()
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
-    if is_pdf:
+    if is_image:
+        llm = CallLLm(api_keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
+        doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[link], stream=False)
+        llm = CallLLm(api_keys, use_gpt4=True, model_name="gpt-4o")
+        new_context = context.replace(link, 'this given image')
+        prompt = prompts.deep_caption_prompt_with_query(query=new_context)
+        # prompt = f"You are an AI expert at reading images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. OCR the image, extract text, tables, data, charts or plot information or any other text and tell me what this image says. Then answer the query: {context}"
+        answer = llm(prompt, images=[link], temperature=0.7, stream=False)
+        answer += ("\n" + doc_text_f1.result())
+        answer = f"OCR (low accuracy) and image extraction results and answers: {answer}\n\n"
+        result = {"link": link, "title": title, "text": answer, "exception": False, "full_text": answer, "is_pdf": False, "is_image": True}
+    elif is_pdf:
         result = read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = True
+        result["is_image"] = False
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
+        result["is_image"] = False
     assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
     et = time.time() - st
     time_logger.info(f"[download_link_data] Time taken to download link data for {link} = {et:.2f}")
@@ -2134,6 +2188,8 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
             link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
             st = time.time()
             summary = get_downloaded_data_summary(link_title_context_apikeys)
+            if "is_image" in web_res and web_res["is_image"]:
+                summary["text"] += ("\n" + web_res["full_text"])
             assert "link" in summary and len(summary["link"].strip()) > 10, f"Empty output link in summary"
             time_logger.info(f"[fn2] Time taken for processing link and summary: = {(time.time() - start_time):.2f}, fn2 time = {(time.time() - st):.2f}, link = {link}")
             return summary
@@ -2180,20 +2236,20 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     if len(links) == 1:
-        raw_texts = [p.get("full_text", '') for p in full_processed_texts]
+        raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
         raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
                               TOKEN_LIMIT_FOR_SHORT*2 - get_gpt4_word_count(p), 0)[0] if len(p) > 0 else "" for p in raw_texts]
-        result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     elif len(links) == 2 and provide_detailed_answers:
-        raw_texts = [p.get("full_text", '') for p in full_processed_texts]
+        raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
         raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
                                TOKEN_LIMIT_FOR_SHORT - get_gpt4_word_count(p),
                                0)[0] if len(p) > 0 else "" for p in raw_texts]
-        result = "\n\n".join([f"[{p['title']}]({p['link']})\nSummary:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     else:
-        result = "\n\n".join([f"[{p['title']}]({p['link']})\n{p['text']}" for p in processed_texts])
+        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\n{p['text']}" for p in processed_texts])
     return result, full_processed_texts
 
 
@@ -2262,7 +2318,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
             f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
 
     if provide_detailed_answers >= 2 and provide_raw_text:
-        read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\nRaw article text:\n{r}\n" for r, p in
+        read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                      zip(doc_search_results, answers)]
     elif provide_detailed_answers >= 2:
         read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]

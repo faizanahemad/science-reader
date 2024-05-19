@@ -600,7 +600,7 @@ Title of the conversation:
             attached_docs_data = []
             attached_docs_data_names = []
             for n, d in zip(attached_docs_names, attached_docs):
-                if (d.is_local and os.path.getsize(d.doc_source) < 100 * 1024) or (d.doc_source.endswith(".pdf")) or (d.doc_source.endswith(
+                if (d.is_local and os.path.getsize(d.doc_source) < 100 * 1024) or (d.doc_source.endswith(".pdf") or d.doc_source.endswith(".jpeg") or d.doc_source.endswith(".jpg") or d.doc_source.endswith(".png") or d.doc_source.endswith(".bmp") or d.doc_source.endswith(".svg")) or (d.doc_source.endswith(
                     ".html")):
                     attached_docs_readable.append(d)
                     attached_docs_readable_names.append(n)
@@ -861,6 +861,8 @@ Write the extracted information concisely below:
 
         links_in_text = enhanced_robust_url_extractor(query['messageText'])
         query['links'].extend(links_in_text)
+        if len(links_in_text) > 1 and "\n" not in query['messageText']:
+            yield {"text": "We don't support multiple links on single line.\n", "status": "Reading your provided links."}
         links = list(set([l.strip() for l in query["links"] if
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
@@ -875,12 +877,6 @@ Write the extracted information concisely below:
 
 
         planner_text = ''
-        # TODO: Pre-cache this prompt except user message.
-        # TODO: Add a deciding a plan to answer your query yield before this.
-        # TODO: If plan parsing fails then proceed as usual.
-        # TODO: make 4 parallel calls instead of one planner call. Faster by parallel. Invoke those parts which get results faster.
-        # TODO: exec web search before hand.
-        # TODO: WE can do fin data extraction right after planner call?.
         for t in planner_text_gen:
             if len(planner_text.strip()) == 0:
                 time_dict["planner_first_word"] = time.time() - st
@@ -1005,6 +1001,23 @@ Write the extracted information concisely below:
             message_config["use_attached_docs"] = True
 
         if len(attached_docs) > 0:
+            for ad in attached_docs:
+                if ad.doc_type == "image" and ad.is_local:
+                    source_file = ad.doc_source
+                    filename = os.path.basename(source_file)
+                    f = f"{plot_prefix}-{filename}"
+                    image_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                    # TODO: url_encode_image_path with urllib
+                    image_path = image_path.replace(" ", "%20")
+                    save_path_for_render = os.path.join(self.documents_path, f)
+                    shutil.copyfile(source_file, save_path_for_render)
+                    image_md = f'\n[<img src="{image_path}" width="500"/>]({image_path})\n'
+                    # image_md = f"\n![{f}]({image_path}) \n"
+                    yield {"text": image_md, "status": "Reading your attached documents."}
+                elif ad.doc_type == "image":
+                    image_md = f'\n[<img src="{ad.doc_source}" width="500"/>]({ad.doc_source})\n'
+                    # image_md = f"\n![{ad.title}]({ad.doc_source}) \n"
+                    yield {"text": image_md, "status": "Reading your attached documents."}
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
                                                         query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
@@ -1047,6 +1060,12 @@ Write the extracted information concisely below:
             read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
                                len(link.strip()) > 0 and len(title.strip()) > 0 and extract_url_from_mardown(
                                    link) in links])
+            # if any link is an image then we display it.
+            for link, link_len in read_links:
+                if is_image_link(link):
+                    image_md = f'\n[<img src="{link}" width="500"/>]({link})\n'
+                    # image_md = f"\n![{link}]({link}) \n"
+                    yield {"text": image_md, "status": "Reading your provided links."}
 
             if len(all_docs_info) > 0:
                 read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta} : <{link_len} words>" for i, (wta, link_len) in enumerate(read_links)]) + "\n\n"

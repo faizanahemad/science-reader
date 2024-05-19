@@ -109,7 +109,7 @@ class DocIndex:
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
-        assert doc_filetype == "pdf" and ("http" in doc_source or os.path.exists(doc_source))
+        assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
         self.is_local = os.path.exists(doc_source)
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
@@ -970,6 +970,25 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
 class ImmediateDocIndex(DocIndex):
     pass
 
+class ImageDocIndex(DocIndex):
+    def semantic_search_document_small(self, query, token_limit=4096):
+        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        return text
+
+    def semantic_search_document(self, query, token_limit=4096):
+        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        return text
+
+    @streaming_timer
+    def streaming_get_short_answer(self, query, mode=defaultdict(lambda: False), save_answer=False):
+        doc_text = self.get_doc_data("static_data", "doc_text")
+        text = self.brief_summary + doc_text
+        llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name="gpt-4o")
+        prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
+        answer = llm(prompt, temperature=0.7, stream=False)
+        yield answer
+
+
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import UnstructuredMarkdownLoader
     from langchain_community.document_loaders import JSONLoader
@@ -979,6 +998,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import UnstructuredWordDocumentLoader
     from langchain_community.document_loaders import TextLoader
     import pandas as pd
+    is_image = False
+    chunk_overlap = 128
     pdf_url = pdf_url.strip()
     # check if the link is local or remote
     is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
@@ -990,7 +1011,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         is_pdf = pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
     logger.info(f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}")
-    filetype = "pdf" if is_pdf else "word" if pdf_url.endswith(".docx") else "html" if pdf_url.endswith(".html") else "md" if pdf_url.endswith(".md") else "json" if pdf_url.endswith(".json") else "csv" if pdf_url.endswith(".csv") else "txt" if pdf_url.endswith(".txt") else "pdf"
+    filetype = "pdf" if is_pdf else "word" if pdf_url.endswith(".docx") else "html" if pdf_url.endswith(".html") else "md" if pdf_url.endswith(".md") else "json" if pdf_url.endswith(".json") else "csv" if pdf_url.endswith(".csv") else "txt" if pdf_url.endswith(".txt") else "jpg" if pdf_url.endswith(".jpg") else "png" if pdf_url.endswith(".png") else "jpeg" if pdf_url.endswith(".jpeg") else "bmp" if pdf_url.endswith(".bmp") else "svg" if pdf_url.endswith(".svg") else "pdf"
     if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
@@ -1034,6 +1055,14 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".txt"):
         doc_text = TextLoader(pdf_url).load()[0].page_content
+    elif pdf_url.endswith(".jpg") or pdf_url.endswith(".jpeg") or pdf_url.endswith(".png") or pdf_url.endswith(".bmp") or pdf_url.endswith(".svg"):
+        llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="gpt-4o")
+        llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
+        doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
+        doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
+        doc_text = "OCR and analysis from strong model:\n" + doc_text_f1.result() + "\nOCR and analysis from weak model:\n" + doc_text_f2.result()
+        is_image = True
+        chunk_overlap = 0
     else:
         raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
     
@@ -1048,8 +1077,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunk_size = LARGE_CHUNK_LEN // 2
     else:
         chunk_size = LARGE_CHUNK_LEN
-    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=128)
-    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//4, chunk_overlap=128)
+    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
+    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//4, chunk_overlap=chunk_overlap)
     # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
     # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
     chunks = chunks.result()
@@ -1069,10 +1098,11 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         }
     }
     openai_embed = get_embedding_model(keys)
+    cls = ImmediateDocIndex if not is_image else ImageDocIndex
     try:
-        doc_index: DocIndex = ImmediateDocIndex(pdf_url,
+        doc_index: DocIndex = cls(pdf_url,
                     filetype,
-                    "scientific_article", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
+                    "scientific_article" if not is_image else "image", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
         doc_index.set_api_keys(keys)

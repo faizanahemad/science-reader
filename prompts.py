@@ -768,6 +768,60 @@ Valid python list of web search query strings:
         prompts = self.prompts
         return prompts["document_search_prompt"]
 
+    @property
+    def deep_caption_prompt(self):
+        prompt = """
+You are an expert at ocr, optical character recognition, text extraction, reading documents, tables, charts, graphs and data oriented images. 
+You are able to understand the content of the document, table, chart, graph or image and provide a detailed caption or summary for it. 
+You can also extract key information, trends, patterns, and insights from the document, table, chart, graph or image. 
+You can also provide a detailed overview, explanation, analysis, description, interpretation, breakdown and summary of the data, trends, patterns, and insights present in the document, table, chart, graph or image. 
+You write well and provide detailed, informative and insightful captions, summaries and explanations.
+
+Given a general image, document, table, chart, graph or data oriented image, write a detailed caption or summary for it in the below format. Under possible_questions_users_may_ask_about_image_and_answer tag write questions and answers which are not covered under key insights, analysis, detailed_caption, structure_and_format, detailed_ocr_results, patterns_and_trends, summary, objects_in_image, insights, domain_of_image tags.
+OCR the image, extract text, tables, data, charts or plot information or any other text.
+Format to reply about the image is given below in xml format. Please use this format to reply about the image.
+<image_details>
+    <ocr>ocr results and extracted text from the image here if image has any text or numbers or symbols etc.</ocr>
+    <detailed_caption>caption for the image here</detailed_caption>
+    <structure_and_format>structure and format of the image here</structure_and_format>
+    <key_insights>key insights, trends, patterns, and information extracted from the image here</key_insights>
+    <analysis>analysis, breakdown, and interpretation of the image here</analysis>
+    <patterns_and_trends>patterns, trends, and information extracted from the image here</patterns_and_trends>
+    <summary>summary of the image content here</summary>
+    <objects_in_image>objects, entities, and elements present in the image here</objects_in_image>
+    <insights>insights, observations, and conclusions drawn from the image here</insights>
+    <domain_of_image>domain or category of the image here like medical, general, science, table, pdf, scenic, data, charts, plots or graphs</domain_of_image>
+    <possible_questions_users_may_ask_about_image_and_answer>
+        <question>possible question 1</question>
+        <answer>answer to possible question 1</answer>
+        <question>possible question 2</question>
+        <answer>answer to possible question 2</answer>
+        <question>possible question 3</question>
+        <answer>answer to possible question 3</answer>
+        <question>possible question 4</question>
+        <answer>answer to possible question 4</answer>
+        <question>possible question 5</question>
+        <answer>answer to possible question 5</answer>
+    </possible_questions_users_may_ask_about_image_and_answer>
+</image_details>
+
+Reply with above format about the image given below.
+Answer in xml format about the image:
+"""
+        return prompt
+
+    def deep_caption_prompt_with_query(self, query):
+        prompt = f"""{self.deep_caption_prompt}
+
+Next answer the user's query given below about the image by looking at the image itself as well as the extracted details from xml.
+Conversation Details and User's query:
+'''{query}'''
+
+First extract all details from the given image using xml format then answer the user's query inside <answer> </answer> tags.
+Answer in xml format about the image followed by the answer to the user's query:
+"""
+        return prompt
+
 
 prompts = CustomPrompts(os.environ.get("LLM_FAMILY", "gpt4"), os.environ.get("ROLE", "science"))
 
