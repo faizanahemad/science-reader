@@ -270,7 +270,11 @@ var ChatManager = {
             success: function (response) {
                 // Reload the conversation
                 ChatManager.listMessages(conversationId).done(function (messages) {
-                    ChatManager.renderMessages(conversationId, messages);
+                    ChatManager.renderMessages(conversationId, messages, true);
+                    var $chatView = $('#chatView');
+                    $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
+                    $('#messageText').focus();
+
                 });
             }
         });
