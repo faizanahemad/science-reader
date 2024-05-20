@@ -361,7 +361,8 @@ textarea.form-control.dynamic-textarea {
     width: 100%;
     height: 100% !important;
     z-index: 9999;
-    background-color: #fff !important;
+    background-color: rgba(0, 0, 0, 1.0) !important;
+        /* Transparent dark background */
     align-items: center;
     justify-content: center;
     /* background: url('loader.gif') 50% 50% no-repeat white; replace 'loader.gif' with your loader image */

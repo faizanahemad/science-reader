@@ -264,6 +264,9 @@ var ChatManager = {
         });
     },
     deleteLastMessage: function (conversationId) {
+        $('#loader').css('background-color', 'rgba(0, 0, 0, 0.1) !important');
+        $('#loader').show(); 
+
         return $.ajax({
             url: '/delete_last_message/' + conversationId,
             type: 'DELETE',
@@ -271,6 +274,7 @@ var ChatManager = {
                 // Reload the conversation
                 ChatManager.listMessages(conversationId).done(function (messages) {
                     ChatManager.renderMessages(conversationId, messages, true);
+                    $('#loader').hide(); 
                     var $chatView = $('#chatView');
                     $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
                     $('#messageText').focus();
