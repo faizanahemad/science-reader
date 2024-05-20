@@ -502,22 +502,31 @@ Compact list of bullet points:
 
     def create_title(self, query, response):
         memory = self.get_field("memory")
-        if (memory["title"] == 'Start the Conversation' and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
+        if ((memory["title"] == 'Start the Conversation' or len(memory["title"].split()) > 15) and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
             llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)
             running_summary = memory["running_summary"][-1:]
             running_summary = "".join(running_summary)
             running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
-            prompt = f"""You are given conversation details between a human and an AI. You will write a title for this conversation. 
+            prompt = f"""You are given conversation details between a human and an AI. You will write a very short title for this conversation. 
 {running_summary}
 The last 2 messages of the conversation are as follows:
-User query: '''{query}'''
+User message: '''{query}'''
 System response: '''{response}'''
 
-Now lets write a title of the conversation.
-Title of the conversation:
+We only write very short and relevant title inside <title> </title> tags. We don't write any other text.
+Now lets write a concise and brief title of the conversation inside <title> </title> tags as <title>Your suggested conversation title</title>.
+Short Title of the conversation inside <title> and </title> tags:
 """
-            prompt = get_first_last_parts(prompt, 5000, 2200)
-            title = get_async_future(llm, prompt, temperature=0.2, stream=False)
+            prompt = get_first_last_parts(prompt, 5000, 5000)
+            def make_title(prompt):
+                text = llm(prompt, temperature=0.2, stream=False)
+                title = re.search(r'<title>(.*?)</title>', text)
+                if title is not None:
+                    title = title.group(1)
+                else:
+                    title = text
+                return title
+            title = get_async_future(make_title, prompt)
         else:
             title = wrap_in_future(self.get_field("memory")["title"])
         return title
