@@ -1128,6 +1128,8 @@ def list_documents_by_conversation(conversation_id):
     conversation = set_keys_on_docs(conversation, keys)
     if conversation:
         docs:List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
+        # filter out None documents
+        docs = [d for d in docs if d is not None]
         docs = set_keys_on_docs(docs, keys)
         docs = [d.get_short_info() for d in docs]
         # sort by doc_id
