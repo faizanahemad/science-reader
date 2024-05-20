@@ -580,7 +580,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
             else:
                 arxiv_url = self.doc_source
                 try:
-                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 800, arxiv_url)
+                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 10, arxiv_url)
                     if paper is None:
                         self.set_doc_data("_paper_details", None, False)
                     else:
