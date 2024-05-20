@@ -821,6 +821,7 @@ function activateChatTab() {
     chatView.scrollTop(chatView.prop('scrollHeight'));
     $('#messageText').focus();
     $("#chat-pdf-content").addClass('d-none');
+    $("#chat-content").removeClass('d-none');
     pdfTabIsActive();
     // toggleSidebar();
     var otherSidebar = $('#doc-keys-sidebar');

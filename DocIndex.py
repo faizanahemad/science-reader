@@ -144,6 +144,7 @@ class DocIndex:
         for f in futures:
             f.result()
         time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+        self.set_api_keys(keys)
         def set_raw_index_small():
             _ = set_title_summary_future.result()
             brief_summary = self.title + "\n" + self.short_summary
