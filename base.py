@@ -1388,8 +1388,10 @@ def get_paper_details_from_semantic_scholar(arxiv_url):
     print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
     arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
     from semanticscholar import SemanticScholar
+    from semanticscholar.Paper import Paper
+
     sch = SemanticScholar()
-    paper = sch.get_paper(f"ARXIV:{arxiv_id}")
+    paper = sch.get_paper(f"ARXIV:{arxiv_id}", fields=list(set(Paper.FIELDS) - {'authors.aliases'}))
     time_logger.info(f"get_paper_details_from_semantic_scholar with {arxiv_url} and got details")
     return paper
 

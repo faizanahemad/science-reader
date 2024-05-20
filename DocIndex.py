@@ -580,8 +580,11 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
             else:
                 arxiv_url = self.doc_source
                 try:
-                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 8, arxiv_url)
-                    self.set_doc_data("_paper_details", None, paper)
+                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 800, arxiv_url)
+                    if paper is None:
+                        self.set_doc_data("_paper_details", None, False)
+                    else:
+                        self.set_doc_data("_paper_details", None, paper)
                 except:
                     logger.error(f"Error in fetching paper details for {self.doc_source}")
                     self.set_doc_data("_paper_details", None, False)
@@ -874,7 +877,8 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
         except Exception as e:
             logger.error(f"Error loading from local storage {folder} with error {e}")
             try:
-                shutil.rmtree(original_folder)
+                pass
+                # shutil.rmtree(original_folder)
             except Exception as e:
                 logger.error(
                     f"Error deleting local storage {folder} with error {e}")
@@ -1077,8 +1081,9 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunk_size = LARGE_CHUNK_LEN // 2
     else:
         chunk_size = LARGE_CHUNK_LEN
-    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
-    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//4, chunk_overlap=chunk_overlap)
+    chunk_overlap = min(chunk_size//2, 128)
+    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
     # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
     # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
     chunks = chunks.result()
