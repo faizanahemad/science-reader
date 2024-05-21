@@ -931,8 +931,12 @@ function scrollToBottom() {
         var chatViewHeight = $chatView.innerHeight();
         var distanceFromBottom = scrollHeight - (scrollTop + chatViewHeight);
 
-        // Show button if more than 90 pixels from the bottom, otherwise hide
-        if (distanceFromBottom > 400) {
+        // Show button if more than 400 pixels from the bottom, otherwise hide and it is chat context
+        chat_area = $("#chat-content")
+        // if chat area is visible
+        is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
+
+        if (distanceFromBottom > 400 && is_chat_visible) {
             $scrollToBottomBtn.show();
         } else {
             $scrollToBottomBtn.hide();
