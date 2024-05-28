@@ -65,7 +65,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ProcessPoolExecutor
 import time
 
-from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss
+from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
 from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
 import secrets
 import string
@@ -1411,7 +1411,7 @@ Write the extracted information concisely below:
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
-        if (len(links)==0 and len(attached_docs) == 1 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
+        if (len(links)==0 and (len(attached_docs) == 1 and not any([isinstance(d, ImageDocIndex) for d in attached_docs])) and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
             yield {"text": text, "status": "answering in progress"}
@@ -1524,7 +1524,8 @@ Write the extracted information concisely below:
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-        main_ans_gen = llm(prompt, system=preamble, temperature=0.3, stream=True)
+        images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
+        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
         t2y = next(main_ans_gen)
         time_dict["first_word_generated"] = time.time() - st
 

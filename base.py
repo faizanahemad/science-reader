@@ -187,7 +187,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
                 if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
                     rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
+    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
         yield "\n Output truncated due to lack of context Length."
 
 def call_chat_model_old(model, text, temperature, system, keys):
@@ -253,11 +253,12 @@ class CallLLm:
                     image_type = img.split(".")[-1]
                     encoded_images.append(f"data:image/{image_type};base64,{base64_image}")
 
-                else:
-                    assert len(enhanced_robust_url_extractor(img))==1
+                elif len(enhanced_robust_url_extractor(img))==1:
                     encoded_images.append(img)
+                elif isinstance(img, str):
+                    encoded_images.append(f"data:image/png;base64,{img}")
             images = encoded_images
-            system = f"{self.light_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned.\n"
+            system = f"{self.light_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n{system if system is not None else ''}"
         if self.model_type == "openai":
             return self.__call_openai_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
         else:
@@ -1278,6 +1279,23 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
 # @typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
     from langchain_community.document_loaders import PyPDFLoader, PyMuPDFLoader
+    from pathlib import Path
+    if not os.path.isfile(url):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+        r = requests.get(url, verify=False, headers=headers)
+
+        if r.status_code != 200:
+            raise ValueError(
+                "Check the url of your file; returned status code %s"
+                % r.status_code
+            )
+
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_pdf = Path(temp_dir.name) / "tmp.pdf"
+        with open(temp_pdf, mode="wb") as f:
+            f.write(r.content)
+        url = str(temp_pdf)
     loader = PyMuPDFLoader(url)
     pages = loader.load_and_split()
     if page_ranges:
@@ -1907,7 +1925,8 @@ def convert_pdf_to_txt(file_url, secret_key):
     # Data for non-file fields
     data = {
         'Timeout': 30,
-        'PageRange': '1-50'
+        'PageRange': '1-50',
+        'StoreFile': 'true'
     }
 
     # File payload
@@ -2091,6 +2110,47 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
+
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
+def read_pdf_simple(link: str) -> str:
+
+    st = time.time()
+    # Reading PDF
+    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
+    convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
+    # convert_api_pdf_future = None
+    pdf_text_future = get_async_future(pdfReader, link)
+
+    result_from = "TIMEOUT_PDF_READER"
+    text = ''
+    while time.time() - st < 75:
+        if pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None:
+            text = pdf_text_future.result()
+            if isinstance(text, str):
+                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
+                                                                                                      '')
+                txt_len = len(txt.strip().split())
+                if txt_len > 500:
+                    result_from = "pdf_reader_tool"
+                    break
+        if convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
+            text = convert_api_pdf_future.result()
+            if isinstance(text, str):
+                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
+                                                                                                      '')
+                txt_len = len(txt.strip().split())
+                if txt_len > 500:
+                    result_from = "convert_api"
+                    break
+        time.sleep(0.5)
+
+    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
+    txt = normalize_whitespace(txt)
+    txt_len = len(txt.strip().split())
+    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
+    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
+    return txt
 
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):

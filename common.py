@@ -38,11 +38,12 @@ import os
 
 import tempfile
 from flask_caching import Cache
-temp_dir = tempfile.gettempdir()
+# temp_dir = tempfile.gettempdir()
+temp_dir = os.path.join(os.getcwd(), "storage", "cache")
+# Create temp dir if not present
+os.makedirs(temp_dir, exist_ok=True)
 import diskcache as dc
 cache = dc.Cache(temp_dir)
-cache_days = 1
-cache_timeout = cache_days * 24 * 60 * 60
 # cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': cache_days * 24 * 60 * 60})
 
 def is_int(s):
@@ -274,11 +275,148 @@ class SetDescription(AddAttribute):
         super().__init__('description', description)
 
 from collections import deque
+from datetime import datetime, timedelta
+import calendar
+cache_days = 1
+cache_timeout = cache_days * 24 * 60 * 60
 class CacheResults:
     def __init__(self, cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args) + str(kwargs), signed=False)),
                                                   dtype_filters=None,
                                                   should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
                                                   enabled=True, expire=cache_timeout):
+        """
+        A caching decorator class that caches the results of function calls using the `diskcache` library or any other cache object that supports similar interface.
+
+        This class supports various expiration formats for cached data, making it suitable for use cases such as
+        stock market data where data validity varies (e.g., daily, weekly, monthly, yearly).
+
+        Attributes:
+        -----------
+        cache : diskcache.Cache
+            The cache object to store the results.
+        key_function : callable
+            A function to generate a unique key for the cache based on the function arguments. Default is a hash of the arguments.
+        dtype_filters : tuple
+            A tuple of data types to filter the function arguments for generating the cache key. If dtype_filters is not None, the cache key will be generated based on the arguments that match the specified data types and key_function will be ignored. Default is None.
+        should_cache_predicate : callable
+            A predicate function to determine if the result should be cached. Default is a function that checks if the result is not None and not an empty collection.
+        enabled : bool
+            A flag to enable or disable caching.
+        expire : int or str
+            The expiration time for the cache. It can be a number (in seconds) or a string representing various time intervals or specific times/dates. Possible inputs include "minutely", "hourly", "daily", "weekly", "fortnightly", "monthly", "quarterly", "yearly", specific times (e.g., "12:00"), days of the week (e.g., "Sunday"), days of the month (e.g., "1st"), and months (e.g., "January"). Default is 86400 seconds (1 day).
+        part_key : str
+            A partial key used for generating the cache key.
+        cache_metrics : collections.deque
+            A deque to store cache metrics for performance monitoring.
+
+        Methods:
+        --------
+        get_agg_cache_metrics():
+            Aggregates and logs cache metrics.
+        calculate_expiry(expire):
+            Calculates the expiry time in seconds based on the current time and the specified interval or specific time/date.
+        __call__(func):
+            Decorator method to wrap the target function for caching its results.
+
+        Parameters:
+        -----------
+        cache : diskcache.Cache
+            The cache object to store the results.
+        key_function : callable, optional
+            A function to generate a unique key for the cache based on the function arguments. Default is a hash of the arguments.
+        dtype_filters : list or tuple, optional
+            A list or tuple of data types to filter the function arguments for generating the cache key. Default is None. If dtype_filters is not None, the cache key will be generated based on the arguments that match the specified data types and key_function will be ignored.
+        should_cache_predicate : callable, optional
+            A predicate function to determine if the result should be cached. Default is a function that checks if the result is not None and not an empty collection.
+        enabled : bool, optional
+            A flag to enable or disable caching. Default is True.
+        expire : int or str, optional
+            The expiration time for the cache. It can be a number (in seconds) or a string representing various time intervals or specific times/dates. Default is 86400 seconds (1 day). Possible inputs include "minutely", "hourly", "daily", "weekly", "fortnightly", "monthly", "quarterly", "yearly", specific times (e.g., "12:00"), days of the week (e.g., "Sunday"), days of the month (e.g., "1st"), and months (e.g., "January").
+
+        Examples:
+        ---------
+        Basic usage with default expiration (1 day):
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
+        def get_data(param1, param2):
+            # Function implementation
+            return data
+        ```
+
+        ```python
+        @CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
+              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
+        def process_link(link_title_context_apikeys, use_large_context=False):
+            # Function implementation
+            return result
+        ```
+
+        Usage with yearly expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="yearly")
+        def get_annual_report(company_name):
+            # Function implementation
+            return annual_report
+        ```
+
+        Usage with daily expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="daily")
+        def get_open_price(company_name):
+            # Function implementation
+            return open_price
+        ```
+
+        Usage with specific time expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="12:00")
+        def get_midday_data(company_name):
+            # Function implementation
+            return midday_data
+        ```
+
+        Usage with day of the week expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="Sunday")
+        def get_weekly_summary(company_name):
+            # Function implementation
+            return weekly_summary
+        ```
+
+        Usage with day of the month expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="13th")
+        def get_monthly_data(company_name):
+            # Function implementation
+            return monthly_data
+        ```
+
+        Usage with month expiration:
+
+        ```python
+        @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True, expire="June")
+        def get_annual_meeting_data(company_name):
+            # Function implementation
+            return annual_meeting_data
+        ```
+
+        Notes:
+        ------
+        - The `expire` parameter can be a number (in seconds) or a string representing various time intervals or specific times/dates.
+        - Supported string formats for `expire` include:
+            - Intervals: "minutely", "hourly", "daily", "weekly", "fortnightly", "monthly", "quarterly", "yearly".
+            - Specific Times: "HH:MM" (e.g., "12:00", "00:00").
+            - Days of the Week: "Sunday", "Monday", etc.
+            - Days of the Month: "1st", "2nd", "3rd", ..., "31st".
+            - Months: "January", "February", ..., "December".
+        - The `calculate_expiry` method handles the parsing and calculation of the expiry time based on the different formats.
+        """
         self.cache = cache
         self.key_function = key_function
         self.dtype_filters = tuple(dtype_filters) if dtype_filters is not None else None
@@ -298,6 +436,59 @@ class CacheResults:
         time_logger.info(f"[CacheResults] [get_agg_cache_metrics] [Metrics] Total items: {total_items}, get_time: {get_time/total_items}, set_time: {set_time/total_items}, module: {self.part_key}")
         return {'get': get_time/total_items , 'set': set_time/total_items, 'module': self.part_key}
 
+    def calculate_expiry(self, expire):
+        now = datetime.now()
+        if isinstance(expire, str):
+            expire = expire.lower().strip()
+        if isinstance(expire, int):
+            return expire
+        elif expire == "minutely":
+            return 60 - now.second
+        elif expire == "hourly":
+            return 3600 - (now.minute * 60 + now.second)
+        elif expire == "daily":
+            return 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire == "weekly":
+            return (7 - now.weekday()) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire == "fortnightly":
+            days_until_next_fortnight = (14 - (now.day % 14)) % 14
+            return days_until_next_fortnight * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire == "monthly":
+            days_in_month = calendar.monthrange(now.year, now.month)[1]
+            return (days_in_month - now.day) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire == "quarterly":
+            current_month = now.month
+            months_until_next_quarter = (3 - (current_month % 3)) % 3
+            days_in_next_months = sum(
+                calendar.monthrange(now.year, now.month + i)[1] for i in range(1, months_until_next_quarter + 1))
+            return days_in_next_months * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire == "yearly":
+            days_in_year = 366 if calendar.isleap(now.year) else 365
+            return (days_in_year - now.timetuple().tm_yday) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif ":" in expire:
+            target_time = datetime.strptime(expire, "%H:%M").time()
+            target_datetime = datetime.combine(now.date(), target_time)
+            if target_datetime < now:
+                target_datetime += timedelta(days=1)
+            return (target_datetime - now).total_seconds()
+        elif expire.lower() in calendar.day_name:
+            target_day = list(calendar.day_name).index(expire.capitalize())
+            days_until_target = (target_day - now.weekday()) % 7
+            return days_until_target * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+        elif expire.lower() in calendar.month_name:
+            target_month = list(calendar.month_name).index(expire.capitalize())
+            months_until_target = (target_month - now.month) % 12
+            target_date = datetime(now.year + (1 if months_until_target == 0 and now.month > target_month else 0),
+                                   target_month, 1)
+            return (target_date - now).total_seconds()
+        elif expire[:-2].isdigit() and expire[-2:].lower() in ["st", "nd", "rd", "th"]:
+            target_day = int(expire[:-2])
+            target_date = datetime(now.year, now.month, target_day)
+            if target_date < now:
+                target_date += timedelta(days=calendar.monthrange(now.year, now.month + 1)[1])
+            return (target_date - now).total_seconds()
+        else:
+            raise ValueError(f"Unsupported expire format: {expire}")
 
     def __call__(self, func):
         @wraps(func)
@@ -332,7 +523,8 @@ class CacheResults:
                 if result is not None and not isinstance(result, (Exception, AssertionError, ValueError, RetryError)) and not (
                         isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed:
                     st_set = time.time()
-                    cache.set(key, result, expire=self.expire)
+                    expire_seconds = self.calculate_expiry(self.expire)
+                    cache.set(key, result, expire=expire_seconds)
                     et_set = time.time() - st_set
                     cache_time_dict['set'] = et_set
                 self.get_agg_cache_metrics()
@@ -826,8 +1018,6 @@ class FixedSizeFIFODict(OrderedDict):
 from inspect import signature
 from functools import wraps
 import mmh3
-import diskcache as dc
-cache_timeout = 7 * 24 * 60 * 60
 def typed_memoize(cache, *types):
     def decorator(f):
         @wraps(f)
@@ -861,11 +1051,6 @@ def typed_memoize(cache, *types):
 
 import requests
 os_temp_dir = tempfile.gettempdir()
-temp_dir = os.path.join(os.getcwd(), "storage", "cache")
-# Create temp dir if not present
-os.makedirs(temp_dir, exist_ok=True)
-cache = dc.Cache(temp_dir)
-cache_timeout = 7 * 24 * 60 * 60
 
 def create_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")

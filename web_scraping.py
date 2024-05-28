@@ -501,7 +501,7 @@ def remove_script_tags_from_html_fast(html):
 def remove_script_tags_from_html_ulta_fast(html):
     # This regex looks for <script> tags and their content and removes them
     for regex in regex_compiled_array:
-        html = regex.sub('', html)
+        html = regex.sub(' ', html)
     return html
 
 # Pattern to match the specified tags and their content, including those without closing tags

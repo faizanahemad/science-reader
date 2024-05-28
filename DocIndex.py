@@ -988,10 +988,13 @@ class ImageDocIndex(DocIndex):
     def streaming_get_short_answer(self, query, mode=defaultdict(lambda: False), save_answer=False):
         doc_text = self.get_doc_data("static_data", "doc_text")
         text = self.brief_summary + doc_text
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name="gpt-4o")
-        prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
-        answer = llm(prompt, temperature=0.7, stream=False)
-        yield answer
+        if mode["provide_detailed_answers"] >= 3:
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name="gpt-4o")
+            prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
+            answer = llm(prompt, images=[self.doc_source], temperature=0.7, stream=False)
+            yield answer
+        else:
+            yield text
 
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
