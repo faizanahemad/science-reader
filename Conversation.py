@@ -613,10 +613,13 @@ Short Title of the conversation inside <title> and </title> tags:
                     ".html")):
                     attached_docs_readable.append(d)
                     attached_docs_readable_names.append(n)
-                if d.is_local and (d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
+                elif d.is_local and (d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
                     ".tsv") or d.doc_source.endswith(".xlsx") or d.doc_source.endswith(".xls") or d.doc_source.endswith(".jsonl") or d.doc_source.endswith(".jsonlines") or d.doc_source.endswith(".json")):
                     attached_docs_data.append(d)
                     attached_docs_data_names.append(n)
+                else:
+                    attached_docs_readable.append(d)
+                    attached_docs_readable_names.append(n)
             attached_docs = attached_docs_readable + attached_docs_data
             doc_infos = [d.title for d in attached_docs_data + attached_docs_readable]
             doc_infos_data = [d.title for d in attached_docs_data]
