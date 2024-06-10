@@ -307,7 +307,7 @@ class CallLLm:
             model_name = "gpt-3.5-turbo"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
             model_name = "gpt-4o"
-        if len(images) > 0:
+        if len(images) > 0 and model_name != "gpt-4-turbo":
             model_name = "gpt-4o"
         if self.model_name == "gpt-4o":
             model_name = "gpt-4o"
