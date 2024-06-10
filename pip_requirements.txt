@@ -63,7 +63,9 @@ langchain-core==0.2.0
 langchain-openai==0.1.7
 langchain-text-splitters==0.2.0
 langchainplus-sdk==0.0.20
-langchainplus-sdk==0.0.20
+langgraph==0.0.54
+langchainhub==0.1.15
+langchain_experimental==0.0.59
 layoutparser==0.3.4
 linkify-it-py==1.0.3
 llama-index==0.10.37
@@ -135,7 +137,7 @@ rich==13.0.1
 safetensors==0.3.1
 scikit-surprise==1.1.2
 selenium==4.10.0
-semanticscholar==0.4.1
+semanticscholar==0.8.1
 sentence-transformers==2.2.2
 sgmllib3k==1.0.0
 spacy==3.6.0

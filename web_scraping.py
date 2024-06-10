@@ -599,7 +599,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
     soup_html_parser_result = ''
     zenrows_html = get_async_future(send_request_zenrows_html, url, apikey, readability=False)
     browse_to_page_playwright_result = get_async_future(browse_to_page_playwright, url, timeout=10, get_html=True)
-    brightdata_scrape = get_async_future(fetch_content_brightdata, url, brightdata_proxy)
+    brightdata_scrape = get_async_future(fetch_content_brightdata_html, url, brightdata_proxy)
     st = time.time()
     while not zenrows_html.done() or not browse_to_page_playwright_result.done() or not brightdata_scrape.done():
         time.sleep(0.5)

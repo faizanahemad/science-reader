@@ -975,6 +975,17 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
 class ImmediateDocIndex(DocIndex):
     pass
 
+
+class StrongDocIndex(DocIndex):
+    # TODO: QnA per chunk index -> QnA to actual chunk index
+    # TODO: ToC per chunk index -> ToC to actual chunk index
+    # TODO: Running summary per chunk -> Summary Index to actual content evidence
+    # TODO: multi chunk size index
+    # TODO: verbatim evidence extraction chain
+    # TODO: task break down -> extract evidence per task -> combine -> answer -> verify -> repeat chain with langgraph.
+    pass
+
+
 class ImageDocIndex(DocIndex):
     def semantic_search_document_small(self, query, token_limit=4096):
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")

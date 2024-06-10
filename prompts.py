@@ -77,10 +77,14 @@ Rephrased and contextualised human's last message:
 """,
 
             persist_current_turn_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-Write a new summary of the conversation. Capture the salient, important and noteworthy aspects and details from the user query and system response. Your summary should be detailed, comprehensive and in-depth.
+You will write a new summary for this conversation which takes the last 2 recent messages into account. 
+You will also write a very short title for this conversation.
+
+Capture the salient, important and noteworthy aspects and details from the user query and system response in your summary. 
+Your summary should be detailed, comprehensive and in-depth.
 Capture all important details in your conversation summary including factual details, names and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references while adding more details from current user query and system response.
-Write down any special rules or instructions that the AI assistant should follow in the conversation as well.
+Write down any special rules or instructions that the AI assistant should follow in the conversation as well in the summary.
 
 The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
@@ -88,21 +92,42 @@ The previous summary and salient points of the conversation is as follows:
 Previous messages of the conversation are as follows:
 '''{previous_messages_text}'''
 
-The last 2 messages of the conversation from which we will derive the summary and salient points are as follows:
+The last 2 recent messages of the conversation from which we will derive the summary and salient points are as follows:
+
+
 User query: '''{query}'''
+
 System response: '''{response}'''
 
-Write a summary of the conversation using the previous summary and the last 2 messages. Please summarize the conversation very informatively, in detail and depth.
-Conversation Summary:
+
+Your response will be in below xml style format:
+<summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
+<title> {{Very short title for the conversation}} </title>
+
+We only write very short and relevant title inside <title> </title> tags.
+Write the summary inside <summary> </summary> tags.
+
+Write a title and summary of the conversation using the previous summary, previous messages and the last 2 recent messages. Please summarize the conversation very informatively, in detail and depth.
+
+Conversation Summary and title in xml style format:
 """,
 
 
             chat_slow_reply_prompt=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
 {self.date_string}
-{{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}{{summary_text}}{{previous_messages}}
+{{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}
+{{summary_text}}
+{{previous_messages}}
 {{permanent_instructions}}
+
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
-user's most recent message:\n'''{{query}}'''
+user's most recent message:
+<most_reccent_user_message>
+'''
+{{query}}
+'''
+</most_reccent_user_message>
+
 Response to the user's query:
 """,
             document_search_prompt="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
@@ -251,10 +276,6 @@ Cover the below points while answering and also add other necessary points as ne
         prompts = self.prompts
         return prompts["persist_current_turn_prompt"]
 
-    @property
-    def long_persist_current_turn_prompt(self):
-        prompts = self.prompts
-        return prompts["long_persist_current_turn_prompt"]
 
     @property
     def chat_fast_reply_prompt(self):
@@ -302,6 +323,12 @@ Cover the below points while answering and also add other necessary points as ne
 - Do not delete any files.
 - Do not use any other libraries other than the ones mentioned above.
 </executable_code_and_diagramming_rules>
+
+If any pandas data files are given in input folder then their corresponding preview content is given below.
+```plaintext
+{input_files_preview}
+```
+
 """ + f"\n- {self.date_string}\n"
         return rules
 

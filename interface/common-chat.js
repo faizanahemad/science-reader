@@ -450,14 +450,14 @@ var ChatManager = {
         // Handle filedrop
         var fileInput = $('#chat-file-upload');
         let dropArea = doc_modal.find('#drop-area').off();
-        dropArea.on('dragover', function (e) {
+        dropArea.off('dragover').on('dragover', function (e) {
             e.preventDefault();  // Prevent the default dragover behavior
             $(this).css('background-color', '#eee');  // Change the color of the drop area
         });
-        dropArea.on('dragleave', function (e) {
+        dropArea.off('dragleave').on('dragleave', function (e) {
             $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
         });
-        dropArea.on('drop', function (e) {
+        dropArea.off('drop').on('drop', function (e) {
             e.preventDefault();  // Prevent the default drop behavior
             $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
 
@@ -494,16 +494,16 @@ var ChatManager = {
             return validTypes.includes(filetype);
         } 
 
-        $(document).on('dragover', function (event) {
+        $(document).off('dragover').on('dragover', function (event) {
             event.preventDefault(); // Prevent default behavior (Prevent file from being opened)  
             $(this).css('background-color', '#eee');  // Change the color of the drop area
         }); 
 
-        $(document).on('dragleave', function (e) {
+        $(document).off('dragleave').on('dragleave', function (e) {
             $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
         });
 
-        $(document).on('drop', function (event) {
+        $(document).off('drop').on('drop', function (event) {
             event.preventDefault();
             var files = event.originalEvent.dataTransfer.files;
             for (var i = 0; i < files.length; i++) {

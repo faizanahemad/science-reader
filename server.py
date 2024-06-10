@@ -17,7 +17,7 @@ import requests
 from io import BytesIO
 from collections import defaultdict
 from Conversation import Conversation
-from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex
+from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
 import os
 import time
 import multiprocessing
@@ -661,7 +661,7 @@ def set_keys_on_docs(docs, keys):
         for d in docs:
             d.set_api_keys(keys)
     else:
-        assert isinstance(docs, (DocIndex, ImmediateDocIndex, Conversation))
+        assert isinstance(docs, (DocIndex, ImmediateDocIndex, ImageDocIndex, Conversation))
         docs.set_api_keys(keys)
     return docs
     
@@ -1084,9 +1084,7 @@ def upload_doc_to_conversation(conversation_id):
         except Exception as e:
             traceback.print_exc()
             return jsonify({'error': str(e)}), 400
-    # If it is not a pdf file then assume we have url
-    conversation: Conversation = conversation_cache[conversation_id]
-    conversation = set_keys_on_docs(conversation, keys)
+
     pdf_url = request.json.get('pdf_url')
     pdf_url = convert_to_pdf_link_if_needed(pdf_url)
     if pdf_url:
@@ -1233,6 +1231,9 @@ def list_conversation_by_user(domain:str):
         else:
             new_conversation = create_conversation_simple(session, domain)
         sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
+    if len(sorted_data_reverse) == 0:
+        new_conversation = create_conversation_simple(session, domain)
+        sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
     sorted_data_reverse = [sd[0] for sd in sorted_data_reverse]
     return jsonify(sorted_data_reverse)
 
@@ -1255,6 +1256,7 @@ def create_conversation_simple(session, domain: str):
                                 conversation_id=conversation_id, domain=domain)
     conversation = set_keys_on_docs(conversation, keys)
     addConversationToUser(email, conversation.conversation_id)
+    conversation.save_local()
     return conversation
 
 @app.route('/shared_chat/<conversation_id>', methods=['GET'])
@@ -1395,7 +1397,7 @@ def make_conversation_stateful(conversation_id):
 
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
-@limiter.limit("25 per minute")
+@limiter.limit("5000 per minute")
 @login_required
 def delete_conversation(conversation_id):
     email, name, loggedin = check_login(session)
@@ -1405,7 +1407,6 @@ def delete_conversation(conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
-        conversation = set_keys_on_docs(conversation, keys)
         del conversation_cache[conversation_id]
         conversation.delete_conversation()
         deleteConversationForUser(email, conversation_id)

@@ -1,5 +1,7 @@
 import os.path
 from datetime import datetime
+from uuid import uuid4
+
 import pandas as pd
 from copy import deepcopy, copy
 try:
@@ -251,7 +253,10 @@ class CallLLm:
                     base64_image = encode_image(img)
                     # get image type from extension of img
                     image_type = img.split(".")[-1]
-                    encoded_images.append(f"data:image/{image_type};base64,{base64_image}")
+                    if self.model_name in [ "google/gemini-pro-1.5"]:
+                        encoded_images.append(f"data:image/png;base64,{base64_image}")
+                    else:
+                        encoded_images.append(f"data:image/{image_type};base64,{base64_image}")
 
                 elif len(enhanced_robust_url_extractor(img))==1:
                     encoded_images.append(img)
@@ -1305,6 +1310,279 @@ def freePDFReader(url, page_ranges=None):
         " ".join([pages[i].page_content for i in range(start, end+1)])
     return " ".join([p.page_content for p in pages])
 
+
+class PDFtoMarkdown:
+    def __init__(self, keys, file_path, **kwargs):
+        self.file_path = file_path
+        from pathlib import Path
+        self.file_path = file_path
+        self.keys = keys
+
+        if "~" in self.file_path:
+            self.file_path = os.path.expanduser(self.file_path)
+
+        # If the file is a web path, download it to a temporary file, and use that
+        if not os.path.isfile(self.file_path) and self._is_valid_url(self.file_path):
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+            r = requests.get(self.file_path, verify=False, headers=headers)
+
+            if r.status_code != 200:
+                raise ValueError(
+                    "Check the url of your file; returned status code %s"
+                    % r.status_code
+                )
+
+            self.temp_dir = tempfile.TemporaryDirectory()
+            temp_pdf = Path(self.temp_dir.name) / "tmp.pdf"
+            with open(temp_pdf, mode="wb") as f:
+                f.write(r.content)
+            self.file_path = str(temp_pdf)
+
+
+
+        self.page_ranges = None
+        if "page_ranges" in kwargs and kwargs["page_ranges"] is not None:
+            self.page_ranges = []
+            page_ranges = kwargs["page_ranges"]
+            # page_ranges = page_ranges.split(",") # We need to split on comma and semi-colon both so use regex
+            page_ranges = re.split(r"[,;]", page_ranges)
+
+            for pr in page_ranges:
+                pr = pr.split("-")
+                pr = [int(i.strip()) for i in pr]
+                if len(pr) == 2:
+                    # self.page_ranges = (int(page_ranges[0]), int(page_ranges[1]))
+                    self.page_ranges.extend(list((range(int(pr[0]), int(pr[1]) + 1))))
+                else:
+                    self.page_ranges.append(int(pr[0]))
+
+
+
+    def _is_valid_url(self, url):
+        import re
+        regex = re.compile(
+            r'^(?:http|ftp)s?://'  # http:// or https://
+            # domain...
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}|'
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE
+        )
+        return re.match(regex, url)
+
+    def _is_valid_pdf(self, file_path):
+        return file_path.endswith(".pdf")
+
+    def _is_valid_web_pdf(self, url):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+        r = requests.get(url, verify=False, headers=headers)
+        return r.headers.get("content-type") == "application/pdf"
+
+
+    def ocr_efficient_prompt(self, text):
+        system = f"""
+You are given a pdf file text and the corresponding image of the pdf page. Please look at the image given carefully and convert the text in the image to markdown. 
+You can use the text given in the pdf to help you with the text in the image. 
+Remember to give all details, everything in the image and the pdf file text by reading the image carefully and translate to markdown format. Use markdown formatting to make the text more readable.
+
+Guidelines:
+- Give all details by reading the image carefully and translate to markdown format. Use markdown formatting to make the text more readable. 
+- Output tables in markdown as well.
+- If there are any diagrams / images / photos within the page then output their detailed description, any data, numbers the images say, their usage within the page and any insights the images convey in place of the image in your output.
+- For tables, check if all the columns, headers, headings, text values are correct. Check tables, rows, table headers and their formatting as well. Format tables correctly. 
+- In tables take care to create empty cells as well so that columns are correctly aligned with the headers.
+- After converting the page fully to markdown you will finally you will write a summary of the page.
+- Certain images may have graphs, charts, data plots etc. You need to describe the important data, numbers, and mainly the insights the images convey in place of the image in your output.
+- The page text and page image can be noisy and may not be accurate. Please use your best judgement to output correct markdown.
+
+
+Your output should follow the below xml like format.
+<pdf_page_content_in_markdown> {{Content of the page using page image and page text following above guidelines.}} </pdf_page_content_in_markdown>
+<pdf_page_summary> {{Summary of the page}} </pdf_page_summary>
+""".strip()
+        prompt = f"""{system}
+You are given a pdf file text and the corresponding image of the pdf page. Please look at the image given carefully and convert the text in the image to markdown.
+Page text (pdf file text) from the pdf: 
+'''
+{text}
+'''
+
+Your output should follow the below xml like format.
+<pdf_page_content_in_markdown> {{Content of the page using page image and page text with every single detail following above guidelines.}} </pdf_page_content_in_markdown>
+<pdf_page_summary> {{Summary of the page}} </pdf_page_summary>
+
+Write your markdown content and page summary below in the above xml like format:
+"""
+        return system, prompt
+
+
+    def ocr_checker_corrector_prompt(self, page_text, past_content_1, past_summary_1, past_content_2, past_summary_2):
+        system = f"""
+You were given a pdf file text and the corresponding image of the pdf page. You were asked to convert the text in the image to markdown. 
+We performed two iterations and got two set of results. You need to check the results and correct them if needed. And then give a final corrected markdown output result.
+The page text and page image can be noisy and may not be accurate. So you need to correct the output from previous iterations if needed.
+Check if all the columns, headers, headings, text values are correct. Check tables, rows, table headers and their formatting as well.
+In tables take care to create empty cells as well so that columns are correctly aligned with the headers.
+The guidelines given for pdf text and image to markdown conversion is listed below.
+
+'''
+Guidelines:
+- Give all details by reading the image carefully and translate to markdown format. Use markdown formatting to make the text more readable. 
+- Output tables in markdown as well.
+- If there are any diagrams / images / photos within the page then output their detailed description, any data, numbers the images say, their usage within the page and any insights the images convey in place of the image in your output.
+- For tables, check if all the columns, headers, headings, text values are correct. Check tables, rows, table headers and their formatting as well. Format tables correctly. 
+- In tables take care to create empty cells as well so that columns are correctly aligned with the headers.
+- After converting the page fully to markdown you will finally you will write a summary of the page.
+- Certain images may have graphs, charts, data plots etc. You need to describe the important data, numbers, and mainly the insights the images convey in place of the image in your output.
+- The page text and page image can be noisy and may not be accurate. Please use your best judgement to output correct markdown.
+'''
+
+Your output should follow the below xml like format.
+<corrections>
+    <correction> {{Correction of the output from previous iterations of the page}} </correction>
+    <correction> {{Another Correction of the output from previous iterations of the page}} </correction>
+    <correction> {{Correction of the page}} </correction>
+</corrections>
+<pdf_page_content_in_markdown> {{Content of the page using page image and page text with every single detail following above guidelines.}} </pdf_page_content_in_markdown>
+<pdf_page_summary> {{Detailed summary and insights  of the page combining and correcting the previous summaries and taking the page image and text into account}} </pdf_page_summary>
+
+Remember to give all details, everything in the image and the pdf file text by reading the image carefully and translate to markdown format. Use markdown formatting to make the text more readable.
+Remember the <corrections> tag can be empty if no corrections need to be made.
+""".strip()
+
+        prompt = f"""{system}
+        
+Page Text (pdf file text) from the pdf:
+'''
+{page_text}
+'''
+
+Past Iteration 1 Content:
+'''
+{past_content_1}
+'''
+
+Past Iteration 1 Summary:
+'''
+{past_summary_1}
+'''
+
+Past Iteration 2 Content:
+'''
+{past_content_2}
+'''
+
+Past Iteration 2 Summary:
+'''
+{past_summary_2}
+'''
+
+Your output should follow the below xml like format.
+<corrections>
+    <correction> {{Correction of the output from previous iterations of the page}} </correction>
+    <correction> {{Another Correction of the output from previous iterations of the page}} </correction>
+    <correction> {{Correction of the page}} </correction>
+</corrections>
+<pdf_page_content_in_markdown> {{Content of the page using page image and page text with every single detail following above guidelines.}} </pdf_page_content_in_markdown>
+<pdf_page_summary> {{Detailed summary and insights  of the page combining and correcting the previous summaries and taking the page image and text into account}} </pdf_page_summary>
+
+Remember to give all details, everything in the image and the pdf file text by reading the image carefully and correcting any mistakes of past iterations.
+Write your corrected markdown content (using the image and pdf file text) and page summary below in the above xml like format:
+"""
+        return system, prompt
+
+    def get_one_page(self, doc, page_number):
+        page = doc.load_page(page_number)
+        text = page.get_text()
+        pix = page.get_pixmap(dpi=400)
+        return text, pix
+
+    def process_one_page(self, doc, page_number) -> Tuple[str, str]:
+        page_text, page_image = self.get_one_page(doc, page_number)
+        # Make call to flash
+        # Make call to flash and haiku with double outputs for correction
+        temp_dir = tempfile.TemporaryDirectory()
+        from pathlib import Path
+        from PIL import Image
+        uuid = str(uuid4())
+        temp_path = Path(temp_dir.name) / f"tmp-{uuid}.png"
+        image_file_path = str(temp_path)
+
+        page_image.save(image_file_path)
+        # Get file size of image_file_path
+        import os
+        mb_size_1 = os.path.getsize(image_file_path) / 1_000
+
+        im = Image.open(image_file_path)
+        im = im.convert('RGB')
+        image_file_path = str(Path(temp_dir.name) / f"tmp-{uuid}.jpg")
+        im.save(image_file_path, quality=90)
+        mb_size_2 = os.path.getsize(image_file_path) / 1_000
+        print(mb_size_1, mb_size_2)
+        llm1 = CallLLm(self.keys, model_name="google/gemini-pro-1.5")
+        llm2 = CallLLm(self.keys, model_name="gpt-4o")
+        system, prompt = self.ocr_efficient_prompt(page_text)
+        llm1_res = get_async_future(llm1, prompt, images=[image_file_path], system=system)
+        llm2_res = get_async_future(llm2, prompt, images=[image_file_path], system=system)
+        llm1_res = llm1_res.result()
+        llm2_res = llm2_res.result()
+
+        page_content_1 = llm1_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
+        page_summary_1 = llm1_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
+        page_content_2 = llm2_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
+        page_summary_2 = llm2_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
+
+        system, prompt = self.ocr_checker_corrector_prompt(page_text, page_content_1, page_summary_1, page_content_2, page_summary_2)
+        final_res = llm2(prompt, images=[image_file_path], system=system)
+        final_content = final_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
+        final_summary = final_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
+
+        return final_summary, final_content
+
+
+    def convert_to_md(self) -> Tuple[List[str], List[str], str, str]:
+        import fitz
+        from fitz.fitz import Document
+        doc: Document = fitz.open(self.file_path)
+        num_pages = len(doc)
+        full_md_text = ""
+        if self.page_ranges:
+            pages = self.page_ranges
+        else:
+            pages = range(num_pages)
+        # for page_number in pages:
+        #     md_text = self.process_one_page(doc, page_number)
+        #     full_md_text += ("\n<page_break>\n" + md_text)
+
+        # convert above code to parallel version using threadpool. Also add exception handling and one time retry which retries after sleep.
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # results = list(executor.map(self.process_one_page, [doc]*len(pages), pages))
+            # use executor.submit instead of executor.map to get exceptions
+            futures = [executor.submit(self.process_one_page, doc, page_number) for page_number in pages]
+            # Check for exception and retry
+            results = []
+            for page_number, future in zip(pages, futures):
+                try:
+                    r = future.result()
+                    results.append(r)
+                except Exception as e:
+                    # Retry after sleep
+                    time.sleep(1)
+                    r = self.process_one_page(doc, page_number)
+                    results.append(r)
+        summaries, texts = zip(*results)
+        full_md_text = "\n<page_break>\n".join(texts)
+        full_md_summary = "\n<page_break>\n".join(summaries)
+        return summaries, texts, full_md_text, full_md_summary
+
+
+    def __call__(self, *args, **kwargs):
+        return self.convert_to_md()
+
+
 class CustomPDFLoader(MathpixPDFLoader):
     def __init__(self, file_path, processed_file_format: str = "mmd",
         max_wait_time_seconds: int = 500,
@@ -2348,7 +2626,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
     if not provide_raw_text or provide_detailed_answers >= 2:
-        futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 1 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
+        futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 2 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
         answers = [future.result() for future in futures]
         logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
         answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]

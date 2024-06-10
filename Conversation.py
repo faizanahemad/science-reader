@@ -1,6 +1,7 @@
 import shutil
 import sys
 import random
+import uuid
 from functools import partial
 import glob
 from filelock import FileLock, Timeout
@@ -500,36 +501,6 @@ Compact list of bullet points:
         time_logger.info(f"Time taken to retrieve prior context = {time_spend} seconds")
         return results
 
-    def create_title(self, query, response):
-        memory = self.get_field("memory")
-        if ((memory["title"] == 'Start the Conversation' or len(memory["title"].split()) > 15) and len(memory["running_summary"]) >= 0): # or (len(memory["running_summary"]) >= 5 and len(memory["running_summary"]) % 10 == 1)
-            llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)
-            running_summary = memory["running_summary"][-1:]
-            running_summary = "".join(running_summary)
-            running_summary = f"The summary of the conversation is as follows:\n'''{running_summary}'''" if len(running_summary) > 0 else ''
-            prompt = f"""You are given conversation details between a human and an AI. You will write a very short title for this conversation. 
-{running_summary}
-The last 2 messages of the conversation are as follows:
-User message: '''{query}'''
-System response: '''{response}'''
-
-We only write very short and relevant title inside <title> </title> tags. We don't write any other text.
-Now lets write a concise and brief title of the conversation inside <title> </title> tags as <title>Your suggested conversation title</title>.
-Short Title of the conversation inside <title> and </title> tags:
-"""
-            prompt = get_first_last_parts(prompt, 5000, 5000)
-            def make_title(prompt):
-                text = llm(prompt, temperature=0.2, stream=False)
-                title = re.search(r'<title>(.*?)</title>', text)
-                if title is not None:
-                    title = title.group(1)
-                else:
-                    title = text
-                return title
-            title = get_async_future(make_title, prompt)
-        else:
-            title = wrap_in_future(self.get_field("memory")["title"])
-        return title
 
     def get_message_ids(self, query, response):
         user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False))
@@ -553,22 +524,30 @@ Short Title of the conversation inside <title> and </title> tags:
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
         llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 18000, 10_000)
-        summary = get_async_future(llm, prompt, temperature=0.2, stream=False)
+        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+You will write a new summary for this conversation which takes the last 2 recent messages into account. 
+You will also write a very short title for this conversation.
+
+Your response will be in below xml style format:
+<summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
+<title> {{Very short title for the conversation}} </title>
+"""
+        summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
         memory = memory.result()
-        title = self.create_title(query, extract_user_answer(response))
+        if memory is None:
+            memory = dict(running_summary=[])
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary = summary.result()
-        memory["running_summary"].append(summary)
-        try:
-            title = title.result()
-            memory["title"] = title
-        except Exception as e:
-            pass
-        mem_set = get_async_future(self.set_field, "memory", memory)
-        self.running_summary = summary
+        actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
+        title = summary.split('</title>')[0].split('<title>')[-1]
+        memory["running_summary"].append(actual_summary)
+        memory["title"] = title
+
+        self.running_summary = actual_summary
+        self.set_field("memory", memory)
         # self.set_field("memory", memory)
+        self.save_local()
         msg_set.result()
-        mem_set.result()
         memory_pad.result()
 
     def delete_message(self, message_id, index):
@@ -648,22 +627,32 @@ Short Title of the conversation inside <title> and </title> tags:
                 break
         previous_messages = "\n\n".join(reversed(prev_msg_text))
         running_summary = self.running_summary
-        older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
-        if len(memory["running_summary"]) > 4:
+
+        if memory is not None and len(memory["running_summary"]) > 4:
             summary_nodes = memory["running_summary"][-4:-3]
         else:
             summary_nodes = []
 
-        if len(running_summary) > 0 and running_summary[0] != older_extensive_summary:
-            running_summary = [older_extensive_summary] + running_summary
-        summary_nodes = summary_nodes + running_summary
+        summary_nodes = summary_nodes + [running_summary]
         summary_text = []
         for s in reversed(summary_nodes):
             summary_text.append(s)
             if get_gpt3_word_count("\n\n".join(summary_text)) > 4_000:
                 break
         summary_nodes = "\n".join(reversed(summary_text))
-        prompt = f"""You are information extraction agent who will extract information for answering a user query given the previous conversation details. 
+        system = f"""You are given conversation details between a user and assistant. 
+You will perform useful information retrieval only based on user query.
+Extract revelant information from past messages and summary which are relevant to the current user query. 
+For code, tables and other information which involves formatting extract them verbatim and just copy paste from the previous conversation messages.
+Only extract relevant information, instruction, code and facts which are relevant to the current user query. 
+Don't provide answer to the user query, just remember to extract information from the conversation.
+"""
+        prompt = f"""You are given conversation details between a user and assistant. 
+You will perform useful information retrieval only based on user query.
+Extract revelant information from past messages and summary which are relevant to the current user query. 
+For code and other information which involves formatting extract them verbatim and just copy paste from the previous conversation messages.
+Only extract relevant information, instruction, code and facts which are relevant to the current user query. Don't answer the user query, only extract information from previous messages.
+
 The current user query is as follows:
 '''{query}'''
 
@@ -675,11 +664,10 @@ The summary of the conversation is as follows:
 
 Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
 Extract and copy relevant information verbatim from the above conversation messages and summary and paste it below.
-Write the extracted information concisely below:
+Write the extracted information briefly and concisely below:
 """
-        # final_information = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(prompt, temperature=0.2, stream=False)
         final_information = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False,
-                                use_16k=False)(prompt, temperature=0.2, stream=False)
+                                use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:2000])
         return final_information
@@ -748,8 +736,9 @@ Write the extracted information concisely below:
             final_preamble = final_preamble.strip()
         return final_preamble
 
-    def agent_level_one_websearch_helper(self, messageText, checkboxes=dict()):
+    def agent_level_one_websearch_helper(self, messageText, queries=list(), checkboxes=dict()):
         query = dict()
+        query["search"] = queries
         query["messageText"] = messageText
         query["checkboxes"] = {"provide_detailed_answers": "1",
                                "main_model": "anthropic/claude-3-sonnet:beta",
@@ -759,7 +748,9 @@ Write the extracted information concisely below:
                                "googleScholar": False,
                                "use_memory_pad": False,
                                "tell_me_more": False,
-                               "enable_previous_messages": "2"}
+                               "enable_previous_messages": "-1"}
+        query['links'] = []
+        query["additional_docs_to_read"] = []
         query["checkboxes"].update(checkboxes)
         answer = ''
         for r in self.reply(query):
@@ -770,8 +761,29 @@ Write the extracted information concisely below:
         prefix = str(mmh3.hash(self.conversation_id + query["messageText"], signed=False))
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
+        # if input files are csv, tsv, xlsx, parquet then we need to read them and provide the data head to give idea of columns and content to the LLM. using zip(attached_docs_data, attached_docs_data_names)
+        data_explore = ""
+        def get_data_head(doc_source):
+            if doc_source.endswith(".csv"):
+                df = pd.read_csv(doc_source)
+            elif doc_source.endswith(".tsv"):
+                df = pd.read_csv(doc_source, sep="\t")
+            elif doc_source.endswith(".xlsx"):
+                df = pd.read_excel(doc_source)
+            elif doc_source.endswith(".parquet"):
+                df = pd.read_parquet(doc_source)
+            return df.dtypes.to_string(), df.head(5).to_string()
+        for d, n in zip(attached_docs_data, attached_docs_data_names):
+            if d.doc_source.endswith(".csv") or d.doc_source.endswith(".tsv") or d.doc_source.endswith(".xlsx") or d.doc_source.endswith(".parquet"):
+                data_explore += f"Data from 'name:{n}, file: {d.doc_source}':\n"
+                dt = get_data_head(d.doc_source)
+                data_explore += "-" * 50 + "\n"
+                data_explore += f"{dt[0]}\n{dt[1]}\n\n"
+                data_explore += "-" * 50 + "\n"
+
         coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path,
                                                     output_directory=self.documents_path,
+                                                    input_files_preview=data_explore,
                                                     input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
                                                                      zip(attached_docs_data, attached_docs_data_names)]),
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
@@ -1436,10 +1448,12 @@ Write the extracted information concisely below:
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         summary_text = summary_text_init
-        while time.time() - wt_prior_ctx < 15 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 45 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 summary_text = prior_chat_summary + "\n" + summary_text
+                break
+            if prior_chat_summary_future.exception() is not None:
                 break
             time.sleep(0.5)
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
@@ -1736,6 +1750,55 @@ Write the extracted information concisely below:
 
     def copy(self):
         return self.__copy__()
+
+
+class TemporaryConversation(Conversation):
+    def __init__(self) -> None:
+        self.conversation_id = str(uuid.uuid4())
+        self.user_id = str(uuid.uuid4())
+        memory = {  "title": 'Start the Conversation',
+                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "running_summary":[], # List of strings, each string is a running summary of chat till now.
+                }
+        messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
+        self.set_field("memory", memory)
+        self.set_field("messages", messages)
+        self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
+
+    def add_uploaded_document(self, pdf_url):
+        pass
+
+    def documents_path(self):
+        pass
+
+    def save_local(self):
+        pass
+
+    def get_field(self, top_key):
+        if getattr(self, top_key, None) is not None:
+            return getattr(self, top_key, None)
+        else:
+            return None
+
+    def set_field(self, top_key, value, overwrite=False):
+        tk = self.get_field(top_key)
+        assert (type(tk) == type(value) or tk is None) or (
+                    isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
+        if tk is not None:
+            if isinstance(tk, dict) and not overwrite:
+                tk.update(value)
+            elif isinstance(tk, list) and not overwrite:
+                tk.extend(value)
+            elif isinstance(tk, str) and not overwrite:
+                tk = tk + value
+            elif isinstance(tk, tuple) and not overwrite:
+                tk = tk + value
+            else:
+                tk = value
+            setattr(self, top_key, tk)
+        else:
+            setattr(self, top_key, value)
+
 
 
 def format_llm_inputs(web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer):

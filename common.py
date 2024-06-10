@@ -279,8 +279,30 @@ from datetime import datetime, timedelta
 import calendar
 cache_days = 1
 cache_timeout = cache_days * 24 * 60 * 60
+
+class CacheKeyFn:
+    @staticmethod
+    def get_key_fn_args():
+        def key_fn_args(args, kwargs):
+            return str(mmh3.hash(str(args) + str(kwargs), signed=False))
+        return key_fn_args
+
+    @staticmethod
+    def get_key_fn_typed(types):
+        def key_fn_typed(args, kwargs):
+            filtered_args = [arg for arg in args if isinstance(arg, types)]
+            filtered_kwargs = {k: v for k, v in kwargs.items() if isinstance(v, types)}
+            return str(mmh3.hash(str(filtered_args) + str(filtered_kwargs), signed=False))
+        return key_fn_typed
+
+    @staticmethod
+    def get_combined_key_fn(*key_fns):
+        def combined_key_fn(args, kwargs):
+            return "-".join(key_fn(args, kwargs) for key_fn in key_fns)
+        return combined_key_fn
+
 class CacheResults:
-    def __init__(self, cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args) + str(kwargs), signed=False)),
+    def __init__(self, cache, key_function=CacheKeyFn.get_key_fn_args(),
                                                   dtype_filters=None,
                                                   should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
                                                   enabled=True, expire=cache_timeout):
@@ -866,7 +888,7 @@ class DefaultDictQueue:
                 del self.data[removed]
             self.queue.append(item)
             self.set.add(item)
-            self.data[item] = item_data if item_data is not None else self.default_factory() if self.default_factory else None
+            self.data[item] = item_data if item_data is not None else self.default_factory(item) if self.default_factory else None
 
     def __contains__(self, item):
         with self.lock:
@@ -1289,6 +1311,7 @@ def remove_bad_whitespaces(s):
     lines = [line.rstrip().lstrip() for line in lines if line.strip()!='']
     s = '\n'.join(lines)
     s = remove_leading_spaces(s)
+    # s = normalize_whitespace(s)
     return s.strip()
 
 def remove_bad_whitespaces_easy(s):
@@ -1297,6 +1320,7 @@ def remove_bad_whitespaces_easy(s):
     lines = s.splitlines(keepends=False)
     lines = [line.rstrip() for line in lines]
     s = '\n'.join(lines)
+    # s = normalize_whitespace(s)
     return s.strip()
 
 def reformat_string(input_str):
@@ -2073,8 +2097,14 @@ def compress_and_encode_drawio_xml(input_string):
 
 
 def encode_image(image_path):
-  with open(image_path, "rb") as image_file:
-    return base64.b64encode(image_file.read()).decode('utf-8')
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+from getpass import getpass
+def _getpass(env_var: str):
+    if not os.environ.get(env_var):
+        os.environ[env_var] = getpass(f"{env_var}=")
+    return os.environ.get(env_var)
 
 
 
