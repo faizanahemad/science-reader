@@ -1,3 +1,4 @@
+import os.path
 import shutil
 
 import semanticscholar.Paper
@@ -99,7 +100,13 @@ class DocIndex:
         self.result_cutoff = 4
         self.version = 0
         self.last_access_time = time.time()
-
+        self.is_local = os.path.exists(doc_source)
+        # if parent folder of doc_source is not same as storage, then copy the doc_source to storage
+        if self.is_local and os.path.dirname(os.path.expanduser(doc_source)) != os.path.expanduser(storage):
+            # shutil.copy(doc_source, storage) # move not copy
+            shutil.move(doc_source, storage)
+            doc_source = os.path.join(storage, os.path.basename(doc_source))
+            self.doc_source = doc_source
         self.doc_source = doc_source
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
@@ -110,11 +117,11 @@ class DocIndex:
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
         assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
-        self.is_local = os.path.exists(doc_source)
+
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
                 chunks = "\n\n".join(raw_data['chunks'][0:4])
-                short_summary = CallLLm(keys, model_name="google/gemini-flash-1.5", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
+                short_summary = CallLLm(keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
                 title = CallLLm(keys, use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
                 setattr(self, "_title", title)
                 setattr(self, "_short_summary", short_summary)
@@ -945,11 +952,12 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
         assert isinstance(api_keys, dict)
         logger.info(f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
         indices = self.get_doc_data("indices")
-        for k, j in indices.items():
-            if isinstance(j, (FAISS, VectorStore)):
-                j.embedding_function = get_embedding_model(api_keys).embed_query
-                j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
-                setattr(j.embedding_function.__self__, "openai_api_key", api_keys["openAIKey"])
+        if indices is not None:
+            for k, j in indices.items():
+                if isinstance(j, (FAISS, VectorStore)):
+                    j.embedding_function = get_embedding_model(api_keys).embed_query
+                    j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
+                    setattr(j.embedding_function.__self__, "openai_api_key", api_keys["openAIKey"])
         setattr(self, "api_keys", api_keys)
     
     def __copy__(self):
@@ -987,6 +995,64 @@ class StrongDocIndex(DocIndex):
 
 
 class ImageDocIndex(DocIndex):
+    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage,
+                 keys):
+        init_start = time.time()
+        self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
+
+        self._visible = False
+        self._chunk_size = chunk_size
+        self.result_cutoff = 4
+        self.version = 0
+        self.last_access_time = time.time()
+        self.is_local = os.path.exists(doc_source)
+        # if parent folder of doc_source is not same as storage, then copy the doc_source to storage
+        if self.is_local and os.path.dirname(os.path.expanduser(doc_source)) != os.path.expanduser(storage):
+            # shutil.copy(doc_source, storage) # move not copy
+            shutil.move(doc_source, storage)
+            doc_source = os.path.join(storage, os.path.basename(doc_source))
+            self.doc_source = doc_source
+        self.doc_source = doc_source
+        self.doc_filetype = doc_filetype
+        self.doc_type = doc_type
+        self._title = ''
+        self._short_summary = ''
+        folder = os.path.join(storage, f"{self.doc_id}")
+        os.makedirs(folder, exist_ok=True)
+        self._storage = folder
+        self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data",
+                               "_paper_details"]
+        assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg",
+                                "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
+
+        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+            def set_title_summary():
+                title = doc_text.split("</detailed_caption>")[0].split("<detailed_caption>")[-1].strip()
+                short_summary = doc_text.split("</detailed_insights>")[0].split("<detailed_insights>")[-1].strip()
+                setattr(self, "_title", title)
+                setattr(self, "_short_summary", short_summary)
+
+            set_title_summary_future = get_async_future(set_title_summary)
+        else:
+            set_title_summary_future = wrap_in_future(None)
+        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
+        del full_summary["chunks"]
+
+        self.set_doc_data( "static_data", None, static_data)
+        time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+        self.set_api_keys(keys)
+
+        def set_raw_index_small():
+            _ = set_title_summary_future.result()
+            brief_summary = self.title + "\n" + self.short_summary
+            brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+            self._brief_summary = brief_summary
+            text = self.brief_summary + doc_text
+            self._text_len = get_gpt4_word_count(text)
+            self._brief_summary_len = get_gpt3_word_count(brief_summary)
+            time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
+
+        set_raw_index_small()
     def semantic_search_document_small(self, query, token_limit=4096):
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         return text
@@ -1079,6 +1145,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
         doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
         doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
+        while not doc_text_f1.done() or not doc_text_f2.done():
+            time.sleep(1)
         doc_text = "OCR and analysis from strong model:\n" + doc_text_f1.result() + "\nOCR and analysis from weak model:\n" + doc_text_f2.result()
         is_image = True
         chunk_overlap = 0
@@ -1097,12 +1165,16 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     else:
         chunk_size = LARGE_CHUNK_LEN
     chunk_overlap = min(chunk_size//2, 128)
-    chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
-    # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
-    # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
-    chunks = chunks.result()
-    chunks_small = chunks_small.result()
+    if not is_image:
+        chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
+        # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
+        # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
+        chunks = chunks.result()
+        chunks_small = chunks_small.result()
+    else:
+        chunks = []
+        chunks_small = []
     nested_dict = {
         'chunked_summary': [''],
         'chunks': chunks,

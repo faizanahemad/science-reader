@@ -789,12 +789,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option selected>md format</option>
-                <option selected>better formatting</option>
+                <option>better formatting</option>
                 <option>Easy Copy</option>
                 <option>Short reply</option>
                 <option>Long reply</option>
                 <option>CoT</option>
-                <option selected>Short references</option>
+                <option>Short references</option>
                 <option selected>Latex Eqn</option>
                 <option>Explore</option>
                 <option>Creative</option>
@@ -808,15 +808,23 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
-                <option selected>gpt-4o</option>    
-                <option>gpt-4-turbo</option>
+                <option selected>gpt-4-turbo</option>  
+                <option>Claude Sonnet 3.5</option> 
+                
                 <option>gpt-4-32k</option>
-                <option>cohere/command-r-plus</option>
-                <option>Claude Opus</option>
-                <option>DeepSeek-V2 Chat</option>
-                <option>Mistral Large</option>
+                <option>Claude Opus</option> 
                 <option>Gemini 1.5</option>
-                <option>Qwen 1.5</option>
+                <option>gpt-4-0314</option>
+                <option>gpt-4-32k-0314</option>
+                <option>gpt-4o</option>
+                <!-- option>cohere/command-r-plus</option -->
+                
+                
+                <!-- option>DeepSeek-V2 Chat</option -->
+                <option>deepseek/deepseek-coder</option>
+                <!-- option>Mistral Large</option -->
+                
+                <option>Qwen 2</option>
             </select>
         </div>
         

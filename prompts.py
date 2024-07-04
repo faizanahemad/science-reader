@@ -292,7 +292,7 @@ Cover the below points while answering and also add other necessary points as ne
         rules = """
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots are given below inside <executable_code_and_diagramming_rules> </executable_code_and_diagramming_rules> tags.
 <executable_code_and_diagramming_rules>
-- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block.
+- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block. Only execute code when asked to execute code.
 - Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute_code'. We can only execute python code.
 - Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
 - When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
@@ -303,6 +303,7 @@ Cover the below points while answering and also add other necessary points as ne
 - If asked to read files, only read these filenames from the input directory: {input_files}.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot, requests, beautifulsoup etc.
 - Files like csv, xlsx, xls, tsv, parquet, json, jsonl are data files and can be used in python for data analysis, xls and xlsx can be read with `openpyxl` and pandas and have multiple sheets so analysing xls, xlsx would require looking at all sheets.
+- Some numeric columns may be strings in data files where numbers are separated by commas for readability, convert to string column using pandas `df[column_name].astype(str)` then remove commas, then convert them to numeric data before using them.
 
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
@@ -808,15 +809,20 @@ Given a general image, document, table, chart, graph or data oriented image, wri
 OCR the image, extract text, tables, data, charts or plot information or any other text.
 Format to reply about the image is given below in xml format. Please use this format to reply about the image.
 <image_details>
-    <ocr>ocr results and extracted text from the image here if image has any text or numbers or symbols etc.</ocr>
+    <ocr>ocr results and extracted text from the image here if image has any text or numbers or symbols etc. Give structured output in markdown format.</ocr>
     <detailed_caption>caption for the image here</detailed_caption>
-    <structure_and_format>structure and format of the image here</structure_and_format>
-    <key_insights>key insights, trends, patterns, and information extracted from the image here</key_insights>
-    <analysis>analysis, breakdown, and interpretation of the image here</analysis>
-    <patterns_and_trends>patterns, trends, and information extracted from the image here</patterns_and_trends>
-    <summary>summary of the image content here</summary>
-    <objects_in_image>objects, entities, and elements present in the image here</objects_in_image>
-    <insights>insights, observations, and conclusions drawn from the image here</insights>
+    <structure_and_format>geometric structure, patterns, shape details and format of the image here. If diagram then describe the various components of the diagram and how they are connected or interact.</structure_and_format>
+    <key_insights>
+        // Five key insights, trends, patterns, observations, and information extracted from the image here.
+        <insight>key insight 1</insight>
+        <insight>key insight 2</insight>
+        <insight>key insight 3</insight>
+        <insight>key observations 4</insight>
+        <insight>relevant and important information extracted 5</insight>
+    </key_insights>
+    <patterns_and_trends>time series patterns, graph or chart patterns, trends, and information extracted from the image here</patterns_and_trends>
+    <objects_in_image>objects, entities, and elements present in the image and their relative locations in the image.</objects_in_image>
+    <detailed_insights>Insights, observations, and conclusions drawn from the image here. More depth and thoughts than key insights.</detailed_insights>
     <domain_of_image>domain or category of the image here like medical, general, science, table, pdf, scenic, data, charts, plots or graphs</domain_of_image>
     <possible_questions_users_may_ask_about_image_and_answer>
         <question>possible question 1</question>

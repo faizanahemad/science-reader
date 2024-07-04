@@ -652,7 +652,7 @@ var ChatManager = {
                     }, 1000);
                 }
                 // messageElement.addClass('mr-md-auto');  // For left alignment
-                messageElement.css('background-color', '#f5fcff');  // Lighter shade of blue
+                messageElement.css('background-color', '#ffffff');  // Lighter shade of blue
             }
             
             if (message.text.trim().length > 0) {

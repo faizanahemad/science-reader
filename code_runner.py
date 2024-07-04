@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 import sys
 import os
@@ -13,7 +14,7 @@ import inspect
 import random
 
 import concurrent.futures
-from typing import List
+from typing import List, Union
 
 import pandas as pd
 import tiktoken
@@ -24,6 +25,7 @@ import json
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed, FIRST_COMPLETED, wait
 import urllib3
+import multiprocessing
 
 from base import CallLLm
 from prompts import prompts
@@ -82,7 +84,7 @@ class PersistentPythonEnvironment:
         ipython.run_line_magic('config', 'TerminalInteractiveShell.color_info = False')
         ipython.run_line_magic('config', 'TerminalInteractiveShell.highlight_matching_brackets = False')
 
-    def run_code(self, code_string, session_id, time_limit):
+    def run_code(self, code_string, time_limit):
         """
         Execute the code and capture the output.
         """
@@ -141,8 +143,11 @@ class PersistentPythonEnvironment:
             # Restore stdout and stderr to their original values
             sys.stdout = original_stdout
             sys.stderr = original_stderr
+
+from persistent_code_env import PersistentPythonEnvironment as PersistentPythonEnvironment_v2
+
 def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLLm, llm_easy: CallLLm, code_string: str = "",
-                           session: PersistentPythonEnvironment=None, retry=3):
+                           session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2]=None, retry=3):
     """
     Executes the given code_string with specified resource constraints and captures the output.
 
@@ -276,7 +281,7 @@ try:
 except Exception as e:
 {new_code_string}
 """
-        new_stdout = previous_stdout + "\n" + stdout.strip()
+        new_stdout = (previous_stdout if previous_stdout else "") + (("\n" + stdout.strip()) if stdout else "")
         logger.info(f"[code_checker_and_continuer] Code and output correctness decision is: {False}, from LLM answer: `\n{llm_answer}\n`")
         return False, failure_reason, new_stdout, stderr, code_string
     else:
@@ -579,7 +584,7 @@ def run_code_with_constraints_v2(code_string, constraints={}, session: Persisten
     - stderr (str): The standard error of the code.
     """
     if session is None:
-        session = PersistentPythonEnvironment()
+        session = PersistentPythonEnvironment_v2()
     memory = constraints.get("memory", 1500)
     time = constraints.get("time", 120)
     code_string = "\n".join([line for line in code_string.split("\n") if "plt.show()" not in line])
@@ -595,7 +600,7 @@ print = prnt
     # Remove any line with plt.show() from the code
     stdout, stderr = None, None
     try:
-        success, failure_reason, stdout, stderr = session.run_code(code_string, "123", time)
+        success, failure_reason, stdout, stderr = session.run_code(code_string, time)
         if stdout:
             stdout = stdout.strip()
             split_string = "-x-=" * 40
@@ -613,6 +618,8 @@ print = prnt
     except Exception as e:
         failure_reason = str(e) + "\n" + traceback.format_exc()
         success = False
+    finally:
+        pass
 
     if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
         failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n"

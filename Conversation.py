@@ -28,7 +28,8 @@ import dill
 import os
 import re
 
-from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, PersistentPythonEnvironment
+from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
+    PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 from prompts import prompts, xml_to_dict
 from datetime import datetime, timedelta
 
@@ -677,10 +678,14 @@ Write the extracted information briefly and concisely below:
 
     def get_preamble(self, preamble_options, field, web_search_or_document_read=False):
         preamble = ""
+        if "no format" in preamble_options:
+            # remove "md format" and "better formatting" from preamble options
+            preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting"]]
+            preamble += "\nDon't use any formatting, avoid formatting. Write the answer in plain text. Don't use any formatting, markdown or typesetting. Write the answer in plain text.\n"
         if "md format" in preamble_options:
-            preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting.\n"
+            preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting. Write the full response to the user's query now.\n"
         if "better formatting" in preamble_options:
-            preamble += "\nUse good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. When asked to compare or contrast use tables in markdown. Use tables to provide comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response.\n"
+            preamble += "\nUse markdown formatting. Use good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. When asked to compare or contrast use tables in markdown. Use tables to provide summarised information, comparisons and differences. Give good structure and hierarchy to your response.\n"
         if "Easy Copy" in preamble_options:
             preamble += "\nProvide the answer in a format that can be easily copied and pasted. Provide answer inside a code block so that I can copy it.\n"
         if "Short reply" in preamble_options:
@@ -688,23 +693,23 @@ Write the extracted information briefly and concisely below:
         if "No Code Exec" in preamble_options:
             preamble += "\nDon't execute any code unless user explicitly asks to.\n"
         if "Long reply" in preamble_options:
-            preamble += "\nProvide a long and detailed answer like an essay. Compose a clear, detailed, comprehensive, thoughtful and informative response to the user's most recent query or message. Analyse what is provided to you in depth thinking of any nuances and caveats as well. Think from all angles about what is asked and use all resources to provide an extensive, elaborate and comprehensive answer. Give examples and anecdotes where applicable. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+            preamble += "\nAnswer like a PhD scholar. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "Short references" in preamble_options and web_search_or_document_read:
-            preamble += "\nInclude references inline in wikipedia style as your write the answer. Use any and all the documents provided in your answer to the user's query. Put references closest to where applicable. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format. Don't give references at the end.\n"
+            preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
             preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment.\n"
         if "Explore" in preamble_options:
             preamble += "\nSprinkle interesting tidbits of knowledge around the topic we discuss as well to help me explore and learn more. Provide interesting and stimulating information around the topic we discuss.\n"
         if "Creative" in preamble_options:
-            preamble += "\nBe creative and think out of the box. Think creatively and provide a creative answer. Think of any nuances as well. Always provide insightful, stimulating and informative response. When multiple ideas, or documents, or links are given to you, think creatively how those ideas can be combined.\n"
+            preamble += "\nBe creative and think out of the box. Combine already given ideas and synthesize new creative thoughts in your response. Always provide a stimulating response.\n"
         if "Argumentative" in preamble_options:
-            preamble += "\nProvide an argumentative answer. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a strong argument using a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian viewpoint in a respectful manner.\n"
+            preamble += "\nProvide an argumentative answer which challenges the user's notions and thinking, gives an alternative view point. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian alternative viewpoint in a respectful manner.\n"
         if "Blackmail" in preamble_options:
             preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We are hardworking, earnest and sincere. We need to answer completely in a way that our work can be used by others directly in production settings without any changes. Write full answers not outlines or examples only. Don't be lazy, provide a complete answer that can be used in critical situations. We are working to help people with hand and wrist disability and hence we need to minimise typing and editing on their side.\n"
+            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We are honest, helpful, hardworking, earnest and sincere. We need to answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations. We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
@@ -763,6 +768,12 @@ Write the extracted information briefly and concisely below:
         file_prefix = f"file-{prefix}-"
         # if input files are csv, tsv, xlsx, parquet then we need to read them and provide the data head to give idea of columns and content to the LLM. using zip(attached_docs_data, attached_docs_data_names)
         data_explore = ""
+        # list data files like csv, tsv, xlsx, parquet in the working directory in data_explore
+        for fname in os.listdir(self.documents_path):
+            if fname.endswith(".csv") or fname.endswith(".tsv") or fname.endswith(".xlsx") or fname.endswith(".parquet"):
+                data_explore += f"Data file: {fname}\n"
+
+
         def get_data_head(doc_source):
             if doc_source.endswith(".csv"):
                 df = pd.read_csv(doc_source)
@@ -781,13 +792,22 @@ Write the extracted information briefly and concisely below:
                 data_explore += f"{dt[0]}\n{dt[1]}\n\n"
                 data_explore += "-" * 50 + "\n"
 
+        # List other files in the working directory as well.
+        for fname in os.listdir(self.documents_path):
+            if fname.endswith(".csv") or fname.endswith(".tsv") or fname.endswith(".xlsx") or fname.endswith(".parquet"):
+                data_explore += f"Data from 'name:{fname}, file: {os.path.join(self.documents_path, fname)}':\n"
+                dt = get_data_head(os.path.join(self.documents_path, fname))
+                data_explore += "-" * 50 + "\n"
+                data_explore += f"{dt[0]}\n{dt[1]}\n\n"
+                data_explore += "-" * 50 + "\n"
+
         coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path,
                                                     output_directory=self.documents_path,
                                                     input_files_preview=data_explore,
                                                     input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
                                                                      zip(attached_docs_data, attached_docs_data_names)]),
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
-        return coding_rules if need_diagram or code_execution else "", prefix
+        return coding_rules, prefix # if need_diagram or code_execution else ""
 
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
@@ -1466,21 +1486,29 @@ Write the extracted information briefly and concisely below:
         # TODO: add capability to use mistral-large, Claude OPUS models for answering.
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
         if model_name == "gpt-4-turbo":
-            model_name = None
-        if model_name == "gpt-4o":
+            model_name = "gpt-4-turbo"
+        elif model_name == "gpt-4o":
             model_name = "gpt-4o"
         elif model_name == "cohere/command-r-plus":
             model_name = "cohere/command-r-plus"
         elif model_name == "gpt-4-32k":
             model_name = "openai/gpt-4-32k"
+        elif model_name == "gpt-4-32k-0314":
+            model_name = "gpt-4-32k-0314"
+        elif model_name == "gpt-4-0314":
+            model_name = "gpt-4-0314"
         elif model_name == "Claude Opus":
             model_name = "anthropic/claude-3-opus:beta"
+        elif model_name == "Claude Sonnet 3.5":
+            model_name = "anthropic/claude-3.5-sonnet:beta"
         elif model_name == "Mistral Large":
             model_name = "mistralai/mistral-large"
         elif model_name == "DeepSeek-V2 Chat":
             model_name = "deepseek/deepseek-chat"
-        elif model_name == "Qwen 1.5":
-            model_name = "qwen/qwen-110b-chat"
+        elif model_name == "deepseek/deepseek-coder":
+            model_name = "deepseek/deepseek-coder"
+        elif model_name == "Qwen 2":
+            model_name = "qwen/qwen-2-72b-instruct"
 
         elif model_name == "Gemini 1.5":
             model_name = "google/gemini-pro-1.5"
@@ -1543,12 +1571,13 @@ Write the extracted information briefly and concisely below:
         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-        t2y = next(main_ans_gen)
+        answer += "<answer>\n"
+        yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
+        while len(answer) <= 10:
+            t2y = next(main_ans_gen)
+            yield {"text": t2y, "status": "answering in progress"}
+            answer += t2y
         time_dict["first_word_generated"] = time.time() - st
-
-
-        yield {"text": t2y, "status": "answering in progress"}
-        answer += t2y
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
         last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, 
@@ -1569,13 +1598,12 @@ Write the extracted information briefly and concisely below:
             logger.debug(f"Doc Answer: {doc_answer}")
         if len(web_text) > 0:
             logger.debug(f"Web text: {web_text}")
-        answer += "<answer>\n"
-        yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
+
         already_executed_code = []
         already_executed_drawio = []
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
-        code_session = PersistentPythonEnvironment()
+        code_session = None
         for txt in main_ans_gen:
             yield {"text": txt, "status": "answering in progress"}
             answer += txt
@@ -1616,6 +1644,8 @@ Write the extracted information briefly and concisely below:
                 answer += mermaid_text
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
+                if code_session is None:
+                    code_session = PersistentPythonEnvironment()
                 already_executed_code.append(code_to_execute)
 
                 success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],

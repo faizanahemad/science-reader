@@ -152,8 +152,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
-    extras_2 = dict(stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :",
-              "###", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
+    extras_2 = dict(stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
     messages = [
@@ -229,7 +228,7 @@ class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
 
         self.keys = keys
-        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide comprehensive, detailed and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge,\n"
+        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide comprehensive, detailed and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge. Write the full response to the user's query now.\n"
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
@@ -244,7 +243,9 @@ class CallLLm:
             assert (self.model_type == "openai" and self.model_name in ["gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
                                                                                                                                                  "anthropic/claude-3-opus:beta",
                                                                                                                                                  "anthropic/claude-3-sonnet:beta",
+                                                                                                                                                 "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
+                                                                                                                                                 "gpt-4-turbo",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b"]
@@ -2096,7 +2097,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
 
 from concurrent.futures import ThreadPoolExecutor
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
-            enabled=True)
+            enabled=False)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
