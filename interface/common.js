@@ -790,6 +790,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option selected>md format</option>
                 <option>better formatting</option>
+                <option>no format</option>
+                <option>no ai</option>
                 <option>Easy Copy</option>
                 <option>Short reply</option>
                 <option>Long reply</option>

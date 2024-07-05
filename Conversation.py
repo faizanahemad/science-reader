@@ -682,6 +682,8 @@ Write the extracted information briefly and concisely below:
             # remove "md format" and "better formatting" from preamble options
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting"]]
             preamble += "\nDon't use any formatting, avoid formatting. Write the answer in plain text. Don't use any formatting, markdown or typesetting. Write the answer in plain text.\n"
+        if "no ai" in preamble_options:
+            preamble += "\nWrite the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language. Be a straight shooter.\n"
         if "md format" in preamble_options:
             preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting. Write the full response to the user's query now.\n"
         if "better formatting" in preamble_options:
