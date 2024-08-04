@@ -61,7 +61,8 @@ openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
     "gpt-4-32k": (150000, 100),
     "gpt-4-32k-0314": (150000, 100),
     "gpt-4-vision-preview": (150000, 100),
-    "gpt-4o": (800000, 10000),
+    "gpt-4o": (2000000 , 10000),
+    "gpt-4o-mini": (10000000, 10000),
 })
 
 openai_model_family = {
@@ -75,7 +76,8 @@ openai_model_family = {
     "gpt-4-0613": ["gpt-4-0613"],
     "gpt-4-32k": ["gpt-4-32k"],
     "gpt-4-vision-preview": ["gpt-4-vision-preview", "gpt-4-1106-vision-preview"],
-    "gpt-4o": ["gpt-4o"]
+    "gpt-4o": ["gpt-4o"],
+    "gpt-4o-mini": ["gpt-4o-mini"]
 }
 
 import time
@@ -141,6 +143,8 @@ encoders_map = defaultdict(lambda: easy_enc, {
     "gpt-4-0613": gpt4_enc,
     "gpt-4-32k-0314": gpt4_enc,
     "gpt-4-turbo": gpt4_enc,
+    "gpt-4o-mini": gpt4_enc,
+    "gpt-4o": gpt4_enc,
     "text-davinci-003": davinci_enc,
     "text-davinci-002": davinci_enc,
 })
@@ -286,6 +290,8 @@ class CallLLm:
             assert get_gpt3_word_count(system + text) < 140_000
         elif "anthropic" in self.model_name:
             assert get_gpt3_word_count(system + text) < 80_000
+        elif "openai" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 100_000
         else:
             assert get_gpt3_word_count(system + text) < 14000
         return streaming_solution
@@ -301,11 +307,11 @@ class CallLLm:
         else:
             assert self.keys["openAIKey"] is not None
 
-        model_name = "gpt-4-turbo" if self.use_gpt4 and self.use_16k else "gpt-3.5-turbo" if not self.use_16k else "gpt-3.5-turbo-16k"
+        model_name = "gpt-4o" if (self.use_gpt4 and self.use_16k and self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini"]) else "gpt-4o-mini"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len > 3000 and model_name == "gpt-3.5-turbo"):
-            model_name = "gpt-3.5-turbo-16k"
+            model_name = "gpt-4o-mini"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len < 3000 and model_name == "gpt-3.5-turbo-16k"):
-            model_name = "gpt-3.5-turbo"
+            model_name = "gpt-4o-mini"
         if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
             model_name = "gpt-4o"
         if len(images) > 0 and model_name != "gpt-4-turbo":

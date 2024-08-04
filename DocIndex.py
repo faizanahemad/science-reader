@@ -452,7 +452,7 @@ Context is given below.
 Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
 """
 
-            llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5" if detail_level <= 2 else "anthropic/claude-3-haiku:beta", use_gpt4=True, use_16k=True)
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True)
             additional_info_v0 = get_async_future(llm, prompt, temperature=0.9)
             if tex_len > 4000:
                 tx = "\n".join(chunk_text_words(text, chunk_size=3800, chunk_overlap=0)[1:])
@@ -469,7 +469,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
 
                 def get_additional_info():
                     llm = CallLLm(self.get_api_keys(),
-                                  model_name="google/gemini-flash-1.5",
+                                  model_name="gpt-4o-mini",
                                   use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
@@ -493,7 +493,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
                 additional_info_v1 = additional_info
 
                 def get_additional_info():
-                    llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta" if detail_level >= 3 else "google/gemini-flash-1.5", use_gpt4=False,
+                    llm = CallLLm(self.get_api_keys(), model_name="gpt-4o" if detail_level >= 3 else "gpt-4o-mini", use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
                     init_add_info = additional_info_v1.result()

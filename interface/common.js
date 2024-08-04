@@ -819,6 +819,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>gpt-4-0314</option>
                 <option>gpt-4-32k-0314</option>
                 <option>gpt-4o</option>
+                <option>Jamba</option>
+                <option>llama-3.1-70b</option>
+                <option>llama-3.1-405b</option>
                 <!-- option>cohere/command-r-plus</option -->
                 
                 

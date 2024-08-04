@@ -922,6 +922,8 @@ function sendMessageCallback() {
 function scrollToBottom() {
     var $chatView = $('#chatView');
     var $scrollToBottomBtn = $('#scrollToBottomBtn');
+    var $messageText = $('#messageText');
+
 
     // Function to check the scroll position
     function checkScroll() {
@@ -937,6 +939,17 @@ function scrollToBottom() {
         is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
 
         if (distanceFromBottom > 400 && is_chat_visible) {
+            var $toggleChatControls = $('#toggleChatControls');
+            if ($toggleChatControls.text().trim() === '▼') {
+                var textareaOffset = $messageText.offset().top + $messageText.outerHeight();
+                var fromBottom = $(window).height() - textareaOffset;
+                var additionalSpace = 50;
+                // If the text is a down arrow, set the bottom position to 180px
+                $scrollToBottomBtn.css('bottom', fromBottom + additionalSpace + 'px');
+            } else {
+                // Otherwise, set the bottom position to 80px
+                $scrollToBottomBtn.css('bottom', '80px');
+            }
             $scrollToBottomBtn.show();
         } else {
             $scrollToBottomBtn.hide();

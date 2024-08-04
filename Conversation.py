@@ -139,7 +139,7 @@ Write the new extracted information below in compact bullet points.
 ## New Information:
 
 """
-        llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
         new_memory = llm(prompt, temperature=0.2, stream=False)
         new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
@@ -166,7 +166,7 @@ Compact list of bullet points:
 
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 2):
-                llm = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False, use_16k=False)
+                llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=False)
                 if i + 1 < len(memory_parts):
                     memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
                 else:
@@ -523,7 +523,7 @@ Compact list of bullet points:
              "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 18000, 10_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -667,7 +667,7 @@ Now lets extract relevant information for answering the current user query from 
 Extract and copy relevant information verbatim from the above conversation messages and summary and paste it below.
 Write the extracted information briefly and concisely below:
 """
-        final_information = CallLLm(self.get_api_keys(), model_name="google/gemini-flash-1.5", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:2000])
@@ -680,8 +680,8 @@ Write the extracted information briefly and concisely below:
         preamble = ""
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options
-            preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting"]]
-            preamble += "\nDon't use any formatting, avoid formatting. Write the answer in plain text. Don't use any formatting, markdown or typesetting. Write the answer in plain text.\n"
+            preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
+            preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "no ai" in preamble_options:
             preamble += "\nWrite the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language. Be a straight shooter.\n"
         if "md format" in preamble_options:
@@ -709,7 +709,7 @@ Write the extracted information briefly and concisely below:
         if "Argumentative" in preamble_options:
             preamble += "\nProvide an argumentative answer which challenges the user's notions and thinking, gives an alternative view point. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian alternative viewpoint in a respectful manner.\n"
         if "Blackmail" in preamble_options:
-            preamble += "\nIf you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+            preamble += "\nPlease act as my trusted friend and loyal advisor whom I miss. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
             preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We are honest, helpful, hardworking, earnest and sincere. We need to answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations. We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
@@ -1038,7 +1038,7 @@ Write the extracted information briefly and concisely below:
             searches) == 0):
             provide_detailed_answers = 2
         provide_raw_text = (len(links) + len(attached_docs) + len(additional_docs_to_read)) <= 3 and provide_detailed_answers <= 3 and not (
-                    google_scholar or perform_web_search) and unchanged_message_lookback <= 8
+                    google_scholar or perform_web_search) and unchanged_message_lookback <= 10
         if len(attached_docs) > 0:
             message_config["use_attached_docs"] = True
             message_config["attached_docs_names"] = attached_docs_names
@@ -1314,7 +1314,7 @@ Write the extracted information briefly and concisely below:
                                                                doc_answer='', web_text="\n"+full_web_string,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                answer_summary = CallLLm(self.get_api_keys(), model_name="mistralai/mistral-7b-instruct:nitro", use_16k=True,
+                answer_summary = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_16k=True,
                                          use_gpt4=True)(prompt, temperature=0.3, stream=False)
                 # web_text_accumulator.append((answer_summary, f"[Generated Answer from {start + 1} to {end + 1}](No Link)", answer_summary))
                 et = time.time()
@@ -1511,6 +1511,12 @@ Write the extracted information briefly and concisely below:
             model_name = "deepseek/deepseek-coder"
         elif model_name == "Qwen 2":
             model_name = "qwen/qwen-2-72b-instruct"
+        elif model_name == "Jamba":
+            model_name = "ai21/jamba-instruct"
+        elif model_name == "llama-3.1-70b":
+            model_name = "meta-llama/llama-3.1-70b-instruct"
+        elif model_name == "llama-3.1-405b":
+            model_name = "meta-llama/llama-3.1-405b-instruct"
 
         elif model_name == "Gemini 1.5":
             model_name = "google/gemini-pro-1.5"
