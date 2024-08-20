@@ -893,6 +893,12 @@ function sendMessageCallback() {
     if (options['tell_me_more'] && messageText.trim().length == 0) {
         messageText = 'Tell me more';
     }
+
+    if (options["search_exact"] && messageText.trim().length > 0) {
+        messageText = messageText.replace("/search_exact", " ").trim();
+        search = messageText.split('\n');
+        options["perform_web_search"] = true
+    }
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
     const allFalse = booleanKeys.every(key => options[key] === false);
     if ((wordCount > 25000 && !allFalse) || (wordCount > 50000)) {

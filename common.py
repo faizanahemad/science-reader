@@ -31,7 +31,7 @@ TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 3000))
 TOKEN_LIMIT_FOR_NORMAL = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 5500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
-MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 25))
+MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 60))
 
 import requests
 import os
@@ -305,6 +305,7 @@ class CacheResults:
     def __init__(self, cache, key_function=CacheKeyFn.get_key_fn_args(),
                                                   dtype_filters=None,
                                                   should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
+                                                  should_cache_key_condition=lambda x: x is not None and (not isinstance(x, Exception)),
                                                   enabled=True, expire=cache_timeout):
         """
         A caching decorator class that caches the results of function calls using the `diskcache` library or any other cache object that supports similar interface.
@@ -443,6 +444,7 @@ class CacheResults:
         self.key_function = key_function
         self.dtype_filters = tuple(dtype_filters) if dtype_filters is not None else None
         self.should_cache_predicate = should_cache_predicate
+        self.should_cache_key_condition = should_cache_key_condition
         self.enabled = enabled
         self.expire = expire
         self.part_key = None
@@ -543,7 +545,7 @@ class CacheResults:
                     result = func(*args, **kwargs)
                     result_computed = True
                 if result is not None and not isinstance(result, (Exception, AssertionError, ValueError, RetryError)) and not (
-                        isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed:
+                        isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed and self.should_cache_key_condition(key):
                     st_set = time.time()
                     expire_seconds = self.calculate_expiry(self.expire)
                     cache.set(key, result, expire=expire_seconds)
@@ -1408,7 +1410,13 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-
+    # Shorten input text to 2000 tokens for all cases
+    if isinstance(input_text, list):
+        input_text = [text[:20000] for text in input_text]
+        input_text = [" ".join(text.strip().split()[:4000]) for text in input_text]
+    else:
+        input_text = input_text[:20000]
+        input_text = " ".join(input_text.strip().split()[:4000])
     # Prepare the data payload with the input text and model name
     data = {
         "input": input_text,
@@ -1427,7 +1435,7 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
         return embeddings
     else:
         # Handle errors (e.g., invalid API key, rate limits, etc.)
-        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text: \n{input_text}")
+        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text: \n{input_text[:100]}")
         raise Exception(f"Failed to fetch embedding(s): {response.text}")
 
 
@@ -1476,7 +1484,7 @@ def get_embedding_model(keys):
         return EmbeddingClient(keys["embeddingsUrl"])
     openai_key = keys["openAIKey"]
     assert openai_key
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=8000)
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=4000)
     return openai_embed
 
 
@@ -1722,12 +1730,48 @@ def parse_mardown_link_text(text):
 
 
 
-@CacheResults(cache=cache, dtype_filters=tuple([str, int, tuple, bool]), enabled=True)
+@CacheResults(cache=cache, dtype_filters=tuple([str, int, tuple, bool]), enabled=True, expire=3600, should_cache_key_condition=lambda x: x is not None and len(x.split()) < 100)
 def get_text_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
-    embedding = openai_embed.embed_query(text)
-    embedding = np.array(embedding)
+    try:
+        embedding = openai_embed.embed_query(text)
+        embedding = np.array(embedding)
+    except:
+        time.sleep(1)
+        embedding = openai_embed.embed_query(text)
+        embedding = np.array(embedding)
     return embedding
+
+
+def semantic_validation_web_page_scrape(context, result, apikeys, threshold=0.3):
+    import sys
+    text = result["text"].strip()
+    title = result["title"]
+    link = result["link"]
+    if len(text.split()) < 2:
+        return True
+    context_emb_future = get_async_future(get_text_embedding, context, apikeys)
+    chunk_size = len(text.split()) // 4
+    chunks = chunk_text_words(text, chunk_size=chunk_size, chunk_overlap=min(64, chunk_size // 2))
+    chunks = [" ".join(chunk.strip().split()[:2048]) for chunk in chunks if len(chunk.strip().split()) > 2][:2]
+    chunk_embeddings_future = [get_async_future(get_text_embedding, chunk, apikeys) for chunk in chunks]
+    try:
+        chunk_embeddings = [future.result() for future in chunk_embeddings_future]
+        context_emb = context_emb_future.result()
+        # dot product of context and chunk embeddings using numpy
+        dot_products = [np.dot(context_emb, chunk_emb) / (np.linalg.norm(context_emb) * np.linalg.norm(chunk_emb)) for chunk_emb in chunk_embeddings]
+        max_dot_product = max(dot_products)
+
+        if max_dot_product < threshold:
+            print(f"[semantic_validation_web_page_scrape] [FAILED] \ntitle = {title}, text = {text[:100]} link = {link}, Max dot = {max_dot_product}, Dot products = {dot_products}")
+            # Flush the print
+            sys.stdout.flush()
+            return False
+        return True
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"[semantic_validation_web_page_scrape] Error in getting embeddings with exception = {str(e)}")
+        return False
 
 
 class GenericShortException(Exception):

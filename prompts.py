@@ -730,6 +730,8 @@ If the current question or conversation context requires a date, use the current
 {{pqs}}
 Generate {{n_query}} well specified and diverse web search queries as a valid python list. 
 
+If the current question is a web search query with well defined search filters (like site or before/after or filetype etc) then formulate new queries while keeping the search filters in the new queries as well.
+
 Your output should look like a python list of strings like below example.
 Valid python list of web search query strings:
 ["diverse google search query based on given document", "different_web_query based on the document and conversation", "search engine optimised query based on the question and conversation"]

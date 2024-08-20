@@ -538,7 +538,7 @@ Only provide answer from the document given above.
         else:
             fragments_text = retriever(document, 16_000)
         prompt = self.prompt.format(context=context, document=fragments_text)
-        callLLm = CallLLm(self.keys, model_name="google/gemini-pro")
+        callLLm = CallLLm(self.keys, model_name="meta-llama/llama-3.1-8b-instruct")
         result = callLLm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
@@ -551,7 +551,7 @@ Only provide answer from the document given above.
                 return document
             openai_embed = get_embedding_model(self.keys)
             def get_doc_embeds(document, len_doc):
-                chunk_size = 1024 if len_doc < 8000 else 2048 if len_doc < 16000 else 3072 if len_doc < 32000 else 4096
+                chunk_size = 512 if len_doc < 8000 else 1024 if len_doc < 16000 else 1536 if len_doc < 32000 else 2048
                 ds = document.split()
                 document = " ".join(ds[:256_000])
                 st_chnk = time.time()
@@ -574,7 +574,7 @@ Only provide answer from the document given above.
             time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f}, doc em time = {doc_em_time:.2f} .")
             scores = np.dot(doc_embedding, query_embedding)
             sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-            top_chunks = sorted_chunks[:3]
+            top_chunks = sorted_chunks[:6]
         else:
             top_chunks = retriever(document, 16_000)
         top_chunks_text = ""
@@ -590,13 +590,13 @@ Only provide answer from the document given above.
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
-        if doc_word_count < 1536:
-            return text_document, get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3-8b-instruct:nitro")
+        if doc_word_count < 2048:
+            return text_document, get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3.1-8b-instruct")
         main_future = get_async_future(self.get_one_fast, context_user_query, text_document, retriever)
         alternative_future = None
         if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
             if doc_word_count <= TOKEN_LIMIT_FOR_NORMAL:
-                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3-8b-instruct:nitro")
+                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3.1-8b-instruct")
             else:
                 alternative_future = get_async_future(self.get_one, context_user_query, text_document)
             alt_source = "get_one"
@@ -821,7 +821,7 @@ def search_post_processing(query, results, source, only_science_sites=False, onl
         seen_links.add(link)
     return dedup_results
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     if our_datetime:
         now = datetime.strptime(our_datetime, "%Y-%m-%d")
@@ -848,9 +848,11 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     og_query = query
     no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
+    if use_original_query:
+        query = str(og_query)
     more_res = None
     if num > 10:
-        more_res = get_async_future(search.results, query, 10)
+        more_res = get_async_future(search.results, query, 30)
     results = search.results(query, num)
     expected_res_length = max(num, 10)
     if num > 10:
@@ -859,12 +861,14 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         results.extend(search.results(no_after_query, num))
     if len(results) < expected_res_length:
         results.extend(search.results(og_query, num))
+    if len(results) < expected_res_length:
+        results.extend(search.results(og_query, num * 2))
     dedup_results = search_post_processing(pre_query, results, "bing", only_science_sites=only_science_sites, only_pdf=only_pdf)
     logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
     
     return dedup_results
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     import requests
 
     from datetime import datetime, timedelta
@@ -888,12 +892,14 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     og_query = query
     no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
+    if use_original_query:
+        query = str(og_query)
     expected_res_length = max(num, 10)
-    def search_google(query):
+    def search_google(query, num=expected_res_length, start=0, gl="us"):
         # URL encode the query
         encoded_query = requests.utils.quote(query)
         # Set up the URL
-        url = f"https://www.google.com/search?q={encoded_query}&gl=us&num={num}&brd_json=1"
+        url = f"https://www.google.com/search?q={encoded_query}&gl={gl}&num={num}&start={start}&brd_json=1"
         # Set up the proxy
         proxy = {
             'https': os.getenv("BRIGHTDATA_SERP_API_PROXY", key)
@@ -905,11 +911,18 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
         except Exception as e:
             logger.error(f"Error in brightdata_google_serp with query = {query} and response = {response.text} and error = {str(e)}\n{traceback.format_exc()}")
             return []
+
+    more_results_future = None
+    if expected_res_length > 10:
+        more_results_future = get_async_future(search_google, query, 20, start=20, gl="uk")
+        # more_results_future = get_async_future(search_google, og_query, 20, start=20, gl="fr")
     results = search_google(query)
     if len(results) < expected_res_length:
-        results.extend(search_google(no_after_query))
+        results.extend(more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else [])
     if len(results) < expected_res_length:
-        results.extend(search_google(og_query))
+        results.extend(search_google(og_query, 20, start=20, gl="fr"))
+    if len(results) < expected_res_length:
+        results.extend(search_google(f"{query}{site_string}{after_string}{search_pdf}", 20, start=20, gl="fr"))
     for r in results:
         _ = r.pop("image", None)
         _ = r.pop("image_alt", None)
@@ -920,7 +933,7 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     return dedup_results
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     num = max(num, 10)
 
@@ -948,16 +961,25 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
     og_query = query
     no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
+    if use_original_query:
+        query = str(og_query)
 
     expected_res_length = max(num, 10)
     results = []
 
+    if expected_res_length > 10:
+        more_results_future = get_async_future(google_search, query, cse_id, google_api_key, num=20, filter=1, start=20)
     # Perform initial search
     initial_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
     if initial_results:
         results.extend(initial_results)
 
         # Perform additional searches if needed
+    if len(results) < expected_res_length:
+        additional_results = more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else []
+        if additional_results:
+            results.extend(additional_results)
+
     if len(results) < expected_res_length:
         additional_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1,
                                            start=len(results))
@@ -990,7 +1012,7 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     import requests
     
@@ -1006,6 +1028,10 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
     location_2 = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
     gl_2 = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
+    location_3 = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[
+        0]
+    gl_3 = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[
+        0]
     # format the date as YYYY-MM-DD
     
     url = "https://serpapi.com/search"
@@ -1021,6 +1047,8 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     og_query = query
     no_after_query = f"{query}{site_string}{search_pdf}"
     query = f"{query}{site_string}{after_string}{search_pdf}"
+    if use_original_query:
+        query = str(og_query)
     params = {
        "q": query,
        "api_key": key,
@@ -1040,12 +1068,16 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     else:
         return []
     expected_res_length = max(num, 10)
-    if len(results) < 5:
+    if len(results) < expected_res_length:
         rjs = requests.get(url, params={"q": no_after_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location_2, "gl": gl_2}).json()
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": False, "location": location_2, "gl": gl_2}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": False, "location": location_3, "gl": gl_3}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
@@ -1057,7 +1089,7 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     import requests
 
@@ -1075,6 +1107,8 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
     site_string = ""
     og_query = query
     query = f"{query}{search_pdf}"
+    if use_original_query:
+        query = str(og_query)
     params = {
         "q": query,
         "api_key": key,
@@ -1093,6 +1127,10 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
         rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num - 10, 10), "no_cache": False, "engine": "google_scholar"}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": True, "engine": "google_scholar"}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
     results = [{k: r[k] for k in keys if k in r} for r in results]
     dedup_results = search_post_processing(pre_query, results, "gscholar", only_science_sites=only_science_sites, only_pdf=only_pdf)
@@ -1102,7 +1140,7 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True):
+def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     import requests
 
@@ -1136,6 +1174,11 @@ def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, onl
     expected_res_length = max(num, 10)
     if len(results) < expected_res_length:
         rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num - 10, 10), "no_cache": False, "engine": "google_scholar"}).json()
+        if "organic_results" in rjs:
+            results.extend(["organic_results"])
+
+    if len(results) < expected_res_length:
+        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num , 10), "no_cache": True, "engine": "google_scholar"}).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
@@ -1794,9 +1837,13 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         pqs.extend(extra_queries)
     pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
     prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, pqs=pqs, n_query=n_query)
-    if (len(extra_queries) == 0) or (len(extra_queries) <= 1 and provide_detailed_answers >= 3):
+    year = int(datetime.now().strftime("%Y"))
+    month = datetime.now().strftime("%B")
+    num_res = 10
+    use_original_query = False
+    if (len(extra_queries) == 0) or (len(extra_queries) <= 1 and provide_detailed_answers >= 2):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
-        query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
+        query_strings = CallLLm(api_keys, use_gpt4=False, model_name="gpt-4o")(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
         query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
@@ -1810,27 +1857,31 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
         query_strings = (query_strings if len(extra_queries) == 0 else query_strings[:1]) + extra_queries
+
+        for i, q in enumerate(query_strings):
+            if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
+                continue
+            if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
+                q = q + f" in {year}"
+            elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
+                if i % 2 == 0:
+                    q = q + f" in {year} {month}"
+                else:
+                    q = q + f" in {year}"
+            query_strings[i] = q
     else:
         query_strings = extra_queries
-    year = int(datetime.now().strftime("%Y"))
-    month = datetime.now().strftime("%B")
-    for i, q in enumerate(query_strings):
-        if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
-            continue
-        if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
-            q = q + f" in {year}"
-        elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
-            if i % 2 == 0:
-                q = q + f" in {year} {month}"
-            else:
-                q = q + f" in {year}"
-        query_strings[i] = q
+        use_original_query = True
+    if len(query_strings) <= 2:
+        num_res = 20
+    if len(query_strings) == 1:
+        num_res = 40
 
     yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
     serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
     bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
     google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
-    num_res = 10
+
 
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
@@ -1844,7 +1895,13 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
             serps.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
-        if gscholar:
+        if gscholar and use_original_query:
+            serps.extend([get_async_future(brightdata_google_serp, f" research paper for {query}",
+                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           our_datetime=year_month, only_pdf=None,
+                                           only_science_sites=None) for ix, query in
+                          enumerate(query_strings)])
+        if gscholar and not use_original_query:
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year)}",
                                            os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1868,7 +1925,13 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         if not gscholar:
             serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
                                            only_pdf=None, only_science_sites=None) for query in query_strings])
-        if gscholar:
+        if gscholar and use_original_query:
+            serps.extend([get_async_future(serpapi, f" research paper for {query}",
+                                           api_keys["serpApiKey"], num_res,
+                                           our_datetime=year_month, only_pdf=None,
+                                           only_science_sites=None) for ix, query in
+                          enumerate(query_strings)])
+        if gscholar and not use_original_query:
             serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
                                            api_keys["serpApiKey"], num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
@@ -1899,8 +1962,15 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
                                            num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
                           query in query_strings])
-        if gscholar:
-            serps.extend([get_async_future(googleapi_v2, query + f" rese2arch paper in {year}",
+        if gscholar and use_original_query:
+            serps.extend([get_async_future(googleapi_v2, f" research paper for {query}",
+                                           dict(cx=api_keys["googleSearchCxId"],
+                                                api_key=api_keys["googleSearchApiKey"]), 10,
+                                           our_datetime=year_month, only_pdf=None,
+                                           only_science_sites=None) for ix, query in
+                          enumerate(query_strings)])
+        if gscholar and not use_original_query:
+            serps.extend([get_async_future(googleapi_v2, query + f" research paper in {year}",
                                            dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 0 else None,
                                            only_science_sites=True if ix % 2 == 1 else None) for ix, query in
@@ -1921,7 +1991,11 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         if not gscholar:
             serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None,
                                            only_pdf=None, only_science_sites=None) for query in query_strings])
-        if gscholar:
+        if gscholar and use_original_query:
+            serps.extend([get_async_future(bingapi, f"Research paper for {query}", api_keys["bingKey"], num_res, our_datetime=None,
+                                           only_pdf=True, only_science_sites=None) for query in
+                          query_strings])
+        if gscholar and not use_original_query:
             serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
                                            only_pdf=True, only_science_sites=None) for query in
                           query_strings])
@@ -1947,6 +2021,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     deduped_results = set()
     seen_titles = set()
     temp_queue = Queue()
+    result_context_emb_map = dict()
     # logger.error(f"Total number of queries = {len(query_strings)} and total serps = {len(serps)}")
     for ix, s in enumerate(as_completed(serps)):
         time_logger.info(f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result())> 0}")
@@ -1958,6 +2033,8 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
         if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
             for iqx, r in enumerate(s.result()):
+                if iqx > max(5, num_res//2):
+                    break
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
@@ -1968,7 +2045,23 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
                 result_context = context + ".\n" + query + "?\n"
-                _ = get_async_future(get_text_embedding, result_context, api_keys)
+                if result_context not in result_context_emb_map:
+                    result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
+                result_text = title + " " + link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
+                result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
+                try:
+                    if result_context not in result_context_emb_map:
+                        result_context_emb = result_context_emb_future.result()
+                        result_context_emb_map[result_context] = result_context_emb
+                    else:
+                        result_context_emb = result_context_emb_map[result_context]
+                    result_text_emb = result_text_emb_future.result()
+                    # numpy cosine similarity
+                    sim = np.dot(result_context_emb, result_text_emb) / (np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
+                    if sim < 0.35:
+                        continue
+                except Exception as e:
+                    continue
                 full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
                 if title in seen_titles or len(
                         title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
@@ -1991,6 +2084,78 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
 
                 deduped_results.add(link)
                 seen_titles.add(title)
+    for ix, s in enumerate(as_completed(serps)):
+        time_logger.info(
+            f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result()) > 0}")
+        if s.exception is not None:
+            try:
+                s.result()
+            except Exception as e:
+                traceback.print_exc()
+                logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
+        if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
+            for iqx, r in enumerate(s.result()):
+                if iqx <= max(5, num_res//2):
+                    continue
+                query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers",
+                                                                                        "").replace("research paper",
+                                                                                                    "").replace(
+                    "research papers", "").strip()
+                title = r.get("title", "").lower()
+                cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
+                title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
+                link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
+                    "v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8",
+                                                                                                              '').replace(
+                    "v9", '')
+                link = convert_to_pdf_link_if_needed(link)
+                result_context = context + ".\n" + query + "?\n"
+                if result_context not in result_context_emb_map:
+                    result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
+                result_text = title + " " + link.replace("https://", '').replace("http://", '').replace(".com",
+                                                                                                        '').replace(
+                    "www.", '').replace("/", ' ').replace("_", ' ').replace("-", ' ')
+                result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
+                try:
+                    if result_context not in result_context_emb_map:
+                        result_context_emb = result_context_emb_future.result()
+                        result_context_emb_map[result_context] = result_context_emb
+                    else:
+                        result_context_emb = result_context_emb_map[result_context]
+                    result_text_emb = result_text_emb_future.result()
+                    # numpy cosine similarity
+                    sim = np.dot(result_context_emb, result_text_emb) / (
+                                np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
+                    if sim < 0.35:
+                        continue
+                except Exception as e:
+                    continue
+                full_queue.append(
+                    {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+                     "rank": iqx})
+                if title in seen_titles or len(
+                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
+                    deduped_results.add(link)
+                    seen_titles.add(title)
+                    continue
+
+                if link not in deduped_results and title not in seen_titles and (
+                        len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or
+                        query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
+                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+                           "rank": iqx, "start_time": start_time}
+                    query_vs_results_count[query] += 1
+                    total_count += 1
+                    time_logger.info(
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {r['source']} n= {total_count}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
+                elif link not in deduped_results and title not in seen_titles:
+                    temp_queue.put(
+                        {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
+                         "rank": iqx, "start_time": start_time})
+
+                deduped_results.add(link)
+                seen_titles.add(title)
+
     while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 2) * 10):
         r = temp_queue.get()
         yield r
@@ -2031,12 +2196,16 @@ def get_part_1_results(part1_res):
     queries = next(part1_res)["query"]
     results = []
     end_result = None
+    query_yield_done = False
     for r in part1_res:
         if isinstance(r, dict) and r["type"] == "result" and len(results) <= 10:
             results.append(r)
         if len(results) == 10:
+            query_yield_done = True
             yield {"search_results": results, "queries": queries}
         if r["type"] == "end":
+            if not query_yield_done:
+                yield {"search_results": results, "queries": queries}
             end_result = r
 
             def deduplicate_and_sort(link_data):
@@ -2099,6 +2268,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
         return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     assert len(link.strip()) > 0, f"[process_link] Link is empty for title {title}"
+    # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": summary}, api_keys)
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed, "is_image": is_image}
 
 from concurrent.futures import ThreadPoolExecutor
@@ -2312,6 +2482,7 @@ def get_arxiv_pdf_link(link):
 
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, _, detailed = link_title_context_apikeys
+    assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
     st = time.time()
     # Reading PDF
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
@@ -2353,7 +2524,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                 if txt_len > 500:
                     result_from = "convert_api"
                     break
-        if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future.done() and pdf_text_future.exception() is None):
+        if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None):
             maybe_title, text = get_arxiv_pdf_link_future.result()
             if isinstance(maybe_title, str) and len(maybe_title.strip()) > 0:
                 title = maybe_title
@@ -2395,6 +2566,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     txt_len = len(txt.strip().split())
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
+    assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
@@ -2436,6 +2608,7 @@ def read_pdf_simple(link: str) -> str:
     txt_len = len(txt.strip().split())
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
+    assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
     return txt
 
 
@@ -2460,11 +2633,15 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
 def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
     pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name)
     title = pgc["title"]
     text = pgc["text"]
     assert len(text.strip().split()) > 100, f"Extracted Web text is too short for link: {link}"
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
+    assert not title.lower().strip().startswith("Page not found".lower())
+    assert not title.lower().strip().startswith("Not found (404)".lower())
+    assert semantic_validation_web_page_scrape(context, dict(**pgc), api_keys)
     time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 

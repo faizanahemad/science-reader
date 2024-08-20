@@ -551,7 +551,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
 
 import threading
 import time
-ZENROW_PARALLELISM = 10
+ZENROW_PARALLELISM = 20
 zenrows_semaphore = threading.Semaphore(ZENROW_PARALLELISM)
 
 def send_request_zenrows_html(url, apikey, readability=True, js_render=True, clean_parse=False):
@@ -802,6 +802,7 @@ def post_process_web_page_scrape(link, result_from, result, st):
         raise ScrapingValidityException(f"[ALL_FAILED] None succeeded in time. No result for {link} from {result_from}")
     result["text"] = remove_bad_whitespaces_easy(normalize_whitespace(result["text"]))
     result["title"] = normalize_whitespace(result["title"])
+    result["link"] = link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
     if result["text"].strip() == DDOS_PROTECTION_STR:
         error_logger.error(
             f"[DDOS_PROTECTION] DDOS Protection for {link} from {result_from},  result len = {len(result['text'])} and result sample = {result['text'][:10]}")

@@ -19,6 +19,7 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/history\s+(\d+)/i, "enable_previous_messages");
     processCommand(/\/detailed\s+(\d+)/i, "provide_detailed_answers");
     processCommand(/\/scholar\b/i, "googleScholar", true);
+    processCommand(/\/search_exact\b/i, "search_exact", true);
     processCommand(/\/search\b/i, "perform_web_search", true);
     processCommand(/\/more\b/i, "tell_me_more", true);
     processCommand(/\/execute\b/i, "execute", true);

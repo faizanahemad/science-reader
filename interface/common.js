@@ -709,6 +709,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `${parentElementId}-${type}-perform-web-search-checkbox`,
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
         `${parentElementId}-${type}-tell-me-more-checkbox`,
+        `${parentElementId}-${type}-search-exact`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     var checkboxOneText = type === "assistant" ? "Scholar" : "References and Citations";
@@ -723,8 +724,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
 
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
@@ -811,22 +813,31 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>  
-                <option>Claude Sonnet 3.5</option> 
-                
+                <option>Claude Opus</option>
                 <option>gpt-4-32k</option>
-                <option>Claude Opus</option> 
-                <option>Gemini 1.5</option>
-                <option>gpt-4-0314</option>
-                <option>gpt-4-32k-0314</option>
-                <option>gpt-4o</option>
-                <option>Jamba</option>
-                <option>llama-3.1-70b</option>
+                <option>Claude Sonnet 3.5</option> 
                 <option>llama-3.1-405b</option>
-                <!-- option>cohere/command-r-plus</option -->
+                <option>Command-r+</option>
+                
+                
+                 
+                <!-- option>Gemini 1.5</option -->
+                <!-- option>gpt-4-0314</option -->
+                <!-- option>gpt-4-32k-0314</option -->
+                <option>Hermes llama-3.1-405b</option>
+                <option>deepseek/deepseek-coder</option>
+                <option>PPX 70B Online</option>
+                <option>Yi Large</option>
+                <option>gpt-4o</option>
+                <!-- option>Jamba</option -->
+                <!-- option>llama-3.1-70b</option -->
+                
+                
+                
                 
                 
                 <!-- option>DeepSeek-V2 Chat</option -->
-                <option>deepseek/deepseek-coder</option>
+                
                 <!-- option>Mistral Large</option -->
                 
                 <option>Qwen 2</option>
@@ -947,6 +958,7 @@ function getOptions(parentElementId, type) {
         tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked'),
         use_memory_pad: $('#use_memory_pad').is(':checked'),
         enable_planner: $('#enable_planner').is(':checked'),
+        search_exact: $(`#${parentElementId}-${type}-search-exact`).is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
@@ -973,6 +985,7 @@ function resetOptions(parentElementId, type) {
     $(type === "assistant" ? `${parentElementId}-${type}-use-google-scholar` : `${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
+    // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
 
 
     var searchBox = $(`#${parentElementId}-${type}-search-box`);
@@ -993,6 +1006,7 @@ function removeOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
+    $(`#${parentElementId}-${type}-search-exact`).parent().remove();
 
     $(`[id$="${type}-search-box"]`).remove();
     $(`[id$="${type}-document-tags"]`).remove();

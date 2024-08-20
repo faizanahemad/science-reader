@@ -1491,7 +1491,7 @@ Write the extracted information briefly and concisely below:
             model_name = "gpt-4-turbo"
         elif model_name == "gpt-4o":
             model_name = "gpt-4o"
-        elif model_name == "cohere/command-r-plus":
+        elif model_name == "Command-r+":
             model_name = "cohere/command-r-plus"
         elif model_name == "gpt-4-32k":
             model_name = "openai/gpt-4-32k"
@@ -1517,6 +1517,13 @@ Write the extracted information briefly and concisely below:
             model_name = "meta-llama/llama-3.1-70b-instruct"
         elif model_name == "llama-3.1-405b":
             model_name = "meta-llama/llama-3.1-405b-instruct"
+        elif model_name == "Hermes llama-3.1-405b":
+            model_name = "nousresearch/hermes-3-llama-3.1-405b"
+        elif model_name == "Yi Large":
+            model_name = "01-ai/yi-large"
+
+        elif model_name == "PPX 70B Online":
+            model_name = "perplexity/llama-3.1-sonar-large-128k-online"
 
         elif model_name == "Gemini 1.5":
             model_name = "google/gemini-pro-1.5"

@@ -469,7 +469,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
 
                 def get_additional_info():
                     llm = CallLLm(self.get_api_keys(),
-                                  model_name="gpt-4o-mini",
+                                  model_name="gpt-4o",
                                   use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
