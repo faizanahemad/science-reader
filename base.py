@@ -598,7 +598,7 @@ Only provide answer from the document given above.
             if doc_word_count <= TOKEN_LIMIT_FOR_NORMAL:
                 alternative_future = get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3.1-8b-instruct")
             else:
-                alternative_future = get_async_future(self.get_one, context_user_query, text_document)
+                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "anthropic/claude-3-haiku:beta")
             alt_source = "get_one"
         else:
             alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
@@ -816,6 +816,8 @@ def search_post_processing(query, results, source, only_science_sites=False, onl
         r['query'] = query
         _ = r.pop("rich_snippet", None)
         r['source'] = source
+        description = r.get("description", r.get("snippet", ""))
+        r["description"] = description
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
@@ -917,6 +919,7 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
         more_results_future = get_async_future(search_google, query, 20, start=20, gl="uk")
         # more_results_future = get_async_future(search_google, og_query, 20, start=20, gl="fr")
     results = search_google(query)
+    # title , description
     if len(results) < expected_res_length:
         results.extend(more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else [])
     if len(results) < expected_res_length:
@@ -971,6 +974,7 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
         more_results_future = get_async_future(google_search, query, cse_id, google_api_key, num=20, filter=1, start=20)
     # Perform initial search
     initial_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
+    # title snippet
     if initial_results:
         results.extend(initial_results)
 
@@ -1826,7 +1830,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     if extra_queries is None:
         extra_queries = []
     n_query = "two" if previous_search_results or len(extra_queries) > 0 else "four"
-    n_query = n_query if provide_detailed_answers >= 3 else "two"
+    n_query = n_query if provide_detailed_answers >= 3 else "four"
     n_query_num = 4
     pqs = []
     if previous_search_results:
@@ -1857,18 +1861,18 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
         query_strings = (query_strings if len(extra_queries) == 0 else query_strings[:1]) + extra_queries
-
-        for i, q in enumerate(query_strings):
-            if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
-                continue
-            if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
-                q = q + f" in {year}"
-            elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
-                if i % 2 == 0:
-                    q = q + f" in {year} {month}"
-                else:
+        if (len(extra_queries) == 0):
+            for i, q in enumerate(query_strings):
+                if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
+                    continue
+                if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
                     q = q + f" in {year}"
-            query_strings[i] = q
+                elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
+                    if i % 2 == 0:
+                        q = q + f" in {year} {month}"
+                    else:
+                        q = q + f" in {year}"
+                query_strings[i] = q
     else:
         query_strings = extra_queries
         use_original_query = True
@@ -2037,6 +2041,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     break
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
+                description = r.get("description", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
                 link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
@@ -2044,10 +2049,16 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                                                                                               '').replace(
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
+                if title in seen_titles or len(
+                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
+                    deduped_results.add(link)
+                    seen_titles.add(title)
+                    continue
                 result_context = context + ".\n" + query + "?\n"
                 if result_context not in result_context_emb_map:
                     result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
-                result_text = title + " " + link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
+                result_text = title + "\n" + description + "\nLink Url: " + link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
+                assert len(description.split()) > 0, "Link Description is empty"
                 result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
                 try:
                     if result_context not in result_context_emb_map:
@@ -2058,16 +2069,12 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     result_text_emb = result_text_emb_future.result()
                     # numpy cosine similarity
                     sim = np.dot(result_context_emb, result_text_emb) / (np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
-                    if sim < 0.35:
+                    if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
                         continue
                 except Exception as e:
                     continue
                 full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
-                if title in seen_titles or len(
-                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
-                    deduped_results.add(link)
-                    seen_titles.add(title)
-                    continue
+
 
                 if link not in deduped_results and title not in seen_titles and (
                         len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
@@ -2102,6 +2109,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                                                                                     "").replace(
                     "research papers", "").strip()
                 title = r.get("title", "").lower()
+                description = r.get("description", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
                 link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
@@ -2109,12 +2117,18 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                                                                                                               '').replace(
                     "v9", '')
                 link = convert_to_pdf_link_if_needed(link)
+                if title in seen_titles or len(
+                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
+                    deduped_results.add(link)
+                    seen_titles.add(title)
+                    continue
                 result_context = context + ".\n" + query + "?\n"
                 if result_context not in result_context_emb_map:
                     result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
-                result_text = title + " " + link.replace("https://", '').replace("http://", '').replace(".com",
+                result_text = title + "\n" + description + "\nLink Url: " + link.replace("https://", '').replace("http://", '').replace(".com",
                                                                                                         '').replace(
                     "www.", '').replace("/", ' ').replace("_", ' ').replace("-", ' ')
+                assert len(description.split()) > 0, "Link Description is empty"
                 result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
                 try:
                     if result_context not in result_context_emb_map:
@@ -2126,18 +2140,14 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     # numpy cosine similarity
                     sim = np.dot(result_context_emb, result_text_emb) / (
                                 np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
-                    if sim < 0.35:
+                    if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
                         continue
                 except Exception as e:
                     continue
                 full_queue.append(
                     {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
                      "rank": iqx})
-                if title in seen_titles or len(
-                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
-                    deduped_results.add(link)
-                    seen_titles.add(title)
-                    continue
+
 
                 if link not in deduped_results and title not in seen_titles and (
                         len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or
@@ -2163,7 +2173,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         time_logger.debug(
             f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
         query_vs_results_count[r.get("query", "")] += 1
-    time_logger.info(f"Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
+    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 
@@ -2566,7 +2576,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     txt_len = len(txt.strip().split())
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
-    assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
+    # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
@@ -2641,7 +2651,7 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
     assert not title.lower().strip().startswith("Page not found".lower())
     assert not title.lower().strip().startswith("Not found (404)".lower())
-    assert semantic_validation_web_page_scrape(context, dict(**pgc), api_keys)
+    # assert semantic_validation_web_page_scrape(context, dict(**pgc), api_keys)
     time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
     return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
 
