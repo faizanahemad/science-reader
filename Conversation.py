@@ -693,9 +693,9 @@ Write the extracted information briefly and concisely below:
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "No Code Exec" in preamble_options:
-            preamble += "\nDon't execute any code unless user explicitly asks to.\n"
+            preamble += "\nDon't execute any code. Don't write '# execute_code'.\n"
         if "Long reply" in preamble_options:
-            preamble += "\nAnswer like a PhD scholar. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
+            preamble += "\nAnswer like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
         if "Short references" in preamble_options and web_search_or_document_read:
@@ -1522,8 +1522,8 @@ Write the extracted information briefly and concisely below:
         elif model_name == "Yi Large":
             model_name = "01-ai/yi-large"
 
-        elif model_name == "PPX 70B Online":
-            model_name = "perplexity/llama-3.1-sonar-large-128k-online"
+        elif model_name == "PPX 405B Online":
+            model_name = "perplexity/llama-3.1-sonar-huge-128k-online"
 
         elif model_name == "Gemini 1.5":
             model_name = "google/gemini-pro-1.5"
