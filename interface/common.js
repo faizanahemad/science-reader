@@ -795,6 +795,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>no format</option>
                 <option>no ai</option>
                 <option selected>No Code Exec</option>
+                <option>Code Exec</option>
                 <option>Easy Copy</option>
                 <option>Short reply</option>
                 <option>Long reply</option>
@@ -830,7 +831,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>PPX 405B Online</option>
                 <option>Yi Large</option>
                 <option>gpt-4o</option>
-                <!-- option>Jamba</option -->
+                <option>Jamba</option>
                 <!-- option>llama-3.1-70b</option -->
                 
                 

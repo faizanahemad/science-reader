@@ -289,22 +289,40 @@ Cover the below points while answering and also add other necessary points as ne
 
     @property
     def coding_prompt(self):
+        other_unused_instructions = """
+- When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
+- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute_code".
+- Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments.
+- Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
+- Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
+- Do not delete any files.
+- Do not use any other libraries other than the ones mentioned above. 
+- Code in python and write code in a single cell for code execution tasks.
+- Code which doesn't need to be executed or can't be executed within our env should not have "# execute_code" in the first line.
+- but ensure that it is safe code that does not delete files or have side effects.
+- Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
+        """
         rules = """
 ## Rules for writing code (especially code that needs to be executed and run) and making diagrams, designs and plots are given below inside <executable_code_and_diagramming_rules> </executable_code_and_diagramming_rules> tags.
 <executable_code_and_diagramming_rules>
-- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block. Only execute code when asked to execute code.
-- Write python code that needs to be executed only inside triple ticks (```)  write the first line of code as '# execute_code'. We can only execute python code.
-- Write executable code in case user asks to test already written code, but ensure that it is safe code that does not delete files or have side effects. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
-- When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
-- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute_code". Write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state.
-- Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments. 
+
+**Coding Instructions**
+- Only execute code when user explicitly asked to execute code.
+- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block.  
+- Write python code that needs to be executed only inside triple ticks (```)  write the first line of code that we can execute as '# execute_code'. We can only execute python code.
+- Write executable code in case user asks to test already written code which was executable. 
+- Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
+- When writing executable code, write full and complete executable code within each code block even within same message since our code environment is stateless and does not store any variables or previous code/state. 
 - You are allowed to read files from the input directory {input_directory} and write files to the output directory {output_directory}. You can also read files from the output directory {output_directory}.
 - If you need to download a file from the internet, you can download it to the output directory {output_directory} and then read it in your python code, make sure to mention the file name in comments before you download and store. 
-- If asked to read files, only read these filenames from the input directory: {input_files}.
+- If asked to read files, only read these filenames from the input directory in our coding environment: {input_files}. This is the only list of files we have for code execution.
 - You can use only the following libraries: pandas, numpy, scipy, matplotlib, seaborn, scikit-learn, networkx, pydot, requests, beautifulsoup etc.
 - Files like csv, xlsx, xls, tsv, parquet, json, jsonl are data files and can be used in python for data analysis, xls and xlsx can be read with `openpyxl` and pandas and have multiple sheets so analysing xls, xlsx would require looking at all sheets.
 - Some numeric columns may be strings in data files where numbers are separated by commas for readability, convert to string column using pandas `df[column_name].astype(str)` then remove commas, then convert them to numeric data before using them.
+- Don't execute code unless we have all the files, folders and dependencies in our code environment. Just write the code simply and let user copy-paste and run it. 
+- Only execute code when user told to execute code. 
 
+**Diagramming and Plotting Instructions**
 - Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 - You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
@@ -312,20 +330,17 @@ Cover the below points while answering and also add other necessary points as ne
 - Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
 - Make high quality plots with clear and extensive labels and explanations. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
 
-- Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
-- Code in python and write code in a single cell for code execution tasks.
+**More Coding Instructions**
 - Write full and complete executable code since our code environment is stateless and does not store any variables or previous code/state.
 - You are allowed to write output to stdout or to a file (in case of larger csv output) with filename prefix as {file_prefix}.
 - Convert all pandas dataframe data to pure numpy explicitly before using libraries like scikit-learn, matplotlib and seaborn plotting. Remember to convert the data to numpy array explicitly before plotting.
-- Remember to write python code that needs to be executed with first line comment as '# execute_code'. We can only execute python code. Write intermediate print statements for executable code to show the intermediate output of the code and help in debugging.
+- Remember to write python code that needs to be executed with first line comment as '# execute_code'. We can only execute python code.
 - Ensure that all data is converted to numpy array explicitly before plotting in python. Convert DataFrame columns to numpy arrays for plotting.
 - Allowed to read csv, excel, parquet, tsv only.
-- Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.
-- Do not delete any files.
-- Do not use any other libraries other than the ones mentioned above.
+- Only execute code when asked to execute code. Code which doesn't need to be executed or can't be executed within our env should not have "# execute_code" in the first line.
 </executable_code_and_diagramming_rules>
 
-If any pandas data files are given in input folder then their corresponding preview content is given below.
+If any pandas data files are given in input folder (our coding environment) then their corresponding preview content is given below.
 ```plaintext
 {input_files_preview}
 ```

@@ -560,8 +560,12 @@ Your response will be in below xml style format:
 
     def __call__(self, query):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
-        for txt in self.reply(query):
-            yield json.dumps(txt)+"\n"
+        try:
+            for txt in self.reply(query):
+                yield json.dumps(txt)+"\n"
+        except:
+            for txt in self.reply(query):
+                yield json.dumps(txt)+"\n"
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True):
         messageText = query["messageText"]
@@ -693,7 +697,9 @@ Write the extracted information briefly and concisely below:
         if "Short reply" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "No Code Exec" in preamble_options:
-            preamble += "\nDon't execute any code. Don't write '# execute_code'.\n"
+            preamble += "\nDon't execute any code unless explicitly asked to. Don't write '# execute_code'.\n"
+        if "Code Exec" in preamble_options:
+            preamble += "\nExecute the code and provide the output. Write '# execute_code' before the code block in a comment.\n"
         if "Long reply" in preamble_options:
             preamble += "\nAnswer like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
         if "CoT" in preamble_options:
@@ -809,7 +815,7 @@ Write the extracted information briefly and concisely below:
                                                     input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
                                                                      zip(attached_docs_data, attached_docs_data_names)]),
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
-        return coding_rules, prefix # if need_diagram or code_execution else ""
+        return coding_rules if code_execution else "", prefix # if need_diagram or code_execution else ""
 
     def reply(self, query):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
@@ -1018,7 +1024,8 @@ Write the extracted information briefly and concisely below:
         query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
             attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
-        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"], code_execution=checkboxes["code_execution"])
+        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
         if prev_attached_docs is not None:
@@ -1084,7 +1091,7 @@ Write the extracted information briefly and concisely below:
                                           dont_join_answers=False)
         web_text = ''
 
-        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+
         if provide_detailed_answers >= 3 and "Short reply" not in preambles:
             preambles.append("Long reply")
         preamble = self.get_preamble(preambles,
@@ -1512,7 +1519,7 @@ Write the extracted information briefly and concisely below:
         elif model_name == "Qwen 2":
             model_name = "qwen/qwen-2-72b-instruct"
         elif model_name == "Jamba":
-            model_name = "ai21/jamba-instruct"
+            model_name = "ai21/jamba-1-5-large"
         elif model_name == "llama-3.1-70b":
             model_name = "meta-llama/llama-3.1-70b-instruct"
         elif model_name == "llama-3.1-405b":

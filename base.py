@@ -159,18 +159,24 @@ def call_chat_model(model, text, images, temperature, system, keys):
     extras_2 = dict(stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
-    messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [
-                {"type": "text", "text": text},
-                *[{
-                    "type": "image_url",
-                    "image_url": {
-                        "url": base64_image
-                    }
-                } for base64_image in images]
-            ]},
-        ]
+    if len(images) > 0:
+        messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": [
+                    {"type": "text", "text": text},
+                    *[{
+                        "type": "image_url",
+                        "image_url": {
+                            "url": base64_image
+                        }
+                    } for base64_image in images]
+                ]},
+            ]
+    else:
+        messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": text},
+            ]
 
     response = client.chat.completions.create(
         model=model,
