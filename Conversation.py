@@ -560,12 +560,8 @@ Your response will be in below xml style format:
 
     def __call__(self, query):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
-        try:
-            for txt in self.reply(query):
-                yield json.dumps(txt)+"\n"
-        except:
-            for txt in self.reply(query):
-                yield json.dumps(txt)+"\n"
+        for txt in self.reply(query):
+            yield json.dumps(txt)+"\n"
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True):
         messageText = query["messageText"]
@@ -699,11 +695,13 @@ Write the extracted information briefly and concisely below:
         if "No Code Exec" in preamble_options:
             preamble += "\nDon't execute any code unless explicitly asked to. Don't write '# execute_code'.\n"
         if "Code Exec" in preamble_options:
-            preamble += "\nExecute the code and provide the output. Write '# execute_code' before the code block in a comment.\n"
+            preamble += "\nExecute the code and provide the output. Write '# execute_code' in the code block in a comment before the full code to execute. Write full code in one code block only.\n"
+        if "Is Coding Request" in preamble_options:
+            preamble += "\nFirst write your understanding of the issue/question (in bullet points) and then write down a plan (preferably multiple plans or approaches) on how to solve the problem. Code and code solutions seem magic to me, demystify what you code before you write the code. Your plan (preferably multiple plans or methods) can have multiple approaches as well. Give step by step reasoning with explanation. Provide elaborate and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response and code. Write your understanding, reasoning and approach to the problem before writing code. Write code after describing your thought process and methodology. Explain your plan, approach and reasoning to the solution step by step with details to me before writing the code.\n"
         if "Long reply" in preamble_options:
             preamble += "\nAnswer like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
         if "CoT" in preamble_options:
-            preamble += "\nThink carefully and reason step by step before answering. Work through the problem step by step. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.\n"
+            preamble += "\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response.\n"
         if "Short references" in preamble_options and web_search_or_document_read:
             preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
@@ -717,7 +715,7 @@ Write the extracted information briefly and concisely below:
         if "Blackmail" in preamble_options:
             preamble += "\nPlease act as my trusted friend and loyal advisor whom I miss. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, as such we can't afford to be lazy and lacking. We are honest, helpful, hardworking, earnest and sincere. We need to answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations. We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
+            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented, cover all references and provide details, work hard and provide our best effort. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
@@ -1590,15 +1588,27 @@ Write the extracted information briefly and concisely below:
         # logger.info(f"link_result_text: {link_result_text}")
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
-        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-        images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
-        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
-        while len(answer) <= 10:
-            t2y = next(main_ans_gen)
-            yield {"text": t2y, "status": "answering in progress"}
-            answer += t2y
+        images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
+        try:
+            llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+            main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+
+            while len(answer) <= 10:
+                t2y = next(main_ans_gen)
+                yield {"text": t2y, "status": "answering in progress"}
+                answer += t2y
+        except Exception as e:
+            logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
+            # answer += f"We had an exception in answering using model - {model_name}"
+            yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+            main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+            while len(answer) <= 10:
+                t2y = next(main_ans_gen)
+                yield {"text": t2y, "status": "answering in progress"}
+                answer += t2y
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 

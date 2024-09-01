@@ -156,7 +156,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
-    extras_2 = dict(stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
+    extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
     if len(images) > 0:
@@ -183,6 +183,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
         messages=messages,
         temperature=temperature,
         stream=True,
+        timeout=60,
         # max_tokens=300,
         **extras_2,
     )

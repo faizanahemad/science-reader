@@ -790,16 +790,17 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
+                <option>Is Coding Request</option>
+                <option>Short reply</option>
+                <option>Long reply</option>
+                <option>CoT</option>
                 <option>md format</option>
                 <option>better formatting</option>
                 <option>no format</option>
                 <option>no ai</option>
-                <option selected>No Code Exec</option>
+                <option>No Code Exec</option>
                 <option>Code Exec</option>
                 <option>Easy Copy</option>
-                <option>Short reply</option>
-                <option>Long reply</option>
-                <option>CoT</option>
                 <option>Short references</option>
                 <option>Latex Eqn</option>
                 <option>Explore</option>
@@ -816,17 +817,23 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="main-model-selector">
                 <option selected>gpt-4-turbo</option>  
                 <option>Claude Opus</option>
-                <option>gpt-4-32k</option>
-                <option>Claude Sonnet 3.5</option> 
                 <option>llama-3.1-405b</option>
+                <option>Claude Sonnet 3.5</option>
+                
                 <option>Command-r+</option>
+                
+                <option>gpt-4-32k</option>
+                <option>Hermes llama-3.1-405b</option>
+                 
+                
+                
                 
                 
                  
                 <!-- option>Gemini 1.5</option -->
                 <!-- option>gpt-4-0314</option -->
                 <!-- option>gpt-4-32k-0314</option -->
-                <option>Hermes llama-3.1-405b</option>
+                
                 <option>deepseek/deepseek-coder</option>
                 <option>PPX 405B Online</option>
                 <option>Yi Large</option>
