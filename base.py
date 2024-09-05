@@ -156,6 +156,8 @@ def call_chat_model(model, text, images, temperature, system, keys):
         rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
+    if not openrouter_used and model.startswith("openai/"):
+        model = model.replace("openai/", "")
     extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
@@ -178,30 +180,35 @@ def call_chat_model(model, text, images, temperature, system, keys):
                 {"role": "user", "content": text},
             ]
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        stream=True,
-        timeout=60,
-        # max_tokens=300,
-        **extras_2,
-    )
-    # yield response.choices[0].message.content
-    # return
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            stream=True,
+            timeout=60,
+            # max_tokens=300,
+            **extras_2,
+        )
+        # yield response.choices[0].message.content
+        # return
 
-    chunk = None
-    for chk in response:
-        chunk = chk.model_dump()
-        if "content" in chunk["choices"][0]["delta"]:
-            text_content = chunk["choices"][0]["delta"]["content"]
-            if isinstance(text_content, str):
-                yield text_content
-                if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
-                    rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
+        chunk = None
+        for chk in response:
+            chunk = chk.model_dump()
+            if "content" in chunk["choices"][0]["delta"]:
+                text_content = chunk["choices"][0]["delta"]["content"]
+                if isinstance(text_content, str):
+                    yield text_content
+                    if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
+                        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
 
-    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
-        yield "\n Output truncated due to lack of context Length."
+        if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
+            yield "\n Output truncated due to lack of context Length."
+    except Exception as e:
+        logger.error(f"[call_chat_model]: Error in calling chat model {model} with error {str(e)}")
+        traceback.print_exc(limit=4)
+        raise e
 
 def call_chat_model_old(model, text, temperature, system, keys):
     api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
@@ -288,19 +295,23 @@ class CallLLm:
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-        streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, images, temperature, system, self.keys)
-        if "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name:
+
+        if "google/gemini-flash-1.5" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 400_000
+        elif "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
         elif "mistralai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 26000
         elif "claude-3" in self.model_name:
             assert get_gpt3_word_count(system + text) < 140_000
         elif "anthropic" in self.model_name:
-            assert get_gpt3_word_count(system + text) < 80_000
-        elif "openai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
+        elif "openai" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 120_000
         else:
-            assert get_gpt3_word_count(system + text) < 14000
+            assert get_gpt3_word_count(system + text) < 32000
+        streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, images, temperature,
+                                              system, self.keys)
         return streaming_solution
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(0))
@@ -497,8 +508,8 @@ Only provide answer from the document given above.
 """
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
-    def get_one(self, context, document, model_name="google/gemini-pro"):
-        document = " ".join(document.split()[:64_000])
+    def get_one(self, context, document, model_name="google/gemini-pro", limit=64_000):
+        document = " ".join(document.split()[:limit])
         prompt = self.prompt.format(context=context, document=document)
         try:
             llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
@@ -511,46 +522,17 @@ Only provide answer from the document given above.
         return result
 
     def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
-        if retriever is None:
-            openai_embed = get_embedding_model(self.keys)
-            def get_doc_embeds(document):
-                document = document.strip()
-                ds = document.split()
-                document = " ".join(ds[:256_000])
-                wc = len(ds)
-                if wc < 8000:
-                    chunk_size = 512
-                elif wc < 16000:
-                    chunk_size = 1024
-                elif wc < 32000:
-                    chunk_size = 2048
-                else:
-                    chunk_size = 4096
-                chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=64)
-                doc_embeds = openai_embed.embed_documents(chunks)
-                return chunks, chunk_size, np.array(doc_embeds)
-            doc_em_future = get_async_future(get_doc_embeds, document)
-            query_em_future = get_async_future(get_text_embedding, context, self.keys)
-            chunks, chunk_size, doc_embedding = doc_em_future.result()
-            query_embedding = query_em_future.result()
-            # doc embeddins is 2D but query embedding is 1D, we want to find the closest chunk to query embedding by cosine similarity
-            scores = np.dot(doc_embedding, query_embedding)
-            sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
-            top_chunks = sorted_chunks[:8]
-            top_chunks_text = ""
-            for idx, tc in enumerate(top_chunks):
-                top_chunks_text += f"Retrieved relevant text chunk {idx+1}:\n{tc[0]}\n\n"
-            top_chunks = top_chunks_text
-            fragments_text = f"Fragments of document relevant to the query are given below.\n\n{top_chunks}\n\n"
-        else:
-            fragments_text = retriever(document, 16_000)
+        fragments_text = self.get_relevant_text(context, document, retriever)
         prompt = self.prompt.format(context=context, document=fragments_text)
-        callLLm = CallLLm(self.keys, model_name="meta-llama/llama-3.1-8b-instruct")
-        result = callLLm(prompt, temperature=0.4, stream=False)
+        result = join_two_futures(get_async_future(CallLLm(self.keys, model_name="google/gemini-flash-1.5"), prompt, temperature=0.4, stream=False),
+                                  get_async_future(CallLLm(self.keys, model_name="openai/gpt-4o-mini"), prompt, temperature=0.4, stream=False)
+                                  )
+
+        result = sleep_and_get_future_result(result)
         assert isinstance(result, str)
         return result
 
-    def get_one_fast(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
+    def get_relevant_text(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
         if retriever is None:
             document = document.strip()
             len_doc = len(document.split())
@@ -558,11 +540,13 @@ Only provide answer from the document given above.
                 return document
             openai_embed = get_embedding_model(self.keys)
             def get_doc_embeds(document, len_doc):
-                chunk_size = 512 if len_doc < 8000 else 1024 if len_doc < 16000 else 1536 if len_doc < 32000 else 2048
+                chunk_size = 768 if len_doc < 8000 else 1280 if len_doc < 16000 else 1536 if len_doc < 32000 else 2048
                 ds = document.split()
-                document = " ".join(ds[:256_000])
+                document = " ".join(ds[:156_000])
                 st_chnk = time.time()
                 chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=64) # ChunkTextSentences
+                if len(chunks) > 128:
+                    chunks = chunks[:128]
                 et_chnk = time.time()
                 # time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk - st_chnk):.2f} seconds and doc len = {len_doc} and num chunks = {len(chunks)}")
                 doc_embeds = openai_embed.embed_documents(chunks)
@@ -574,10 +558,10 @@ Only provide answer from the document given above.
             doc_em_future = get_async_future(get_doc_embeds, document, len_doc)
             # query_em_future = get_async_future(openai_embed.embed_query, context)
             query_em_future = get_async_future(get_text_embedding, context, self.keys)
-            chunks, chunk_size, doc_embedding = doc_em_future.result()
+            chunks, chunk_size, doc_embedding = sleep_and_get_future_result(doc_em_future)
             doc_em_time = time.time()-st
             # query_embedding = np.array(query_em_future.result())
-            query_embedding = query_em_future.result()
+            query_embedding = sleep_and_get_future_result(query_em_future)
             time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f}, doc em time = {doc_em_time:.2f} .")
             scores = np.dot(doc_embedding, query_embedding)
             sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
@@ -597,39 +581,17 @@ Only provide answer from the document given above.
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
+        global_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
+                                                   get_async_future(self.get_one, context_user_query, text_document, "openai/gpt-4o-mini"))
+
         if doc_word_count < 2048:
-            return text_document, get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3.1-8b-instruct")
-        main_future = get_async_future(self.get_one_fast, context_user_query, text_document, retriever)
-        alternative_future = None
-        if doc_word_count <= TOKEN_LIMIT_FOR_EXTRA_DETAILED:
-            if doc_word_count <= TOKEN_LIMIT_FOR_NORMAL:
-                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "meta-llama/llama-3.1-8b-instruct")
-            else:
-                alternative_future = get_async_future(self.get_one, context_user_query, text_document, "anthropic/claude-3-haiku:beta")
-            alt_source = "get_one"
-        else:
-            alternative_future = get_async_future(self.get_one_with_rag, context_user_query,
-                                              text_document, retriever)
-            alt_source = "get_one_with_rag"
-        # wait till at least one future is done or all of them error out. don't use api
-        while not main_future.done() and not alternative_future.done():
-            time.sleep(0.5)
+            return sleep_and_get_future_result(global_reading) + "\n\nFull Text:\n" + text_document, global_reading
+        elif doc_word_count < 8192:
+            return sleep_and_get_future_result(global_reading), global_reading
+        main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
+        main_future = join_two_futures(main_future, global_reading)
+        return sleep_and_get_future_result(main_future), main_future
 
-        if main_future.done() and main_future.exception() is None:
-            time_logger.info(f"[ContextualReader] Main future done with result len = {len(main_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
-            return main_future.result(), alternative_future
-
-        if alternative_future.done() and alternative_future.exception() is None:
-            time_logger.info(f"[ContextualReader] Alternative future done ({alt_source}) with result len = {len(alternative_future.result().split())} and doc len = {doc_word_count}, time = {time.time()-st:.2f} seconds")
-            return alternative_future.result(), alternative_future
-
-        if alternative_future.exception() is not None:
-            while not main_future.done():
-                time.sleep(0.5)
-            error_logger.info(f"[ContextualReader] Alternative future failed with exception = {alternative_future.exception()}, time = {time.time()-st:.2f} seconds")
-            return main_future.result(), wrap_in_future("NO_RESULT")
-
-        return "NO_RESULT", wrap_in_future("NO_RESULT")
 
 
 
@@ -1589,8 +1551,8 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         system, prompt = self.ocr_efficient_prompt(page_text)
         llm1_res = get_async_future(llm1, prompt, images=[image_file_path], system=system)
         llm2_res = get_async_future(llm2, prompt, images=[image_file_path], system=system)
-        llm1_res = llm1_res.result()
-        llm2_res = llm2_res.result()
+        llm1_res = sleep_and_get_future_result(llm1_res)
+        llm2_res = sleep_and_get_future_result(llm2_res)
 
         page_content_1 = llm1_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
         page_summary_1 = llm1_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
@@ -1628,7 +1590,7 @@ Write your corrected markdown content (using the image and pdf file text) and pa
             results = []
             for page_number, future in zip(pages, futures):
                 try:
-                    r = future.result()
+                    r = sleep_and_get_future_result(future)
                     results.append(r)
                 except Exception as e:
                     # Retry after sleep
@@ -2069,11 +2031,11 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
                 try:
                     if result_context not in result_context_emb_map:
-                        result_context_emb = result_context_emb_future.result()
+                        result_context_emb = sleep_and_get_future_result(result_context_emb_future)
                         result_context_emb_map[result_context] = result_context_emb
                     else:
                         result_context_emb = result_context_emb_map[result_context]
-                    result_text_emb = result_text_emb_future.result()
+                    result_text_emb = sleep_and_get_future_result(result_text_emb_future)
                     # numpy cosine similarity
                     sim = np.dot(result_context_emb, result_text_emb) / (np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
                     if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
@@ -2139,11 +2101,11 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
                 try:
                     if result_context not in result_context_emb_map:
-                        result_context_emb = result_context_emb_future.result()
+                        result_context_emb = sleep_and_get_future_result(result_context_emb_future)
                         result_context_emb_map[result_context] = result_context_emb
                     else:
                         result_context_emb = result_context_emb_map[result_context]
-                    result_text_emb = result_text_emb_future.result()
+                    result_text_emb = sleep_and_get_future_result(result_text_emb_future)
                     # numpy cosine similarity
                     sim = np.dot(result_context_emb, result_text_emb) / (
                                 np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
@@ -2278,7 +2240,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
                 more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
             summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
             if detailed >= 2:
-                more_summary = more_summary.result()["text"] if more_summary.exception() is None else ""
+                more_summary = sleep_and_get_future_result(more_summary)["text"] if sleep_and_get_future_exception(more_summary) is None else ""
                 summary = f"{summary}\n\n{more_summary}"
 
     except AssertionError as e:
@@ -2298,7 +2260,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     link = convert_to_pdf_link_if_needed(link)
     is_image_link_future = get_async_future(is_image_link, link)
     is_pdf = is_pdf_link(link)
-    is_image = is_image_link_future.result()
+    is_image = sleep_and_get_future_result(is_image_link_future)
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_image:
         llm = CallLLm(api_keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
@@ -2308,7 +2270,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         prompt = prompts.deep_caption_prompt_with_query(query=new_context)
         # prompt = f"You are an AI expert at reading images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. OCR the image, extract text, tables, data, charts or plot information or any other text and tell me what this image says. Then answer the query: {context}"
         answer = llm(prompt, images=[link], temperature=0.7, stream=False)
-        answer += ("\n" + doc_text_f1.result())
+        answer += ("\n" + sleep_and_get_future_result(doc_text_f1))
         answer = f"OCR (low accuracy) and image extraction results and answers: {answer}\n\n"
         result = {"link": link, "title": title, "text": answer, "exception": False, "full_text": answer, "is_pdf": False, "is_image": True}
     elif is_pdf:
@@ -2464,7 +2426,7 @@ def get_arxiv_pdf_link(link):
         if arxiv_request.status_code == 200:
             arxiv_text = arxiv_request.text
         else:
-            arxiv_request = arxiv_request_v2.result()
+            arxiv_request = sleep_and_get_future_result(arxiv_request_v2)
             arxiv_text = arxiv_request.text
         assert arxiv_request.status_code == 200 or arxiv_request_v2.status_code == 200, f"Error converting arxiv link {link} to ar5iv link with status code {arxiv_request.status_code}"
         arxiv_pdf_html_parse_start = time.time()
@@ -2759,7 +2721,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Use the executor to apply process_pdf to each tuple
     futures = [pdf_process_executor.submit(process_link, l_t_c_a, provide_detailed_answers and len(links) <= 4) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
-    processed_texts = [future.result() for future in futures]
+    processed_texts = [sleep_and_get_future_result(future) for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     # assert len(processed_texts) > 0
@@ -2829,7 +2791,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
     if not provide_raw_text or provide_detailed_answers >= 2:
         futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 2 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
-        answers = [future.result() for future in futures]
+        answers = [sleep_and_get_future_result(future) for future in futures]
         logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
         answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
 
@@ -2843,7 +2805,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
                                                    defaultdict(lambda: provide_detailed_answers, {
                                                        "provide_detailed_answers": 2}),
                                                    False) for doc in additional_docs]
-            answers_stage_2 = [future.result() for future in futures]
+            answers_stage_2 = [sleep_and_get_future_result(future) for future in futures]
             answers_stage_2 = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in
                        zip(answers_stage_2, additional_docs)]
             answers = [{"link": doc.doc_source, "title": doc.title, "text": a1["text"] + "\n" + a2["text"]} for a1, a2, doc in zip(answers, answers_stage_2, additional_docs)]
@@ -2853,9 +2815,9 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
     if provide_raw_text:
         if provide_detailed_answers >= 2:
-            doc_search_results = [f.result() + "\n\n" + q.result() for f, q in zip(doc_search_results_futures, doc_search_results_small_futures)]
+            doc_search_results = [sleep_and_get_future_result(f) + "\n\n" + sleep_and_get_future_result(q) for f, q in zip(doc_search_results_futures, doc_search_results_small_futures)]
         else:
-            doc_search_results = [f.result() for f in doc_search_results_futures]
+            doc_search_results = [sleep_and_get_future_result(f) for f in doc_search_results_futures]
         logger.info(
             f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
 

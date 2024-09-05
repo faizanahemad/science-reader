@@ -22,8 +22,8 @@ from functools import partial
 
 from tenacity import RetryError
 FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
-SMALL_CHUNK_LEN = 256
-LARGE_CHUNK_LEN = 4096
+SMALL_CHUNK_LEN = 386
+LARGE_CHUNK_LEN = 6144
 TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
 TOKEN_LIMIT_FOR_EXTRA_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_EXTRA_DETAILED", 25000))
 TOKEN_LIMIT_FOR_SUPER_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_SUPER_DETAILED", 50000))
@@ -170,6 +170,45 @@ def wrap_in_future(s):
     future = Future()
     future.set_result(s)
     return future
+
+def join_two_futures(future1, future2, dtype=str, join_method=lambda x, y: str(x) + "\n\n" + str(y)):
+    def fn(future1, future2, join_method):
+        while not future1.done() or not future2.done():
+            time.sleep(0.1)
+        while not future1.done():
+            time.sleep(0.1)
+        while not future2.done():
+            time.sleep(0.1)
+
+        f1_fail = future1.exception()
+        f2_fail = future2.exception()
+        try:
+            f1 = future1.result()
+        except Exception as e:
+            traceback.print_exc()
+            f1 = dtype()
+        try:
+            f2 = future2.result()
+        except Exception as e:
+            traceback.print_exc()
+            f2 = dtype()
+
+        if f1_fail is not None and f2_fail is not None:
+            raise Exception(f"Both futures failed, future1: {f1_fail}, future2: {f2_fail}")
+
+        return join_method(f1, f2)
+    return get_async_future(fn, future1, future2, join_method)
+
+def sleep_and_get_future_result(future, sleep_time=0.2):
+    while not future.done():
+        time.sleep(sleep_time)
+    return future.result()
+
+def sleep_and_get_future_exception(future, sleep_time=0.2):
+    while not future.done():
+        time.sleep(sleep_time)
+    return future.exception()
+
 
 def execute_in_new_process(function, *args, **kwargs):
     logger.debug(f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
@@ -1415,6 +1454,8 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
     if isinstance(input_text, list):
         input_text = [text[:20000] for text in input_text]
         input_text = [" ".join(text.strip().split()[:4000]) for text in input_text]
+        input_text = [i.replace("'", " ") for i in input_text]
+        input_text = [i if len(i.strip()) > 0 else "<EMPTY STRING>" for i in input_text]
     else:
         input_text = input_text[:20000]
         input_text = " ".join(input_text.strip().split()[:4000])
@@ -1436,7 +1477,7 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
         return embeddings
     else:
         # Handle errors (e.g., invalid API key, rate limits, etc.)
-        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text: \n{input_text[:100]}")
+        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: {(len(input_text), len(input_text.split()))}")
         raise Exception(f"Failed to fetch embedding(s): {response.text}")
 
 
@@ -1470,7 +1511,7 @@ class OpenAIEmbeddingsParallel:
             futures = []
             for i in range(0, len(texts), 8):
                 futures.append(embed_executor.submit(get_openai_embedding, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
-            results = [future.result() for future in futures]
+            results = [sleep_and_get_future_result(future) for future in futures]
             return [item for sublist in results for item in sublist]
         else:
             return get_openai_embedding(texts, model_name=self.model, api_key=self.openai_api_key)
@@ -1485,7 +1526,7 @@ def get_embedding_model(keys):
         return EmbeddingClient(keys["embeddingsUrl"])
     openai_key = keys["openAIKey"]
     assert openai_key
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=4000)
+    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=2000)
     return openai_embed
 
 
@@ -1757,8 +1798,8 @@ def semantic_validation_web_page_scrape(context, result, apikeys, threshold=0.3)
     chunks = [" ".join(chunk.strip().split()[:2048]) for chunk in chunks if len(chunk.strip().split()) > 2][:2]
     chunk_embeddings_future = [get_async_future(get_text_embedding, chunk, apikeys) for chunk in chunks]
     try:
-        chunk_embeddings = [future.result() for future in chunk_embeddings_future]
-        context_emb = context_emb_future.result()
+        chunk_embeddings = [sleep_and_get_future_result(future) for future in chunk_embeddings_future]
+        context_emb = sleep_and_get_future_result(context_emb_future)
         # dot product of context and chunk embeddings using numpy
         dot_products = [np.dot(context_emb, chunk_emb) / (np.linalg.norm(context_emb) * np.linalg.norm(chunk_emb)) for chunk_emb in chunk_embeddings]
         max_dot_product = max(dot_products)
@@ -1876,7 +1917,7 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
     ['This is a longer', 'longer example text to', 'text to demonstrate the', 'demonstrate the overlapping functionality.']
     """
     if separators is None:
-        separators = [' ', '\t', '\n', ',', ';', '. ', '!']
+        separators = ['                ', '            ', '           ', '          ', '        ','       ','      ', '    ', '   ','  ', ' ', '  ',  '\t\t\t', '\t\t\n', '\n\n\n', '\n\n\t', '\n\t\t', '\n\n','\t\t', '\n\t','\t\n',  '\t', '\n', ',', ';', '. ', '!']
     if chunk_overlap >= chunk_size:
         raise ValueError("chunk_overlap must be less than chunk_size")
     pattern = '(%s)' % '|'.join(map(re.escape, separators))

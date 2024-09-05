@@ -528,7 +528,7 @@ def fetch_content_brightdata(url, brightdata_proxy):
     result = None
     soup_html_parser_result = get_async_future(soup_html_parser, html)
     try:
-        soup_html_parser_result = soup_html_parser_result.result()
+        soup_html_parser_result = sleep_and_get_future_result(soup_html_parser_result)
     except Exception as e:
         soup_html_parser_result = None
         exc = traceback.format_exc()
@@ -627,6 +627,7 @@ def fetch_html(url, apikey=None, brightdata_proxy=None):
             soup_html_parser_result = soup_html_parser_result.result() if soup_html_parser_result.exception() is None else ''
             if soup_html_parser_result != '':
                 break
+        time.sleep(0.2)
 
     # if brightdata_proxy is not None and brightdata_scrape is not None:
     #     html = brightdata_scrape.result() if brightdata_scrape.exception() is None else ''
@@ -679,7 +680,8 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
     soup_html_parser_result_v2 = get_async_future(soup_html_parser_fast_v2, html)
     soup_html_parser_result_v3 = get_async_future(soup_html_parser_fast_v3, html)
 
-
+    while not any([result.done(), soup_html_parser_result.done(), soup_html_parser_result_v2.done(), soup_html_parser_result_v3.done()]):
+        time.sleep(0.2)
     for future in as_completed([result, soup_html_parser_result, soup_html_parser_result_v2, soup_html_parser_result_v3]):
         if future.done() and future.exception() is None:
             result = future.result()
@@ -843,6 +845,8 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         bright_data_result = get_async_future(send_request_for_webpage, link, apikeys['brightdataUrl'], zenrows_or_ant='brightdata', readability=False)
         scraping_futures_list.append(bright_data_result)
 
+    while not any([future.done() for future in scraping_futures_list]):
+        time.sleep(0.2)
     for future in as_completed(scraping_futures_list):
         if future.done() and future.exception() is None:
             result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"

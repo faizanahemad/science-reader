@@ -104,7 +104,14 @@ class DocIndex:
         # if parent folder of doc_source is not same as storage, then copy the doc_source to storage
         if self.is_local and os.path.dirname(os.path.expanduser(doc_source)) != os.path.expanduser(storage):
             # shutil.copy(doc_source, storage) # move not copy
-            shutil.move(doc_source, storage)
+            try:
+                shutil.move(doc_source, storage)
+                # Handle shutil.Error where file already exists
+            except shutil.Error as e:
+                # Replace the file in storage with the new one
+                shutil.copy(doc_source, storage)
+                doc_source = os.path.join(storage, os.path.basename(doc_source))
+
             doc_source = os.path.join(storage, os.path.basename(doc_source))
             self.doc_source = doc_source
         self.doc_source = doc_source
@@ -153,15 +160,15 @@ class DocIndex:
         time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
         self.set_api_keys(keys)
         def set_raw_index_small():
-            _ = set_title_summary_future.result()
+            _ = sleep_and_get_future_result(set_title_summary_future)
             brief_summary = self.title + "\n" + self.short_summary
             brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
             self._brief_summary = brief_summary
             text = self.brief_summary + doc_text
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
-            self._raw_index = raw_index_future.result()
-            self._raw_index_small = raw_index_small_future.result()
+            self._raw_index = sleep_and_get_future_result(raw_index_future)
+            self._raw_index_small = sleep_and_get_future_result(raw_index_small_future)
             time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
         set_raw_index_small()
 
@@ -473,8 +480,8 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
                                   use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
-                    init_add_info = additional_info_v0.result()
-                    return init_add_info + "\n\n" + ad_info.result()
+                    init_add_info = sleep_and_get_future_result(additional_info_v0)
+                    return init_add_info + "\n\n" + sleep_and_get_future_result(ad_info)
 
                 additional_info = get_async_future(get_additional_info)
             else:
@@ -496,13 +503,13 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
                     llm = CallLLm(self.get_api_keys(), model_name="gpt-4o" if detail_level >= 3 else "gpt-4o-mini", use_gpt4=False,
                                   use_16k=True)
                     ad_info = get_async_future(llm, prompt, temperature=0.8)
-                    init_add_info = additional_info_v1.result()
-                    return init_add_info + "\n\n" + ad_info.result()
+                    init_add_info = sleep_and_get_future_result(additional_info_v1)
+                    return init_add_info + "\n\n" + sleep_and_get_future_result(ad_info)
                 additional_info = get_async_future(get_additional_info)
 
         answer = ''
         if additional_info is not None:
-            additional_info = additional_info.result() if additional_info.exception() is None else ""
+            additional_info = sleep_and_get_future_result(additional_info) if additional_info.exception() is None else ""
             additional_info = remove_bad_whitespaces(additional_info)
             logger.info(f"streaming_get_short_answer:: Answered by {(time.time()-ent_time):4f}s for additional info with additional_info_len = {len(additional_info.split())}")
             for t in additional_info:
@@ -1043,7 +1050,7 @@ class ImageDocIndex(DocIndex):
         self.set_api_keys(keys)
 
         def set_raw_index_small():
-            _ = set_title_summary_future.result()
+            _ = sleep_and_get_future_result(set_title_summary_future)
             brief_summary = self.title + "\n" + self.short_summary
             brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
             self._brief_summary = brief_summary
@@ -1147,7 +1154,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
         while not doc_text_f1.done() or not doc_text_f2.done():
             time.sleep(1)
-        doc_text = "OCR and analysis from strong model:\n" + doc_text_f1.result() + "\nOCR and analysis from weak model:\n" + doc_text_f2.result()
+        doc_text = "OCR and analysis from strong model:\n" + sleep_and_get_future_result(doc_text_f1) + "\nOCR and analysis from weak model:\n" + sleep_and_get_future_result(doc_text_f2)
         is_image = True
         chunk_overlap = 0
     else:
@@ -1165,13 +1172,14 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     else:
         chunk_size = LARGE_CHUNK_LEN
     chunk_overlap = min(chunk_size//2, 128)
+    chunk_size = max(chunk_size, chunk_overlap*2)
     if not is_image:
         chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
         # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
         # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
-        chunks = chunks.result()
-        chunks_small = chunks_small.result()
+        chunks = sleep_and_get_future_result(chunks)
+        chunks_small = sleep_and_get_future_result(chunks_small)
     else:
         chunks = []
         chunks_small = []

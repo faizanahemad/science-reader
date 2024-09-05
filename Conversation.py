@@ -172,7 +172,7 @@ Compact list of bullet points:
                 else:
                     memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], ""), temperature=0.2, stream=False))
 
-            memory_parts = [mp.result() for mp in memory_parts_futures]
+            memory_parts = [sleep_and_get_future_result(mp) for mp in memory_parts_futures]
             memory_pad = "\n".join(memory_parts)
             memory_pad = re.sub(r'\n+', '\n', memory_pad)
             self.memory_pad = memory_pad
@@ -458,7 +458,7 @@ Compact list of bullet points:
         token_limit_long = 7500
         token_limit_very_long = 24000
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
-        memory, messages = [f.result() for f in futures]
+        memory, messages = [sleep_and_get_future_result(f) for f in futures]
         message_lookback = 2
         previous_messages_text = ""
         if len(past_message_ids) > 0:
@@ -538,7 +538,7 @@ Your response will be in below xml style format:
         if memory is None:
             memory = dict(running_summary=[])
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        summary = summary.result()
+        summary = sleep_and_get_future_result(summary)
         actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
         title = summary.split('</title>')[0].split('<title>')[-1]
         memory["running_summary"].append(actual_summary)
@@ -1180,11 +1180,11 @@ Write the extracted information briefly and concisely below:
                 if provide_detailed_answers == 1:
                     cut_off = 6
                 elif provide_detailed_answers == 2:
-                    cut_off = 10
+                    cut_off = 12
                 elif provide_detailed_answers == 3:
-                    cut_off = 14
+                    cut_off = 16
                 elif provide_detailed_answers == 4:
-                    cut_off = 18
+                    cut_off = 20
                 else:
                     cut_off = 6
                 query_results_part1 = search_results['search_results']
@@ -1213,8 +1213,8 @@ Write the extracted information briefly and concisely below:
                     return
                 full_web_string = ""
                 for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
-                    llm_text = llm_future_dict.result() if llm_future_dict.done() and \
-                                                           llm_future_dict.exception() is None else ""
+                    llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and \
+                                                           sleep_and_get_future_exception(llm_future_dict) is None else ""
                     wta = get_first_last_parts(wta, 200, 200)
                     llm_text = get_first_last_parts(llm_text, 200, 200)
                     web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
@@ -1306,8 +1306,8 @@ Write the extracted information briefly and concisely below:
                     return ""
                 full_web_string = ""
                 for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator[start:]):
-                    llm_text = llm_future_dict.result() if llm_future_dict.done() and \
-                                                                   llm_future_dict.exception() is None else ""
+                    llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and \
+                                                                   sleep_and_get_future_exception(llm_future_dict) is None else ""
                     web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
                     full_web_string = full_web_string + web_string + "\n\n"
                     if get_gpt4_word_count(full_web_string) > 24000:
@@ -1334,7 +1334,7 @@ Write the extracted information briefly and concisely below:
             if provide_detailed_answers >= 2:
                 second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
             third_four_summary = wrap_in_future("")
-            if provide_detailed_answers >= 4:
+            if provide_detailed_answers >= 3:
                 third_four_summary = get_async_future(get_first_few_result_summary, 8, 12)
             while True:
                 qu_wait = time.time()
@@ -1363,7 +1363,7 @@ Write the extracted information briefly and concisely below:
             # Sort the array in reverse order based on the word count
             try:
                 if re_search is not None:
-                    for re_search_yield in re_search.result():
+                    for re_search_yield in sleep_and_get_future_result(re_search):
                         if re_search_yield and isinstance(re_search_yield, dict):
                             yield re_search_yield
                             answer += re_search_yield["text"]
@@ -1381,8 +1381,12 @@ Write the extracted information briefly and concisely below:
             web_text_accumulator = list(filter(
                 lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
                     0].lower(), web_text_accumulator))
+            tt = time.time()
+            while time.time() - tt < 5 and any([not wta.done() for wta in [first_four_summary, second_four_summary]]):
+                time.sleep(0.5)
             if first_four_summary.done() and first_four_summary.exception() is None and first_four_summary.result().strip()!="":
                 web_text_accumulator.append((first_four_summary.result(), f"[Generated Answer from {1} to {4}](No Link)", first_four_summary))
+
             if second_four_summary.done() and second_four_summary.exception() is None and second_four_summary.result().strip()!="":
                 web_text_accumulator.append((second_four_summary.result(), f"[Generated Answer from {5} to {8}](No Link)", second_four_summary))
             if third_four_summary.done() and third_four_summary.exception() is None and third_four_summary.result().strip()!="":
@@ -1390,7 +1394,7 @@ Write the extracted information briefly and concisely below:
                     (third_four_summary.result(), f"[Generated Answer from {9} to {12}](No Link)", third_four_summary))
 
             for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
-                llm_text = llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else ""
+                llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and sleep_and_get_future_exception(llm_future_dict) is None else ""
                 web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
                 full_web_string = full_web_string + web_string + "\n\n"
                 if get_gpt4_word_count(full_web_string) > 36000:
