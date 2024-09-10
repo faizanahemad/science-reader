@@ -607,6 +607,10 @@ Only provide answer from the document given above.
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
         initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
                                                    get_async_future(self.get_one, context_user_query, text_document, "openai/gpt-4o-mini"), join_method)
+        if self.provide_short_responses:
+            result = sleep_and_get_future_result(initial_reading)
+            return result, initial_reading
+
         global_reading = None
         join_method = lambda x, y: "Details from both experts:\n<|experts|>\n" + str(
             x) + "\n<|/experts|>\n\n\nDetails from using an LLM to summarise and get information:\n<|LLM based summary|>\n" + str(
