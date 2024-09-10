@@ -135,7 +135,7 @@ The most recent message of the conversation sent by the user now to which we wil
 user's most recent message:
 <|user_message|>
 <most_recent_user_message>
-
+{{query}}
 </most_recent_user_message>
 <|/user_message|>
 

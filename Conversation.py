@@ -676,6 +676,28 @@ Write the extracted information briefly and concisely below:
     def max_time_to_wait_for_web_results(self):
         return MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
 
+    @property
+    def retrieval_based_preambles(self):
+        preamble_names = [
+            "no format",
+                          "Paper Summary",
+                          # "no ai",
+                          # "md format",
+                          # "better formatting",
+                          # "Easy Copy",
+                          "Short",
+                          # "No Code Exec",
+                          # "Code Exec",
+                          "Is Coding Request",
+                          "Long",
+                          # "CoT",
+                          # "Short references",
+                          "Latex Eqn",
+                          "Explore",
+            "Comparison",
+        ]
+        return preamble_names
+
     def get_preamble(self, preamble_options, field, web_search_or_document_read=False):
         preamble = ""
         if "no format" in preamble_options:
@@ -683,7 +705,9 @@ Write the extracted information briefly and concisely below:
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "Paper Summary" in preamble_options:
-            preamble += "\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose?) 3) Datasets used and experiments performed 4) Key Insights and findings gained 5) Results and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading.\n"
+            preamble += "\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose?). Write in detail about the Proposed Solutions/methods/approaches.  3) Datasets used and experiments performed 4) Key Insights and findings gained 5) Results and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.\n"
+        if "Comparison" in preamble_options:
+            preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
             preamble += "\nWrite the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language. Be a straight shooter.\n"
         if "md format" in preamble_options:
@@ -692,7 +716,7 @@ Write the extracted information briefly and concisely below:
             preamble += "\nUse markdown formatting. Use good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. When asked to compare or contrast use tables in markdown. Use tables to provide summarised information, comparisons and differences. Give good structure and hierarchy to your response.\n"
         if "Easy Copy" in preamble_options:
             preamble += "\nProvide the answer in a format that can be easily copied and pasted. Provide answer inside a code block so that I can copy it.\n"
-        if "Short reply" in preamble_options:
+        if "Short" in preamble_options:
             preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\n"
         if "No Code Exec" in preamble_options:
             preamble += "\nDon't execute any code unless explicitly asked to. Don't write '# execute_code'.\n"
@@ -700,8 +724,8 @@ Write the extracted information briefly and concisely below:
             preamble += "\nExecute the code and provide the output. Write '# execute_code' in the code block in a comment before the full code to execute. Write full code in one code block only.\n"
         if "Is Coding Request" in preamble_options:
             preamble += "\nFirst write your understanding of the issue/question (in bullet points) and then write down a plan (preferably multiple plans or approaches) on how to solve the problem. Code and code solutions seem magic to me, demystify what you code before you write the code. Your plan (preferably multiple plans or methods) can have multiple approaches as well. Give step by step reasoning with explanation. Provide elaborate and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response and code. Write your understanding, reasoning and approach to the problem before writing code. Write code after describing your thought process and methodology. Explain your plan, approach and reasoning to the solution step by step with details to me before writing the code.\n"
-        if "Long reply" in preamble_options:
-            preamble += "\nAnswer like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
+        if "Long" in preamble_options:
+            preamble += "\nAnswer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
         if "CoT" in preamble_options:
             preamble += "\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response.\n"
         if "Short references" in preamble_options and web_search_or_document_read:
@@ -715,7 +739,7 @@ Write the extracted information briefly and concisely below:
         if "Argumentative" in preamble_options:
             preamble += "\nProvide an argumentative answer which challenges the user's notions and thinking, gives an alternative view point. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a contrarian viewpoint. Present views that stimulate and contradict the views of the user. Be critical, cynic and stoic. We do this to present a different contrarian alternative viewpoint in a respectful manner.\n"
         if "Blackmail" in preamble_options:
-            preamble += "\nPlease act as my trusted friend and loyal advisor whom I miss. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $100 for correct answers, stimulating discussions and for putting an effort into helping me.\n"
+            preamble += "\nPlease act as my trusted friend, expert assistant and loyal advisor. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $500 for correct answers, stimulating discussions and for putting your effort into helping me. Think hard and carefully and try your best to solve my queries and provide me great answers.\n"
         if "No Lazy" in preamble_options:
             preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented, cover all references and provide details, work hard and provide our best effort. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
@@ -880,10 +904,19 @@ Write the extracted information briefly and concisely below:
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
         if provide_detailed_answers >= 3 and "Short reply" not in preambles:
-            preambles.append("Long reply")
-        if count_science_urls(query["messageText"]) > 0:
+            preambles.append("Long")
+        science_sites_count = count_science_urls(query["messageText"])
+        if science_sites_count > 0:
             preambles.append("Paper Summary")
-            preambles.append("Long reply")
+            preambles.append("Long")
+            preambles.append("Latex Eqn")
+
+
+        retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
+        retrieval_preambles = self.get_preamble(retrieval_preambles,
+                          checkboxes["field"] if "field" in checkboxes else None,)
+        if science_sites_count > 1:
+            preambles.append("Comparison")
 
         tell_me_more = False
         tell_me_more_msg_resp = None
@@ -934,7 +967,7 @@ Write the extracted information briefly and concisely below:
                                      perform_web_search or google_scholar or len(links) > 0 or len(
                                          attached_docs) > 0 or len(additional_docs_to_read) > 0)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
-        previous_context_and_preamble = "<|instruction|>" + preamble + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + previous_context + "<|/previous_context|>\n"
+        previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
             previous_message_config["link_context"] if tell_me_more else '')
         if len(links) > 0:
@@ -1516,7 +1549,7 @@ Write the extracted information briefly and concisely below:
         elif model_name == "gpt-4o":
             model_name = "gpt-4o"
         elif model_name == "Command-r+":
-            model_name = "cohere/command-r-plus"
+            model_name = "cohere/command-r-plus-08-2024"
         elif model_name == "gpt-4-32k":
             model_name = "openai/gpt-4-32k"
         elif model_name == "gpt-4-32k-0314":

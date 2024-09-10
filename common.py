@@ -171,7 +171,7 @@ def wrap_in_future(s):
     future.set_result(s)
     return future
 
-def join_two_futures(future1, future2, dtype=str, join_method=lambda x, y: str(x) + "\n\n" + str(y)):
+def join_two_futures(future1, future2, join_method=lambda x, y: str(x) + "\n\n" + str(y), dtype=str):
     def fn(future1, future2, join_method):
         while not future1.done() or not future2.done():
             time.sleep(0.1)

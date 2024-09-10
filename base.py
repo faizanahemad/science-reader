@@ -528,14 +528,15 @@ Only provide answer from the document given above.
     def get_one_chunked(self, context, document, model_name="google/gemini-flash-1.5", limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
         try:
             short_reading = get_async_future(self.get_one, "Provide a short summary", document,
-                                             model_name, 8_000)
+                                             model_name, 16_000)
             document = " ".join(document.split()[:limit])
             context = context + "\n\nShort summary of the document to help your reading is below." + sleep_and_get_future_result(short_reading)
             chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
             results = [get_async_future(self.get_one, context, c, model_name=model_name, limit=chunk_size*2) for c in chunks]
             results = [sleep_and_get_future_result(r) for r in results]
+            results = "\n".join(results)
             # concat all strings
-            return "\n".join(results)
+            return f"Short general summary of the document:\n{sleep_and_get_future_result(short_reading)}. Relevant information from the document is below:\n{results}"
         except Exception as e:
             traceback.print_exc()
             return f"Unable to read due to exception: {str(e)}."
@@ -543,8 +544,11 @@ Only provide answer from the document given above.
     def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         fragments_text = self.get_relevant_text(context, document, retriever)
         prompt = self.prompt.format(context=context, document=fragments_text)
+        join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
+            x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
+            y) + "\n<|/LLM_2|>"
         result = join_two_futures(get_async_future(CallLLm(self.keys, model_name="google/gemini-flash-1.5"), prompt, temperature=0.4, stream=False),
-                                  get_async_future(CallLLm(self.keys, model_name="openai/gpt-4o-mini"), prompt, temperature=0.4, stream=False)
+                                  get_async_future(CallLLm(self.keys, model_name="openai/gpt-4o-mini"), prompt, temperature=0.4, stream=False), join_method
                                   )
 
         result = sleep_and_get_future_result(result)
@@ -600,18 +604,31 @@ Only provide answer from the document given above.
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
-        global_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
-                                                   get_async_future(self.get_one, context_user_query, text_document, "openai/gpt-4o-mini"))
+        join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
+        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
+                                                   get_async_future(self.get_one, context_user_query, text_document, "openai/gpt-4o-mini"), join_method)
+        global_reading = None
+        join_method = lambda x, y: "Details from both experts:\n<|experts|>\n" + str(
+            x) + "\n<|/experts|>\n\n\nDetails from using an LLM to summarise and get information:\n<|LLM based summary|>\n" + str(
+            y) + "\n<|/LLM based summary|>"
 
         if doc_word_count < 2048:
-            return sleep_and_get_future_result(global_reading) + "\n\nFull Text:\n" + text_document, global_reading
-        elif doc_word_count < 16_384:
-            return sleep_and_get_future_result(global_reading), global_reading
+            return sleep_and_get_future_result(initial_reading) + "\n\nFull Text:\n" + text_document, global_reading
+        elif doc_word_count < 6144:
+            return sleep_and_get_future_result(initial_reading), initial_reading
+
         elif doc_word_count > 32_000:
-            global_reading = join_two_futures(global_reading, get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 200_000, 16_000, 2_000))
+            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 200_000, 32_000, 2_000)
+            global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
-        main_future = join_two_futures(main_future, global_reading)
-        return sleep_and_get_future_result(main_future), main_future
+        if global_reading is None:
+            global_reading = initial_reading
+        join_method = lambda x, y: "Details from both experts and LLMs:\n<|experts_and_LLM|>\n" + str(
+            x) + "\n<|/experts_and_LLM|>\n\n\nDetails from using an Retrieval Augmented Generation with LLM:\n<|RAG LLM|>\n" + str(
+            y) + "\n<|/RAG LLM|>"
+        final_future = join_two_futures(main_future, global_reading, join_method)
+        final_result = sleep_and_get_future_result(final_future)
+        return final_result, final_future
 
 
 
@@ -772,10 +789,14 @@ import re
 
 def count_science_urls(text):
     # Regular expression to find URLs
-    url_pattern = r'https?://(?:www\.)?([^\s/]+)(?:/[^\s]*)?'
+    url_pattern = r'(https?://(?:www\.)?[^\s]+)'
 
     # Find all URLs in the text
     urls = re.findall(url_pattern, text)
+
+    urls = [url.strip() for url in urls]
+
+    urls = list(set(urls))
 
     # Count science site URLs
     count = sum(1 for url in urls if is_science_site(url))
@@ -2577,9 +2598,10 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
         time.sleep(0.5)
 
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
     txt = normalize_whitespace(txt)
     txt_len = len(txt.strip().split())
+    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f} with text len = {txt_len}")
+
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
     # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
@@ -2638,7 +2660,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
     logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
     time_logger.info(f"Invoke contextual reader for link: {link}. Input length = {input_len}")
 
-    result = ContextualReader(api_keys, provide_short_responses=True, scan=use_large_context)(context, txt, retriever=None)
+    result = ContextualReader(api_keys, provide_short_responses=not use_large_context, scan=use_large_context)(context, txt, retriever=None)
     extracted_info, llm_result_future = result
 
     tt = time.time() - st

@@ -804,6 +804,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Easy Copy</option>
                 <option>Short references</option>
                 <option>Latex Eqn</option>
+                <option>Comparison</option>
                 <option>Explore</option>
                 <option>Creative</option>
                 <option>Argumentative</option>
