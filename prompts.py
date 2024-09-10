@@ -90,14 +90,22 @@ The previous summary and salient points of the conversation is as follows:
 '''{previous_summary}'''
 
 Previous messages of the conversation are as follows:
+<|previous_messages|>
 '''{previous_messages_text}'''
+<|/previous_messages|>
 
 The last 2 recent messages of the conversation from which we will derive the summary and salient points are as follows:
 
 
-User query: '''{query}'''
+User query: 
+<|user_message|>
+'''{query}'''
+<|/user_message|>
 
-System response: '''{response}'''
+Assistant response: 
+<|assistant_message|>
+'''{response}'''
+<|/assistant_message|>
 
 
 Your response will be in below xml style format:
@@ -117,16 +125,19 @@ Conversation Summary and title in xml style format:
 {self.date_string}
 {{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}
 {{summary_text}}
-{{previous_messages}}
 {{permanent_instructions}}
+<|previous_messages|>
+{{previous_messages}}
+<|/previous_messages|>
+
 
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's most recent message:
-<most_reccent_user_message>
-'''
-{{query}}
-'''
-</most_reccent_user_message>
+<|user_message|>
+<most_recent_user_message>
+
+</most_recent_user_message>
+<|/user_message|>
 
 Response to the user's query:
 """,
