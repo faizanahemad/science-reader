@@ -496,12 +496,16 @@ class ContextualReader:
         response_prompt = "Write short, compact, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
         self.prompt = f"""You are an information retrieval agent. {long_or_short}
 Provide relevant and helpful information from the given document for the given user question and conversation context given below.
+<|context_or_query|>
 '''{{context}}'''
+<|/context_or_query|>
 
 Document to read and extract information from is given below.
+<|document|>
 '''
 {{document}}
 '''
+<|/document|>
 
 Only provide answer from the document given above.
 {response_prompt} response below.
@@ -520,6 +524,21 @@ Only provide answer from the document given above.
             result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
+
+    def get_one_chunked(self, context, document, model_name="google/gemini-flash-1.5", limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
+        try:
+            short_reading = get_async_future(self.get_one, "Provide a short summary", document,
+                                             model_name, 8_000)
+            document = " ".join(document.split()[:limit])
+            context = context + "\n\nShort summary of the document to help your reading is below." + sleep_and_get_future_result(short_reading)
+            chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            results = [get_async_future(self.get_one, context, c, model_name=model_name, limit=chunk_size*2) for c in chunks]
+            results = [sleep_and_get_future_result(r) for r in results]
+            # concat all strings
+            return "\n".join(results)
+        except Exception as e:
+            traceback.print_exc()
+            return f"Unable to read due to exception: {str(e)}."
 
     def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         fragments_text = self.get_relevant_text(context, document, retriever)
@@ -586,8 +605,10 @@ Only provide answer from the document given above.
 
         if doc_word_count < 2048:
             return sleep_and_get_future_result(global_reading) + "\n\nFull Text:\n" + text_document, global_reading
-        elif doc_word_count < 8192:
+        elif doc_word_count < 16_384:
             return sleep_and_get_future_result(global_reading), global_reading
+        elif doc_word_count > 32_000:
+            global_reading = join_two_futures(global_reading, get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 200_000, 16_000, 2_000))
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
         main_future = join_two_futures(main_future, global_reading)
         return sleep_and_get_future_result(main_future), main_future
@@ -744,6 +765,22 @@ science_sites = [
 
 def is_science_site(url):
     return any(site in url for site in science_sites)
+
+
+import re
+
+
+def count_science_urls(text):
+    # Regular expression to find URLs
+    url_pattern = r'https?://(?:www\.)?([^\s/]+)(?:/[^\s]*)?'
+
+    # Find all URLs in the text
+    urls = re.findall(url_pattern, text)
+
+    # Count science site URLs
+    count = sum(1 for url in urls if is_science_site(url))
+
+    return count
 
 def generate_science_site_query(search_terms):
     site_query = " OR ".join([f"site:{site}" for site in science_sites])

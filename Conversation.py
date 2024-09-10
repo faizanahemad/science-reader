@@ -682,6 +682,8 @@ Write the extracted information briefly and concisely below:
             # remove "md format" and "better formatting" from preamble options
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
+        if "Paper Summary" in preamble_options:
+            preamble += "\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose?) 3) Datasets used and experiments performed 4) Key Insights and findings gained 5) Results and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading.\n"
         if "no ai" in preamble_options:
             preamble += "\nWrite the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language. Be a straight shooter.\n"
         if "md format" in preamble_options:
@@ -705,7 +707,7 @@ Write the extracted information briefly and concisely below:
         if "Short references" in preamble_options and web_search_or_document_read:
             preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
-            preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment.\n"
+            preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment. Output all math and mathematical symbols inside $$ (double dollar signs). Even for single line symbols, representations, use $$.\n"
         if "Explore" in preamble_options:
             preamble += "\nSprinkle interesting tidbits of knowledge around the topic we discuss as well to help me explore and learn more. Provide interesting and stimulating information around the topic we discuss.\n"
         if "Creative" in preamble_options:
@@ -872,6 +874,16 @@ Write the extracted information briefly and concisely below:
             planner_text_gen = ""
             # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
+        additional_docs_to_read = query["additional_docs_to_read"]
+        google_scholar = checkboxes["googleScholar"]
+        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
+        perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+        if provide_detailed_answers >= 3 and "Short reply" not in preambles:
+            preambles.append("Long reply")
+        if count_science_urls(query["messageText"]) > 0:
+            preambles.append("Paper Summary")
+            preambles.append("Long reply")
 
         tell_me_more = False
         tell_me_more_msg_resp = None
@@ -915,8 +927,15 @@ Write the extracted information briefly and concisely below:
             yield {"text": "We don't support multiple links on single line.\n", "status": "Reading your provided links."}
         links = list(set([l.strip() for l in query["links"] if
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
+        # check if a pattern like #doc_<number> is present in query['messageText']
+        attached_docs = re.findall(r'#doc_\d+', query['messageText'])
+        preamble = self.get_preamble(preambles,
+                                     checkboxes["field"] if "field" in checkboxes else None,
+                                     perform_web_search or google_scholar or len(links) > 0 or len(
+                                         attached_docs) > 0 or len(additional_docs_to_read) > 0)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
-        link_context = previous_context + query['messageText'] + (
+        previous_context_and_preamble = "<|instruction|>" + preamble + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + previous_context + "<|/previous_context|>\n"
+        link_context = previous_context_and_preamble + query['messageText'] + (
             previous_message_config["link_context"] if tell_me_more else '')
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
@@ -986,15 +1005,15 @@ Write the extracted information briefly and concisely below:
         message_config["link_context"] = link_context
 
         yield {"text": '', "status": "Getting prior chat context ..."}
-        additional_docs_to_read = query["additional_docs_to_read"]
-        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
-        google_scholar = checkboxes["googleScholar"]
+
+
+
         agentic_search = checkboxes["agentic_search"] if "agentic_search" in checkboxes else False
         message_config["googleScholar"] = google_scholar
         message_config["searches"] = searches
         original_user_query = user_query
 
-        perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
+
         message_config["perform_web_search"] = perform_web_search
         message_config["links"] = query['links']
         prior_chat_summary_future = None
@@ -1022,7 +1041,7 @@ Write the extracted information briefly and concisely below:
         query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
             attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
-        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
@@ -1071,7 +1090,7 @@ Write the extracted information briefly and concisely below:
                     yield {"text": image_md, "status": "Reading your attached documents."}
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
-                                                        query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
+                                                        previous_context_and_preamble + query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
                                                         attached_docs,
                                                         summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers)),
@@ -1081,7 +1100,7 @@ Write the extracted information briefly and concisely below:
         if len(additional_docs_to_read) > 0:
             yield {"text": '', "status": "reading your documents"}
             doc_future = get_async_future(get_multiple_answers,
-                                          query["messageText"],
+                                          previous_context_and_preamble + query["messageText"],
                                           additional_docs_to_read,
                                           summary if message_lookback >= 0 else '',
                                           max(0, int(provide_detailed_answers)),
@@ -1090,11 +1109,7 @@ Write the extracted information briefly and concisely below:
         web_text = ''
 
 
-        if provide_detailed_answers >= 3 and "Short reply" not in preambles:
-            preambles.append("Long reply")
-        preamble = self.get_preamble(preambles,
-                                     checkboxes["field"] if "field" in checkboxes else None,
-                                     perform_web_search or google_scholar or len(links) > 0 or len(attached_docs) > 0 or len(additional_docs_to_read) > 0)
+
         if len(links) > 0:
             link_read_st = time.time()
             link_result_text = "We could not read the links you provided. Please try again later."
@@ -1514,7 +1529,7 @@ Write the extracted information briefly and concisely below:
             model_name = "anthropic/claude-3.5-sonnet:beta"
         elif model_name == "Mistral Large":
             model_name = "mistralai/mistral-large"
-        elif model_name == "DeepSeek-V2 Chat":
+        elif model_name == "DeepSeek-V2.5 Chat":
             model_name = "deepseek/deepseek-chat"
         elif model_name == "deepseek/deepseek-coder":
             model_name = "deepseek/deepseek-coder"

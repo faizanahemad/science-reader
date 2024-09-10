@@ -791,6 +791,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option>Is Coding Request</option>
+                <option>Paper Summary</option>
                 <option>Short reply</option>
                 <option>Long reply</option>
                 <option>CoT</option>
@@ -822,6 +823,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <option>Command-r+</option>
                 
+                <option>DeepSeek-V2.5 Chat</option>
                 <option>gpt-4-32k</option>
                 <option>Hermes llama-3.1-405b</option>
                  
@@ -834,9 +836,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>gpt-4-0314</option -->
                 <!-- option>gpt-4-32k-0314</option -->
                 
-                <option>deepseek/deepseek-coder</option>
-                <option>PPX 405B Online</option>
-                <option>Yi Large</option>
+                
+                <!-- option>deepseek/deepseek-coder</option -->
+                <!-- option>PPX 405B Online</option -->
+                <!-- option>Yi Large</option -->
                 <option>gpt-4o</option>
                 <option>Jamba</option>
                 <!-- option>llama-3.1-70b</option -->
@@ -845,11 +848,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
                 
-                <!-- option>DeepSeek-V2 Chat</option -->
+                
                 
                 <!-- option>Mistral Large</option -->
                 
-                <option>Qwen 2</option>
+                <!-- option>Qwen 2</option -->
             </select>
         </div>
         
