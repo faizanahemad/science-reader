@@ -39,12 +39,17 @@ Answer:
 """,
             short_streaming_answer_prompt=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
+<|query|>
 {{query}}
+<|/query|>
 
+<|document|>
 Summary of the document is given below:
+
 {{full_summary}}
 Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
+<|/document|>
 
 Write informative, comprehensive and detailed answer below.
 """,

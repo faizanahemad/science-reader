@@ -2292,18 +2292,29 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     title = link_data["title"]
     text = link_data["full_text"]
     is_image = link_data["is_image"]
-    query = f"Lets write a comprehensive summary essay with full details, nuances and caveats about [{title}]({link}). Then lets analyse in detail about [{title}]({link}) ( ```preview - '{text[:1000]}'``` ) in the context of the the below question ```{context}```\n"
-    link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
+    query = f"First Lets write a comprehensive and detailed summary reuters essay with full details, nuances and caveats about [{title}]({link}) from the given document. \n\nThen lets write in detail about the document ([{title}]({link})) ( ```preview snippet of document - '{text[:1000]}'``` ) in the context of the the below question or writing instructions \n```{context}```\n"
+    link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     try:
         if is_image:
             summary = link_data["full_text"]
         else:
             if detailed >= 2:
-                more_summary = get_async_future(get_downloaded_data_summary, (link, title, context, api_keys, query, "", detailed), use_large_context=True)
+                more_summary = get_async_future(get_downloaded_data_summary, (link, title, query, api_keys, text, detailed), use_large_context=False)
+            if is_science_site(link):
+                keys = SCIENCE_KEYS
+                if detailed < 2:
+                    keys = ["methodology"]
+                key_to_query_map = prompts.paper_details_map
+                science_answers = [get_async_future(get_downloaded_data_summary, (link, title, key_to_query_map[key], api_keys, text, detailed), use_large_context=len(keys) == 1) for key in keys]
             summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
             if detailed >= 2:
                 more_summary = sleep_and_get_future_result(more_summary)["text"] if sleep_and_get_future_exception(more_summary) is None else ""
                 summary = f"{summary}\n\n{more_summary}"
+            if is_science_site(link):
+                science_answers = [f"<|{key}|>" + "\n" + sleep_and_get_future_result(sa)["text"] + f"\n<|/{key}|>" for key, sa in zip(keys, science_answers)]
+                science_answers = "\n".join(science_answers)
+                summary = f"{summary}\n\n{science_answers}"
+
 
     except AssertionError as e:
         return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
@@ -2655,7 +2666,7 @@ def read_pdf_simple(link: str) -> str:
 
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
-    link, title, context, api_keys, text, query, detailed = link_title_context_apikeys
+    link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     st = time.time()
     input_len = len(txt.strip().split())

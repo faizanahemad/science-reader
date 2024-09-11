@@ -523,13 +523,7 @@ Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
         if self.get_doc_data("deep_reader_data") is not None and self.get_doc_data("deep_reader_data", key) is not None and len(self.get_doc_data("deep_reader_data", key)["text"].strip())>0:
             logger.debug(f'Found fixed details for key = {key}')
             return self.get_doc_data("deep_reader_data", key)
-        keys = [
-                        "methodology",
-                        "previous_literature_and_differentiation",
-                        "experiments_and_evaluation",
-                        "results_and_comparison",
-                        "limitations_and_future_work"
-                    ]
+        keys = SCIENCE_KEYS
         assert key in keys
         key_to_query_map = prompts.paper_details_map
         full_text = ''
