@@ -432,7 +432,7 @@ class DocIndex:
             mode = "detailed"
         elif mode["review"]:
             mode = "detailed"
-            detail_level = 1
+            detail_level = 2
         else:
             mode = None
             detail_level = 1
@@ -443,71 +443,30 @@ class DocIndex:
 
         additional_info = None
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
-        if mode == "detailed" or mode == "review":
-            tex_len = self.text_len
-            if tex_len < 28000:
-                chunked_text = text
-            else:
-                chunked_text = chunk_text_words(text, chunk_size=48000, chunk_overlap=0)[0]
-            prompt = f"""Answer the question or query in detail given below using the given context as reference. 
+        prompt = f"""Answer the question or query in detail given below using the given context as reference. 
 Question or Query is given below.
 {query}
-
-Context is given below.
-{chunked_text}
-
-Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer below.
+Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
 """
+        cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
+        answer = get_async_future(cr, prompt, text, self.semantic_search_document, "openai/gpt-4o")
+        tex_len = self.text_len
+        if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
+            raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
+            raw_text = "\n\n".join([n.page_content for n in raw_nodes])
+            if (detail_level >= 4 or len(raw_nodes) == 0) and self.raw_index_small is not None:
+                small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
+                                                                          12_000 // self.chunk_size))
+                small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
+                raw_text += "\n\n" + small_raw_text
 
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True)
-            additional_info_v0 = get_async_future(llm, prompt, temperature=0.9)
-            if tex_len > 4000:
-                tx = "\n".join(chunk_text_words(text, chunk_size=3800, chunk_overlap=0)[1:])
-                chunked_text = chunk_text_words(tx, chunk_size=48000, chunk_overlap=0)[0]
-                prompt = f"""Answer the question or query in detail given below using the given context as reference. 
-Question or Query is given below.
-{query}
+            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o" if detail_level >= 3 else "gpt-4o-mini",
+                          use_gpt4=True,
+                          use_16k=True)
+            additional_info = get_async_future(llm, prompt, temperature=0.8)
 
-Context is given below.
-{chunked_text}
-
-Write {'detailed and comprehensive ' if detail_level >= 2 else ''}answer below.
-"""
-
-                def get_additional_info():
-                    llm = CallLLm(self.get_api_keys(),
-                                  model_name="gpt-4o",
-                                  use_gpt4=False,
-                                  use_16k=True)
-                    ad_info = get_async_future(llm, prompt, temperature=0.8)
-                    init_add_info = sleep_and_get_future_result(additional_info_v0)
-                    return init_add_info + "\n\n" + sleep_and_get_future_result(ad_info)
-
-                additional_info = get_async_future(get_additional_info)
-            else:
-                additional_info = additional_info_v0
-
-            if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
-                raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
-                raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-                if (detail_level >= 4 or len(raw_nodes) == 0) and self.raw_index_small is not None:
-                    small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
-                                                                              12_000 // self.chunk_size))
-                    small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
-                    raw_text += "\n\n" + small_raw_text
-
-                prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
-                additional_info_v1 = additional_info
-
-                def get_additional_info():
-                    llm = CallLLm(self.get_api_keys(), model_name="gpt-4o" if detail_level >= 3 else "gpt-4o-mini", use_gpt4=False,
-                                  use_16k=True)
-                    ad_info = get_async_future(llm, prompt, temperature=0.8)
-                    init_add_info = sleep_and_get_future_result(additional_info_v1)
-                    return init_add_info + "\n\n" + sleep_and_get_future_result(ad_info)
-                additional_info = get_async_future(get_additional_info)
-
-        answer = ''
+        answer = sleep_and_get_future_result(answer) if sleep_and_get_future_exception(answer) is None else ""
         if additional_info is not None:
             additional_info = sleep_and_get_future_result(additional_info) if additional_info.exception() is None else ""
             additional_info = remove_bad_whitespaces(additional_info)

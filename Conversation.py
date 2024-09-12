@@ -43,6 +43,7 @@ import tiktoken
 
 from common import *
 from base import *
+from base import CallMultipleLLM
 
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
@@ -745,28 +746,27 @@ Write the extracted information briefly and concisely below:
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
-        field_text = ""
         if field == "None":
             pass
-        if field == "Science":
-            field_text += "\nYou are an expert in science, scientific literature, and scientific methodology. This is a science question. Provide a scientific answer\n"
-        if field == "Arts":
-            field_text += "\nYou are an expert in arts, literature, and artistic methodology. This is an arts question. Provide an answer as a humanities and arts professor would.\n"
-        if field == "Health":
-            field_text += "\nYou are an expert in medicine, medical literature, and modern medical methods, fitness, exercise, and physical health.. This is a health and medical question.\n"
-        if field == "Psychology":
-            field_text += "\nYou are an expert in psychology, psychiatry, neuroscience, mental health, neurology and human behavior. Answer as an expert in psychology, neuroscience and mental health.\n"
-        if field == "Finance":
-            field_text += "\nYou are an expert in finance, trading, stocks, commodities, economics, micro and macro economics, governance, fiscal policy, banking, investment, financial markets and stock markets. You are sceptic, realist, practical, analytical and reasoning based decision maker. This is a finance and economics question. You focus on the actual evidence, use neutral language, consider and provide limitations, and focus on practicality, reality and actual feasibility. You provide comprehensive and detailed responses which are grounded and have a realist, cynic, pessimist, sceptical undertone along with reasoning and anecdotes. \n"
-        if field == "Mathematics":
-            field_text += "\nYou are an expert in mathematics, mathematical literature, and mathematical methods and critical logic and thinking. This is a mathematics question.\n"
-        if field == "QnA":
-            field_text += "\nYou are an expert in question answering, information retrieval, and information extraction. This is a question answering and information retrieval task. You provide accurate, grounded and relevant information from provided sources.\n"
-        if field == "AI":
-            field_text += "\nYou are an expert in AI, machine learning, mathematics, recommendation systems, computer vision, nlp, renforcement learning, causality, and deep learning. This is an AI and machine learning question.\n"
-        if field == "Software":
-            field_text += "\nYou are an expert in software development, concurrency, optimization, coding, programming, version control, cicd, cloud concepts, web services, saas, aws, refactoring, and software engineering. This is a software development and programming question. You have very good knowledge of python, pytorch, pandas, numpy, matplotlib and other python libraries. You have very good recent knowledge of UI/UX design, javascript and css, javascript frameworks like jquery and react, web development, and front end development. You are thorough in your answers and provide code snippets and examples.\n"
-        final_preamble = preamble + field_text
+        if field == "Prompt_IdeaNovelty":
+            pass
+        if field == "Agent_IdeaNovelty":
+            pass
+        if field == "Agent_WebSearch":
+            pass
+        if field == "Agent_LiteratureReview":
+            pass
+        if field == "Agent_CodeExecution":
+            pass
+        if field == "Agent_VerifyAndImprove":
+            pass
+        if field == "Agent_ElaborateDiveDeepExpand":
+            pass
+        if field == "Agent_Finance":
+            pass
+        if field == "Agent_DocQnA":
+            pass
+        final_preamble = preamble
         if final_preamble.strip() == "":
             final_preamble = None
         else:
@@ -962,6 +962,11 @@ Write the extracted information briefly and concisely below:
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
+
+        field = checkboxes["field"] if "field" in checkboxes else None
+        if field is not None and field.startswith("Prompt_"):
+            field_prompt = field.replace("Prompt_", "")
+            query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
         preamble = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
@@ -1644,7 +1649,13 @@ Write the extracted information briefly and concisely below:
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         try:
-            llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+            ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
+            if ensemble:
+                llm = CallMultipleLLM(self.get_api_keys(),
+                                      model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct", "nousresearch/hermes-3-llama-3.1-405b"],
+                                      merge=True, merge_model="gpt-4-turbo")
+            else:
+                llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
             main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
             while len(answer) <= 10:
@@ -1864,6 +1875,12 @@ Write the extracted information briefly and concisely below:
 
     def copy(self):
         return self.__copy__()
+
+    def replace_message_text_with_prompt(self, message, field_prompt):
+        if field_prompt == "IdeaNovelty":
+            return prompts.idea_novelty_prompt.format(research_idea=message)
+        else:
+            return message
 
 
 class TemporaryConversation(Conversation):

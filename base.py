@@ -356,7 +356,54 @@ class CallLLm:
             return call_with_stream(call_chat_model, stream, model, text, images, temperature, system, self.keys)
 
 
+class CallMultipleLLM:
+    def __init__(self, keys, model_names:List[str], merge=False, merge_model=None):
+        self.keys = keys
+        self.model_names = model_names
+        self.merge = merge
+        self.merge_model = CallLLm(keys, model_name=merge_model) if merge_model is not None else CallLLm(keys, model_name="gpt-4-turbo")
+        self.models:List[CallLLm] = [CallLLm(keys, model_name=model_name) for model_name in model_names]
 
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        return self.call_models(text, images=images, temperature=temperature,stream=stream, max_tokens=max_tokens, system=system,
+                                *args, **kwargs)
+
+    def call_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        responses = []
+
+        # Call each model and collect responses with stream set to False
+        responses_futures = []
+        for model in self.models:
+            response = get_async_future(model, text, images=images, temperature=temperature, stream=False, max_tokens=max_tokens,
+                             system=system, *args, **kwargs)
+            responses_futures.append((model.model_name, response))  # Assuming model_name is accessible
+
+        for resp in responses_futures:
+            sleep_and_get_future_result(resp[1], 0.1) if sleep_and_get_future_exception(resp[1], 0.1) else f"Error in calling model {resp[0]}"
+        responses = [(resp[0], resp[1].result()) for resp in responses_futures]
+
+        if self.merge:
+
+            merged_prompt = f"""We had originally asked large language experts the below information/question:
+<|context|>
+{text}
+<|/context|>
+Given below are the responses we obtained by asking multiple models with the above context.
+Merge the following responses, ensuring to include all details and following instructions given in the context:\n
+"""
+            for model_name, response in responses:
+                merged_prompt += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
+
+                # Add a system prompt for the merge model
+            system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
+            merged_response = self.merge_model(merged_prompt, system=system_prompt)
+            return make_stream(merged_response, stream)
+        else:
+            # Format responses in XML style
+            formatted_responses = ""
+            for model_name, response in responses:
+                formatted_responses += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
+            return make_stream(formatted_responses.strip(), stream) # formatted_responses.strip()  # Remove trailing newlines
 
         
 def split_text(text):
@@ -600,13 +647,15 @@ Only provide answer from the document given above.
     def scan(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
         pass
 
-    def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
+    def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, preferred_model=None):
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
+        if preferred_model is None:
+            preferred_model = "openai/gpt-4o-mini"
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
         initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
-                                                   get_async_future(self.get_one, context_user_query, text_document, "openai/gpt-4o-mini"), join_method)
+                                                   get_async_future(self.get_one, context_user_query, text_document, preferred_model), join_method)
         if self.provide_short_responses:
             result = sleep_and_get_future_result(initial_reading)
             return result, initial_reading

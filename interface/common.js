@@ -710,6 +710,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
         `${parentElementId}-${type}-tell-me-more-checkbox`,
         `${parentElementId}-${type}-search-exact`,
+        `${parentElementId}-${type}-ensemble`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     var checkboxOneText = type === "assistant" ? "Scholar" : "References and Citations";
@@ -727,6 +728,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Ensemble</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
@@ -792,8 +794,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option>Is Coding Request</option>
                 <option>Paper Summary</option>
-                <option>Short reply</option>
-                <option>Long reply</option>
+                <option>Short</option>
+                <option>Long</option>
                 <option>CoT</option>
                 <option>md format</option>
                 <option>better formatting</option>
@@ -858,18 +860,19 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
         
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-            <label for="field-selector" class="mr-1">Field</label>
+            <label for="field-selector" class="mr-1">Agents</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
-                <option>Science</option>
-                <option>Arts</option>
-                <option>Health</option>
-                <option>Psychology</option>
-                <option>Finance</option>
-                <option>Mathematics</option>
-                <option>QnA</option>
-                <option>AI</option>
-                <option>Software</option>
+                <option>Prompt_IdeaNovelty</option>
+                
+                <option>Agent_IdeaNovelty</option>
+                <option>Agent_WebSearch</option>
+                <option>Agent_LiteratureReview</option>
+                <option>Agent_CodeExecution</option>
+                <option>Agent_VerifyAndImprove</option>
+                <option>Agent_ElaborateDiveDeepExpand</option>
+                <option>Agent_Finance</option>
+                <option>Agent_DocQnA</option>
             </select>
         </div>
         <div class="form-check form-check-inline mt-1">
@@ -972,6 +975,7 @@ function getOptions(parentElementId, type) {
         use_memory_pad: $('#use_memory_pad').is(':checked'),
         enable_planner: $('#enable_planner').is(':checked'),
         search_exact: $(`#${parentElementId}-${type}-search-exact`).is(':checked'),
+        ensemble: $(`#${parentElementId}-${type}-ensemble`).is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
@@ -998,6 +1002,8 @@ function resetOptions(parentElementId, type) {
     $(type === "assistant" ? `${parentElementId}-${type}-use-google-scholar` : `${parentElementId}-${type}-use-references-and-citations-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-perform-web-search-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
+    $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
+    $(`#${parentElementId}-${type}-ensemble`).prop('checked', false);
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
 
 
@@ -1020,6 +1026,7 @@ function removeOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-search-exact`).parent().remove();
+    $(`#${parentElementId}-${type}-ensemble`).parent().remove();
 
     $(`[id$="${type}-search-box"]`).remove();
     $(`[id$="${type}-document-tags"]`).remove();

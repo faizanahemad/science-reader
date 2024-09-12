@@ -179,6 +179,87 @@ Question: '''{{query}}'''
 Answer till now (partial answer, can be empty): '''{{answer}}'''
 Write answer using additional information below.
 """,
+            IdeaNovelty= f"""
+I would like you to evaluate the following machine learning research idea:  
+
+<idea>  
+{{research_idea}}
+</idea>  
+
+Please provide a comprehensive evaluation based on the following criteria:  
+
+1. Novelty:  
+   - Originality: How novel and original is this research idea compared to existing literature?  
+   - Prior work: Has similar work been done before? If so, how is this different and novel?  
+   - Novel contributions: What are the key novel contributions of this work?  
+
+2. Applicability and Impact:  
+   - Real-world applications: What are the potential real-world applications of this work?  
+   - Benefiting domains: Which domains and industries could benefit from this research?  
+   - Problem significance: How important and impactful is the problem being addressed?  
+
+3. Potential Weaknesses and Reasons for Rejection:  
+   - Limitations: What are the main potential weaknesses and limitations of the proposed approach?  
+   - Rejection reasons: What are some reasons reviewers might reject or criticize this work?  
+   - Reviewer 2 critique: If you were a critical "Reviewer 2", what feedback would you give?  
+   - Common pitfalls: What are some common causes of rejection for this type of research?  
+
+4. Strengths:  
+   - Key strengths: What are the main strengths and selling points of this research idea?  
+   - Compelling aspects: What makes this a compelling and valuable piece of research?  
+
+5. Datasets and Experiments:  
+   - Required datasets: What kind of datasets would be needed to evaluate this idea?  
+   - Dataset availability: Are appropriate datasets readily available or would new data need to be collected?  
+   - Experimental validation: What experiments should be run to validate the idea and methodology?  
+   - Ablation studies: What ablation studies would help show the importance of each component?  
+
+6. Theoretical Contributions:  
+   - Novel algorithms: Does the research introduce any novel algorithms or techniques?  
+   - Mathematical formulations: Are there any new mathematical formulations or theoretical insights?  
+   - Theoretical advances: How does the work advance the theoretical understanding of the problem?  
+
+7. Empirical Results:  
+   - Expected results: What are the expected empirical results and their significance?  
+   - State-of-the-art comparison: How do the results compare to the current state-of-the-art?  
+   - Robustness and generalization: Are the results robust and do they generalize well to different settings?  
+
+8. Reproducibility:  
+   - Code and data availability: Will the code and datasets be made publicly available to ensure reproducibility?  
+   - Experimental setup: Are the experimental setup, hyperparameters, and implementation details clearly described?  
+   - Evaluation metrics: Are the evaluation metrics and procedures well-defined and justified?  
+
+9. Comparison with Existing Methods:  
+   - Baseline methods: What are the relevant baseline methods for comparison?  
+   - Advantages and improvements: How does the proposed approach improve upon existing methods?  
+   - Comparative analysis: Provide a detailed comparative analysis with state-of-the-art techniques.  
+
+10. Scalability and Efficiency:  
+    - Computational complexity: Analyze the computational complexity of the proposed method.  
+    - Scalability: How well does the approach scale to large datasets and complex problems?  
+    - Efficiency: Discuss the efficiency of the method in terms of time and resource requirements.  
+
+11. Ethical Considerations:  
+    - Ethical implications: Are there any potential negative ethical implications or risks associated with this research?  
+    - Responsible AI: How does the research align with principles of responsible AI, such as fairness, transparency, and accountability?  
+    - Privacy and security: Are there any privacy or security concerns related to the data or methodology?  
+
+12. Clarity and Presentation:  
+    - Writing quality: Is the research idea presented clearly, concisely, and coherently?  
+    - Figures and tables: Are the figures and tables informative, well-designed, and properly labeled?  
+    - Organization: Is the paper well-structured and easy to follow?  
+
+13. Broader Impact and Limitations:  
+    - Societal impact: What are the potential positive and negative societal impacts of this research?  
+    - Generalizability: How well does the proposed approach generalize to different datasets, tasks, or domains?  
+    - Future directions: What are promising future research directions stemming from this work?  
+
+14. Relevant Conferences and Journals:  
+    - Target venues: Which top-tier conferences (e.g., NeurIPS, ICML, ICLR, AISTATS) or journals (e.g., Nature, Science) would be most suitable for this work?  
+    - Fit with venue scope: How well does the research align with the scope and themes of the target venues?  
+
+Please provide a detailed analysis addressing each of the points above. Be sceptical and critical of the idea. Format your response in a clear, structured way with the headings provided. Aim to provide a thorough, constructive, and rigorous evaluation similar to what reviewers at top-tier venues would expect. Include specific examples, suggestions for improvement, and insightful comments to help strengthen the research idea.  
+""".lstrip(),
 
             get_more_details_prompt=f"""Continue writing answer to a question or instruction which is partially answered. 
 Provide new details from the additional information provided if it is not mentioned in the partial answer already given. 
@@ -245,8 +326,13 @@ Cover the below points while answering and also add other necessary points as ne
     - What are some tangential interesting research questions or problems that a reader may want to follow upon?
     - What are some overlooked experiments which could have provided more insights into this approach or work.
 """,
+
             }
         )
+
+    @property
+    def idea_novelty_prompt(self):
+        return self.gpt4_prompts["IdeaNovelty"]
 
     @property
     def prompts(self):

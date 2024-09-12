@@ -638,7 +638,7 @@ def concat_array_two_at_a_time(array):
         result.append([array[i],array[i+1]])
     return result
 
-def make_stream(res, do_stream):
+def make_stream(res, do_stream:bool):
     is_generator = inspect.isgenerator(res)
     if is_generator:
         res = check_if_stream_and_raise_exception(res)
