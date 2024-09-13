@@ -1652,7 +1652,7 @@ Write the extracted information briefly and concisely below:
             ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
             if ensemble:
                 llm = CallMultipleLLM(self.get_api_keys(),
-                                      model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct", "nousresearch/hermes-3-llama-3.1-405b"],
+                                      model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct"], # "nousresearch/hermes-3-llama-3.1-405b"
                                       merge=True, merge_model="gpt-4-turbo")
             else:
                 llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
@@ -1666,12 +1666,36 @@ Write the extracted information briefly and concisely below:
             logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
             # answer += f"We had an exception in answering using model - {model_name}"
             yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-            main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-            while len(answer) <= 10:
-                t2y = next(main_ans_gen)
-                yield {"text": t2y, "status": "answering in progress"}
-                answer += t2y
+            try:
+                ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
+                if ensemble:
+                    llm = CallMultipleLLM(self.get_api_keys(),
+                                          model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024",
+                                                       "anthropic/claude-3-opus:beta",
+                                                       "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large",
+                                                       "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct",
+                                                       "nousresearch/hermes-3-llama-3.1-405b"],
+                                          merge=True, merge_model="gpt-4-turbo")
+                else:
+                    llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+
+                while len(answer) <= 10:
+                    t2y = next(main_ans_gen)
+                    yield {"text": t2y, "status": "answering in progress"}
+                    answer += t2y
+            except Exception as e:
+                logger.error(
+                    f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
+                # answer += f"We had an exception in answering using model - {model_name}"
+                yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
+                       "status": "stage 2 answering in progress"}
+                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                while len(answer) <= 10:
+                    t2y = next(main_ans_gen)
+                    yield {"text": t2y, "status": "answering in progress"}
+                    answer += t2y
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 

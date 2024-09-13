@@ -206,14 +206,20 @@ def join_two_futures(future1, future2, join_method=lambda x, y: str(x) + "\n\n" 
         return join_method(f1, f2)
     return get_async_future(fn, future1, future2, join_method)
 
-def sleep_and_get_future_result(future, sleep_time=0.2):
+def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
+    start_time = time.time()
     while not future.done():
         time.sleep(sleep_time)
+        if time.time() - start_time > timeout:
+            raise TimeoutError(f"Timeout waiting for future for {timeout} sec")
     return future.result()
 
-def sleep_and_get_future_exception(future, sleep_time=0.2):
+def sleep_and_get_future_exception(future, sleep_time=0.2, timeout=1000):
+    start_time = time.time()
     while not future.done():
         time.sleep(sleep_time)
+        if time.time() - start_time > timeout:
+            return TimeoutError(f"Timeout waiting for future for {timeout} sec")
     return future.exception()
 
 

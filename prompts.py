@@ -335,6 +335,10 @@ Cover the below points while answering and also add other necessary points as ne
         return self.gpt4_prompts["IdeaNovelty"]
 
     @property
+    def idea_novelty_comparison(self):
+        return self.gpt4_prompts["IdeaComparison"]
+
+    @property
     def prompts(self):
         if self.llm == "gpt4":
             prompts = self.gpt4_prompts

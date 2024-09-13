@@ -359,9 +359,13 @@ class CallLLm:
 class CallMultipleLLM:
     def __init__(self, keys, model_names:List[str], merge=False, merge_model=None):
         self.keys = keys
+        if model_names is None or len(model_names) < 2:
+            raise ValueError("At least two models are needed for multiple model call")
         self.model_names = model_names
+
         self.merge = merge
         self.merge_model = CallLLm(keys, model_name=merge_model) if merge_model is not None else CallLLm(keys, model_name="gpt-4-turbo")
+        self.backup_model = CallLLm(keys, model_name="gpt-4-turbo", use_gpt4=True, use_16k=True)
         self.models:List[CallLLm] = [CallLLm(keys, model_name=model_name) for model_name in model_names]
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
@@ -379,8 +383,16 @@ class CallMultipleLLM:
             responses_futures.append((model.model_name, response))  # Assuming model_name is accessible
 
         for resp in responses_futures:
-            sleep_and_get_future_result(resp[1], 0.1) if sleep_and_get_future_exception(resp[1], 0.1) else f"Error in calling model {resp[0]}"
-        responses = [(resp[0], resp[1].result()) for resp in responses_futures]
+            sleep_and_get_future_result(resp[1], 0.1) if sleep_and_get_future_exception(resp[1], 0.1) is None else f"Error in calling model {resp[0]}"
+        for resp in responses_futures:
+            try:
+                result = sleep_and_get_future_result(resp[1], 0.1)
+                responses.append((resp[0], result))
+
+            except Exception as e:
+                result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens, system=system, *args, **kwargs)
+                responses.append((self.backup_model.model_name, result))
+
 
         if self.merge:
 
