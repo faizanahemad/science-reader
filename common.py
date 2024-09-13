@@ -648,6 +648,7 @@ def make_stream(res, do_stream:bool):
     is_generator = inspect.isgenerator(res)
     if is_generator:
         res = check_if_stream_and_raise_exception(res)
+        return res
     if do_stream and not is_generator:
         assert isinstance(res, (str, list, tuple))
         return convert_iterable_to_stream(res)
@@ -722,7 +723,7 @@ def check_if_stream_and_raise_exception(iterable_or_str):
             raise
         except Exception as e:
             # Here you could handle other exceptions.
-            raise
+            raise e
     elif isinstance(iterable_or_str, peekable):
         return iterable_or_str
     else:

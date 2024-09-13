@@ -327,16 +327,18 @@ class CallLLm:
             assert self.keys["openAIKey"] is not None
 
         model_name = "gpt-4o" if (self.use_gpt4 and self.use_16k and self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini"]) else "gpt-4o-mini"
-        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len > 3000 and model_name == "gpt-3.5-turbo"):
+
+        if model_name == "gpt-4-turbo":
+            pass
+        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
+            model_name = "gpt-4o"
+        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name!= "gpt-4-32k"):
             model_name = "gpt-4o-mini"
-        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and (text_len < 3000 and model_name == "gpt-3.5-turbo-16k"):
-            model_name = "gpt-4o-mini"
-        if (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
+        elif len(images) > 0 and model_name != "gpt-4-turbo":
             model_name = "gpt-4o"
-        if len(images) > 0 and model_name != "gpt-4-turbo":
+        elif self.model_name == "gpt-4o":
             model_name = "gpt-4o"
-        if self.model_name == "gpt-4o":
-            model_name = "gpt-4o"
+        assert model_name not in ["gpt-3.5-turbo", "gpt-3.5-turbo-16k"]
 
         try:
             assert text_len < 98000
@@ -386,12 +388,15 @@ class CallMultipleLLM:
         logger.warning(f"[CallMultipleLLM] invoked all models")
 
         for resp in responses_futures:
-            sleep_and_get_future_result(resp[1], 0.1) if sleep_and_get_future_exception(resp[1], 0.1) is None else f"Error in calling model {resp[0]}"
+            sleep_and_get_future_result(resp[1], 0.1, 125) if sleep_and_get_future_exception(resp[1], 0.1, 120) is None else f"Error in calling model {resp[0]}"
+            logger.warning(
+                f"[CallMultipleLLM] got response from model {resp[0]} with elapsed time as {(time.time() - start_time):.2f} seconds")
         for resp in responses_futures:
             try:
-                result = sleep_and_get_future_result(resp[1], 0.1)
+                result = resp[1].result()
                 responses.append((resp[0], result))
-                logger.warning(f"[CallMultipleLLM] got response from model {resp[0]} with elapsed time as {(time.time() - start_time):.2f} seconds")
+                logger.warning(
+                    f"[CallMultipleLLM] added response from model: {resp[0]} to `responses` with elapsed time as {(time.time() - start_time):.2f} seconds")
 
             except Exception as e:
                 result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens, system=system, *args, **kwargs)
@@ -412,9 +417,9 @@ Merge the following responses, ensuring to include all details and following ins
 
                 # Add a system prompt for the merge model
             system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
-            merged_response = self.merge_model(merged_prompt, system=system_prompt)
+            merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=stream)
             logger.warning(f"[CallMultipleLLM] merging response from all models")
-            return make_stream(merged_response, stream)
+            return merged_response
         else:
             # Format responses in XML style
             formatted_responses = ""
