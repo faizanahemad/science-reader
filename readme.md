@@ -16,6 +16,9 @@ server {
 
     location / { 
         proxy_pass http://localhost:5000;
+        proxy_read_timeout 300;  # Increase the read timeout (in seconds)
+        proxy_connect_timeout 300;  # Increase the connection timeout (in seconds)
+        proxy_send_timeout 300;  # Increase the send timeout (in seconds)
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -27,6 +30,8 @@ server {
 `sudo ls -l /etc/nginx/sites-enabled/`
 `sudo rm /etc/nginx/sites-enabled/default`
 `sudo systemctl reload nginx`
+
+For HTTP only
 
 ```
 server {                                                                                                                                                                                 

@@ -268,7 +268,9 @@ I would like you to evaluate and compare two machine learning research ideas bas
 </ideas>  
 
 
-First clearly write down the two ideas and your own understanding of them and their domain. Then evaluate them based on the following aspects.    
+First clearly write down the two ideas and your own understanding of them and their domain. 
+Then evaluate them based on the following aspects.
+While you do your evaluations on these aspects write your thoughts first about each idea under each aspect in details so we can justify the scores you give to each idea.
   
 **Aspects for Comparison:**  
   
