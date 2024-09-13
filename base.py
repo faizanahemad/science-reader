@@ -419,7 +419,7 @@ Merge the following responses, ensuring to include all details and following ins
             system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
             logger.warning(f"[CallMultipleLLM] merging responses from all models with prompt length {len(merged_prompt.split())} with elapsed time as {(time.time() - start_time):.2f} seconds")
             merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=True)
-            logger.warning(f"[CallMultipleLLM] merged response from all models with merged response length {len(merged_response.split())} with elapsed time as {(time.time() - start_time):.2f} seconds")
+            logger.warning(f"[CallMultipleLLM] merged response from all models with merged response length {len(merged_response.split()) if isinstance(merged_response, str) else -1} with elapsed time as {(time.time() - start_time):.2f} seconds")
             return make_stream(merged_response, stream)
         else:
             # Format responses in XML style
