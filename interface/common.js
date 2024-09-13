@@ -10,7 +10,7 @@ async function responseWaitAndSuccessChecker(url, responsePromise) {
         setTimeout(() => {
             location.reload();
         }, 6000);
-    }, 75000);  // 1 minute timeout
+    }, 240000);  // 4 minute timeout
 
     try {
         // Wait for the API response
