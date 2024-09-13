@@ -823,6 +823,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Claude Opus</option>
                 <option>llama-3.1-405b</option>
                 <option>Claude Sonnet 3.5</option>
+                <option>o1-preview</option>
+                <option>o1-mini</option>
                 
                 <option>Command-r+</option>
                 

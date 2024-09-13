@@ -1589,6 +1589,10 @@ Write the extracted information briefly and concisely below:
 
         elif model_name == "Gemini 1.5":
             model_name = "google/gemini-pro-1.5"
+        elif model_name == "o1-preview":
+            model_name = "openai/o1-preview"
+        elif model_name == "o1-mini":
+            model_name = "openai/o1-mini"
         else:
             model_name = None
         yield {"text": f"", "status": "starting answer generation"}
