@@ -1,3 +1,4 @@
+import logging
 import os.path
 from datetime import datetime
 from uuid import uuid4
@@ -25,7 +26,7 @@ pd.set_option('display.max_columns', 100)
 from common import *
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.WARNING, logging.INFO, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
@@ -374,13 +375,15 @@ class CallMultipleLLM:
 
     def call_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         responses = []
-
+        logger.warning(f"[CallMultipleLLM] with temperature = {temperature}, stream = {stream} and models = {self.model_names}")
+        start_time = time.time()
         # Call each model and collect responses with stream set to False
         responses_futures = []
         for model in self.models:
             response = get_async_future(model, text, images=images, temperature=temperature, stream=False, max_tokens=max_tokens,
                              system=system, *args, **kwargs)
             responses_futures.append((model.model_name, response))  # Assuming model_name is accessible
+        logger.warning(f"[CallMultipleLLM] invoked all models")
 
         for resp in responses_futures:
             sleep_and_get_future_result(resp[1], 0.1) if sleep_and_get_future_exception(resp[1], 0.1) is None else f"Error in calling model {resp[0]}"
@@ -388,14 +391,15 @@ class CallMultipleLLM:
             try:
                 result = sleep_and_get_future_result(resp[1], 0.1)
                 responses.append((resp[0], result))
+                logger.warning(f"[CallMultipleLLM] got response from model {resp[0]} with elapsed time as {(time.time() - start_time):.2f} seconds")
 
             except Exception as e:
                 result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens, system=system, *args, **kwargs)
                 responses.append((self.backup_model.model_name, result))
+                logger.error(f"[CallMultipleLLM] got response from backup model {self.backup_model.model_name} due to error from model {resp[0]}")
 
 
         if self.merge:
-
             merged_prompt = f"""We had originally asked large language experts the below information/question:
 <|context|>
 {text}
@@ -409,12 +413,14 @@ Merge the following responses, ensuring to include all details and following ins
                 # Add a system prompt for the merge model
             system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
             merged_response = self.merge_model(merged_prompt, system=system_prompt)
+            logger.warning(f"[CallMultipleLLM] merging response from all models")
             return make_stream(merged_response, stream)
         else:
             # Format responses in XML style
             formatted_responses = ""
             for model_name, response in responses:
                 formatted_responses += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
+            logger.warning(f"[CallMultipleLLM] returning responses from all models")
             return make_stream(formatted_responses.strip(), stream) # formatted_responses.strip()  # Remove trailing newlines
 
         
