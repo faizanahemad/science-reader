@@ -1652,7 +1652,9 @@ Write the extracted information briefly and concisely below:
             ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
             if ensemble:
                 llm = CallMultipleLLM(self.get_api_keys(),
-                                      model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct"], # "nousresearch/hermes-3-llama-3.1-405b"
+                                      model_names=["gpt-4o", "gpt-4-turbo",
+                                                   # "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct"
+                                                   ], # "nousresearch/hermes-3-llama-3.1-405b"
                                       merge=True, merge_model="gpt-4-turbo")
             else:
                 llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
