@@ -3,6 +3,7 @@ import tempfile
 import asyncio
 import traceback
 
+import more_itertools
 from playwright.async_api import async_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future, ProcessPoolExecutor
 from urllib.parse import urlparse, urlunparse
@@ -650,7 +651,7 @@ def make_stream(res, do_stream:bool):
         res = check_if_stream_and_raise_exception(res)
         return res
     if do_stream and not is_generator:
-        assert isinstance(res, (str, list, tuple))
+        assert isinstance(res, (str, list, tuple)) or isinstance(res, more_itertools.more.peekable) or isinstance(res, peekable) or hasattr(res, '__iter__') or hasattr(res, '__next__')
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
@@ -711,6 +712,8 @@ def convert_stream_to_iterable(stream):
 def check_if_stream_and_raise_exception(iterable_or_str):
     if isinstance(iterable_or_str, str):
         # If it's a string, just return it as it is.
+        return iterable_or_str
+    elif isinstance(iterable_or_str, more_itertools.more.peekable):
         return iterable_or_str
     elif isinstance(iterable_or_str, types.GeneratorType):
         # If it's a generator, we need to peek at it.

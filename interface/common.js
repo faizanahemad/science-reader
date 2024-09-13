@@ -864,6 +864,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
                 <option>Prompt_IdeaNovelty</option>
+                <option>Prompt_IdeaComparison</option>
                 
                 <option>Agent_IdeaNovelty</option>
                 <option>Agent_WebSearch</option>

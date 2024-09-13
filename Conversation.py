@@ -1652,13 +1652,18 @@ Write the extracted information briefly and concisely below:
             ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
             if ensemble:
                 llm = CallMultipleLLM(self.get_api_keys(),
-                                      model_names=["gpt-4o", "gpt-4-turbo",
-                                                   # "cohere/command-r-plus-08-2024", "anthropic/claude-3-opus:beta", "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large", "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct"
-                                                   ], # "nousresearch/hermes-3-llama-3.1-405b"
+                                      model_names=["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                                                   "cohere/command-r-plus-08-2024", "google/gemini-pro-1.5",
+                                                   "anthropic/claude-3-opus:beta", "mistralai/mistral-large",
+                                                   # "deepseek/deepseek-chat",
+                                                   "meta-llama/llama-3.1-405b-instruct",
+                                                   "nousresearch/hermes-3-llama-3.1-405b",
+                                                   ],
                                       merge=True, merge_model="gpt-4-turbo")
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.6, stream=True)
             else:
                 llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-            main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
             while len(answer) <= 10:
                 t2y = next(main_ans_gen)
@@ -1907,6 +1912,8 @@ Write the extracted information briefly and concisely below:
     def replace_message_text_with_prompt(self, message, field_prompt):
         if field_prompt == "IdeaNovelty":
             return prompts.idea_novelty_prompt.format(research_idea=message)
+        elif field_prompt == "IdeaComparison":
+            return prompts.idea_comparison_prompt.format(research_idea=message)
         else:
             return message
 

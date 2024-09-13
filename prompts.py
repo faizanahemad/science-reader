@@ -260,6 +260,193 @@ Please provide a comprehensive evaluation based on the following criteria:
 
 Please provide a detailed analysis addressing each of the points above. Be sceptical and critical of the idea. Format your response in a clear, structured way with the headings provided. Aim to provide a thorough, constructive, and rigorous evaluation similar to what reviewers at top-tier venues would expect. Include specific examples, suggestions for improvement, and insightful comments to help strengthen the research idea.  
 """.lstrip(),
+            IdeaComparison=f"""
+I would like you to evaluate and compare two machine learning research ideas based on the following aspects. For each aspect, please assign a score out of 10 for both ideas and provide a brief justification for the score. After evaluating all aspects, calculate the average score for each idea and determine which idea is better, along with a detailed explanation of why it is preferred. Provide actionable insights on how to improve the chosen idea to increase its chances of acceptance and impact.
+
+<ideas>  
+{{research_idea}}
+</ideas>  
+
+
+First clearly write down the two ideas and your own understanding of them and their domain. Then evaluate them based on the following aspects.    
+  
+**Aspects for Comparison:**  
+  
+1. **Novelty and Originality:**  
+   - Assess the uniqueness and innovativeness of each idea compared to existing literature. Are there unique contributions that set each idea apart?  
+   - Consider whether the idea introduces new concepts, methods, or approaches that have not been explored before.
+   - Would Reviewers find that the research does not offer new insights or advancements over existing literature.    
+   - Evaluate the potential for the idea to open up new research directions or solve previously unsolved problems.  
+   - **Reviewer Influence:** Reviewers prioritize originality; lack of novelty can lead to rejection, especially from "Reviewer 2," who may be critical of incremental contributions.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+2. **Potential Impact:**  
+   - Evaluate the potential impact of each idea on the field of machine learning and its applications.  
+   - Consider the significance of the problem being addressed and the potential for the idea to advance the state-of-the-art.  
+   - Assess the potential for the idea to inspire future research and have a lasting impact on the field.  
+   - **Reviewer Influence:** High-impact ideas are often favored by reviewers, as they contribute significantly to the advancement of the field.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+3. **Technical Feasibility:**  
+   - Analyze the technical feasibility of implementing each idea, considering the required resources, expertise, and current state of technology.  
+   - Evaluate whether the proposed methods and algorithms are computationally tractable and can be implemented efficiently.  
+   - Consider the availability of necessary datasets, tools, and infrastructure to support the implementation of the idea.
+   - Are there open and easily accessible datasets to be used for this idea.
+   - Are there any potential challenges in implementing the idea.
+   - Are there easily available tools and libraries to implement the idea.  
+   - Is this idea too grandiose and large and may not be feasible to implement. Would this idea benefit from being broken into smaller ideas or pieces?
+   - **Reviewer Influence:** Reviewers may express concerns about feasibility, especially if the proposal appears overly ambitious without a clear plan.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+4. **Theoretical Contributions:**  
+   - Compare the theoretical contributions of each idea, including novel algorithms, mathematical formulations, or theoretical insights.  
+   - Assess the depth and rigor of the theoretical foundations underlying each idea.  
+   - Evaluate the potential for the theoretical contributions to have broader implications beyond the specific problem being addressed.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+5. **Empirical Results:**  
+   - Assess the expected empirical results of each idea and their significance in advancing the state-of-the-art.  
+   - Consider the quality and diversity of the datasets that would be used to evaluate the idea.  
+   - Evaluate the proposed evaluation metrics and their appropriateness for measuring the performance of the idea.  
+   - **Reviewer Influence:** Reviewers often look for robust experimental validation. Weak or poorly defined experiments can lead to negative reviews.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+6. **Applicability and Real-World Impact:**  
+   - Evaluate the potential real-world applications and impact of each idea in solving practical problems.  
+   - Consider the scalability and generalizability of the proposed methods to real-world scenarios.  
+   - Assess the potential for the idea to be adopted and used by practitioners and industry professionals.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+7. **Scalability and Efficiency:**  
+   - Compare the scalability and computational efficiency of each idea, especially for large-scale datasets and real-world scenarios.  
+   - Evaluate the proposed algorithms and their ability to handle increasing data sizes and complexity.  
+   - Consider the potential for the idea to be deployed in resource-constrained environments or real-time applications.  
+   - **Reviewer Influence:** Reviewers may be concerned about scalability, especially if the method is intended for real-world applications.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+8. **Reproducibility and Code Availability:**  
+   - Assess the ease of reproducibility and the availability of code for each idea, considering the potential for others to build upon the work.  
+   - Evaluate the clarity and documentation of the proposed methods and algorithms.  
+   - Consider the potential for the code and datasets to be shared and used by the research community.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+9. **Alignment with Current Research Trends:**  
+   - Evaluate how well each idea aligns with current research trends and the interests of the machine learning community.  
+   - Consider the relevance of the idea to ongoing research challenges and areas of active investigation.  
+   - Assess the potential for the idea to contribute to the broader research agenda and inspire further work in the field.  
+   - **Reviewer Influence:** Ideas that resonate with current trends are more likely to attract positive attention from reviewers.  
+   - Idea 1 Score: [Insert score]    
+   - Idea 2 Score: [Insert score]    
+   - [Provide a brief justification for the scores]  
+  
+10. **Time and Effort Required:**  
+    - Estimate the time and effort required to develop and publish each idea, considering the complexity and scope of the work.  
+    - Consider the availability of resources, expertise, and support needed to successfully execute the idea.  
+    - Evaluate the potential challenges and risks associated with pursuing each idea and the likelihood of overcoming them within a reasonable timeframe.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+  
+11. **Clarity and Presentability:**  
+    - Assess the clarity and presentability of each idea, considering how well it can be communicated and understood by the target audience.  
+    - Evaluate the potential for the idea to be effectively presented in research papers, conference presentations, and other dissemination channels.  
+    - If the research questions or hypotheses are not clearly articulated, reviewers may reject the paper or idea for lacking focus.  
+    - Consider the visual appeal and interpretability of the proposed methods, results, and insights.  
+    - **Reviewer Influence:** Poor presentation can detract from the perceived quality of the research, leading to negative reviews.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+  
+12. **Potential for Follow-up Work:**  
+    - Evaluate the potential for follow-up work and future research directions based on each idea.  
+    - Consider the depth and breadth of the research questions that can be explored as a result of pursuing each idea.  
+    - Assess the potential for the idea to inspire new research avenues and attract the interest of other researchers in the field.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+
+  
+**Additional Considerations:**  
+  
+13. **Reviewer 2's Perspective:**  
+    - Consider potential criticisms or concerns that a critical reviewer (often referred to as "Reviewer 2") might raise about each idea.  
+    - Anticipate potential weaknesses, limitations, or gaps in the proposed methods, experiments, or analysis that reviewers might point out.  
+    - Evaluate the robustness and thoroughness of the idea in addressing potential counterarguments or alternative explanations.  
+    - [Discuss potential criticisms or concerns that a critical reviewer might raise for each idea]  
+  
+14. **Meta-Reviewer's Perspective:**  
+    - Consider the perspective of a meta-reviewer, who oversees the review process and makes final decisions in borderline cases.  
+    - Evaluate the overall strength and coherence of the idea, considering the balance of positive and negative reviews.  
+    - Assess the potential for the idea to make a significant and impactful contribution to the field, even if some aspects require further refinement or clarification.  
+    - [Evaluate the overall strength and coherence of each idea from a meta-reviewer's perspective]  
+  
+15. **Common Weaknesses and Pitfalls:**  
+    - Identify common weaknesses or pitfalls that reviewers often highlight in machine learning research papers.  
+    - Consider issues such as lack of novelty, insufficient experimental evaluation, poor comparison with existing methods, or unclear contributions.  
+    - Evaluate the idea's ability to address and mitigate these common weaknesses effectively.  
+    - [Identify and assess common weaknesses or pitfalls that reviewers might highlight for each idea]  
+
+  
+16. **Datasets and Resources:**  
+    - Determine the availability of necessary datasets. Are they publicly accessible or will new data need to be collected?  
+    - Evaluate the resources required for implementation, including computational power and human expertise.  
+    - **Reviewer Influence:** Lack of access to datasets or inadequate resource planning can lead reviewers to question the viability of the research.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+  
+17. **Clarity of Problem Statement:**  
+    - Assess how clearly the problem is articulated. Is the motivation behind the research easy to understand?  
+    - Evaluate the significance of the problem. Does the proposal convincingly argue why this problem is important?  
+    - **Reviewer Influence:** A poorly defined problem statement can lead to confusion and skepticism among reviewers.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+  
+18. **Proposed Methodology:**  
+    - Evaluate the soundness and innovation of the proposed methodology. Are the techniques well-justified?  
+    - Consider whether the methodology is appropriate for the problem being addressed.  
+    - **Reviewer Influence:** Reviewers may question the validity of the methodology if it lacks rigor or if alternative approaches are not adequately considered.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+  
+19. **Future Directions:**  
+    - Assess the potential for future research stemming from each idea. What new questions or avenues does it open?  
+    - Evaluate how the idea contributes to the advancement of the field.  
+    - **Reviewer Influence:** Ideas that suggest promising future directions are often viewed favorably by reviewers.  
+    - Idea 1 Score: [Insert score]    
+    - Idea 2 Score: [Insert score]    
+    - [Provide a brief justification for the scores]  
+
+20. **Conditions to Avoid easy Rejections**
+    - Identify common pitfalls that lead to easy rejections of research papers in this field or idea domain.
+    - Does this idea/abstract present a clear, side-by-side comparison of your approach versus existing methods, highlighting key differences in methodology and performance.
+    - Does the idea abstract convey key contributions clearly, using concise language and illustrative examples.
+    - Can the idea be easily reproduced. Are the datasets and code available for the idea.
+    - Would a lazy reviewer misunderstand the idea or a research work written on this idea.     
+  
+After assigning scores for each aspect and considering the additional factors, please calculate the total score for each idea and provide a final ranking. Explain which idea is better overall and why, taking into account the scores, the importance of each aspect, and the additional considerations in the context of publishing a successful machine learning research paper with the least effort.  
+  
+Please ensure that your response is well-structured, detailed, and provides clear justification for the ranking and recommendation. Highlight the strengths and weaknesses of each idea and provide actionable insights on how to improve the chosen idea to increase its chances of acceptance and impact.  
+
+            """.lstrip(),
 
             get_more_details_prompt=f"""Continue writing answer to a question or instruction which is partially answered. 
 Provide new details from the additional information provided if it is not mentioned in the partial answer already given. 
@@ -335,7 +522,7 @@ Cover the below points while answering and also add other necessary points as ne
         return self.gpt4_prompts["IdeaNovelty"]
 
     @property
-    def idea_novelty_comparison(self):
+    def idea_comparison_prompt(self):
         return self.gpt4_prompts["IdeaComparison"]
 
     @property

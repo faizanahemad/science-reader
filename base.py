@@ -387,11 +387,13 @@ class CallMultipleLLM:
             responses_futures.append((model.model_name, response))  # Assuming model_name is accessible
         logger.warning(f"[CallMultipleLLM] invoked all models")
 
-        for resp in responses_futures:
-            sleep_and_get_future_result(resp[1], 0.1, 180) if sleep_and_get_future_exception(resp[1], 0.1, 175) is None else f"Error in calling model {resp[0]}"
-            logger.warning(
-                f"[CallMultipleLLM] got response from model {resp[0]} with elapsed time as {(time.time() - start_time):.2f} seconds")
-        for resp in responses_futures:
+        while len(responses_futures) > 0:
+            while not any([resp[1].done() for resp in responses_futures]):
+                time.sleep(0.1)
+            # Get the one that is done
+            resp = [resp for resp in responses_futures if resp[1].done()][0]
+            responses_futures.remove(resp)
+            logger.warning(f"[CallMultipleLLM] got response from model {resp[0]} with success/failure as ```{resp[1].exception()}``` with elapsed time as {(time.time() - start_time):.2f} seconds")
             try:
                 result = resp[1].result()
                 responses.append((resp[0], result))
@@ -399,18 +401,20 @@ class CallMultipleLLM:
                     f"[CallMultipleLLM] added response from model: {resp[0]} to `responses` with elapsed time as {(time.time() - start_time):.2f} seconds")
 
             except Exception as e:
-                result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens, system=system, *args, **kwargs)
+                result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens,
+                                           system=system, *args, **kwargs)
                 responses.append((self.backup_model.model_name, result))
-                logger.error(f"[CallMultipleLLM] got response from backup model {self.backup_model.model_name} due to error from model {resp[0]}")
+                logger.error(
+                    f"[CallMultipleLLM] got response from backup model {self.backup_model.model_name} due to error from model {resp[0]}")
 
 
         if self.merge:
-            merged_prompt = f"""We had originally asked large language experts the below information/question:
-<|context|>
+            merged_prompt = f"""We had originally asked large language model experts the below information/question:
+<|original_context|>
 {text}
-<|/context|>
+<|/original_context|>
 Given below are the responses we obtained by asking multiple models with the above context.
-Merge the following responses, ensuring to include all details and following instructions given in the context:\n
+Merge the following responses, ensuring to include all details from all the expert model answers and following instructions given in the context:\n
 """
             for model_name, response in responses:
                 merged_prompt += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
