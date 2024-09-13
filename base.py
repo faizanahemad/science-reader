@@ -388,7 +388,7 @@ class CallMultipleLLM:
         logger.warning(f"[CallMultipleLLM] invoked all models")
 
         for resp in responses_futures:
-            sleep_and_get_future_result(resp[1], 0.1, 125) if sleep_and_get_future_exception(resp[1], 0.1, 120) is None else f"Error in calling model {resp[0]}"
+            sleep_and_get_future_result(resp[1], 0.1, 180) if sleep_and_get_future_exception(resp[1], 0.1, 175) is None else f"Error in calling model {resp[0]}"
             logger.warning(
                 f"[CallMultipleLLM] got response from model {resp[0]} with elapsed time as {(time.time() - start_time):.2f} seconds")
         for resp in responses_futures:
@@ -417,9 +417,10 @@ Merge the following responses, ensuring to include all details and following ins
 
                 # Add a system prompt for the merge model
             system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
-            merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=stream)
-            logger.warning(f"[CallMultipleLLM] merging response from all models")
-            return merged_response
+            logger.warning(f"[CallMultipleLLM] merging responses from all models with prompt length {len(merged_prompt.split())}")
+            merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=False)
+            logger.warning(f"[CallMultipleLLM] merged response from all models with merged response length {len(merged_response.split())}")
+            return make_stream(merged_response, stream)
         else:
             # Format responses in XML style
             formatted_responses = ""
