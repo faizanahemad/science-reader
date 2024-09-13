@@ -1664,6 +1664,7 @@ Write the extracted information briefly and concisely below:
                 answer += t2y
         except Exception as e:
             logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
+            traceback.print_exc()
             # answer += f"We had an exception in answering using model - {model_name}"
             yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
             try:
@@ -1685,6 +1686,7 @@ Write the extracted information briefly and concisely below:
                     yield {"text": t2y, "status": "answering in progress"}
                     answer += t2y
             except Exception as e:
+                traceback.print_exc()
                 logger.error(
                     f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
                 # answer += f"We had an exception in answering using model - {model_name}"
