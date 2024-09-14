@@ -870,6 +870,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option selected>None</option>
                 <option>Prompt_IdeaNovelty</option>
                 <option>Prompt_IdeaComparison</option>
+                <option>Prompt_IdeaFleshOut</option>
+                <option>Prompt_IdeaDatasetsAndExperiments</option>
+                <option>Prompt_IdeaAblationsAndResearchQuestions</option>
                 
                 <option>Agent_IdeaNovelty</option>
                 <option>Agent_WebSearch</option>
