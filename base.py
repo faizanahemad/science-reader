@@ -247,7 +247,13 @@ class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
 
         self.keys = keys
-        self.light_system = "You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. \nAlways provide comprehensive, detailed and informative response.\nInclude references inline in wikipedia style as your write the answer.\nUse direct, to the point and professional writing style.\nI am a student and need your help to improve my learning and knowledge. Write the full response to the user's query now.\n"
+        self.light_system = """You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. 
+Always provide comprehensive, detailed and informative response.
+Include references inline in wikipedia style as your write the answer.
+Use direct, to the point and professional writing style.
+I am a student and need your help to improve my learning and knowledge. Write the full response to the user's query now.
+Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.
+"""
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
@@ -414,6 +420,7 @@ class CallMultipleLLM:
 {text}
 <|/original_context|>
 Given below are the responses we obtained by asking multiple models with the above context.
+Consider each response and pick the best parts from each response to create a single comprehensive response.
 Merge the following responses, ensuring to include all details from all the expert model answers and following instructions given in the context:\n
 """
             for model_name, response in responses:

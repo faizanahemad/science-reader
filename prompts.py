@@ -203,6 +203,7 @@ Please provide a comprehensive evaluation based on the following criteria:
    - Rejection reasons: What are some reasons reviewers might reject or criticize this work?  
    - Reviewer 2 critique: If you were a critical "Reviewer 2", what feedback would you give?  
    - Common pitfalls: What are some common causes of rejection for this type of research?  
+   - Anticipate potential areas of misunderstanding that the reviewers might have.
 
 4. Strengths:  
    - Key strengths: What are the main strengths and selling points of this research idea?  
@@ -239,22 +240,16 @@ Please provide a comprehensive evaluation based on the following criteria:
     - Scalability: How well does the approach scale to large datasets and complex problems?  
     - Efficiency: Discuss the efficiency of the method in terms of time and resource requirements.  
 
-11. Ethical Considerations:  
-    - Ethical implications: Are there any potential negative ethical implications or risks associated with this research?  
-    - Responsible AI: How does the research align with principles of responsible AI, such as fairness, transparency, and accountability?  
-    - Privacy and security: Are there any privacy or security concerns related to the data or methodology?  
-
-12. Clarity and Presentation:  
+11. Clarity and Presentation:  
     - Writing quality: Is the research idea presented clearly, concisely, and coherently?  
     - Figures and tables: Are the figures and tables informative, well-designed, and properly labeled?  
     - Organization: Is the paper well-structured and easy to follow?  
 
-13. Broader Impact and Limitations:  
-    - Societal impact: What are the potential positive and negative societal impacts of this research?  
+12. Broader Impact and Limitations:  
     - Generalizability: How well does the proposed approach generalize to different datasets, tasks, or domains?  
     - Future directions: What are promising future research directions stemming from this work?  
 
-14. Relevant Conferences and Journals:  
+13. Relevant Conferences and Journals:  
     - Target venues: Which top-tier conferences (e.g., NeurIPS, ICML, ICLR, AISTATS) or journals (e.g., Nature, Science) would be most suitable for this work?  
     - Fit with venue scope: How well does the research align with the scope and themes of the target venues?  
 
@@ -375,7 +370,8 @@ While you do your evaluations on these aspects write your thoughts first about e
 10. **Reviewer 2's Perspective:**  
     - Consider potential criticisms or concerns that a critical reviewer (often referred to as "Reviewer 2") might raise about each idea.  
     - Anticipate potential weaknesses, limitations, or gaps in the proposed methods, experiments, or analysis that reviewers might point out.  
-    - Evaluate the robustness and thoroughness of the idea in addressing potential counterarguments or alternative explanations.  
+    - Evaluate the robustness and thoroughness of the idea in addressing potential counterarguments or alternative explanations.
+    - Anticipate potential areas of misunderstanding that the reviewers might have.  
     - [Discuss potential criticisms or concerns that a critical reviewer might raise for each idea]  
     - Think of generic reviewer 2 comments and criticisms that can be raised for these ideas as seen in reddit and twitter.
     - Idea 1 Comprehensive thought process: [Insert analysis]
@@ -433,6 +429,125 @@ Explain which idea is better overall and why, taking into account the scores, th
   
 Please ensure that your response is well-structured, detailed, and provides clear justification for the ranking and recommendation. 
 Highlight the strengths and weaknesses of each idea and provide actionable insights on how to improve the chosen idea to increase its chances of acceptance and impact.  
+""".lstrip(),
+            IdeaFleshOut=f"""
+I would like you to help me flesh out a machine learning research idea. Please guide me through the development of this idea by addressing the following aspects in detail. For each aspect, provide insightful suggestions, ask clarifying questions if needed, and help me expand on the points presented.  
+  
+**Research Idea:** 
+<idea>
+{{research_idea}}
+</idea>
+  
+**Aspects to Address:**  
+  
+1. **Motivation and Background:**  
+   - What is the motivation behind this research idea?  
+   - What problem or challenge does this idea aim to address?  
+   - Provide a brief background of the problem domain and its significance.  
+   - What types of domains and papers should we search for in the literature review on this idea?  
+   - Write four diverse search queries that we can use to search for literature related to this idea.  
+  
+2. **Methodology and Approach:**  
+   - Describe the proposed methodology and approach in detail.  
+   - What are the key components or steps involved in the methodology?  
+   - How does this approach differ from existing methods or techniques?  
+   - How does this idea advance the state-of-the-art in the field?   
+   - What type of system diagram or flowchart can be used to illustrate the methodology?
+  
+3. **Dataset and Experiments:**  
+   - What datasets are required to evaluate this idea?  
+   - How do we benchmark this idea against existing methods? What existing methods to benchmark against?
+   - What tasks can be performed on these datasets to validate the idea?  
+   - What type of experiments can be performed to validate this idea?  
+   - What metrics or evaluation criteria can be used to assess the performance of this idea?  
+   - What are the expected results and outcomes of these experiments? Would we need human evaluation or can we use automatic evaluation?
+   - Suggest specific experiments, analyses, or evaluations to strengthen the research proposal.  
+  
+4. **Ablations and Research Questions:**  
+   - What ablation studies can be conducted to analyze the importance of different components?  
+   - What research questions can be explored based on this idea?  
+   - Are there any specific hypotheses that can be tested through experiments?  
+   - What plots can be used to show the results of these ablation studies and research questions?  
+  
+5. **Novelty and Contributions (Reinforcement):**  
+   - Highlight the unique aspects of the research that set it apart from existing work.  
+   - Explain how the research will contribute to advancing the field of machine learning.  
+   - Discuss the potential for the research to open new avenues or inspire further studies.  
+   - What novel insights or techniques does this idea potentially introduce?   
+  
+6. **Challenges and Risks:**  
+   - Identify potential obstacles or limitations that may affect the research.  
+   - Discuss strategies for mitigating risks or overcoming challenges.  
+   - Reflect on assumptions made and how they might impact the results.  
+  
+7. **Reviewer Perspectives and Feedback:**  
+    - Anticipate potential questions or concerns that reviewers might have.  
+    - Anticipate potential areas of misunderstanding that the reviewers might have.
+    - Discuss how to address common criticisms and strengthen the research proposal.  
+    - Reflect on ways to enhance the clarity, rigor, and appeal to the academic community.  
+
+8. **Actionable Insights and Recommendations:**
+    - Provide actionable insights on how to improve the research idea.
+    - Suggest strategies for addressing potential challenges and enhancing the feasibility of the research.
+    - Suggest strategies for making the research more palatable to reviewers and readers. Ensure that reviewers understand the idea, significance and impact of the research.
+    - Recommend strategies for enhancing the impact and relevance of the research.
+    
+9. **Make an Action Plan and write an elaborate outline for the paper:**
+    - Provide a step-by-step action plan for developing and writing the paper.
+    - Suggest a structure that would make the paper compelling and easy to follow.
+    - Suggest potential tables, figures, system diagrams, flowcharts and visualizations that could enhance the paper.
+    - Suggest a timeline for completing the research, experiments, and paper writing process.
+    - Write a detailed outline for the paper based on this idea. 
+    - Include sections, subsections, and key points to be covered in each part.
+
+10. **Sample Paper Components:**  
+    - **Title:** Propose a compelling and descriptive title for a paper based on this idea.  
+    - **Abstract:** Write a concise abstract summarizing the key aspects of the research.  
+    - **Introduction:** Draft a brief introduction outlining the motivation, problem statement, and significance of the research.  
+    - **Related Work:** Write briefly about the areas we need to cover in the related work section.
+    
+**Instructions:**  
+  
+- As you address each aspect and the sub-questions within those, provide detailed insights and suggestions to help me develop the research idea comprehensively.  
+- Feel free to ask me questions to clarify uncertainties or to prompt deeper thinking about specific elements.  
+- The goal is to collaboratively flesh out the research idea into a well-defined and robust proposal ready for development and publication.  
+
+Please provide a comprehensive and detailed analysis of the research idea, covering each of the aspects and the sub-questions within the aspects, mentioned above. 
+Finally write a sample title, abstract and a small introduction for a paper based on this idea.
+""".lstrip(),
+            IdeaDatasetsAndExperiments=f"""
+Given the following high-level research idea:
+<idea>
+{{research_idea}}
+</idea>
+
+Please provide a detailed analysis of the datasets and experiments required to evaluate this idea.
+some of the aspects to keep in mind when writing the answer are:
+    - What datasets are required to evaluate this idea?
+    - What tasks can be performed on these datasets to validate the idea?
+    - How do we benchmark this idea against existing methods? What existing methods to benchmark against?
+    - What type of experiments can be performed to validate this idea?
+    - What metrics or evaluation criteria can be used to assess the performance of this idea?
+    - What normalized metrics can be used to compare the results of this idea with existing methods?
+    - What are the expected results and outcomes of these experiments? Would we need human evaluation or can we use automatic evaluation.
+    - Suggest specific experiments, analyses, or evaluations to strengthen the research proposal.
+    
+Please provide a comprehensive and detailed analysis of the datasets and experiments required to evaluate this idea following the above pointers and going above and beyond to add your own criterion.
+
+""".lstrip(),
+            IdeaAblationsAndResearchQuestions=f"""
+Given the following high-level research idea:
+<idea>
+{{research_idea}}
+</idea>
+
+Please provide a detailed analysis of the ablation studies and research questions that can be explored based on this idea.
+some of the aspects to keep in mind when writing the answer are:
+    - What ablation studies can be conducted to analyze the importance of different components?
+    - What research questions can be explored based on this idea?
+    - Are there any specific hypotheses that can be tested through experiments?
+    - What interesting findings and conclusions might be drawn from these ablation studies and research questions?
+    - What type of charts, plots or graphs can be used to show the results of these ablation studies and research questions.  
 """.lstrip(),
 
             get_more_details_prompt=f"""Continue writing answer to a question or instruction which is partially answered. 
@@ -511,6 +626,18 @@ Cover the below points while answering and also add other necessary points as ne
     @property
     def idea_comparison_prompt(self):
         return self.gpt4_prompts["IdeaComparison"]
+
+    @property
+    def idea_flesh_out_prompt(self):
+        return self.gpt4_prompts["IdeaFleshOut"]
+
+    @property
+    def idea_datasets_and_experiments_prompt(self):
+        return self.gpt4_prompts["IdeaDatasetsAndExperiments"]
+
+    @property
+    def idea_ablations_and_research_questions_prompt(self):
+        return self.gpt4_prompts["IdeaAblationsAndResearchQuestions"]
 
     @property
     def prompts(self):

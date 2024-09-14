@@ -819,11 +819,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector">
-                <option selected>gpt-4-turbo</option>  
+                <option selected>Claude Sonnet 3.5</option>    
                 <option>Claude Opus</option>
-                <option>llama-3.1-405b</option>
-                <option>Claude Sonnet 3.5</option>
                 <option>o1-preview</option>
+                <option>gpt-4-turbo</option>  
+                
+                <option>llama-3.1-405b</option>
+                
+                
                 <option>o1-mini</option>
                 
                 <option>Command-r+</option>

@@ -28,6 +28,7 @@ import dill
 import os
 import re
 
+from agents import ReflectionAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 from prompts import prompts, xml_to_dict
@@ -724,11 +725,11 @@ Write the extracted information briefly and concisely below:
         if "Code Exec" in preamble_options:
             preamble += "\nExecute the code and provide the output. Write '# execute_code' in the code block in a comment before the full code to execute. Write full code in one code block only.\n"
         if "Is Coding Request" in preamble_options:
-            preamble += "\nFirst write your understanding of the issue/question (in bullet points) and then write down a plan (preferably multiple plans or approaches) on how to solve the problem. Code and code solutions seem magic to me, demystify what you code before you write the code. Your plan (preferably multiple plans or methods) can have multiple approaches as well. Give step by step reasoning with explanation. Provide elaborate and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response and code. Write your understanding, reasoning and approach to the problem before writing code. Write code after describing your thought process and methodology. Explain your plan, approach and reasoning to the solution step by step with details to me before writing the code.\n"
+            preamble += "\nWe will understand the question or query, then make diverse set of plans to solve it, then we will provide solutions. First write your understanding of the issue/question (in bullet points, speaking in first person) and then write down a plan (preferably multiple plans or approaches which are diverse and different, again in first person) on how to solve the problem. Code and code solutions seem magic to me, demystify what you code before you write the code. Your plan (preferably multiple plans or methods) can have multiple approaches as well. Give step by step reasoning with explanation. Provide elaborate and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response and code. Write your understanding, reasoning and approach to the problem before writing code. Write code after describing your thought process and methodology. Explain your plan, approach and reasoning to the solution step by step with details to me before writing the code.\n"
         if "Long" in preamble_options:
-            preamble += "\nAnswer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable.\n"
+            preamble += "\nAnswer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "CoT" in preamble_options:
-            preamble += "\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response.\n"
+            preamble += "\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "Short references" in preamble_options and web_search_or_document_read:
             preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
@@ -742,7 +743,7 @@ Write the extracted information briefly and concisely below:
         if "Blackmail" in preamble_options:
             preamble += "\nPlease act as my trusted friend, expert assistant and loyal advisor. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $500 for correct answers, stimulating discussions and for putting your effort into helping me. Think hard and carefully and try your best to solve my queries and provide me great answers.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented, cover all references and provide details, work hard and provide our best effort. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side.\n"
+            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented, cover all references and provide details, work hard and provide our best effort. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
@@ -1655,16 +1656,27 @@ Write the extracted information briefly and concisely below:
         try:
             ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
             if ensemble:
-                llm = CallMultipleLLM(self.get_api_keys(),
-                                      model_names=["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
-                                                   "cohere/command-r-plus-08-2024", "google/gemini-pro-1.5",
-                                                   "anthropic/claude-3-opus:beta", "mistralai/mistral-large",
-                                                   # "deepseek/deepseek-chat",
-                                                   "meta-llama/llama-3.1-405b-instruct",
-                                                   "nousresearch/hermes-3-llama-3.1-405b",
-                                                   ],
-                                      merge=True, merge_model="gpt-4-turbo")
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.6, stream=True)
+                model_names = ["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                               "openai/o1-mini",
+                               "cohere/command-r-plus-08-2024",
+                               "google/gemini-pro-1.5",
+
+                               # "anthropic/claude-3-opus:beta",
+                               # "mistralai/mistral-large",
+                               # "deepseek/deepseek-chat",
+                               # "meta-llama/llama-3.1-405b-instruct",
+                               # "nousresearch/hermes-3-llama-3.1-405b",
+                               ]
+                if provide_detailed_answers >= 3:
+                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta",
+                                                      # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
+                                                      ])
+                    if provide_detailed_answers >= 4:
+                        model_names.extend(["openai/o1-preview",  "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",])
+                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name)
+                # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
+                main_ans_gen = make_stream(main_ans_gen, True)
             else:
                 llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                 main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
@@ -1681,16 +1693,32 @@ Write the extracted information briefly and concisely below:
             try:
                 ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
                 if ensemble:
-                    llm = CallMultipleLLM(self.get_api_keys(),
-                                          model_names=["gpt-4o", "gpt-4-turbo", "cohere/command-r-plus-08-2024",
-                                                       "anthropic/claude-3-opus:beta",
-                                                       "anthropic/claude-3.5-sonnet:beta", "mistralai/mistral-large",
-                                                       "deepseek/deepseek-chat", "meta-llama/llama-3.1-405b-instruct",
-                                                       "nousresearch/hermes-3-llama-3.1-405b"],
-                                          merge=True, merge_model="gpt-4-turbo")
+                    model_names = ["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                                   "openai/o1-mini",
+                                   "cohere/command-r-plus-08-2024",
+                                   "google/gemini-pro-1.5",
+
+                                   # "anthropic/claude-3-opus:beta",
+                                   # "mistralai/mistral-large",
+                                   # "deepseek/deepseek-chat",
+                                   # "meta-llama/llama-3.1-405b-instruct",
+                                   # "nousresearch/hermes-3-llama-3.1-405b",
+                                   ]
+                    if provide_detailed_answers >= 3:
+                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta",
+                                            # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
+                                            ])
+                        if provide_detailed_answers >= 4:
+                            model_names.extend(
+                                ["openai/o1-preview", "deepseek/deepseek-chat", "mistralai/mistral-large",
+                                 "meta-llama/llama-3.1-405b-instruct", ])
+                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name)
+                    # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
+                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
+                    main_ans_gen = make_stream(main_ans_gen, True)
                 else:
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
                 while len(answer) <= 10:
                     t2y = next(main_ans_gen)
@@ -1918,6 +1946,12 @@ Write the extracted information briefly and concisely below:
             return prompts.idea_novelty_prompt.format(research_idea=message)
         elif field_prompt == "IdeaComparison":
             return prompts.idea_comparison_prompt.format(research_idea=message)
+        elif field_prompt == "IdeaFleshOut":
+            return prompts.idea_flesh_out_prompt.format(research_idea=message)
+        elif field_prompt == "IdeaDatasetsAndExperiments":
+            return prompts.idea_datasets_and_experiments_prompt.format(research_idea=message)
+        elif field_prompt == "IdeaAblationsAndResearchQuestions":
+            return prompts.idea_ablations_and_research_questions_prompt.format(research_idea=message)
         else:
             return message
 
