@@ -1107,7 +1107,17 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
         while not doc_text_f1.done() or not doc_text_f2.done():
             time.sleep(1)
-        doc_text = "OCR and analysis from strong model:\n" + sleep_and_get_future_result(doc_text_f1) + "\nOCR and analysis from weak model:\n" + sleep_and_get_future_result(doc_text_f2)
+        ocr_1 = sleep_and_get_future_result(doc_text_f1) if sleep_and_get_future_exception(doc_text_f1) is None else ""
+        ocr_2 = sleep_and_get_future_result(doc_text_f2) if sleep_and_get_future_exception(doc_text_f2) is None else ""
+        if len(ocr_1) > 0 and len(ocr_2) > 0:
+            doc_text = "OCR and analysis from strong model:\n" + ocr_1 + "\nOCR and analysis from weak model:\n" + ocr_2
+        elif len(ocr_1) > 0:
+            doc_text = "OCR and analysis from strong model:\n" + ocr_1
+        elif len(ocr_2) > 0:
+            doc_text = "OCR and analysis from weak model:\n" + ocr_2
+        else:
+            doc_text = "OCR failed."
+
         is_image = True
         chunk_overlap = 0
     else:
