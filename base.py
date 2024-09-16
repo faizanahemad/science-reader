@@ -46,115 +46,17 @@ import json
 import random
 
 
-openai_rate_limits = defaultdict(lambda: (1000000, 10000), {
-    "gpt-3.5-turbo": (1000000, 10000),
-    "gpt-3.5-turbo-0301": (1000000, 10000),
-    "gpt-3.5-turbo-0613": (1000000, 10000),
-    "gpt-3.5-turbo-1106": (1000000, 10000),
-    "gpt-3.5-turbo-16k": (1000000, 10000),
-    "gpt-3.5-turbo-16k-0613": (1000000, 10000),
-    "gpt-3.5-turbo-instruct": (250000, 3000),
-    "gpt-3.5-turbo-instruct-0914": (250000, 3000),
-    "gpt-4": (300000, 10000),
-    "gpt-4-0314": (300000, 10000),
-    "gpt-4-0613": (300000, 10000),
-    "gpt-4-turbo": (800000, 10000),
-    "gpt-4-32k": (150000, 100),
-    "gpt-4-32k-0314": (150000, 100),
-    "gpt-4-vision-preview": (150000, 100),
-    "gpt-4o": (2000000 , 10000),
-    "gpt-4o-mini": (10000000, 10000),
-})
 
-openai_model_family = {
-    "gpt-3.5-turbo": ["gpt-3.5-turbo", "gpt-3.5-turbo-0301", "gpt-3.5-turbo-0613", "gpt-3.5-turbo-1106"],
-    "gpt-3.5-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613"],
-    "gpt-3.5-turbo-16k": ["gpt-3.5-turbo-16k", "gpt-3.5-turbo-16k-0613"],
-    "gpt-3.5-turbo-instruct": ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"],
-    "gpt-4": ["gpt-4", "gpt-4-0314", "gpt-4-0613", "gpt-4-32k-0314"],
-    "gpt-4-turbo": ["gpt-4-turbo", "gpt-4-vision-preview"],
-    "gpt-4-0314": ["gpt-4-0314"],
-    "gpt-4-0613": ["gpt-4-0613"],
-    "gpt-4-32k": ["gpt-4-32k"],
-    "gpt-4-vision-preview": ["gpt-4-vision-preview", "gpt-4-1106-vision-preview"],
-    "gpt-4o": ["gpt-4o"],
-    "gpt-4o-mini": ["gpt-4o-mini"]
-}
 
 import time
 from collections import deque
 from threading import Lock
 
-# create a new tokenlimit exception class
-class TokenLimitException(Exception):
-    def __init__(self, message=""):
-        super().__init__(message)
-
-    def __str__(self):
-        return self.args[0]
-
-class OpenAIRateLimitRollingTokenTracker:
-    def __init__(self):
-        self.token_counts = {model: 0 for model in openai_rate_limits.keys()}
-        self.token_time_queues = {model: deque() for model in openai_rate_limits.keys()}
-        self.locks = {model: Lock() for model in openai_rate_limits.keys()}  # Lock for each model
-
-    def add_tokens(self, model, token_count):
-        with self.locks[model]:  # Ensure only one thread modifies data for a model at a time
-            current_time = time.time()
-            self.token_counts[model] += token_count
-            self.token_time_queues[model].append((current_time, token_count))
-            self.cleanup_old_tokens(model)
-
-    def cleanup_old_tokens(self, model):
-        current_time = time.time()
-        while self.token_time_queues[model] and current_time - self.token_time_queues[model][0][0] > 60:
-            old_time, old_count = self.token_time_queues[model].popleft()
-            self.token_counts[model] -= old_count
-
-    def get_token_count(self, model):
-        with self.locks[model]:
-            self.cleanup_old_tokens(model)
-            return self.token_counts[model]
-
-    def select_model(self, family: str):
-        chosen_models = openai_model_family[family]
-        with Lock():  # Global lock for selecting model
-            model = min(chosen_models, key=self.get_token_count)
-            if self.get_token_count(model) >= openai_rate_limits[model][0] - 32000:
-                raise TokenLimitException("All models are rate limited")
-            logger.debug(f"Selected model {model} with {self.get_token_count(model)} tokens for family {family}")
-            return model
-
-rate_limit_model_choice = OpenAIRateLimitRollingTokenTracker()
-
-easy_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
-davinci_enc = tiktoken.encoding_for_model("text-davinci-003")
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
-encoders_map = defaultdict(lambda: easy_enc, {
-    "gpt-3.5-turbo": easy_enc,
-    "gpt-3.5-turbo-0301": easy_enc,
-    "gpt-3.5-turbo-0613": easy_enc,
-    "gpt-3.5-turbo-1106": easy_enc,
-    "gpt-3.5-turbo-16k": easy_enc,
-    "gpt-3.5-turbo-16k-0613": easy_enc,
-    "gpt-4": gpt4_enc,
-    "gpt-4-0314": gpt4_enc,
-    "gpt-4-0613": gpt4_enc,
-    "gpt-4-32k-0314": gpt4_enc,
-    "gpt-4-turbo": gpt4_enc,
-    "gpt-4o-mini": gpt4_enc,
-    "gpt-4o": gpt4_enc,
-    "text-davinci-003": davinci_enc,
-    "text-davinci-002": davinci_enc,
-})
 
 def call_chat_model(model, text, images, temperature, system, keys):
     api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
-    if model.startswith("gpt") or "davinci" in model:
-        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
-        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
     if not openrouter_used and model.startswith("openai/"):
@@ -201,8 +103,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
                 text_content = chunk["choices"][0]["delta"]["content"]
                 if isinstance(text_content, str):
                     yield text_content
-                    if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
-                        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
+
 
         if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
             yield "\n Output truncated due to lack of context Length."
@@ -210,35 +111,6 @@ def call_chat_model(model, text, images, temperature, system, keys):
         logger.error(f"[call_chat_model]: Error in calling chat model {model} with error {str(e)}")
         traceback.print_exc(limit=4)
         raise e
-
-def call_chat_model_old(model, text, temperature, system, keys):
-    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
-    if model.startswith("gpt") or "davinci" in model:
-        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text)))
-        rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(system)))
-    extras = dict(api_base="https://openrouter.ai/api/v1", base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
-    response = openai.ChatCompletion.create(
-        model=model,
-        api_key=api_key,
-        stop=["</s>", "Human:", "USER:", "[EOS]", "HUMAN:", "HUMAN :", "Human:", "User:", "USER :", "USER :", "Human :", "###", "<|eot_id|>"] if "claude" in model else [],
-        messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": text},
-            ],
-        temperature=temperature,
-        stream=True,
-        **extras
-    )
-    chunk = None
-    for chunk in response:
-        if "content" in chunk["choices"][0]["delta"]:
-            text_content = chunk["choices"][0]["delta"]["content"]
-            yield text_content
-            if ("gpt" in model or "davinci" in model) and model != 'openai/gpt-4-32k':
-                rate_limit_model_choice.add_tokens(model, len(encoders_map.get(model, easy_enc).encode(text_content)))
-
-    if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
-        yield "\n Output truncated due to lack of context Length."
 
 
 
@@ -257,8 +129,7 @@ Deduce what the question or query is asking about and then go above and beyond t
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
-        self.gpt4_enc = encoders_map.get("gpt-4")
-        self.turbo_enc = encoders_map.get("gpt-3.5-turbo")
+        self.gpt4_enc = gpt4_enc
         self.model_name = model_name
         self.model_type = "openai" if model_name is None or model_name.startswith("gpt") else "openrouter"
 
@@ -302,7 +173,7 @@ Deduce what the question or query is asking about and then go above and beyond t
     def __call_openrouter_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
-        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
+        text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
 
         if "google/gemini-flash-1.5" in self.model_name:
@@ -327,7 +198,7 @@ Deduce what the question or query is asking about and then go above and beyond t
     def __call_openai_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
         system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
-        text_len = len(self.gpt4_enc.encode(text) if self.use_gpt4 else self.turbo_enc.encode(text))
+        text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:
             raise ValueError("Self hosted models not supported")
@@ -352,19 +223,8 @@ Deduce what the question or query is asking about and then go above and beyond t
             assert text_len < 98000
         except AssertionError as e:
             text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
-        try:
-            model = rate_limit_model_choice.select_model(model_name)
-            return call_with_stream(call_chat_model, stream, model, text, images, temperature, system, self.keys)
-        except TokenLimitException as e:
-            time.sleep(5)
-            try:
-                model = rate_limit_model_choice.select_model(model_name)
-            except:
-                try:
-                    model = rate_limit_model_choice.select_model("gpt-4o")
-                except:
-                    raise e
-            return call_with_stream(call_chat_model, stream, model, text, images, temperature, system, self.keys)
+
+        return call_with_stream(call_chat_model, stream, model_name, text, images, temperature, system, self.keys)
 
 
 class CallMultipleLLM:
