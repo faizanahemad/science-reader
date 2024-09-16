@@ -1673,7 +1673,7 @@ Write the extracted information briefly and concisely below:
                                                       ])
                     if provide_detailed_answers >= 4:
                         model_names.extend(["openai/o1-preview",  "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",])
-                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name)
+                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name, outline_model="openai/o1-mini")
                 # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                 main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
                 main_ans_gen = make_stream(main_ans_gen, True)
@@ -1712,7 +1712,7 @@ Write the extracted information briefly and concisely below:
                             model_names.extend(
                                 ["openai/o1-preview", "deepseek/deepseek-chat", "mistralai/mistral-large",
                                  "meta-llama/llama-3.1-405b-instruct", ])
-                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name)
+                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name, outline_model="openai/o1-mini")
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
                     main_ans_gen = make_stream(main_ans_gen, True)
@@ -1952,6 +1952,8 @@ Write the extracted information briefly and concisely below:
             return prompts.idea_datasets_and_experiments_prompt.format(research_idea=message)
         elif field_prompt == "IdeaAblationsAndResearchQuestions":
             return prompts.idea_ablations_and_research_questions_prompt.format(research_idea=message)
+        elif field_prompt == "ResearchPreventRejections":
+            return prompts.research_prevent_rejections_prompt.format(research_idea=message)
         else:
             return message
 

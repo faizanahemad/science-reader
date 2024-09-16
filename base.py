@@ -271,6 +271,8 @@ Deduce what the question or query is asking about and then go above and beyond t
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
+                                                                                                                                                 "openai/o1-preview",
+                                                                                                                                                 "openai/o1-mini",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b"]
@@ -396,6 +398,7 @@ class CallMultipleLLM:
         while len(responses_futures) > 0:
             while not any([resp[1].done() for resp in responses_futures]):
                 time.sleep(0.1)
+                # sleep more
             # Get the one that is done
             resp = [resp for resp in responses_futures if resp[1].done()][0]
             responses_futures.remove(resp)
@@ -437,7 +440,7 @@ Merge the following responses, ensuring to include all details from all the expe
             formatted_responses = ""
             for model_name, response in responses:
                 formatted_responses += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
-            logger.warning(f"[CallMultipleLLM] returning responses from all models")
+            logger.warning(f"[CallMultipleLLM] returning responses from all models with elapsed time as {(time.time() - start_time):.2f} seconds")
             return make_stream(formatted_responses.strip(), stream) # formatted_responses.strip()  # Remove trailing newlines
 
         

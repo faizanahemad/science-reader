@@ -549,6 +549,39 @@ some of the aspects to keep in mind when writing the answer are:
     - What interesting findings and conclusions might be drawn from these ablation studies and research questions?
     - What type of charts, plots or graphs can be used to show the results of these ablation studies and research questions.  
 """.lstrip(),
+            ResearchPreventRejections=f"""
+Given the following high-level research idea:
+<idea>
+{{research_idea}}
+</idea>
+
+Please provide a detailed analysis of the potential pitfalls and conditions to avoid easy rejections for this research idea.
+some of the aspects to keep in mind when writing the answer are:
+    - Identify common pitfalls that lead to easy rejections of research papers in this field or idea domain.
+    - Does this idea/abstract present a clear, side-by-side comparison of your approach versus existing methods, highlighting key differences in methodology and performance.
+    - Does the idea abstract convey key contributions clearly, using concise language and illustrative examples.
+    - Can the idea be easily reproduced. Are the datasets and code available for the idea.
+    - Would a lazy reviewer misunderstand the idea or a research work written on this idea.
+    - Write down the potential pitfalls and conditions to avoid easy rejections for this research idea.
+    
+Now lets go section by section and write down the potential pitfalls and reasons for rejections.
+- Introduction
+- Related Work
+- Methodology
+- Experiments
+- Results
+- Ablations
+- Discussion
+- Conclusion
+
+Focus on each of the above sections and write down the potential pitfalls and conditions to avoid easy rejections for this research idea. Include all common and trivial rejection reasons as well.
+Write down what easy and common excuses reviewers can use to reject for each of these sections.
+
+Lets also think of the tables, figures and visualizations that can be used to avoid easy rejections. And what care we must take in our tables and figures to avoid easy rejections.
+Aside from this lets also think of generic pitfalls and conditions to avoid easy rejections for this research idea.
+""".lstrip(),
+            ResearchReviewerFeedback=f"""
+""".lstrip(),
 
             get_more_details_prompt=f"""Continue writing answer to a question or instruction which is partially answered. 
 Provide new details from the additional information provided if it is not mentioned in the partial answer already given. 
@@ -638,6 +671,10 @@ Cover the below points while answering and also add other necessary points as ne
     @property
     def idea_ablations_and_research_questions_prompt(self):
         return self.gpt4_prompts["IdeaAblationsAndResearchQuestions"]
+
+    @property
+    def research_prevent_rejections_prompt(self):
+        return self.gpt4_prompts["ResearchPreventRejections"]
 
     @property
     def prompts(self):
