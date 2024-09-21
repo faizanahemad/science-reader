@@ -17,26 +17,6 @@ class CustomPrompts:
 1. Use markdown lists and paragraphs for formatting.
 2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
         self.gpt4_prompts = dict(
-            streaming_followup=f"""Provide answer to a follow up question which is based on an earlier question. Answer the followup question or information request from context (text chunks of larger document) you are provided. 
-Followup question or information request is given below.
-"{{followup}}"
-
-Few text chunks from within the document to answer this follow up question as below.
-"{{fragment}}"
-Keep the earlier question in consideration while answering.
-Previous question or earlier question and its answer is provided below:
-
-Earlier Question: "{{query}}"
-
-Earlier Answer:
-"{{answer}}"
-
-Keep the earlier question in consideration while answering.
-{self.complex_output_instructions}
-
-Current Question: {{followup}}
-Answer: 
-""",
             short_streaming_answer_prompt=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
 Question or Query is given below.
 <|query|>
@@ -52,18 +32,6 @@ Few text chunks from the document to answer the question below:
 <|/document|>
 
 Write informative, comprehensive and detailed answer below.
-""",
-            running_summary_prompt=f"""We are reading a large document in fragments sequentially to write a continuous summary.
-'''{{document}}'''
-{{previous_chunk_summary}}
-{{summary}}
-Instructions for this summarization task as below:
-- Ignore references.
-- Provide detailed, comprehensive, informative and in-depth response.
-- Include key experiments, experimental observations, results and insights.
-- Use markdown for formatting. Use lists and paragraphs.
-
-Summary:
 """,
             retrieve_prior_context_prompt="""You are given conversation details between a human and an AI. Based on the given conversation details and human's last response or query we want to search our database of responses.
 You will generate a contextualised query based on the given conversation details and human's last response or query. The query should be a question or a statement that can be answered by the AI or by searching in our semantic database.
@@ -146,25 +114,7 @@ user's most recent message:
 
 Response to the user's query:
 """,
-            document_search_prompt="""You are given a question and conversation summary of previous messages between an AI assistant and human as below. 
-The question which is given below needs to be answered by using a document context that will be provided later. 
-For now we need to rephrase this question better using the given conversation summary.
 
-Current Question: '''{context}'''
-
-Previous conversation summary: '''{doc_context}'''
-
-We want to rephrase the question to help us search our document store for more information about the query.
-
-Generate one well specified search query as a valid python list. 
-Instructions for how to generate the queries are given below.
-1. Output should be only a python list of strings (a valid python syntax code which is a list of strings). 
-2. Convert abbreviations to full forms and correct typos in the query using the given context.
-3. Your output will look like a python list of strings like below.
-["query_1"]
-
-Output only a valid python list of web search query strings.
-""",
             web_search_question_answering_prompt=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>
 Question is given below:
 "{{query}}"
@@ -695,20 +645,13 @@ Cover the below points while answering and also add other necessary points as ne
         prompts = self.prompts
         return prompts["paper_details_map"]
 
-    @property
-    def streaming_followup(self):
-        prompts = self.prompts
-        return prompts["streaming_followup"]
+
 
     @property
     def short_streaming_answer_prompt(self):
         prompts = self.prompts
         return prompts["short_streaming_answer_prompt"]
 
-    @property
-    def running_summary_prompt(self):
-        prompts = self.prompts
-        return prompts["running_summary_prompt"]
 
     @property
     def retrieve_prior_context_prompt(self):

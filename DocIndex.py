@@ -3,7 +3,6 @@ import shutil
 
 import semanticscholar.Paper
 from filelock import FileLock, Timeout
-from review_criterias import review_params
 from pathlib import Path
 from web_scraping import fetch_html
 
@@ -23,7 +22,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
 import time
 
 class DocFAISS(FAISS):
@@ -122,7 +121,7 @@ class DocIndex:
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
-        self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data", "_paper_details"]
+        self.store_separate = ["indices", "raw_data", "review_data", "static_data", "_paper_details"]
         assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
 
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
@@ -137,26 +136,16 @@ class DocIndex:
             set_title_summary_future = wrap_in_future(None)
         static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
         del full_summary["chunks"]
-
-        
-        qna_data = dict(chunked_summary=full_summary["chunked_summary"], running_summary=full_summary["running_summary"], detailed_qna=full_summary["detailed_qna"], extended_abstract=dict())
-        deep_reader_data = full_summary["deep_reader_details"]
-        review_data = []
         _paper_details = None
         # self.set_doc_data("static_data", None, static_data)
         # self.set_doc_data("raw_data", None, raw_data)
-        # self.set_doc_data("qna_data", None, qna_data)
-        # self.set_doc_data("deep_reader_data", None, deep_reader_data)
-        # self.set_doc_data("review_data", None, review_data)
-        # self.set_doc_data("_paper_details", None, _paper_details)
-        # self.set_doc_data("indices", None, indices)
 
 
-        futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data), get_async_future(self.set_doc_data, "qna_data", None, qna_data), get_async_future(self.set_doc_data, "deep_reader_data", None, deep_reader_data), get_async_future(self.set_doc_data, "review_data", None, review_data), get_async_future(self.set_doc_data, "_paper_details", None, _paper_details)]
+        futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data)]
         indices = dict(summary_index=create_index_faiss(['EMPTY'], openai_embed, ))
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
-            f.result()
+            sleep_and_get_future_result(f, 0.1)
         time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
         self.set_api_keys(keys)
         def set_raw_index_small():
@@ -225,7 +214,7 @@ class DocIndex:
             assert top_key in self.store_separate
         except Exception as e:
             raise ValueError(f"Invalid top_key {top_key} provided")
-        logger.info(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
+        logger.debug(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
         if getattr(self, top_key, None) is not None:
             if inner_key is not None:
                 return getattr(self, top_key, None).get(inner_key, None)
@@ -266,45 +255,6 @@ class DocIndex:
         lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}-{top_key}")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
-            if top_key == "deep_reader_data":
-                if os.path.exists(json_filepath):
-                    with open(json_filepath, "r") as f:
-                        old_deep_reader_details = json.load(f)
-                elif os.path.exists(filepath):
-                    with open(os.path.join(filepath), "rb") as f:
-                        old_deep_reader_details = dill.load(f)
-                else:
-                    old_deep_reader_details = dict()
-
-                for k, v in old_deep_reader_details.items():
-                    if inner_key is None or k.strip() == inner_key.strip():
-                        continue
-                    if v is not None and isinstance(v["text"], str)  and len(v["text"].strip()) > 0 and checkNoneOrEmpty(self.get_doc_data("deep_reader_data").get(k, dict()).get("text", None)):
-                        self.set_doc_data("deep_reader_data", k, v)
-            
-            if top_key == "qna_data" and inner_key == "detailed_qna":
-                if os.path.exists(json_filepath):
-                    with open(json_filepath, "r") as f:
-                        old_qna_details = json.load(f)
-                elif os.path.exists(filepath):
-                    with open(os.path.join(filepath), "rb") as f:
-                        old_qna_details = dill.load(f)
-                else:
-                    old_qna_details = dict()
-                    
-                current_qid = [d[0] for d in self.get_doc_data("qna_data","detailed_qna") + value]
-                if overwrite:
-                    current_qna = value
-                    for _, (qid, q, a, m) in enumerate(old_qna_details.get("detailed_qna", [])):
-                        if len(q.strip()) > 0 and qid not in current_qid:
-                            current_qna.append([qid, q, a, m])
-                    value = current_qna
-                else:
-                    current_qna = self.get_doc_data("qna_data","detailed_qna") + value
-                    for _, (qid, q, a, m) in enumerate(value):
-                        if len(q.strip()) > 0 and qid not in current_qid:
-                            value.append([qid, q, a, m])
-            
             if inner_key is not None:
                 tk = self.get_doc_data(top_key)
                 if tk is None:
@@ -357,33 +307,12 @@ class DocIndex:
         for ans in self.streaming_get_short_answer(query, mode, save_answer):
             answer += ans
         return answer
-    
-    @property
-    def streaming_followup(self):
-        return prompts.streaming_followup
+
 
     @property
     def short_streaming_answer_prompt(self):
         return prompts.short_streaming_answer_prompt
-    
-    @property
-    def running_summary_prompt(self):
-        return prompts.running_summary_prompt
-    
-    
-    
-    def get_date(self):
-        paper_details = self.paper_details
-        if "publicationDate" in paper_details:
-            return paper_details["publicationDate"][:7]
-        elif "year" in paper_details:
-            return paper_details["year"] + "-01"
-        if "arxiv.org" in self.doc_source:
-            yr = self.doc_source.split("/")[-1].split(".")[0]
-            if is_int(yr):
-                return yr
-            return None
-        return None
+
 
 
     def semantic_search_document_small(self, query, token_limit=4096):
@@ -475,361 +404,43 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
                 yield t
                 answer += t
 
-        if save_answer:
-            get_async_future(self.put_answer, query, answer, mode=mode)
+
         
-    def get_fixed_details(self, key):
-        if self.get_doc_data("deep_reader_data") is not None and self.get_doc_data("deep_reader_data", key) is not None and len(self.get_doc_data("deep_reader_data", key)["text"].strip())>0:
-            logger.debug(f'Found fixed details for key = {key}')
-            return self.get_doc_data("deep_reader_data", key)
-        keys = SCIENCE_KEYS
-        assert key in keys
-        key_to_query_map = prompts.paper_details_map
-        full_text = ''
-        for txt in self.streaming_get_short_answer(key_to_query_map[key], defaultdict(lambda: False, {"provide_detailed_answers": True}), save_answer=False):
-            full_text += txt
-            yield txt
-        self.set_doc_data("deep_reader_data", key, {"id": str(mmh3.hash(self.doc_source + key, signed=False)), "text": full_text})
-        
+
     
     def get_short_info(self):
-        return dict(visible=self.visible, doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.get_doc_data("qna_data", "running_summary") if self.get_doc_data("qna_data", "running_summary") is not None else '')
+        source = self.doc_source
+        if self.is_local:
+            # only give filename in source
+            source = os.path.basename(source)
+        return dict(visible=self.visible, doc_id=self.doc_id, source=source, title=self.title, short_summary=self.short_summary, summary=self.short_summary)
     
     @property
     def title(self):
         if hasattr(self, "_title") and len(self._title.strip()) > 0:
             return self._title
+        elif self.doc_type == "image":
+            return "image"
         else:
-            try:
-                title = self.paper_details["title"]
-            except Exception as e:
-                title = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+            title = CallLLm(self.get_api_keys(),model_name="gpt-4o-mini")(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
             setattr(self, "_title", title)
             self.save_local()
             return title
-    
-    @staticmethod
-    def process_one_paper(paper, extended_abstract):
-        string_keys = ["paperId", "venue", "url", "title", "abstract", "tldr", "year", "referenceCount", "citationCount", "journal"]
-        keys = ["publicationDate", "citations", "references", "externalIds", ]
-        paper_output = dict()
-        for k in string_keys:
-            paper_output[k] = str(getattr(paper, k))
-        
-#         print(paper.title, getattr(paper, "publicationDate"), paper.year)
-        pubdate = getattr(paper, "publicationDate")
-        if pubdate is None:
-            paper_output["publicationDate"] = str(paper.year)+"-01-01"
-        else:
-            paper_output["publicationDate"] = pubdate.strftime("%Y-%m-%d")
-        paper_output['ArXiv'] = NoneToDefault(getattr(paper, "externalIds", dict()), dict()).get('ArXiv')
-        paper_output["citations"] = [DocIndex.process_one_paper(c, None) for c in NoneToDefault(getattr(paper, "citations", []))]
-        paper_output["references"] = [DocIndex.process_one_paper(c, None) for c in NoneToDefault(getattr(paper, "references", []))]
-        paper_output["citations"] = [c for c in paper_output["citations"] if c["paperId"] is not None and len(c["paperId"])>0 and c["paperId"].lower()!="none"]
-        paper_output["references"] = [c for c in paper_output["references"] if c["paperId"] is not None and len(c["paperId"])>0 and c["paperId"].lower()!="none"]
-        paper_output["extended_abstract"] = extended_abstract
-        return paper_output
-        
-    @property
-    def paper_details(self)->dict:
-        pd = self.get_doc_data("_paper_details")
-        try:
-            if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
-                return dict()
-            elif pd is not None and isinstance(pd,
-                                                                                bool):
-                return dict()
-            elif pd is not None and isinstance(pd, (dict, semanticscholar.Paper.Paper)):
-                pd = deepcopy(pd)
-                if self.get_doc_data("qna_data", "extended_abstract") is None:
-                    self.set_doc_data("qna_data", "extended_abstract", dict())
-                extended_abstract = self.get_doc_data("qna_data", "extended_abstract").get(pd["paperId"], None)
-                return DocIndex.process_one_paper(pd, extended_abstract)
-            else:
-                arxiv_url = self.doc_source
-                try:
-                    paper = ProcessFnWithTimeout(Queue())(get_paper_details_from_semantic_scholar, 10, arxiv_url)
-                    if paper is None:
-                        self.set_doc_data("_paper_details", None, False)
-                    else:
-                        self.set_doc_data("_paper_details", None, paper)
-                except:
-                    logger.error(f"Error in fetching paper details for {self.doc_source}")
-                    self.set_doc_data("_paper_details", None, False)
-                    return dict()
-                return self.paper_details
-        except Exception as e:
-            logger.error(f"Error in fetching paper details for {self.doc_source}")
-            return dict()
-    
-    def refetch_paper_details(self)->dict:
-        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
-            return dict()
-        url = self.doc_source
-        paper = get_paper_details_from_semantic_scholar(url)
-        self.set_doc_data("_paper_details", None, paper)
-        return self.paper_details
-    
-    def get_extended_abstract_for_ref_or_cite(self, paperId)->str:
-        if self.get_doc_data("qna_data", "extended_abstract") is None:
-            self.set_doc_data("qna_data", "extended_abstract", dict())
-        paper_details = self.paper_details
-        for ref in paper_details["references"] + paper_details["citations"]:
-            if ref["paperId"] == paperId:
-                text = self.get_doc_data("qna_data", "extended_abstract").get(paperId, None)
-                yield text
-                if text.strip() != '':
-                    return None
-        
-        from semanticscholar import SemanticScholar
-        sch = SemanticScholar()
-        paper = sch.get_paper(paperId)
-        if 'ArXiv' in paper.externalIds:
-            arxiv = paper.externalIds['ArXiv']
-            pdf_url = f"https://arxiv.org/pdf/{arxiv}.pdf"
-            data = PDFReaderTool()(pdf_url, page_ranges="1-3")
-            prompt = f"""Provide a detailed and comprehensive summary for the scientific text given. This scientific text is the beginning two pages of a larger research paper, as such some details maybe incomplete in this scientific text.
-Abstract:
-'{paper.abstract}'
 
-Scientific Text:
-'{data}'
-
-Detailed and comprehensive summary:
-
-            """
-            answer = ''
-            for txt in CallLLm(self.get_api_keys(), use_gpt4=False)(prompt, temperature=0.7, stream=True):
-                yield txt
-                answer += txt
-            self.get_doc_data("qna_data", "extended_abstract")[paperId] = answer
-            self.set_doc_data("qna_data", "extended_abstract", self.get_doc_data("qna_data", "extended_abstract"))
-            
-        else:
-            yield "Could not find ArXiv pdf for this document"
-            
         
+
+
     @property
     def short_summary(self):
         if hasattr(self, "_short_summary") and len(self._short_summary.strip()) > 0:
             return self._short_summary
+        elif self.doc_type == "image":
+            return "image"
         else:
-            try:
-                short_summary = self.paper_details["abstract"]
-            except Exception as e:
-                short_summary = CallLLm(self.get_api_keys(), model_name="google/gemini-pro", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
+            short_summary = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
             setattr(self, "_short_summary", short_summary)
             self.save_local()
             return short_summary
-        
-    
-    def get_all_details(self):
-        details = dict(chunked_summary=self.get_doc_data("qna_data", "chunked_summary"), 
-                       deep_reader_details=self.get_doc_data("deep_reader_data"), 
-                       detailed_qna=self.get_doc_data("qna_data", "detailed_qna"), 
-                       running_summary=self.get_doc_data("qna_data", "running_summary"))
-        
-        return dict(doc_id=self.doc_id, source=self.doc_source, title=self.title, short_summary=self.short_summary, summary=self.get_doc_data("qna_data", "running_summary"), details=details)
-    
-    
-    def streaming_ask_follow_up(self, query, previous_answer, mode=defaultdict(lambda: False)):
-    
-        if mode["provide_detailed_answers"]:
-            mode = "detailed"
-        else:
-            mode = None
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        answer = previous_answer["answer"] + "\n" + (
-            previous_answer["parent"]["answer"] if "parent" in previous_answer else "")
-        rem_word_len = TOKEN_LIMIT_FOR_DETAILED - get_gpt4_word_count(answer) - 1000
-        rem_tokens = rem_word_len // self.chunk_size
-        raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
-        raw_text = "\n".join([n.page_content for n in raw_nodes])
-        rem_word_len = TOKEN_LIMIT_FOR_DETAILED - get_gpt4_word_count(answer + raw_text) - 500
-        prompt = self.streaming_followup.format(followup=query, query=previous_answer["query"],
-                                      answer=answer,
-                                      fragment=raw_text)
-
-        prompt = get_first_last_parts(prompt, 1000, TOKEN_LIMIT_FOR_DETAILED - 1000)
-        generator = llm(prompt, temperature=0.7, stream=True)
-        answer = ''
-        
-        for txt in generator:
-            yield txt
-            answer += txt
-        self.put_answer(previous_answer["query"], answer, query, mode)
-
-    def streaming_get_more_details(self, query, answer, additional_info):
-        llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-        prompt = prompts.get_more_details_prompt.format(query=query, answer=answer, additional_info=additional_info)
-        prompt = get_first_last_parts(prompt, 1000, 6500) if llm.use_gpt4 else get_first_last_parts(prompt, 1000, 2500)
-        answer = answer + "\n"
-        for txt in llm(prompt, temperature=0.7, stream=True):
-            yield txt
-            answer += txt
-
-    def streaming_build_summary(self):
-        summary_prompt = "The given text is part of a document. Write a detailed summary which contains all important and essential information from the given text. Summarize the text:\n '{}' \nSummary: \n"
-        if len(self.get_doc_data("qna_data", "chunked_summary")) > 0 and len(self.get_doc_data("qna_data", "chunked_summary")[0].strip())>0:
-            # We already have the summary
-            for txt in self.get_doc_data("qna_data", "chunked_summary"):
-                yield txt
-        running_summaries = []
-        self.set_doc_data("qna_data", "chunked_summary", [])
-        running_summary = ''
-        this_chunk = ''
-        llm = CallLLm(self.get_api_keys(), use_16k=True)
-        brief_summary = self.brief_summary
-        chunks = ChunkText(self.get_doc_data("static_data", "doc_text"), TOKEN_LIMIT_FOR_DETAILED - 2000, 256)
-        chunks = [f"Overall document context:\n'''{brief_summary}'''\nText from current document context we are summarising:\n'''{t}'''" for t in chunks if len(t.strip()) > 0]
-        chunk_summaries = []
-        for ic, chunk in enumerate(chunks):
-            if not TextLengthCheck(running_summary, 1600):
-                running_summaries.append(running_summary)
-                running_summary = CallLLm(self.get_api_keys(), use_gpt4=False)(summary_prompt.format(running_summary), temperature=0.7, stream=False)
-                
-            cur_sum = f"The summary we have written till now:\n'''{running_summary}'''\nContinue writing ahead from the 'summary we have written till now'." if len(running_summary.strip()) > 0 else ""
-            prev_sum = f"Summary of previous context from the same document:\n'''{this_chunk}'''" if len(this_chunk.strip()) > 0 else ""
-            prompt = self.running_summary_prompt.format(summary=cur_sum, document=chunk, previous_chunk_summary=prev_sum)
-            this_chunk = ''
-            for txt in llm(prompt, temperature=0.7, stream=True):
-                this_chunk = this_chunk + txt
-                yield txt
-            
-            chunk_summaries.append(this_chunk)
-            running_summary = running_summary + " " + this_chunk
-
-        if len(running_summaries) == 1:
-            rsum = running_summaries[0]
-        elif len(running_summaries) == 0:
-            rsum = running_summary
-        else:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True)
-            if llm.use_gpt4:
-                rs = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
-                if get_gpt4_word_count(" ".join(rs)) < 7000:
-                    running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 1)]
-                else:
-                    rs = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
-                    if get_gpt4_word_count(" ".join(rs)) < 7000:
-                        running_summaries = [running_summaries[i] for i in range(0, len(running_summaries), 2)]
-                    else:
-                        mid = max(len(running_summaries) // 2 - 1, 0)
-                        running_summaries = running_summaries[mid:mid + 1]
-            else:
-                mid = max(len(running_summaries)//2 - 1, 0)
-                running_summaries = running_summaries[mid:mid+1]
-            yield '\n\n</br></br>'
-            new_summary_prompt = "Write a detailed overall summary of a document from given sectional summary of parts of the document. Ignore References. \nSectional Summaries:\n'{}'\nProvide elaborate, detailed, comprehensive, informative and in-depth summary. Overall Summary:\n"
-            rsum = ''
-            prompt = new_summary_prompt.format(" \n".join([brief_summary] + running_summaries+[running_summary]))
-            prompt = get_first_last_parts(prompt, 1000, 6000)
-            yield "<h3>Overall Summary</h3>"
-            yield "\n"
-            for txt in llm(prompt, temperature=0.7, stream=True):
-                rsum = rsum + txt
-                yield txt
-        
-        self.set_doc_data("qna_data", "chunked_summary", chunk_summaries, overwrite=True) 
-        assert len(rsum.strip()) > 0
-        self.set_doc_data("qna_data", "running_summary", rsum, overwrite=True)
-        self.set_doc_data("indices", "summary_index", create_index_faiss(self.get_doc_data("qna_data", "chunked_summary",), get_embedding_model(self.get_api_keys()), ))
-    
-    def get_instruction_text_from_review_topic(self, review_topic):
-        instruction_text = ''
-        if isinstance(review_topic, str) and review_topic.strip() in review_params:
-            instruction_text = review_topic + ": "+review_params[review_topic.strip()]
-        elif isinstance(review_topic, str):
-            instruction_text = review_topic.strip()
-        elif isinstance(review_topic, (list, tuple)):
-            try:
-                assert len(review_topic) == 2
-                assert isinstance(review_topic[0], str)
-                assert isinstance(review_topic[1], int)
-                
-                instruction_text = ": ".join(review_params[review_topic[0].strip()][review_topic[1]])
-            except Exception as e:
-                raise Exception(f"Invalid review topic {review_topic}")
-        else:
-            raise Exception(f"Invalid review topic {review_topic}")
-        return instruction_text
-    
-    def get_all_reviews(self):
-        new_review_params = dict(**review_params)
-        del new_review_params["meta_review"]
-        del new_review_params["scores"]
-        new_reviews = []
-        if self.get_doc_data("review_data"):
-            for r in self.get_doc_data("review_data"):
-                # dict(review_text=review_text, is_meta_review=is_meta_review, tone=tone, header=header, detailed_instructions=detailed_instructions, ) we use this structure.
-                new_reviews.append(dict(review=r["review"] + ('\n\n' if len(r['score']) > 0 else '') + r['score'], 
-                                        is_meta_review=r["is_meta_review"], 
-                                        tone=r["tone"], 
-                                        id=r["id"],
-                                        review_topic=r["review_topic"],
-                                        header=self.get_instruction_text_from_review_topic(r["review_topic"]).split(":")[0].strip(), 
-                                        description=self.get_instruction_text_from_review_topic(r["review_topic"]).split(":")[-1].strip(),
-                                        instructions=r["additional_instructions"],))    
-            
-            return {"reviews": new_reviews, "review_params": new_review_params}
-        else:
-            return {"reviews": [], "review_params":new_review_params}
-       
-        
-    def get_review(self, tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review):
-        # Map -> collect details.
-        # TODO: Support followup on a generated review.
-        # TODO: use previous reviews.
-        assert tone in ["positive", "negative", "neutral", "none"]
-        tones = ["positive", "negative", "neutral", "none"]
-        tone_synonyms = ["favorable and supportive.", "critical and unfavorable.", "not opinionated and middle grounded.", "unbiased to accept or reject decision."]
-        instruction_text = self.get_instruction_text_from_review_topic(review_topic)
-        if is_meta_review:
-            assert use_previous_reviews and self.get_doc_data("review_data") is not None and len(self.get_doc_data("review_data")) > 0, "Meta reviews require previous reviews to be present"
-        # fetch cached review if present.
-        # if self.get_doc_data("review_data"):
-        #     for review in self.get_doc_data("review_data"):
-        #         if str(review["review_topic"]) == str(review_topic) and review["tone"] == tone:
-        #             yield review["review"]
-        #             yield review["score"]
-        #             return
-        previous_reviews_text = ''
-        newline = "\n"
-        if use_previous_reviews and self.get_doc_data("review_data") and len(self.get_doc_data("review_data")) > 0:
-            previous_reviews = [review for review in self.get_doc_data("review_data") if review["tone"] == tone]
-            previous_reviews_text = "\n\n".join([review["review"]+review["score"] for review in previous_reviews])
-        query_prompt = f"""You are an expert {'meta-' if is_meta_review else ''}reviewer assigned to write an in-depth review and evaluate a scientific research paper using provided reviewer instructions on a conference submission website like openreview.net or microsoft cmt. 
-Justify your review with examples from the research paper.{(' '+review_params['meta_review'] + ' ') if is_meta_review else ''} Provide a {(tone + ' ') if tone!='none' and len(tone)>0 else ''}review for the given scientific research.
-{(' Make your review sound ' + tone_synonyms[tones.index(tone)]) if tone!='none' and len(tone)>0 else ''}
-The topic and style you should follow while writing the review is described in the reviewer instructions given below:\n'''{instruction_text}'''.
-{('Further we have certain additional instructions to follow while writing this review: ```' + additional_instructions + '```' + newline) if len(additional_instructions.strip())>0 else ''}{('We also have previous reviews with same tone on this paper to assist in writing this review. Previous reviews: ```' + previous_reviews_text + '```' + newline) if len(previous_reviews_text) > 0 else ''} 
-Don't give final remarks or conclusions unless asked in reviewer instructions. 
-\n{'Meta-' if is_meta_review else ''}Review: \n"""
-        mode = defaultdict(lambda: False)
-        mode["review"] = True
-        review = ''
-        for txt in self.streaming_get_short_answer(query_prompt, defaultdict(lambda: False, {"review": True}), save_answer=False):
-            yield txt
-            review += txt
-        score = ''
-        
-        if score_this_review:
-            score_prompt = f"""Provide a score for the given research work using the given review on a scale of 1-5 ({review_params['scores']}). 
-Provide your step by step elaborate reasoning for your score decision before writing your score.
-First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", "chunks")[:3])}''' \nReview: \n'''{review}''' \nWrite Reasoning for score and then write score: \n"""
-            for txt in CallLLm(self.get_api_keys(), use_gpt4=False)(score_prompt, temperature=0.1, stream=True):
-                yield txt
-                score += txt
-        self.save_review(review, score, tone, review_topic, additional_instructions, is_meta_review)
-    
-    def save_review(self, review, score, tone, review_topic, additional_instructions, is_meta_review):
-        if self.get_doc_data("review_data") is None:
-            self.set_doc_data("review_data", None, [])
-        
-        save_dict = dict(review=review, score=score, tone=tone, review_topic=",".join(map(str, review_topic)) if isinstance(review_topic, list) else review_topic, additional_instructions=additional_instructions, is_meta_review=is_meta_review)
-        id = str(mmh3.hash(self.doc_source + ",".join([tone, ",".join(map(str, review_topic)) if isinstance(review_topic, list) else review_topic, additional_instructions, str(is_meta_review)]), signed=False))
-        save_dict["id"] = id
-        self.set_doc_data("review_data", None, [save_dict])
 
         
     @staticmethod
@@ -880,27 +491,9 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
             self.api_keys = presave_api_keys
     
 
-    def put_answer(self, query, answer, followup_query='', mode=None):
-        query = query.strip()
-        followup_query = followup_query.strip()
-        final_query = query + (f". followup:{followup_query}" if len(followup_query.strip()) > 0 else "")
-        question_id = str(mmh3.hash(self.doc_source + final_query, signed=False))
-        found_index = None
-        for ix, qna_pair in enumerate(self.get_doc_data("qna_data", "detailed_qna")):
-            if qna_pair[0] == question_id and found_index is None:
-                found_index = ix
-        logger.info(f"Put answer in doc for storage with question_id = {question_id}, query = {query}, found_index = {found_index}")
-        if found_index is None:
-            self.set_doc_data("qna_data", "detailed_qna", [[question_id, final_query, answer, mode]])
-        else:
-            self.get_doc_data("qna_data", "detailed_qna")[found_index] = [question_id, final_query, answer, mode]
-            self.set_doc_data("qna_data", "detailed_qna", self.get_doc_data("qna_data", "detailed_qna"), overwrite=True)
 
-        
-    
-    
     def get_api_keys(self):
-        logger.info(f"get api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
+        logger.debug(f"get api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
         if hasattr(self, "api_keys"):
             api_keys = deepcopy(self.api_keys)
         else:
@@ -910,7 +503,7 @@ First page of the research work:  \n'''{ ' '.join(self.get_doc_data("raw_data", 
     
     def set_api_keys(self, api_keys:dict):
         assert isinstance(api_keys, dict)
-        logger.info(f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
+        logger.debug(f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
         indices = self.get_doc_data("indices")
         if indices is not None:
             for k, j in indices.items():
@@ -944,15 +537,6 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 
-class StrongDocIndex(DocIndex):
-    # TODO: QnA per chunk index -> QnA to actual chunk index
-    # TODO: ToC per chunk index -> ToC to actual chunk index
-    # TODO: Running summary per chunk -> Summary Index to actual content evidence
-    # TODO: multi chunk size index
-    # TODO: verbatim evidence extraction chain
-    # TODO: task break down -> extract evidence per task -> combine -> answer -> verify -> repeat chain with langgraph.
-    pass
-
 
 class ImageDocIndex(DocIndex):
     def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage,
@@ -976,53 +560,96 @@ class ImageDocIndex(DocIndex):
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
         self._title = ''
+        self.init_complete = False
         self._short_summary = ''
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
-        self.store_separate = ["indices", "raw_data", "qna_data", "deep_reader_data", "review_data", "static_data",
+        self.store_separate = ["indices", "raw_data", "static_data",
                                "_paper_details"]
         assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg",
                                 "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
 
-        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
-            def set_title_summary():
-                title = doc_text.split("</detailed_caption>")[0].split("<detailed_caption>")[-1].strip()
-                short_summary = doc_text.split("</detailed_insights>")[0].split("<detailed_insights>")[-1].strip()
-                setattr(self, "_title", title)
-                setattr(self, "_short_summary", short_summary)
+        def complete_init_image_doc_index():
+            llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="gpt-4o")
+            llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="google/gemini-flash-1.5")
+            doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
+            doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
 
-            set_title_summary_future = get_async_future(set_title_summary)
-        else:
-            set_title_summary_future = wrap_in_future(None)
-        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
-        del full_summary["chunks"]
+            while not doc_text_f1.done() or not doc_text_f2.done():
+                time.sleep(1)
+            ocr_1 = sleep_and_get_future_result(doc_text_f1) if sleep_and_get_future_exception(doc_text_f1) is None else ""
+            ocr_2 = sleep_and_get_future_result(doc_text_f2) if sleep_and_get_future_exception(doc_text_f2) is None else ""
+            if len(ocr_1) > 0 and len(ocr_2) > 0:
+                doc_text = "OCR and analysis from strong model:\n" + ocr_1 + "\nOCR and analysis from weak model:\n" + ocr_2
+            elif len(ocr_1) > 0:
+                doc_text = "OCR and analysis from strong model:\n" + ocr_1
+            elif len(ocr_2) > 0:
+                doc_text = "OCR and analysis from weak model:\n" + ocr_2
+            else:
+                doc_text = "OCR failed."
 
-        self.set_doc_data( "static_data", None, static_data)
-        time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
-        self.set_api_keys(keys)
 
-        def set_raw_index_small():
-            _ = sleep_and_get_future_result(set_title_summary_future)
-            brief_summary = self.title + "\n" + self.short_summary
-            brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
-            self._brief_summary = brief_summary
-            text = self.brief_summary + doc_text
-            self._text_len = get_gpt4_word_count(text)
-            self._brief_summary_len = get_gpt3_word_count(brief_summary)
-            time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
+            if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+                def set_title_summary():
+                    title = doc_text.split("</detailed_caption>")[0].split("<detailed_caption>")[-1].strip()
+                    short_summary = doc_text.split("</detailed_insights>")[0].split("<detailed_insights>")[-1].strip()
+                    setattr(self, "_title", title)
+                    setattr(self, "_short_summary", short_summary)
 
-        set_raw_index_small()
+                set_title_summary_future = get_async_future(set_title_summary)
+            else:
+                set_title_summary_future = wrap_in_future(None)
+            static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
+            del full_summary["chunks"]
+
+            self.set_doc_data( "static_data", None, static_data)
+            time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+            self.set_api_keys(keys)
+
+            def set_raw_index_small():
+                _ = sleep_and_get_future_result(set_title_summary_future)
+                brief_summary = self.title + "\n" + self.short_summary
+                brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+                self._brief_summary = brief_summary
+                text = self.brief_summary + doc_text
+                self._text_len = get_gpt4_word_count(text)
+                self._brief_summary_len = get_gpt3_word_count(brief_summary)
+                time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
+
+            set_raw_index_small()
+            self.init_complete = True
+            self.save_local()
+            return True
+
+        self.init_future = get_async_future(complete_init_image_doc_index)
+
+    def is_init_complete(self):
+        # setattr that init_complete
+        if hasattr(self, "init_complete"):
+            return True
+
+        return self.init_future.done()
+
+    def wait_till_init_complete(self):
+        while not self.init_complete:
+            time.sleep(1)
+        logger.info(f"Waited for init complete for Image doc id = {self.doc_id} with source = {self.doc_source}")
+        setattr(self, "init_complete", True)
+        return True
+
     def semantic_search_document_small(self, query, token_limit=4096):
-        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
-        return text
+
+        return self.semantic_search_document(query, token_limit)
 
     def semantic_search_document(self, query, token_limit=4096):
+        self.wait_till_init_complete()
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         return text
 
     @streaming_timer
     def streaming_get_short_answer(self, query, mode=defaultdict(lambda: False), save_answer=False):
+        self.wait_till_init_complete()
         doc_text = self.get_doc_data("static_data", "doc_text")
         text = self.brief_summary + doc_text
         if mode["provide_detailed_answers"] >= 3:
@@ -1044,6 +671,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import TextLoader
     import pandas as pd
     is_image = False
+    image_futures = None
     chunk_overlap = 128
     pdf_url = pdf_url.strip()
     # check if the link is local or remote
@@ -1101,23 +729,8 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     elif pdf_url.endswith(".txt"):
         doc_text = TextLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".jpg") or pdf_url.endswith(".jpeg") or pdf_url.endswith(".png") or pdf_url.endswith(".bmp") or pdf_url.endswith(".svg"):
-        llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="gpt-4o")
-        llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
-        doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
-        doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[pdf_url], stream=False)
-        while not doc_text_f1.done() or not doc_text_f2.done():
-            time.sleep(1)
-        ocr_1 = sleep_and_get_future_result(doc_text_f1) if sleep_and_get_future_exception(doc_text_f1) is None else ""
-        ocr_2 = sleep_and_get_future_result(doc_text_f2) if sleep_and_get_future_exception(doc_text_f2) is None else ""
-        if len(ocr_1) > 0 and len(ocr_2) > 0:
-            doc_text = "OCR and analysis from strong model:\n" + ocr_1 + "\nOCR and analysis from weak model:\n" + ocr_2
-        elif len(ocr_1) > 0:
-            doc_text = "OCR and analysis from strong model:\n" + ocr_1
-        elif len(ocr_2) > 0:
-            doc_text = "OCR and analysis from weak model:\n" + ocr_2
-        else:
-            doc_text = "OCR failed."
 
+        doc_text = ""
         is_image = True
         chunk_overlap = 0
     else:
@@ -1147,18 +760,9 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunks = []
         chunks_small = []
     nested_dict = {
-        'chunked_summary': [''],
         'chunks': chunks,
         'chunks_small': chunks_small,
-        'running_summary': '',
-        'detailed_qna': [],
-        'deep_reader_details': {
-            "methodology": {"id":"", "text":""},
-            "previous_literature_and_differentiation": {"id":"", "text":""},
-            "experiments_and_evaluation": {"id":"", "text":""},
-            "results_and_comparison": {"id":"", "text":""},
-            "limitations_and_future_work" : {"id":"", "text":""},
-        }
+        'image_futures': image_futures,
     }
     openai_embed = get_embedding_model(keys)
     cls = ImmediateDocIndex if not is_image else ImageDocIndex

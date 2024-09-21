@@ -1,7 +1,8 @@
 # Install GCC
 `sudo apt install build-essential`
 
-# Ngingx config
+# Ngingx config 
+(`/etc/nginx/sites-available/default`) remove the default.
 `sudo vi /etc/nginx/sites-available/science-reader`
 
 ```
@@ -108,6 +109,88 @@ http {
     }
   }
 }
+```
+
+Getting SSL CERT
+
+Create `setup_ssl.sh` and put below content.
+Then `chmod +x setup_ssl.sh` and `./setup_ssl.sh`
+```shell
+#!/bin/bash
+
+# Define your domain
+DOMAIN="assist-chat.site"
+EMAIL="fahemad3+ssl@gmail.com"
+
+# Certbot command to obtain the SSL certificate
+echo "Obtaining SSL certificate for $DOMAIN..."
+sudo certbot certonly --nginx -d "$DOMAIN" --non-interactive --agree-tos --email $EMAIL
+
+# Check if Certbot was successful
+if [ $? -ne 0 ]; then
+  echo "Error: Certbot failed to obtain certificate."
+  exit 1
+fi
+
+# Define the Nginx configuration file path
+NGINX_CONF="/etc/nginx/sites-available/science-reader"
+
+# Create Nginx configuration with SSL for the domain
+echo "Updating Nginx configuration for $DOMAIN..."
+
+sudo tee "$NGINX_CONF" > /dev/null <<EOL
+server {
+    listen 80;
+    server_name $DOMAIN;
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name $DOMAIN;
+
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://localhost:5000;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_cache off;
+    }
+}
+EOL
+
+# Test Nginx configuration for syntax errors
+echo "Testing Nginx configuration..."
+sudo nginx -t
+
+if [ $? -ne 0 ]; then
+  echo "Error: Nginx configuration test failed."
+  exit 1
+fi
+
+# Reload Nginx to apply the changes
+echo "Reloading Nginx..."
+sudo systemctl reload nginx
+
+# Setup automatic renewal (this is usually set by Certbot, but we'll ensure it)
+echo "Setting up automatic SSL certificate renewal..."
+sudo crontab -l | { cat; echo "0 0 * * * /usr/bin/certbot renew --quiet && systemctl reload nginx"; } | sudo crontab -
+
+echo "SSL certificate setup and Nginx configuration complete for $DOMAIN."
+
+
 ```
 
 # Start server

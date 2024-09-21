@@ -221,9 +221,6 @@ function enableMainFunctionality() {
 }
 
 function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null, disable_voting = false) {
-    let voteCountElem = $('<p>').addClass('vote-count');
-    let upvoteBtn = $('<button>').addClass('vote-btn').addClass('upvote-btn').text('👍');
-    let downvoteBtn = $('<button>').addClass('vote-btn').addClass('downvote-btn').text('👎');
     let copyBtn = $('<button>').addClass('vote-btn').addClass('copy-btn').text('📋');
     copyBtn.click(function () {
         // Here we get the card text and copy it to the clipboard
@@ -236,136 +233,10 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         'top': '5px',
         'right': '30px'
     });
-    if (disable_voting) {
-        voteBox.append(copyBtn);
-        cardElem.append(voteBox);
-        return
-    }
-    voteBox.append(copyBtn, upvoteBtn, voteCountElem, downvoteBtn);
+    
+    voteBox.append(copyBtn);
     cardElem.append(voteBox);
-
-    function updateVoteCount() {
-        var request = $.ajax({
-            url: '/getUpvotesDownvotesByQuestionId/' + contentId,
-            type: 'POST',
-            data: JSON.stringify({ doc_id: activeDocId, question_text: text, question_id: contentId }),
-            dataType: 'json',
-            contentType: 'application/json',
-        });
-
-
-
-        request.done(function (data) {
-            if (data.length > 0) {
-                var upvotes = data[0][0];
-                var downvotes = data[0][1];
-            }
-            else {
-                var upvotes = 0;
-                var downvotes = 0;
-            }
-
-            voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
-        }).fail(
-            function (data) {
-                var upvotes = 0;
-                var downvotes = 0;
-                voteCountElem.text(upvotes + '/' + (upvotes + downvotes));
-            }
-        );
-    }
-
-    function checkUserVote() {
-
-        var request = $.ajax({
-            url: '/getUpvotesDownvotesByQuestionIdAndUser',
-            type: 'POST',
-            data: JSON.stringify({ doc_id: activeDocId, question_text: text, question_id: contentId }),
-            dataType: 'json',
-            contentType: 'application/json',
-        });
-
-        request.done(function (data) {
-            if (data.length > 0) {
-                var upvotes = data[0][0];
-                var downvotes = data[0][1];
-            }
-            else {
-                var upvotes = 0;
-                var downvotes = 0;
-            }
-            if (upvotes > 0) {
-                upvoteBtn.addClass('voted');
-                downvoteBtn.removeClass('voted');
-            }
-            if (downvotes > 0) {
-                downvoteBtn.addClass('voted');
-                upvoteBtn.removeClass('voted');
-            }
-        });
-    }
-
-    function getCheckedValues(modalID) {
-        let checkedValues = $(modalID + ' input[type=checkbox]:checked').map(function () {
-            return this.value;
-        }).get();
-        return checkedValues;
-    }
-
-    function getComments(modalID) {
-        return $(modalID + ' textarea').val();
-    }
-
-    function sendFeedback(feedbackType) {
-        let modalID = '#' + feedbackType + '-feedback-modal';
-        let feedbackData = {
-            feedback_type: feedbackType,
-            question_id: contentId,
-            feedback_items: getCheckedValues(modalID),
-            comments: getComments(modalID),
-            doc_id: activeDocId,
-            question_text: text
-        };
-        $(modalID).modal('hide');
-        apiCall('/addUserQuestionFeedback', 'POST', feedbackData).always(function () {
-            // After the feedback is successfully submitted, clear the checkboxes and textarea
-            $(modalID + ' input[type=checkbox]').prop('checked', false);
-            $(modalID + ' textarea').val('');
-        });;
-    }
-
-    upvoteBtn.click(function () {
-        apiCall('/addUpvoteOrDownvote', 'POST', { question_id: contentId, doc_id: activeDocId, upvote: 1, downvote: 0, question_text: text }).done(function () {
-            upvoteBtn.addClass('voted');
-            downvoteBtn.removeClass('voted');
-            updateVoteCount();
-            checkUserVote();
-
-            $('#positive-feedback-modal').modal('show');
-            $('.submit-positive-feedback').off('click').click(function () {
-                sendFeedback('positive');
-            });
-        });
-
-    });
-
-    downvoteBtn.click(function () {
-        apiCall('/addUpvoteOrDownvote', 'POST', { question_id: contentId, doc_id: activeDocId, upvote: 0, downvote: 1, question_text: text }).done(function () {
-            upvoteBtn.addClass('voted');
-            downvoteBtn.removeClass('voted');
-            updateVoteCount();
-            checkUserVote();
-
-            $('#negative-feedback-modal').modal('show');
-            $('.submit-negative-feedback').off('click').click(function () {
-                sendFeedback('negative');
-            });
-        });
-    });
-    setTimeout(function () {
-        updateVoteCount();
-        checkUserVote();
-    }, 8000);
+    return
 }
 const markdownParser = new marked.Renderer();
 marked.setOptions({
@@ -552,72 +423,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     })
 }
 
-function loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, search_term = '', activeDocId = null) {
-    var api;
-    var search_mode;
 
-    if (search_term.length > 0) {
-        api = '/search_document?text=' + search_term;
-        search_mode = true;
-    } else {
-        api = '/list_all';
-        search_mode = false;
-    }
-
-    var request = apiCall(api, 'GET', {});
-    request.done(function (data) {
-        var searchResultsArea = $('#' + searchResultsAreaId);
-        searchResultsArea.empty();
-
-        var resultList = $('<ol></ol>'); // Create an ordered list
-        var documentIds = [];
-        $('.document-tag').each(function () {
-            documentIds.push($(this).attr('data-doc-id'));
-        });
-        if (activeDocId) {
-            data = data.filter(doc => doc.doc_id !== activeDocId);
-        }
-        data.filter(doc => !documentIds.includes(doc.doc_id)).forEach(function (doc, index) {
-            var docItem = $(`
-                <li class="my-2">
-                    <a href="#" class="search-result-item d-block" data-doc-id="${doc.doc_id}">${doc.title}</a>
-                </li>
-            `);
-            docItem.click(function (event) {
-                event.preventDefault();
-                addDocumentTags(tagsAreaId, [doc]);
-            });
-            resultList.append(docItem); // Append list items to the ordered list
-        });
-        searchResultsArea.append(resultList); // Append the ordered list to the search results area
-    });
-
-    return request;
-}
-
-
-function addDocumentTags(tagsAreaId, data) {
-
-    data.forEach(function (doc) {
-        var docTag = $(`
-            <div class="document-tag bg-light border rounded mb-2 mr-2 p-2 d-inline-flex align-items-center" data-doc-id="${doc.doc_id}">
-                <span class="me-2">${doc.title}</span>
-                <button class="delete-tag-button btn btn-sm btn-danger">Delete</button>
-            </div>`);
-        var count = $('#' + tagsAreaId).children().length;
-        var limit = 4
-        if (count > limit - 1) {
-            alert(`you cannot add more than ${limit} documents for Multiple Doc Search`);
-        }
-        else { $('#' + tagsAreaId).append(docTag); }
-        // Handle click events for the delete button
-        $('.delete-tag-button').click(function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            $(this).parent().remove();
-        });
-    });
-}
 
 function copyToClipboard(textElem, textToCopy, mode = "text") {
     // var text = textElem.text().replace(/\[show\]|\[hide\]/g, '');
@@ -673,39 +479,11 @@ function copyToClipboard(textElem, textToCopy, mode = "text") {
 
 
 
-function initSearchForMultipleDocuments(searchBoxId, searchResultsAreaId, tagsAreaId, activeDocId = null) {
-    var lastTimeoutId = null;
-    var previousSearchLength = 0;
-    var searchBox = $('#' + searchBoxId);
-    $('#' + tagsAreaId).empty();
-
-    searchBox.on('input', function () {
-        var currentSearchLength = searchBox.val().length;
-
-        if (lastTimeoutId !== null) {
-            clearTimeout(lastTimeoutId);
-        }
-
-        lastTimeoutId = setTimeout(function () {
-            currentSearchLength = searchBox.val().length;
-            if (currentSearchLength >= 5 || (previousSearchLength >= 5 && currentSearchLength < 5)) {
-                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, searchBox.val(), activeDocId);
-            } else if (currentSearchLength === 0 && previousSearchLength >= 1) {
-                loadDocumentsForMultiDoc(searchResultsAreaId, tagsAreaId, '', activeDocId);
-            }
-            previousSearchLength = currentSearchLength;
-
-            lastTimeoutId = null;
-        }, 400);
-    });
-}
-
-
 
 
 function addOptions(parentElementId, type, activeDocId = null) {
     var checkBoxIds = [
-        type === "assistant" ? `${parentElementId}-${type}-use-google-scholar` : `${parentElementId}-${type}-use-references-and-citations-checkbox`,
+        `${parentElementId}-${type}-use-google-scholar`,
         `${parentElementId}-${type}-perform-web-search-checkbox`,
         `${parentElementId}-${type}-use-multiple-docs-checkbox`,
         `${parentElementId}-${type}-tell-me-more-checkbox`,
@@ -724,8 +502,6 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
-
-        `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[2]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[2]}">Docs</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Ensemble</label></div>` +
@@ -873,6 +649,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Prompt_IdeaFleshOut</option>
                 <option>Prompt_IdeaDatasetsAndExperiments</option>
                 <option>Prompt_IdeaAblationsAndResearchQuestions</option>
+                <option>Prompt_ResearchPreventRejections</option>
                 
                 <option>Agent_IdeaNovelty</option>
                 <option>Agent_WebSearch</option>
@@ -919,49 +696,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
 
     // Elements for Multiple Documents option
-    var searchBox = $(`<input id="${parentElementId}-${type}-search-box" type="text" placeholder="Search for documents..." style="display: none;">`);
-    var searchResultsArea = $(`<div id="${parentElementId}-${type}-search-results" style="display: none;"></div>`);
-    var docTagsArea = $(`<div id="${parentElementId}-${type}-document-tags" style="display: none;"></div>`);
-
-    // Add them to the parent element
-    $(`#${parentElementId}`).append(searchBox, searchResultsArea, docTagsArea);
-
-    // Add event handlers to make checkboxes mutually exclusive
-    checkBoxIds.forEach(function (id, index) {
-        $('#' + id).change(function () {
-            if (this.checked) {
-                checkBoxIds.forEach(function (otherId, otherIndex) {
-                    if (index !== otherIndex) {
-                        var otherCheckBox = $('#' + otherId);
-                        if (otherCheckBox.is(':checked')) {
-                            otherCheckBox.prop('checked', false).trigger('change');
-                        }
-                    }
-                });
-            }
-        });
-    });
-
-    // Add an event handler on the Multiple Docs checkbox
-    $('#' + checkBoxIds[2]).change(function () {
-        if (this.checked) {
-            // If checked, display the search box, search results area and document tags area
-            searchBox.css('display', 'block');
-            searchResultsArea.css('display', 'block');
-            docTagsArea.css('display', 'block');
-
-            // Initialize search functionality
-            initSearchForMultipleDocuments(`${parentElementId}-${type}-search-box`, `${parentElementId}-${type}-search-results`, `${parentElementId}-${type}-document-tags`, activeDocId);
-        } else {
-            // If unchecked, hide the search box, search results area and document tags area
-            searchBox.css('display', 'none');
-            searchResultsArea.css('display', 'none');
-            docTagsArea.css('display', 'none');
-            searchBox.val('');
-            searchResultsArea.empty();
-            docTagsArea.empty();
-        }
-    });
+    
     if (type === 'assistant') {
         $('#deleteLastTurn').click(function () {
             if (ConversationManager.activeConversationId) {
@@ -974,7 +709,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
 
 function getOptions(parentElementId, type) {
-    checkBoxOptionOne = type === "assistant" ? "googleScholar" : "use_references_and_citations"
+    checkBoxOptionOne = "googleScholar"
     optionOneChecked = $(type === "assistant" ? `#${parentElementId}-${type}-use-google-scholar` : `#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked');
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     values = {
@@ -993,11 +728,7 @@ function getOptions(parentElementId, type) {
         let historyValue = $("input[name='historyOptions']:checked").val();
         values['enable_previous_messages'] = historyValue;
     }
-    var documentIds = [];
-    $(`#${parentElementId}`).find('.document-tag').each(function () {
-        documentIds.push($(this).attr('data-doc-id'));
-    });
-    values['additional_docs_to_read'] = documentIds;
+    
     if (type === "assistant") {
         values['preamble_options'] = $('#preamble-selector').val();
         values['main_model'] = $('#main-model-selector').val();

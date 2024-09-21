@@ -34,7 +34,6 @@ from code_runner import code_runner_with_retry, extract_code, extract_drawio, ex
 from prompts import prompts, xml_to_dict
 from datetime import datetime, timedelta
 
-from review_criterias import review_params
 from pathlib import Path
 from more_itertools import peekable
 from concurrent.futures import Future
@@ -788,7 +787,7 @@ Write the extracted information briefly and concisely below:
                                "tell_me_more": False,
                                "enable_previous_messages": "-1"}
         query['links'] = []
-        query["additional_docs_to_read"] = []
+
         query["checkboxes"].update(checkboxes)
         answer = ''
         for r in self.reply(query):
@@ -899,7 +898,7 @@ Write the extracted information briefly and concisely below:
             planner_text_gen = ""
             # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
-        additional_docs_to_read = query["additional_docs_to_read"]
+
         google_scholar = checkboxes["googleScholar"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
@@ -971,7 +970,7 @@ Write the extracted information briefly and concisely below:
         preamble = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0 or len(additional_docs_to_read) > 0)
+                                         attached_docs) > 0)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
@@ -1093,14 +1092,13 @@ Write the extracted information briefly and concisely below:
             attached_docs_data.extend(prev_attached_docs_data)
             attached_docs_data_names.extend(prev_attached_docs_names_data)
             query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
-        if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or len(
-                additional_docs_to_read) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
+        if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             message_lookback = min(4, message_lookback)
-        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) + len(additional_docs_to_read) == 1 and len(
+        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) == 1 and len(
             searches) == 0):
             provide_detailed_answers = 2
-        provide_raw_text = (len(links) + len(attached_docs) + len(additional_docs_to_read)) <= 3 and provide_detailed_answers <= 3 and not (
+        provide_raw_text = (len(links) + len(attached_docs)) <= 3 and provide_detailed_answers <= 3 and not (
                     google_scholar or perform_web_search) and unchanged_message_lookback <= 10
         if len(attached_docs) > 0:
             message_config["use_attached_docs"] = True
@@ -1136,15 +1134,7 @@ Write the extracted information briefly and concisely below:
                                                         provide_raw_text=provide_raw_text,
                                                         dont_join_answers=True)
         doc_answer = ''
-        if len(additional_docs_to_read) > 0:
-            yield {"text": '', "status": "reading your documents"}
-            doc_future = get_async_future(get_multiple_answers,
-                                          previous_context_and_preamble + query["messageText"],
-                                          additional_docs_to_read,
-                                          summary if message_lookback >= 0 else '',
-                                          max(0, int(provide_detailed_answers)),
-                                          provide_raw_text=provide_raw_text,
-                                          dont_join_answers=False)
+
         web_text = ''
 
 
@@ -1184,19 +1174,6 @@ Write the extracted information briefly and concisely below:
             time_dict["link_reading"] = time.time() - st
             logger.debug(f"Link result text:\n```\n{link_result_text}\n```")
         qu_dst = time.time()
-        if len(additional_docs_to_read) > 0:
-            doc_answer = ''
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers)*5))):
-                if doc_future.done():
-                    doc_answers = doc_future.result()
-                    doc_answer = doc_answers[1].result()["text"]
-                    break
-                time.sleep(0.5)
-            if len(doc_answer) > 0:
-                yield {"text": '', "status": "document reading completed"}
-            else:
-                yield {"text": 'document reading failed', "status": "document reading failed"}
-                time.sleep(3.0)
 
         conversation_docs_answer = ''
         if len(attached_docs) > 0:
@@ -1480,7 +1457,7 @@ Write the extracted information briefly and concisely below:
             web_text = read_links + "\n" + web_text
             time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
             time_dict["web_search_all_results"] = time.time() - st
-            if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==0:
+            if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0:
                 yield {"text": '', "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
                 message_ids = self.get_message_ids(query["messageText"], answer)
@@ -1491,7 +1468,7 @@ Write the extracted information briefly and concisely below:
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
-        if (len(links)==1 and len(attached_docs) == 0 and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
+        if (len(links)==1 and len(attached_docs) == 0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             yield {"text": text, "status": "answering in progress"}
             answer += text
@@ -1501,17 +1478,9 @@ Write the extracted information briefly and concisely below:
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
-        if (len(links)==0 and len(attached_docs) == 0 and len(additional_docs_to_read)==1 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
-            text = doc_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
-            yield {"text": text, "status": "answering in progress"}
-            answer += text
-            yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
-            message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
-            return
 
-        if (len(links)==0 and (len(attached_docs) == 1 and not any([isinstance(d, ImageDocIndex) for d in attached_docs])) and len(additional_docs_to_read)==0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
+
+        if (len(links)==0 and (len(attached_docs) == 1 and not any([isinstance(d, ImageDocIndex) for d in attached_docs])) and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
             text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
             text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
             yield {"text": text, "status": "answering in progress"}
@@ -1522,7 +1491,7 @@ Write the extracted information briefly and concisely below:
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
 
-        if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0 and len(additional_docs_to_read) == 0:
+        if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0:
             yield {"text": '', "status": "saving answer ..."}
             answer += '!ERROR WEB SEARCH FAILED\n'
             get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
@@ -1954,6 +1923,8 @@ Write the extracted information briefly and concisely below:
             return prompts.idea_ablations_and_research_questions_prompt.format(research_idea=message)
         elif field_prompt == "ResearchPreventRejections":
             return prompts.research_prevent_rejections_prompt.format(research_idea=message)
+        elif field_prompt == "PaperMethod":
+            return prompts.paper_details_map["methodology"]
         else:
             return message
 

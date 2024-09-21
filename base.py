@@ -205,15 +205,15 @@ Deduce what the question or query is asking about and then go above and beyond t
         else:
             assert self.keys["openAIKey"] is not None
 
-        model_name = "gpt-4o" if (self.use_gpt4 and self.use_16k and self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini"]) else "gpt-4o-mini"
+        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini"]) else "gpt-4o-mini"
 
         if model_name == "gpt-4-turbo":
             pass
-        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o") and text_len > 12000:
+        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"
-        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name!= "gpt-4-32k"):
+        elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name!= "gpt-4-32k" and model_name!="gpt-4o-mini"):
             model_name = "gpt-4o-mini"
-        elif len(images) > 0 and model_name != "gpt-4-turbo":
+        elif len(images) > 0 and model_name != "gpt-4-turbo" and model_name!="gpt-4o-mini":
             model_name = "gpt-4o"
         elif self.model_name == "gpt-4o":
             model_name = "gpt-4o"
@@ -324,48 +324,6 @@ def split_text(text):
 
 enc = tiktoken.encoding_for_model("gpt-4")
 
-@AddAttribute('name', "TextLengthCheck")
-@AddAttribute('description', """
-TextLengthCheck:
-    Checks if the token count of the given `text_document` is smaller or lesser than the `threshold`.
-
-    Input params/args: 
-        text_document (str): document to verify if its length or word count or token count is less than threshold.
-        threshold (int): Token count, text_document token count is below this then returns True
-
-    Returns: 
-        bool: whether length or token count is less than given threshold.
-
-    Usage:
-        `length_valid = TextLengthCheck(text_document="document to check length") # This tool needs no initialization`
-        `less_than_ten = TextLengthCheck(text_document="document to check length", threshold=10)`
-
-    """)
-def TextLengthCheck(text_document: str, threshold: int=3400):
-    assert isinstance(text_document, str)
-    return len(enc.encode(text_document)) < threshold
-
-@AddAttribute('name', "Search")
-@AddAttribute('description', """
-Search:
-    This tool takes a search phrase, performs search over a web search engine and returns a list of urls for the search.
-
-    Input params/args: 
-        search_phrase (str): phrase or keywords to search over the web/internet.
-        top_n (int): Number of webpages or results to return from search. Default is 5.
-
-    Returns: 
-        List[str]: List of webpage urls for given search_phrase, List length same as top_n input parameter.
-
-    Usage:
-        `web_url_list = Search(search_phrase="phrase to search") # This tool needs no initialization`
-        
-    Alternative Usage:
-        `web_url_list = Search(search_phrase="phrase to search", top_n=20) # Get a custom number of results
-
-    """)
-def Search(search_phrase: str, top_n: int=5):
-    return [r["link"] for r in  BingSearchAPIWrapper().results(search_phrase, top_n)]
 
 @AddAttribute('name', "ChunkText")
 @AddAttribute('description', """
@@ -413,21 +371,6 @@ ChunkTextSentences:
 def ChunkTextSentences(text_document: str, chunk_size: int = 3400, chunk_overlap: int = 100):
     text_splitter = SentenceSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap, backup_separators=["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", "</br>", "<br>", "<br/>", "<br />", "<p>", "</p>", ])
     return text_splitter.split_text(text_document)
-
-
-async def get_url_content(url):
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        page = await browser.new_page()
-        await page.goto(url)
-        title = await page.title()
-        page_content = await page.content()
-        # TODO: get rendered body
-        page_content = await page.evaluate("""
-        (() => document.body.innerText)()
-        """)
-        await browser.close()
-        return {"title": title, "page_content": page_content}
 
 
 class ContextualReader:
@@ -1700,30 +1643,6 @@ class PDFReaderTool:
         else:
             return freePDFReader(url, page_ranges)
 
-@CacheResults(cache=FixedSizeFIFODict(100), dtype_filters=[str, int, tuple, bool], enabled=False)
-def get_semantic_scholar_url_from_arxiv_url(arxiv_url):
-    import requests
-    arxiv_id = arxiv_url.split("/")[-1].split(".")[0]
-    semantic_scholar_api_url = f"https://api.semanticscholar.org/v1/paper/arXiv:{arxiv_id}"
-    response = requests.get(semantic_scholar_api_url)
-    if response.status_code == 200:
-        semantic_scholar_id = response.json()["paperId"]
-        semantic_url = f"https://www.semanticscholar.org/paper/{semantic_scholar_id}"
-        return semantic_url
-    raise ValueError(f"Couldn't parse arxiv url {arxiv_url}")
-
-@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def get_paper_details_from_semantic_scholar(arxiv_url):
-    print(f"get_paper_details_from_semantic_scholar with {arxiv_url}")
-    arxiv_id = arxiv_url.split("/")[-1].replace(".pdf", '').strip()
-    from semanticscholar import SemanticScholar
-    from semanticscholar.Paper import Paper
-
-    sch = SemanticScholar()
-    paper = sch.get_paper(f"ARXIV:{arxiv_id}", fields=list(set(Paper.FIELDS) - {'authors.aliases'}))
-    time_logger.info(f"get_paper_details_from_semantic_scholar with {arxiv_url} and got details")
-    return paper
-
 def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month=None,
                      previous_answer=None, previous_search_results=None, extra_queries=None,
                      gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
@@ -2569,49 +2488,6 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
-@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def read_pdf_simple(link: str) -> str:
-
-    st = time.time()
-    # Reading PDF
-    pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
-    convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
-    # convert_api_pdf_future = None
-    pdf_text_future = get_async_future(pdfReader, link)
-
-    result_from = "TIMEOUT_PDF_READER"
-    text = ''
-    while time.time() - st < 75:
-        if pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None:
-            text = pdf_text_future.result()
-            if isinstance(text, str):
-                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
-                                                                                                      '')
-                txt_len = len(txt.strip().split())
-                if txt_len > 500:
-                    result_from = "pdf_reader_tool"
-                    break
-        if convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
-            text = convert_api_pdf_future.result()
-            if isinstance(text, str):
-                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
-                                                                                                      '')
-                txt_len = len(txt.strip().split())
-                if txt_len > 500:
-                    result_from = "convert_api"
-                    break
-        time.sleep(0.5)
-
-    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
-    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f}")
-    txt = normalize_whitespace(txt)
-    txt_len = len(txt.strip().split())
-    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
-    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
-    assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
-    return txt
-
-
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
@@ -2801,16 +2677,18 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     query_string = (
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"Focus on this Current query: '''{query}'''"
-    if provide_raw_text:
+    image_condition = all([doc.doc_type=="image" for doc in additional_docs]) and len(additional_docs) <= 3
+
+    if provide_raw_text or image_condition:
         per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(additional_docs)
-        doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) for doc in additional_docs]
+        doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) if not doc.doc_type=="image" or len(additional_docs) > 1 else wrap_in_future("") for doc in additional_docs]
         if provide_detailed_answers >= 2:
-            doc_search_results_small_futures = [pdf_process_executor.submit(doc.semantic_search_document_small, query_string, per_doc_text_len//2) for doc in
+            doc_search_results_small_futures = [pdf_process_executor.submit(doc.semantic_search_document_small, query_string, per_doc_text_len//2) if not doc.doc_type=="image" else wrap_in_future("") for doc in
                 additional_docs]
     query_string = (
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
                            current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
-    if not provide_raw_text or provide_detailed_answers >= 2:
+    if (not provide_raw_text or provide_detailed_answers >= 2 ) and not image_condition:
         futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 2 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
         answers = [sleep_and_get_future_result(future) for future in futures]
         logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
@@ -2834,7 +2712,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
 
 
-    if provide_raw_text:
+    if provide_raw_text or image_condition:
         if provide_detailed_answers >= 2:
             doc_search_results = [sleep_and_get_future_result(f) + "\n\n" + sleep_and_get_future_result(q) for f, q in zip(doc_search_results_futures, doc_search_results_small_futures)]
         else:
@@ -2842,12 +2720,12 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
         logger.info(
             f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
 
-    if provide_detailed_answers >= 2 and provide_raw_text:
+    if provide_detailed_answers >= 2 and provide_raw_text and not image_condition:
         read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                      zip(doc_search_results, answers)]
-    elif provide_detailed_answers >= 2:
+    elif provide_detailed_answers >= 2 and not image_condition:
         read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]
-    elif provide_raw_text:
+    elif provide_raw_text or image_condition:
         read_text = [d for d in doc_search_results]
     else:
         # read_text = [f"[{p['title']}]({p['link']})\n{p['text']}" for p in answers]

@@ -75,15 +75,11 @@
             <li class="nav-item">
                 <a class="nav-link" id="show-sidebar" href="#"><i class="fa fa-bars"></i></a>
             </li>
-            <li class="nav-item" id="pdf-tab-nav">
-                <a class="nav-link" id="pdf-tab" data-toggle="tab" href="#pdf-content" role="tab">PDF</a>
-            </li>
+            
             <li class="nav-item">
               <a class="nav-link" id="hide-navbar" href="#">Show only PDF</a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link" id="details-tab" data-toggle="tab" href="#details-content" role="tab">Cites & Refs </a>
-            </li>
+            
             <li class="nav-item">
                 <a class="nav-link" id="assistant-tab" href="#assistant-view" data-toggle="tab" role="tab">Assistant</a>
             </li>
@@ -94,13 +90,7 @@
                 <a class="nav-link" id="finchat-tab" href="#finchat-view" data-toggle="tab" role="tab">Fin-Chat</a>
             </li>
             
-            <li class="nav-item" id="review-tab-nav">
-              <a class="nav-link" id="review-assistant-tab" data-toggle="tab" role="tab" href="#review-content">Review</a>
-            </li>
             
-            <li class="nav-item">
-                <a class="nav-link" id="toggle-tab-content" href="#"><i class="bi bi-caret-up-fill"> Hide PDF</i> <i class="bi bi-caret-down-fill"> Show PDF</i></a>
-            </li>
             
             
             <li class="nav-item ml-auto">
@@ -122,140 +112,11 @@
           <span id="progress-status"></span>
         </div>
         <div id="chat-content" class="row scrolling-row" style="height: calc(100% - 30px); max-height: calc(100vh - 30px);">
-            <div class="col-md-2 sidebar sticky-top scrollable-sidebar" id="doc-keys-sidebar">
-              <div class="d-flex justify-content-between align-items-center mt-2">
-                <input type="text" id="searchBox" class="form-control ml-2" style="background-color: #f5f5f5;" placeholder="Search your docs">
-                <button id="add-document-button" type="button" class="btn btn-primary ml-2"><i class="fa fa-plus"></i></button>
-              </div>
             
-
-                <h4>Documents</h4>
-                <div id="documents" class="list-group">
-                    <!-- List of documents will be populated here -->
-                </div>
-                </br>
-            </div>
 
             <div class="col-md-10" id="content-col">
                 
-                <div id="references-view">
-                  <div class="tab-content">
-                    <div class="tab-pane fade" id="details-content" role="tabpanel">
-                            <h3>References <button class="btn btn-primary" id="refresh-references">Refresh</button></h3>
-                            <table id="references-table" class="display" style="width:100%">
-                                <thead>
-                                    <tr>
-                                        <th>ArXiv</th>
-                                        <th>Abstract</th>
-                                        <th># Citations</th>
-                                        <th>Journal</th>
-                                        <th>Paper ID</th>
-                                        <th>Publication Date</th>
-                                        <th>Reference Count</th>
-                                        <th>Title</th>
-                                        <th>TLDR</th>
-                                        <th>URL</th>
-                                        <th>Year</th>
-                                        <th>Extended Abstract</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                </tbody>
-                                <tfoot>
-                                    <tr>
-                                        <th>ArXiv</th>
-                                        <th>Abstract</th>
-                                        <th># Citation</th>
-                                        <th>Journal</th>
-                                        <th>Paper ID</th>
-                                        <th>Publication Date</th>
-                                        <th>Reference Count</th>
-                                        <th>Title</th>
-                                        <th>TLDR</th>
-                                        <th>URL</th>
-                                        <th>Year</th>
-                                        <th>Extended Abstract</th>
-                                    </tr>
-                                </tfoot>
-                            </table>
-
-                            <h3>Citations <button class="btn btn-primary" id="refresh-citations">Refresh</button></h3>
-                            <table id="citations-table" class="display" style="width:100%">
-                                <thead>
-                                    <tr>
-                                        <th>ArXiv</th>
-                                        <th>Abstract</th>
-                                        <th># Citation</th>
-                                        <th>Journal</th>
-                                        <th>Paper ID</th>
-                                        <th>Publication Date</th>
-                                        <th>Reference Count</th>
-                                        <th>Title</th>
-                                        <th>TLDR</th>
-                                        <th>URL</th>
-                                        <th>Year</th>
-                                        <th>Extended Abstract</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                </tbody>
-                                <tfoot>
-                                    <tr>
-                                        <th>ArXiv</th>
-                                        <th>Abstract</th>
-                                        <th># Citation</th>
-                                        <th>Journal</th>
-                                        <th>Paper ID</th>
-                                        <th>Publication Date</th>
-                                        <th>Reference Count</th>
-                                        <th>Title</th>
-                                        <th>TLDR</th>
-                                        <th>URL</th>
-                                        <th>Year</th>
-                                        <th>Extended Abstract</th>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                    </div>
-                  </div>
-                </div>
-                <div id="review-assistant-view">
-                  <div class="tab-content">
-                    <div class="tab-pane fade" id="review-content" role="tabpanel">
-                      <div class="row"><div class="col-md-12" id="write_review"></div></div>
-                      <div class="row">
-                        <div class="col-md-12" id="show_reviews"></div>
-                      </div>
-                    </div>
-                    
-                  </div>
-                </div>
-                <div id="pdf-view">
-                    <!-- PDF and details tabs will be displayed here -->
-                    
-                    <div class="tab-content">
-
-                      <div class="tab-pane fade show active" id="pdf-content" role="tabpanel">
-                            <iframe id="pdfjs-viewer" src="interface/pdf.js/web/viewer.html" data-original-src="interface/pdf.js/web/viewer.html" width="100%" height="100%" allowfullscreen webkitallowfullscreen></iframe>
-                            <!-- PDF will be displayed here -->
-                            <div id="progress" style="display: none;">
-                                <div id="progressbar" class="progress-bar" role="progressbar" style="width: 0%;"></div>
-                            </div>
-                            <span id="progress-status"></span>
-                        <div id="pdf-questions">
-                          <div id="ask-questions-view" class="view">
-                            <!-- Ask questions view will be built here -->
-                          </div>
-                          <div id="view-details-view" class="view">
-                              <!-- Document details view will be built here -->
-                          </div>
-                          <div id="search-view" class="view">
-                              <!-- Document search view will be built here -->
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                </div>
+                
                 <div id="chat-assistant-view" class="container-fluid" style="padding-left: 2px; padding-top: 2px;">
                   <div class="tab-content">
                     <div class="tab-pane fade show active" id="assistant-view" role="tabpanel">
@@ -351,42 +212,7 @@
         
     </div>
 
-    <!-- Optional JavaScript -->
-    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
-    <!-- Add PDF Document Modal -->
-    <div class="modal" tabindex="-1" id="add-document-modal">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New Document</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <form id="add-document-form">
-                      <div class="form-group">
-                        <label for="pdf-url">PDF URL (Note: Indexing takes long time (~2 minute).)</label>
-                        <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
-                        <label>Or drop a PDF file here or<button type="button" id="file-upload-button" style="padding-left: 4px; padding-top:2px;" class="btn btn-link">browse</button></label>
-                        <div id="drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center;">
-                          Drop a PDF file here. To upload MS Word or html, first convert them to PDF.
-                        </div>
-                        <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson" style="display: none;">
-                      </div>
-                      
-                        <button id="submit-button" type="submit" class="btn btn-primary">Submit</button>
-                        <div id="submit-spinner" style="display: none">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="sr-only">Loading...</span>
-                            </div>
-                        </div>
-
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
+    
 
     <!-- Add Chat Document Modal -->
     <div class="modal" tabindex="-1" id="add-document-modal-chat">
@@ -423,115 +249,6 @@
         </div>
     </div>
 
-    <!-- Positive Feedback Modal -->
-    <div class="modal fade" id="positive-feedback-modal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Positive Feedback</h5>
-            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-              <span aria-hidden="true">&times;</span>
-            </button>
-          </div>
-          <div class="modal-body">
-            <form id="positive-feedback-form">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Relevant" id="positive-relevant">
-                <label class="form-check-label" for="positive-relevant">Relevant</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Time-saving" id="positive-time-saving">
-                <label class="form-check-label" for="positive-time-saving">Time-saving</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Easy to understand" id="positive-easy">
-                <label class="form-check-label" for="positive-easy">Easy to understand</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Correct" id="positive-correct">
-                <label class="form-check-label" for="positive-correct">Correct</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Insightful" id="positive-insightful">
-                <label class="form-check-label" for="positive-insightful">Insightful</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Comprehensive" id="positive-comprehensive">
-                <label class="form-check-label" for="positive-comprehensive">Provides all necessary details</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Well-structured" id="positive-structured">
-                <label class="form-check-label" for="positive-structured">Well-structured and Clearly written</label>
-              </div>
-              <div class="form-group">
-                <label for="positive-comments">Additional comments:</label>
-                <textarea class="form-control" id="positive-comments" rows="3"></textarea>
-              </div>
-            </form>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-primary submit-positive-feedback">Submit Feedback</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Negative Feedback Modal -->
-    <div class="modal fade" id="negative-feedback-modal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Negative Feedback</h5>
-            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-              <span aria-hidden="true">&times;</span>
-            </button>
-          </div>
-          <div class="modal-body">
-            <form id="negative-feedback-form">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Irrelevant" id="negative-irrelevant">
-                <label class="form-check-label" for="negative-irrelevant">Irrelevant</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Incorrect" id="negative-incorrect">
-                <label class="form-check-label" for="negative-incorrect">Incorrect</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Too long" id="negative-long">
-                <label class="form-check-label" for="negative-long">Too long, complex or dense</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Oversimplified" id="negative-simple">
-                <label class="form-check-label" for="negative-simple">Missed important details</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Outdated" id="negative-outdated">
-                <label class="form-check-label" for="negative-outdated">Outdated information</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Confusing" id="negative-confusing">
-                <label class="form-check-label" for="negative-confusing">Ambiguous/Confusing/Misleading</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Superfluous" id="negative-superfluous">
-                <label class="form-check-label" for="negative-superfluous">Superfluous with generic content</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="Badly structured" id="negative-structured">
-                <label class="form-check-label" for="negative-structured">Badly structured or formatted</label>
-              </div>
-              <div class="form-group">
-                <label for="negative-comments">Additional comments:</label>
-                <textarea class="form-control" id="negative-comments" rows="3"></textarea>
-              </div>
-            </form>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-primary submit-negative-feedback">Submit Feedback</button>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Make conversation stateless Modal -->
     <div class="modal fade" id="stateless-conversation-modal" tabindex="-1" aria-hidden="true">

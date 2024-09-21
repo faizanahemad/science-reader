@@ -98,27 +98,7 @@ def create_table(conn, create_table_sql):
 def create_tables():
     database = "{}/users.db".format(users_dir)
 
-    sql_create_user_to_doc_id_table = """CREATE TABLE IF NOT EXISTS UserToDocId (
-                                    user_email text,
-                                    doc_id text,
-                                    created_at text,
-                                    updated_at text,
-                                    doc_source_url text
-                                ); """
 
-    sql_create_user_to_votes_table = """CREATE TABLE IF NOT EXISTS UserToVotes (
-                                    user_email text,
-                                    question_id text,
-                                    doc_id text,
-                                    upvoted integer,
-                                    downvoted integer,
-                                    feedback_type text,
-                                    feedback_items text,
-                                    comments text,
-                                    question_text text,
-                                    created_at text,
-                                    updated_at text
-                                );"""
                                 
     sql_create_user_to_conversation_id_table = """CREATE TABLE IF NOT EXISTS UserToConversationId (
                                     user_email text,
@@ -134,20 +114,12 @@ def create_tables():
 
     # create tables
     if conn is not None:
-        # create UserToDocId table
-        create_table(conn, sql_create_user_to_doc_id_table)
         # create UserToVotes table
-        create_table(conn, sql_create_user_to_votes_table)
         create_table(conn, sql_create_user_to_conversation_id_table)
     else:
         print("Error! cannot create the database connection.")
         
     cur = conn.cursor()
-    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToVotes_email_question ON UserToVotes (user_email, question_id)")
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_User_email_doc_votes ON UserToVotes (user_email)")
-    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToDocId_email_doc ON UserToDocId (user_email, doc_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc ON UserToDocId (user_email)")
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToConversationId_email_doc ON UserToConversationId (user_email, conversation_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
@@ -156,19 +128,6 @@ def create_tables():
         
 from datetime import datetime
 
-def addUserToDoc(user_email, doc_id, doc_source_url):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT OR IGNORE INTO UserToDocId
-        (user_email, doc_id, created_at, updated_at, doc_source_url)
-        VALUES(?,?,?,?,?)
-        """, 
-        (user_email, doc_id, datetime.now(), datetime.now(), doc_source_url)
-    )
-    conn.commit()
-    conn.close()
     
 def addConversationToUser(user_email, conversation_id):
     conn = create_connection("{}/users.db".format(users_dir))
@@ -184,14 +143,6 @@ def addConversationToUser(user_email, conversation_id):
     conn.commit()
     conn.close()
 
-
-def getDocsForUser(user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM UserToDocId WHERE user_email=?", (user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
 
 
 def getCoversationsForUser(user_email):
@@ -225,78 +176,6 @@ def getConversationById(conversation_id):
     conn.close()
     return rows
 
-def addUpvoteOrDownvote(user_email, question_id, doc_id, upvote, downvote):
-    assert not checkNoneOrEmpty(question_id)
-    assert not checkNoneOrEmpty(user_email)
-    assert not checkNoneOrEmpty(doc_id)
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT OR REPLACE INTO UserToVotes
-        (user_email, question_id, doc_id, upvoted, downvoted, feedback_type, feedback_items, comments, question_text, created_at, updated_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?)
-        """, 
-        (user_email, question_id, doc_id, upvote, downvote, None, None, None, None, datetime.now(), datetime.now())
-    )
-    conn.commit()
-    conn.close()
-
-def addGranularFeedback(user_email, question_id, feedback_type, feedback_items, comments, question_text):
-    assert not checkNoneOrEmpty(question_id)
-    assert not checkNoneOrEmpty(user_email)
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-
-    # Ensure that the user has already voted before updating the feedback
-    cur.execute("SELECT 1 FROM UserToVotes WHERE user_email = ? AND question_id = ?", (user_email, question_id))
-    if not cur.fetchone():
-        raise ValueError("A vote must exist for the user and question before feedback can be provided")
-
-    cur.execute(
-        """
-        UPDATE UserToVotes 
-        SET feedback_type = ?, feedback_items = ?, comments = ?, question_text = ?, updated_at = ?
-        WHERE user_email = ? AND question_id = ?
-        """,
-        (feedback_type, ','.join(feedback_items), comments, question_text, datetime.now(), user_email, question_id)
-    )
-    conn.commit()
-    conn.close()
-
-
-
-def getUpvotesDownvotesByUser(user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE user_email=? GROUP BY user_email ", (user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-def getUpvotesDownvotesByQuestionId(question_id):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE question_id=? GROUP BY question_id", (question_id,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-def getUpvotesDownvotesByQuestionIdAndUser(question_id, user_email):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("SELECT SUM(upvoted), SUM(downvoted) FROM UserToVotes WHERE question_id=? AND user_email=? GROUP BY question_id,user_email", (question_id, user_email,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
-def removeUserFromDoc(user_email, doc_id):
-    conn = create_connection("{}/users.db".format(users_dir))
-    cur = conn.cursor()
-    cur.execute("DELETE FROM UserToDocId WHERE user_email=? AND doc_id=?", (user_email, doc_id,))
-    conn.commit()
-    conn.close()
     
 def removeUserFromConversation(user_email, conversation_id):
     conn = create_connection("{}/users.db".format(users_dir))
@@ -343,11 +222,7 @@ def keyParser(session):
         else:
             keyStore[k] = None
     return keyStore
-    
 
-def generate_ngrams(tokens, n):
-    ngrams = zip(*[tokens[i:] for i in range(n)])
-    return [" ".join(ngram) for ngram in ngrams]
 
 
 logger = logging.getLogger(__name__)
@@ -454,129 +329,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/addUpvoteOrDownvote', methods=['POST'])
-@limiter.limit("1000 per minute")
-@login_required
-def add_upvote_downvote():
-    email, name, _ = check_login(session)
-    data = request.get_json()
-    logger.info(f"'/addUpvoteOrDownvote' Get upvote-downvote request with {data}")
-    if "question_text" in data:
-        source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
-        question_id = str(mmh3.hash(source + data["question_text"], signed=False))
-        logger.debug(f"'/addUpvoteOrDownvote' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
-        if checkNoneOrEmpty(data['question_id']):
-            data['question_id'] = question_id
-    if checkNoneOrEmpty(data['question_id']) or checkNoneOrEmpty(data['doc_id']):
-        return "Question Id and Doc Id are needed for `/addUpvoteOrDownvote`", 400
-    addUpvoteOrDownvote(email, data['question_id'], data['doc_id'], data['upvote'], data['downvote'])
-    return jsonify({'status': 'success'}), 200
-
-@app.route('/getUpvotesDownvotesByUser', methods=['GET'])
-@limiter.limit("1000 per minute")
-@login_required
-def get_votes_by_user():
-    email, name, _ = check_login(session)
-    rows = getUpvotesDownvotesByUser(email)
-    logger.debug(f"called , response = {rows}")
-    return jsonify(rows), 200
-
-# TODO: make bulk api for this
-@app.route('/getUpvotesDownvotesByQuestionId/<question_id>', methods=['POST'])
-@limiter.limit("5000 per minute")
-@login_required
-def get_votes_by_question(question_id):
-    if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
-        data = request.get_json()
-        logger.debug(f"'/getUpvotesDownvotesByQuestionId' -> data = {data}")
-        if "question_text" in data and "doc_id" in data:
-            source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
-            question_id = str(mmh3.hash(source + data["question_text"], signed=False))
-        else:
-            return "Question Id empty", 400
-    email, name, _ = check_login(session)
-    rows = getUpvotesDownvotesByQuestionId(question_id)
-    logger.info(f"'/getUpvotesDownvotesByQuestionId' called with question_id = {question_id}, response = {rows}")
-    return jsonify(rows), 200
-
-# TODO: make bulk api for this
-@app.route('/getUpvotesDownvotesByQuestionIdAndUser', methods=['POST'])
-@limiter.limit("5000 per minute")
-@login_required
-def get_votes_by_question_and_user():
-    email, name, _ = check_login(session)
-    data = request.get_json()
-    question_id = data.get('question_id')
-    if checkNoneOrEmpty(question_id) or question_id.strip().lower() == "null":
-
-        # logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> data = {data}")
-        if "question_text" in data and "doc_id" in data:
-            source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
-            question_id = str(mmh3.hash(source + data["question_text"], signed=False))
-            logger.debug(f"'/getUpvotesDownvotesByQuestionIdAndUser' -> generated question_id = {question_id}")
-        else:
-            return "Question Id empty", 400
-    rows = getUpvotesDownvotesByQuestionIdAndUser(question_id, email)
-    logger.info(f"'/getUpvotesDownvotesByQuestionIdAndUser' called with question_id = {question_id}, response = {rows}")
-    return jsonify(rows), 200
-
-
-@app.route('/addUserQuestionFeedback', methods=['POST'])
-@limiter.limit("1000 per minute")
-@login_required
-def add_user_question_feedback():
-    email, name, _ = check_login(session)
-    data = request.get_json()
-    logger.info(f"Get granular feedback request with {data}")
-    if "question_text" in data:
-        source = indexed_docs[data['doc_id']].doc_source if data['doc_id'] in indexed_docs else str(data['doc_id'])
-        question_id = str(mmh3.hash(source + data["question_text"], signed=False))
-        logger.debug(f"'/addUserQuestionFeedback' -> generated question_id = {question_id}, Received q_id = {data['question_id']}, both same = {data['question_id'] == question_id}")
-        if checkNoneOrEmpty(data['question_id']):
-            data['question_id'] = question_id
-    if checkNoneOrEmpty(data['question_id']) or checkNoneOrEmpty(data['doc_id']):
-        return "Question Id and Doc Id are needed for `/addUserQuestionFeedback`", 400
-    try:
-        addGranularFeedback(email, data['question_id'], data['feedback_type'], data['feedback_items'], data['comments'], data['question_text'])
-        return jsonify({'status': 'success'}), 200
-    except ValueError as e:
-        return str(e), 400
-
-
-@app.route('/write_review/<doc_id>/<tone>', methods=['GET'])
-@limiter.limit("10 per minute")
-@login_required
-def write_review(doc_id, tone):
-    keys = keyParser(session)
-    email, name, _ = check_login(session)
-    if tone == 'undefined':
-        tone = "none"
-    assert tone in ["positive", "negative", "neutral", "none"]
-    review_topic = request.args.get('review_topic') # Has top level key and then an index variable
-    review_topic = review_topic.split(",")
-    review_topic = [r for r in review_topic if len(r.strip()) > 0 and r.strip()!='null']
-    if len(review_topic) > 1:
-        review_topic = [str(review_topic[0]), int(review_topic[1])]
-    else:
-        review_topic = review_topic[0]
-    additional_instructions = request.args.get('instruction')
-    use_previous_reviews = int(request.args.get('use_previous_reviews'))
-    score_this_review = int(request.args.get('score_this_review'))
-    is_meta_review = int(request.args.get('is_meta_review'))
-    
-    review = set_keys_on_docs(indexed_docs[doc_id], keys).get_review(tone, review_topic, additional_instructions, score_this_review, use_previous_reviews, is_meta_review)
-    return Response(stream_with_context(review), content_type='text/plain')
-
-@app.route('/get_reviews/<doc_id>', methods=['GET'])
-@limiter.limit("100 per minute")
-@login_required
-def get_all_reviews(doc_id):
-    keys = keyParser(session)
-    email, name, _ = check_login(session)
-    reviews = set_keys_on_docs(indexed_docs[doc_id], keys).get_all_reviews()
-    # lets send json response
-    return jsonify(reviews)
-
 def check_credentials(username, password):
     return os.getenv("PASSWORD", "XXXX") == password
 
@@ -588,7 +340,6 @@ def login():
         if check_credentials(email, password):
             session['email'] = email
             session['name'] = email
-            addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
             return redirect(url_for('interface'))
         else:
             return "Invalid credentials", 401
@@ -622,27 +373,6 @@ def get_user_info():
     else:
         return "Not logged in", 401
 
-class IndexDict(dict):
-    def __getitem__(self, key):
-        try:
-            item = super().__getitem__(key)
-            if item.doc_id in doc_index_cache:
-                return item
-            else:
-                item = item.copy()
-            doc_index_cache.add(item.doc_id)
-            super().__setitem__(key, item)
-            return item
-        except KeyError:
-            exc = traceback.format_exc()
-            logger.error(f"Error in getting doc_index for key = {key}, error = {exc}")
-            return load_document(folder, key)
-    
-    def __setitem__(self, __key: str, __value: DocIndex) -> None:
-        __value = __value.copy()
-        return super().__setitem__(__key, __value)
-indexed_docs: IndexDict[str, DocIndex] = IndexDict()
-doc_index_cache = SetQueue(maxsize=100)
 def load_conversation(conversation_id):
     path = os.path.join(conversation_folder, conversation_id)
     conversation = Conversation.load_local(path)
@@ -666,129 +396,6 @@ def set_keys_on_docs(docs, keys):
     return docs
     
 
-# Initialize an empty list of documents for BM25
-bm25_corpus: List[List[str]] = []
-doc_id_to_bm25_index: Dict[str, int] = {}
-bm25 = [None]
-    
-def get_bm25_grams(text):
-    unigrams = text.split()
-    bigrams = generate_ngrams(unigrams, 2)
-    trigrams = generate_ngrams(unigrams, 3)
-    # doc = nlp(text)
-    # lemmas = [token.lemma_ for token in doc]
-    # bigrams_lemma = generate_ngrams(lemmas, 2)
-    # trigrams_lemma = generate_ngrams(lemmas, 3)
-    return unigrams + bigrams + trigrams # + lemmas + bigrams_lemma + trigrams_lemma
-
-def add_to_bm25_corpus(doc_index: DocIndex):
-    global bm25_corpus, doc_id_to_bm25_index
-    try:
-        doc_info = doc_index.get_short_info()
-        text = doc_info['title'].lower() + " " + doc_info['short_summary'].lower() + " " + doc_info['summary'].lower()
-    except Exception as e:
-        logger.warning(f"Error in getting text for doc_id = {doc_index.doc_id}, error = {e}")
-        text = doc_index.indices["chunks"][0].lower()
-    bm25_corpus.append(get_bm25_grams(text))
-    doc_id_to_bm25_index[doc_index.doc_id] = len(bm25_corpus) - 1
-    bm25[0] = BM25Okapi(bm25_corpus)
-
-def load_documents(folder):
-    global indexed_docs, bm25_corpus, doc_id_to_bm25_index
-    folders = [f for f in os.listdir(folder) if os.path.isdir(os.path.join(folder, f))]
-    docs: List[DocIndex] = [DocIndex.load_local(os.path.join(folder, filepath)) for filepath in folders]
-    docs = [doc for doc in docs if doc is not None] # and doc.visible
-    # filename = os.path.basename(filepath)
-    for doc_index in docs:
-        indexed_docs[doc_index.doc_id] = doc_index
-        add_to_bm25_corpus(doc_index)
-
-def load_document(folder, filepath):
-    global indexed_docs, bm25_corpus, doc_id_to_bm25_index
-    doc_index = DocIndex.load_local(os.path.join(folder, filepath))
-    indexed_docs[doc_index.doc_id] = doc_index
-    add_to_bm25_corpus(doc_index)
-    return doc_index
-
-
-
-@app.route('/search_document', methods=['GET'])
-@limiter.limit("1000 per minute")
-@login_required
-def search_document():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    docs = getDocsForUser(email)
-    doc_ids = [d[1] for d in docs]
-    
-    search_text = request.args.get('text')
-    if search_text:
-        search_text = search_text.strip().lower()
-        bm = bm25[0]
-        search_tokens = get_bm25_grams(search_text)
-        scores = bm.get_scores(search_tokens)
-        results = sorted([(score, doc_id) for doc_id, score in zip(indexed_docs.keys(), scores)], reverse=True)
-        docs = [set_keys_on_docs(indexed_docs[doc_id], keys) for score, doc_id in results[:4] if doc_id in doc_ids]
-        scores = [score for score, doc_id in results[:4] if doc_id in doc_ids]
-        top_results = [doc.get_short_info() for score, doc in zip(scores, docs)]
-        logger.debug(f"Search results = {[(score, doc.doc_source) for score, doc in zip(scores, docs)]}")
-        return jsonify(top_results)
-    else:
-        return jsonify({'error': 'No search text provided'}), 400
-
-
-@app.route('/list_all', methods=['GET'])
-@limiter.limit("1000 per minute")
-@login_required
-def list_all():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    docs = getDocsForUser(email)
-    if len(docs) == 0:
-        addUserToDoc(email, "3408472793", "https://arxiv.org/pdf/1706.03762.pdf")
-        docs = getDocsForUser(email)
-    doc_ids = set([d[1] for d in docs])
-    docs = [set_keys_on_docs(indexed_docs[docId], keys).get_short_info() for docId in doc_ids if docId in indexed_docs]
-    # docs = sorted(docs, key=lambda x: x['last_updated'], reverse=True)
-    return jsonify(docs)
-
-
-@app.route('/get_document_detail', methods=['GET'])
-@limiter.limit("1000 per minute")
-@login_required
-def get_document_detail():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    logger.info(f"/get_document_detail for doc_id = {doc_id}, doc present = {doc_id in indexed_docs}")
-    if doc_id in indexed_docs:
-        
-        return jsonify(set_keys_on_docs(indexed_docs[doc_id], keys).get_all_details())
-    else:
-        return jsonify({'error': 'Document not found'}), 404
-    
-
-
-@app.route('/index_document', methods=['POST'])
-@limiter.limit("10 per minute")
-@login_required
-def index_document():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    
-    pdf_url = request.json.get('pdf_url')
-    # if "arxiv.org" not in pdf_url:
-    #     return jsonify({'error': 'Only arxiv urls are supported at this moment.'}), 400
-    pdf_url = convert_to_pdf_link_if_needed(pdf_url)
-    if pdf_url:
-        try:
-            doc_index = immediate_create_and_save_index(pdf_url, keys)
-            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
-            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id, "properly_indexed": doc_index.doc_id in indexed_docs})
-        except Exception as e:
-            traceback.print_exc()
-            return jsonify({'error': str(e)}), 400
-    else:
-        return jsonify({'error': 'No pdf_url provided'}), 400
 
 
 @app.route('/clear_session', methods=['GET'])
@@ -804,159 +411,12 @@ def delayed_execution(func, delay, *args):
     time.sleep(delay)
     return func(*args)
 
-    
-def immediate_create_and_save_index(pdf_url, keys):
-    pdf_url = pdf_url.strip()
-    matching_docs = [v for k, v in indexed_docs.items() if v.doc_source==pdf_url]
-    if len(matching_docs) == 0:
-        doc_index = create_immediate_document_index(pdf_url, folder, keys)
-        doc_index = set_keys_on_docs(doc_index, keys)
-        save_index(doc_index, folder)
-    else:
-        logger.info(f"{pdf_url} is already indexed")
-        doc_index = matching_docs[0]
-    return doc_index
-    
-def save_index(doc_index: DocIndex, folder):
-    indexed_docs[doc_index.doc_id] = doc_index
-    add_to_bm25_corpus(doc_index)
-    doc_index.save_local()
 
-    
-@app.route('/streaming_get_answer', methods=['POST'])
-@limiter.limit("100 per minute")
-@login_required
-def streaming_get_answer():
-    keys = keyParser(session)
-    additional_docs_to_read = request.json.get("additional_docs_to_read", [])
-    a = use_multiple_docs = request.json.get("use_multiple_docs", False) and isinstance(additional_docs_to_read, (tuple, list)) and len(additional_docs_to_read) > 0
-    b = use_references_and_citations = request.json.get("use_references_and_citations", False)
-    c = provide_detailed_answers = request.json.get("provide_detailed_answers", False)
-    d = perform_web_search = request.json.get("perform_web_search", False)
-    if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
-        return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
-    provide_detailed_answers = int(provide_detailed_answers)
-    if use_multiple_docs:
-        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
-    meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
-    
-    doc_id = request.json.get('doc_id')
-    query = request.json.get('query')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_get_short_answer(query, meta_fn)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", status=404,  content_type='text/plain')
-    
-@app.route('/streaming_summary', methods=['GET'])
-@limiter.limit("50 per minute")
-@login_required
-def streaming_summary():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        doc = set_keys_on_docs(indexed_docs[doc_id], keys)
-        answer = doc.streaming_build_summary()
-        p = multiprocessing.Process(target=delayed_execution, args=(save_index, 180, doc, folder))
-        p.start()
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
-    
-    
 
-@app.route('/streaming_get_followup_answer', methods=['POST'])
-@limiter.limit("50 per minute")
-@login_required
-def streaming_get_followup_answer():
-    keys = keyParser(session)
-    additional_docs_to_read = request.json.get("additional_docs_to_read", [])
-    a = use_multiple_docs = request.json.get("use_multiple_docs", False) and isinstance(additional_docs_to_read, (tuple, list)) and len(additional_docs_to_read) > 0
-    b = use_references_and_citations = request.json.get("use_references_and_citations", False)
-    c = provide_detailed_answers = request.json.get("provide_detailed_answers", False)
-    d = perform_web_search = request.json.get("perform_web_search", False)
-    if not (sum([a, b, c, d]) == 0 or sum([a, b, c, d]) == 1):
-        return Response("Invalid answering strategy passed.", status=400,  content_type='text/plain')
-    provide_detailed_answers = int(provide_detailed_answers)
-    if use_multiple_docs:
-        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in additional_docs_to_read]
-    meta_fn = defaultdict(lambda: False, dict(additional_docs_to_read=additional_docs_to_read, use_multiple_docs=use_multiple_docs, use_references_and_citations=use_references_and_citations, provide_detailed_answers=provide_detailed_answers, perform_web_search=perform_web_search))
-    
-    doc_id = request.json.get('doc_id')
-    query = request.json.get('query')
-    previous_answer = request.json.get('previous_answer')
-    if doc_id in indexed_docs:
-        answer = set_keys_on_docs(indexed_docs[doc_id], keys).streaming_ask_follow_up(query, previous_answer, meta_fn)
-        return Response(stream_with_context(answer), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
 
 from multiprocessing import Lock
 
 lock = Lock()
-
-@app.route('/delete_document', methods=['DELETE'])
-@limiter.limit("30 per minute")
-@login_required
-def delete_document():
-    email, name, loggedin = check_login(session)
-    doc_id = request.args.get('doc_id')
-    if not doc_id or doc_id not in indexed_docs:
-        return jsonify({'error': 'Document not found'}), 404
-    removeUserFromDoc(email, doc_id)
-
-    return jsonify({'status': 'Document deleted successfully'}), 200
-
-@app.route('/get_paper_details', methods=['GET'])
-@limiter.limit("50 per minute")
-@login_required
-def get_paper_details():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        paper_details = set_keys_on_docs(indexed_docs[doc_id], keys).paper_details
-        return jsonify(paper_details)
-    else:
-        return jsonify({'error': 'Document not found'}), 404
-
-@app.route('/refetch_paper_details', methods=['GET'])
-@limiter.limit("50 per minute")
-@login_required
-def refetch_paper_details():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    if doc_id in indexed_docs:
-        paper_details = set_keys_on_docs(indexed_docs[doc_id], keys).refetch_paper_details()
-        return jsonify(paper_details)
-    else:
-        return jsonify({'error': 'Document not found'}), 404
-
-@app.route('/get_extended_abstract', methods=['GET'])
-@limiter.limit("50 per minute")
-@login_required
-def get_extended_abstract():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    paper_id = request.args.get('paper_id')
-    if doc_id in indexed_docs:
-        extended_abstract = set_keys_on_docs(indexed_docs[doc_id], keys).get_extended_abstract_for_ref_or_cite(paper_id)
-        return Response(stream_with_context(extended_abstract), content_type='text/plain')
-    else:
-        return Response("Error Document not found", content_type='text/plain')
-    
-@app.route('/get_fixed_details', methods=['GET'])
-@limiter.limit("300 per minute")
-@login_required
-def get_fixed_details():
-    keys = keyParser(session)
-    doc_id = request.args.get('doc_id')
-    detail_key = request.args.get('detail_key')
-    if doc_id in indexed_docs:
-        fixed_details = set_keys_on_docs(indexed_docs[doc_id], keys).get_fixed_details(detail_key)
-        return Response(stream_with_context(fixed_details), content_type='text/plain')
-    else:
-        return Response("Error: Document not found", content_type='text/plain')
-
 
     
 from flask import send_from_directory, send_file
@@ -1023,45 +483,6 @@ def proxy_shared():
 @login_required
 def index():
     return redirect('/interface')
-
-@app.route('/upload_pdf', methods=['POST'])
-@limiter.limit("10 per minute")
-@login_required
-def upload_pdf():
-    keys = keyParser(session)
-    email, name, loggedin = check_login(session)
-    pdf_file = request.files.get('pdf_file')
-    if pdf_file:
-        try:
-            # Determine the file extension
-            file_ext = os.path.splitext(pdf_file.filename)[1]
-
-            # Save the original file first
-            original_file_path = os.path.join(pdfs_dir, pdf_file.filename)
-            pdf_file.save(original_file_path)
-
-            if file_ext in ['.doc', '.docx']:
-                # Convert to PDF
-                pdf_filename = os.path.splitext(pdf_file.filename)[0] + ".pdf"
-                pdf_file_path = os.path.join(pdfs_dir, pdf_filename)
-
-                if not convert_doc_to_pdf(original_file_path, pdf_file_path):
-                    return jsonify({'error': 'Conversion to PDF failed'}), 400
-            else:
-                pdf_file_path = original_file_path
-
-            # Create and save index
-            doc_index = immediate_create_and_save_index(pdf_file_path, keys)
-
-            addUserToDoc(email, doc_index.doc_id, doc_index.doc_source)
-            return jsonify({'status': 'Indexing started', 'doc_id': doc_index.doc_id,
-                            "properly_indexed": doc_index.doc_id in indexed_docs})
-
-        except Exception as e:
-            traceback.print_exc()
-            return jsonify({'error': str(e)}), 400
-    else:
-        return jsonify({'error': 'No pdf_file provided'}), 400
 
 
 @app.route('/upload_doc_to_conversation/<conversation_id>', methods=['POST'])
@@ -1509,7 +930,6 @@ def open_browser(url):
         webbrowser.open(url)
     
 create_tables()
-load_documents(folder)
 
 # def removeAllUsersFromConversation():
 #     conn = create_connection("{}/users.db".format(users_dir))
