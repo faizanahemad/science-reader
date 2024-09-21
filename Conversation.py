@@ -1637,7 +1637,7 @@ Write the extracted information briefly and concisely below:
                                # "nousresearch/hermes-3-llama-3.1-405b",
                                ]
                 if provide_detailed_answers >= 3:
-                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta",
+                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
                                                       # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
                                                       ])
                     if provide_detailed_answers >= 4:
@@ -1674,7 +1674,7 @@ Write the extracted information briefly and concisely below:
                                    # "nousresearch/hermes-3-llama-3.1-405b",
                                    ]
                     if provide_detailed_answers >= 3:
-                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta",
+                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
                                             # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
                                             ])
                         if provide_detailed_answers >= 4:

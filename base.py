@@ -2586,7 +2586,7 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
                                                                                   False) and "full_text" in web_res and len(
                 web_res["full_text"].split()) > 0:
             text = web_res["full_text"]
-            link_title_context_apikeys = (link, title, context, api_keys, text, query, detailed)
+            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
             st = time.time()
             summary = get_downloaded_data_summary(link_title_context_apikeys)
             if "is_image" in web_res and web_res["is_image"]:
