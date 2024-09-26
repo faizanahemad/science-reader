@@ -2056,8 +2056,8 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 16000
         l4 = 10000
     elif model == "gpt-4-96k":
-        l1 = 60000
-        l2 = 20000
+        l1 = 75000
+        l2 = 30000
         l4 = 10000
     else:
         l1 = 2000
