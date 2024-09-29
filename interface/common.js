@@ -594,29 +594,33 @@ function addOptions(parentElementId, type, activeDocId = null) {
         
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
-            <select class="form-control" id="main-model-selector">
+            <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.5</option>    
                 <option>Claude Opus</option>
+                <option>openai/o1-preview</option>
+                <option>openai/o1-mini</option>
                 <option>o1-preview</option>
-                <option>gpt-4-turbo</option>  
-                
-                <option>llama-3.1-405b</option>
-                
-                
                 <option>o1-mini</option>
-                
+                <option>gpt-4o</option>
+                <option>gpt-4-turbo</option> 
+                <option>Gemini 1.5</option>
+                <option>Mistral Large</option>
                 <option>Command-r+</option>
-                
                 <option>DeepSeek-V2.5 Chat</option>
-                <option>gpt-4-32k</option>
+                <option>Jamba</option>
+                <option>llama-3.1-405b</option>
+                <option>Qwen 2</option>
+                
+                
                 <option>Hermes llama-3.1-405b</option>
+                <!-- option>gpt-4-32k</option -->
                  
                 
                 
                 
                 
                  
-                <!-- option>Gemini 1.5</option -->
+                
                 <!-- option>gpt-4-0314</option -->
                 <!-- option>gpt-4-32k-0314</option -->
                 
@@ -624,8 +628,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>deepseek/deepseek-coder</option -->
                 <!-- option>PPX 405B Online</option -->
                 <!-- option>Yi Large</option -->
-                <option>gpt-4o</option>
-                <option>Jamba</option>
+                
                 <!-- option>llama-3.1-70b</option -->
                 
                 
@@ -634,9 +637,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
                 
-                <!-- option>Mistral Large</option -->
                 
-                <!-- option>Qwen 2</option -->
             </select>
         </div>
         

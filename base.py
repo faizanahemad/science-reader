@@ -56,9 +56,9 @@ gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
 
 def call_chat_model(model, text, images, temperature, system, keys):
-    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model) and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
     extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
-    openrouter_used = not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k'
+    openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k'
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
     extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
@@ -142,8 +142,6 @@ Deduce what the question or query is asking about and then go above and beyond t
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
-                                                                                                                                                 "openai/o1-preview",
-                                                                                                                                                 "openai/o1-mini",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b"]
@@ -205,9 +203,13 @@ Deduce what the question or query is asking about and then go above and beyond t
         else:
             assert self.keys["openAIKey"] is not None
 
-        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini"]) else "gpt-4o-mini"
+        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini", "o1-preview", "o1-mini"]) else "gpt-4o-mini"
 
-        if model_name == "gpt-4-turbo":
+        if model_name == "o1-mini":
+            pass
+        elif model_name == "o1-preview":
+            pass
+        elif model_name == "gpt-4-turbo":
             pass
         elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"

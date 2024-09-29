@@ -1519,52 +1519,13 @@ Write the extracted information briefly and concisely below:
 
         # TODO: add capability to use mistral-large, Claude OPUS models for answering.
         model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
-        if model_name == "gpt-4-turbo":
-            model_name = "gpt-4-turbo"
-        elif model_name == "gpt-4o":
-            model_name = "gpt-4o"
-        elif model_name == "Command-r+":
-            model_name = "cohere/command-r-plus-08-2024"
-        elif model_name == "gpt-4-32k":
-            model_name = "openai/gpt-4-32k"
-        elif model_name == "gpt-4-32k-0314":
-            model_name = "gpt-4-32k-0314"
-        elif model_name == "gpt-4-0314":
-            model_name = "gpt-4-0314"
-        elif model_name == "Claude Opus":
-            model_name = "anthropic/claude-3-opus:beta"
-        elif model_name == "Claude Sonnet 3.5":
-            model_name = "anthropic/claude-3.5-sonnet:beta"
-        elif model_name == "Mistral Large":
-            model_name = "mistralai/mistral-large"
-        elif model_name == "DeepSeek-V2.5 Chat":
-            model_name = "deepseek/deepseek-chat"
-        elif model_name == "deepseek/deepseek-coder":
-            model_name = "deepseek/deepseek-coder"
-        elif model_name == "Qwen 2":
-            model_name = "qwen/qwen-2-72b-instruct"
-        elif model_name == "Jamba":
-            model_name = "ai21/jamba-1-5-large"
-        elif model_name == "llama-3.1-70b":
-            model_name = "meta-llama/llama-3.1-70b-instruct"
-        elif model_name == "llama-3.1-405b":
-            model_name = "meta-llama/llama-3.1-405b-instruct"
-        elif model_name == "Hermes llama-3.1-405b":
-            model_name = "nousresearch/hermes-3-llama-3.1-405b"
-        elif model_name == "Yi Large":
-            model_name = "01-ai/yi-large"
-
-        elif model_name == "PPX 405B Online":
-            model_name = "perplexity/llama-3.1-sonar-huge-128k-online"
-
-        elif model_name == "Gemini 1.5":
-            model_name = "google/gemini-pro-1.5"
-        elif model_name == "o1-preview":
-            model_name = "openai/o1-preview"
-        elif model_name == "o1-mini":
-            model_name = "openai/o1-mini"
+        if isinstance(model_name, (tuple, list)):
+            model_name = list(map(model_name_to_canonical_name, model_name))
         else:
-            model_name = None
+            model_name = model_name_to_canonical_name(model_name)
+        if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
+            model_name = model_name[0]
+
         yield {"text": f"", "status": "starting answer generation"}
 
         if google_scholar or perform_web_search:
@@ -1622,27 +1583,32 @@ Write the extracted information briefly and concisely below:
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
+        ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes or isinstance(model_name, (list, tuple)) else False
         try:
-            ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
             if ensemble:
-                model_names = ["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
-                               "openai/o1-mini",
-                               "cohere/command-r-plus-08-2024",
-                               "google/gemini-pro-1.5",
+                if isinstance(model_name, (list, tuple)):
+                    model_names = model_name
+                    improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else ( "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0]))
+                else:
+                    model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                                   "openai/o1-mini",
+                                   "cohere/command-r-plus-08-2024",
+                                   "google/gemini-pro-1.5",
 
-                               # "anthropic/claude-3-opus:beta",
-                               # "mistralai/mistral-large",
-                               # "deepseek/deepseek-chat",
-                               # "meta-llama/llama-3.1-405b-instruct",
-                               # "nousresearch/hermes-3-llama-3.1-405b",
-                               ]
+                                   # "anthropic/claude-3-opus:beta",
+                                   # "mistralai/mistral-large",
+                                   # "deepseek/deepseek-chat",
+                                   # "meta-llama/llama-3.1-405b-instruct",
+                                   # "nousresearch/hermes-3-llama-3.1-405b",
+                                   ] + [model_name])
+                    improve_model = model_name
                 if provide_detailed_answers >= 3:
-                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
+                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large", "qwen/qwen-2.5-72b-instruct"
                                                       # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
                                                       ])
                     if provide_detailed_answers >= 4:
                         model_names.extend(["openai/o1-preview",  "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",])
-                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name, outline_model="openai/o1-mini")
+                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                 # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                 main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
                 main_ans_gen = make_stream(main_ans_gen, True)
@@ -1660,19 +1626,26 @@ Write the extracted information briefly and concisely below:
             # answer += f"We had an exception in answering using model - {model_name}"
             yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
             try:
-                ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes else False
                 if ensemble:
-                    model_names = ["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
-                                   "openai/o1-mini",
-                                   "cohere/command-r-plus-08-2024",
-                                   "google/gemini-pro-1.5",
+                    if isinstance(model_name, (list, tuple)):
+                        model_names = model_name
+                        improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else (
+                            "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else (
+                                "anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else
+                                model_names[0]))
+                    else:
+                        model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                                        "openai/o1-mini",
+                                        "cohere/command-r-plus-08-2024",
+                                        "google/gemini-pro-1.5",
 
-                                   # "anthropic/claude-3-opus:beta",
-                                   # "mistralai/mistral-large",
-                                   # "deepseek/deepseek-chat",
-                                   # "meta-llama/llama-3.1-405b-instruct",
-                                   # "nousresearch/hermes-3-llama-3.1-405b",
-                                   ]
+                                        # "anthropic/claude-3-opus:beta",
+                                        # "mistralai/mistral-large",
+                                        # "deepseek/deepseek-chat",
+                                        # "meta-llama/llama-3.1-405b-instruct",
+                                        # "nousresearch/hermes-3-llama-3.1-405b",
+                                        ] + [model_name])
+                        improve_model = model_name
                     if provide_detailed_answers >= 3:
                         model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
                                             # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
@@ -1681,7 +1654,7 @@ Write the extracted information briefly and concisely below:
                             model_names.extend(
                                 ["openai/o1-preview", "deepseek/deepseek-chat", "mistralai/mistral-large",
                                  "meta-llama/llama-3.1-405b-instruct", ])
-                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=model_name, outline_model="openai/o1-mini")
+                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
                     main_ans_gen = make_stream(main_ans_gen, True)
@@ -2077,6 +2050,59 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
 
 truncate_text_for_others = truncate_text_for_gpt4
 
+def model_name_to_canonical_name(model_name):
+    if model_name == "gpt-4-turbo":
+        model_name = "gpt-4-turbo"
+    elif model_name == "gpt-4o":
+        model_name = "gpt-4o"
+    elif model_name == "Command-r+":
+        model_name = "cohere/command-r-plus-08-2024"
+    elif model_name == "gpt-4-32k":
+        model_name = "openai/gpt-4-32k"
+    elif model_name == "gpt-4-32k-0314":
+        model_name = "gpt-4-32k-0314"
+    elif model_name == "gpt-4-0314":
+        model_name = "gpt-4-0314"
+    elif model_name == "Claude Opus":
+        model_name = "anthropic/claude-3-opus:beta"
+    elif model_name == "Claude Sonnet 3.5":
+        model_name = "anthropic/claude-3.5-sonnet:beta"
+    elif model_name == "Mistral Large":
+        model_name = "mistralai/mistral-large"
+    elif model_name == "DeepSeek-V2.5 Chat":
+        model_name = "deepseek/deepseek-chat"
+    elif model_name == "deepseek/deepseek-coder":
+        model_name = "deepseek/deepseek-coder"
+    elif model_name == "Qwen 2":
+        model_name = "qwen/qwen-2.5-72b-instruct"
+    elif model_name == "Jamba":
+        model_name = "ai21/jamba-1-5-large"
+    elif model_name == "llama-3.1-70b":
+        model_name = "meta-llama/llama-3.1-70b-instruct"
+    elif model_name == "llama-3.1-405b":
+        model_name = "meta-llama/llama-3.1-405b-instruct"
+    elif model_name == "Hermes llama-3.1-405b":
+        model_name = "nousresearch/hermes-3-llama-3.1-405b"
+    elif model_name == "Yi Large":
+        model_name = "01-ai/yi-large"
+
+    elif model_name == "PPX 405B Online":
+        model_name = "perplexity/llama-3.1-sonar-huge-128k-online"
+
+    elif model_name == "Gemini 1.5":
+        model_name = "google/gemini-pro-1.5"
+    elif model_name == "openai/o1-preview":
+        model_name = "openai/o1-preview"
+    elif model_name == "openai/o1-mini":
+        model_name = "openai/o1-mini"
+
+    elif model_name == "o1-preview":
+        model_name = "o1-preview"
+    elif model_name == "o1-mini":
+        model_name = "o1-mini"
+    else:
+        raise ValueError(f"Model name {model_name} not found in the list")
+    return model_name
 import re
 
 def extract_user_answer(text):
