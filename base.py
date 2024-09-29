@@ -57,7 +57,7 @@ gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
 def call_chat_model(model, text, images, temperature, system, keys):
     api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
-    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model) or model=='openai/gpt-4-32k' else dict()
+    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k' else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k'
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
@@ -66,7 +66,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
     client = OpenAI(api_key=api_key, **extras)
     if len(images) > 0:
         messages = [
-                {"role": "system", "content": system},
+                {"role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user", "content": system},
                 {"role": "user", "content": [
                     {"type": "text", "text": text},
                     *[{
@@ -79,7 +79,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
             ]
     else:
         messages = [
-                {"role": "system", "content": system},
+                {"role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user", "content": system},
                 {"role": "user", "content": text},
             ]
 
@@ -87,8 +87,8 @@ def call_chat_model(model, text, images, temperature, system, keys):
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=temperature,
-            stream=True,
+            temperature=temperature if not (model=="o1-preview" or model=="o1-mini") else 1,
+            stream=True if not (model=="o1-preview" or model=="o1-mini") else False,
             timeout=60,
             # max_tokens=300,
             **extras_2,
@@ -97,16 +97,19 @@ def call_chat_model(model, text, images, temperature, system, keys):
         # return
 
         chunk = None
-        for chk in response:
-            chunk = chk.model_dump()
-            if "content" in chunk["choices"][0]["delta"]:
-                text_content = chunk["choices"][0]["delta"]["content"]
-                if isinstance(text_content, str):
-                    yield text_content
+        if (model=="o1-preview" or model=="o1-mini"):
+            yield response.choices[0].message.content
+        else:
+            for chk in response:
+                chunk = chk.model_dump()
+                if "content" in chunk["choices"][0]["delta"]:
+                    text_content = chunk["choices"][0]["delta"]["content"]
+                    if isinstance(text_content, str):
+                        yield text_content
 
 
-        if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
-            yield "\n Output truncated due to lack of context Length."
+            if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
+                yield "\n Output truncated due to lack of context Length."
     except Exception as e:
         logger.error(f"[call_chat_model]: Error in calling chat model {model} with error {str(e)}")
         traceback.print_exc(limit=4)

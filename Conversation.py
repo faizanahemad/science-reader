@@ -1518,13 +1518,13 @@ Write the extracted information briefly and concisely below:
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
 
         # TODO: add capability to use mistral-large, Claude OPUS models for answering.
-        model_name = checkboxes["main_model"].strip() if "main_model" in checkboxes else None
+        model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
         if isinstance(model_name, (tuple, list)):
             model_name = list(map(model_name_to_canonical_name, model_name))
         else:
             model_name = model_name_to_canonical_name(model_name)
         if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
-            model_name = model_name[0]
+            model_name = model_name[0].strip()
 
         yield {"text": f"", "status": "starting answer generation"}
 
@@ -1535,18 +1535,18 @@ Write the extracted information briefly and concisely below:
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
 
-        if probable_prompt_length < 90000 and (model_name is None or not model_name.startswith("mistralai")):
+        if probable_prompt_length < 90000 and (model_name is None):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
-        elif probable_prompt_length < 48000 and (model_name is None or not model_name.startswith("mistralai")):
+        elif probable_prompt_length < 48000 and (model_name is None):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_64k
-        elif probable_prompt_length < 28000 and (model_name is None or not model_name.startswith("mistralai")):
+        elif probable_prompt_length < 28000 and (model_name is None):
             previous_messages = previous_messages_long
             truncate_text = truncate_text_for_gpt4_32k
         else:
-            previous_messages = previous_messages_short
-            truncate_text = truncate_text_for_gpt4_16k
+            previous_messages = previous_messages_long
+            truncate_text = truncate_text_for_gpt4_32k
 
         memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
 
@@ -1583,7 +1583,7 @@ Write the extracted information briefly and concisely below:
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
-        ensemble = checkboxes["ensemble"] if "ensemble" in checkboxes or isinstance(model_name, (list, tuple)) else False
+        ensemble = (checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))
         try:
             if ensemble:
                 if isinstance(model_name, (list, tuple)):
@@ -2051,6 +2051,7 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
 truncate_text_for_others = truncate_text_for_gpt4
 
 def model_name_to_canonical_name(model_name):
+    model_name = model_name.strip()
     if model_name == "gpt-4-turbo":
         model_name = "gpt-4-turbo"
     elif model_name == "gpt-4o":
