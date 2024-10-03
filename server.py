@@ -988,5 +988,5 @@ if __name__ == '__main__':
     
     port = 443
    # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
-    app.run(host="0.0.0.0", port=5000,threaded=True, ssl_context="adhoc") # ssl_context="adhoc"
+    app.run(host="0.0.0.0", port=5000,threaded=True) # ssl_context="adhoc"
 
