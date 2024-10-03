@@ -160,6 +160,12 @@
                                                 </label>
                                                 <input id="chat-file-upload" type="file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson" style="display: none;"/>
                                             </span>
+                                            <span class="input-group-text" id="voice-record-span" style="border-right: none; background-color: transparent;">  
+                                                <label for="voice-record" class="mb-0" style="cursor: pointer;">  
+                                                    <i class="fas fa-microphone"></i>  
+                                                </label>  
+                                                <button id="voice-record" style="display: none;"></button>  
+                                            </span>  
                                         </div>
                                         <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here." style="max-height: 240px; overflow-y: auto; height: 38px; border-left: none;"></textarea>
                                     </div>
@@ -374,5 +380,6 @@
       }
       window.addEventListener('load', addDarkmodeWidget);
     </script>
+    <script src="interface/audio_process.js"></script>
 </body>
 </html>

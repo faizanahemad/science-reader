@@ -4,6 +4,7 @@ import copy
 import random
 import secrets
 import sys
+import tempfile
 from urllib.parse import unquote
 from functools import wraps
 import mmh3
@@ -916,6 +917,49 @@ def get_conversation_output_docs(conversation_id, document_file_name):
         return jsonify({"message": "Document not found"}), 404
 
 
+
+
+
+@app.route('/transcribe', methods=['POST'])
+def transcribe_audio():
+    from openai import OpenAI
+    from werkzeug.utils import secure_filename
+    client = OpenAI(api_key=os.environ.get("openAIKey"))
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files['audio']
+
+    if audio_file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if audio_file:
+        # Create a temporary file to store the uploaded audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio_file:
+            audio_file.save(temp_audio_file.name)
+
+        try:
+            # Open the temporary file and send it to OpenAI for transcription
+            with open(temp_audio_file.name, "rb") as audio:
+                transcription = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio,
+                    response_format="text"
+                )
+
+                # Return the transcribed text
+            return jsonify({"transcription": transcription.strip()})
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+        finally:
+            # Clean up the temporary file
+            os.unlink(temp_audio_file.name)
+
+    return jsonify({"error": "Failed to process audio file"}), 500
+
+
 # Next we build - create_session,
 # Within session the below API can be used - create_document_from_link, create_document_from_link_and_ask_question, list_created_documents, delete_created_document, get_created_document_details
 
@@ -944,5 +988,5 @@ if __name__ == '__main__':
     
     port = 443
    # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
-    app.run(host="0.0.0.0", port=5000,threaded=True) # ssl_context="adhoc"
+    app.run(host="0.0.0.0", port=5000,threaded=True, ssl_context="adhoc") # ssl_context="adhoc"
 
