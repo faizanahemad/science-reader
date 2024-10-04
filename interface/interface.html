@@ -316,6 +316,26 @@
       </div>
     </div>
 
+    <!-- Message Edit Modal -->
+    <div class="modal fade" id="message-edit-modal" tabindex="-1" aria-hidden="true">  
+      <div class="modal-dialog modal-lg"> <!-- Changed to modal-lg for a larger modal -->  
+        <div class="modal-content">  
+          <div class="modal-header">  
+            <h5 class="modal-title">Edit Message</h5>  
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">  
+              <span aria-hidden="true">&times;</span>  
+            </button>  
+          </div>  
+          <div class="modal-body">  
+            <textarea id="message-edit-text" class="form-control" rows="15"></textarea> <!-- Increased rows to 15 -->  
+          </div>  
+          <div class="modal-footer">  
+            <button type="button" id="message-edit-text-save-button" class="btn btn-primary" onclick="$('#message-edit-modal').modal('hide');">Save</button>  
+          </div>  
+        </div>  
+      </div>  
+    </div>  
+
     <!-- Copied to clipboard -->
     <div class="modal fade" id="clipboard-modal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">

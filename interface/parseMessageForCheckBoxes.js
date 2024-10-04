@@ -18,6 +18,7 @@ function parseMessageForCheckBoxes(text) {
     // Process each command with regex adjusted for case insensitivity and improved whitespace handling
     processCommand(/\/history\s+(\d+)/i, "enable_previous_messages");
     processCommand(/\/detailed\s+(\d+)/i, "provide_detailed_answers");
+    processCommand(/\/delete\b/i, "delete_last_turn", true);
     processCommand(/\/scholar\b/i, "googleScholar", true);
     processCommand(/\/search_exact\b/i, "search_exact", true);
     processCommand(/\/search\b/i, "perform_web_search", true);

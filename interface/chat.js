@@ -38,6 +38,7 @@ $(document).ready(function() {
         }
     }
     $('#messageText').keypress(textboxCallBack);
+    $('#messageText').on('input change', textboxCallBack);
     addOptions('chat-options', 'assistant', null);
     $('#sendMessageButton').on('click', sendMessageCallback);
     $('.dynamic-textarea').on('input change', function() {

@@ -83,9 +83,39 @@ var ConversationManager = {
         return $.ajax({
             url: '/set_memory_pad/' + activeConversationId,
             type: 'POST',
-            data: { 'text': text },
+            contentType: 'application/json',
+            data: JSON.stringify({ 'text': text }),  
             success: function (result) {
                 $('#memory-pad-text').val(text);
+            },
+            error: function (result) {
+                alert('Error: ' + result.responseText);
+            }
+        });
+    },
+
+    saveMessageEditText: function (text, message_id, index, card) {
+        activeConversationId = this.activeConversationId
+        return $.ajax({
+            url: '/edit_message_from_conversation/' + activeConversationId + '/' + message_id + '/' + index,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ 'text': text }),  
+            success: function (result) {
+                // Rerender the card
+                answer = text
+                answerParagraph = card.find('.actual-card-text').last();
+                if (answerParagraph) {
+                    renderInnerContentAsMarkdown(answerParagraph, function () {
+                        if (answerParagraph.text().length > 300) {
+                            // showMore(null, text = null, textElem = answerParagraph, as_html = true, show_at_start = true);
+                        }
+                    }, continuous = false, html = answer);
+                    initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+                }
+            },
+            error: function (result) {
+                alert('Error: ' + result.responseText);
             }
         });
     },
@@ -621,6 +651,9 @@ var ChatManager = {
             $('#chatView').empty();  // Clear the chat view first
         }
         messages.forEach(function (message, index, array) {
+            // $(document).find('.card') count number of card elements in the document
+            card_elements_count = $(document).find('.card').length;
+            index = card_elements_count;
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
             var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`

@@ -749,20 +749,6 @@ def send_message(conversation_id):
         conversation = set_keys_on_docs(conversation, keys)
 
     query = request.json
-    query["additional_docs_to_read"] = []
-    additional_params: dict = query["checkboxes"]
-    additional_docs_to_read = additional_params.get("additional_docs_to_read", [])
-    additional_docs_to_read = list(set(additional_docs_to_read))
-    additional_params["additional_docs_to_read"] = additional_docs_to_read
-    use_multiple_docs = additional_params.get("use_multiple_docs", False) and isinstance(additional_docs_to_read,
-                                                                                         (tuple, list)) and len(
-        additional_docs_to_read) > 0
-    if use_multiple_docs:
-        keys = copy.deepcopy(keys)
-        keys["use_gpt4"] = False
-        additional_docs_to_read = [set_keys_on_docs(indexed_docs[doc_id], keys) for doc_id in
-                                   additional_docs_to_read]
-        query["additional_docs_to_read"] = additional_docs_to_read
 
     # We don't process the request data in this mockup, but we would normally send a new message here
     return Response(stream_with_context(conversation(query)), content_type='text/plain')
@@ -816,6 +802,24 @@ def make_conversation_stateful(conversation_id):
     conversation.make_stateful()
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
+
+
+@app.route('/edit_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def edit_message_from_conversation(conversation_id, message_id, index):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    message_text = request.json.get('text')
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.edit_message(message_id, index, message_text)
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Message {message_id} deleted'})
 
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])

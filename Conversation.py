@@ -553,9 +553,21 @@ Your response will be in below xml style format:
         memory_pad.result()
 
     def delete_message(self, message_id, index):
+        index = int(index)
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         messages = self.get_field("messages")
         messages = [m for i, m in enumerate(messages) if m["message_id"] != message_id and i != index]
+        self.set_field("messages", messages, overwrite=True)
+        self.save_local()
+
+    def edit_message(self, message_id, index, text):
+        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        messages = self.get_field("messages")
+        index = int(index)
+        for i, m in enumerate(messages):
+            if m["message_id"] == message_id or i == index:
+                messages[i]["text"] = text
+
         self.set_field("messages", messages, overwrite=True)
         self.save_local()
 
@@ -852,6 +864,8 @@ Write the extracted information briefly and concisely below:
         summary_text_init = summary
         summary_text = summary
         checkboxes = query["checkboxes"]
+        if "delete_last_turn" in checkboxes and checkboxes["delete_last_turn"]:
+            self.delete_last_turn()
         persist_or_not = checkboxes["persist_or_not"] if "persist_or_not" in checkboxes else True
         enable_planner = checkboxes["enable_planner"] if "enable_planner" in checkboxes else False
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])

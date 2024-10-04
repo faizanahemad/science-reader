@@ -222,10 +222,26 @@ function enableMainFunctionality() {
 
 function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null, disable_voting = false) {
     let copyBtn = $('<button>').addClass('vote-btn').addClass('copy-btn').text('📋');
+    let editBtn = $('<button>').addClass('vote-btn').addClass('edit-btn').text('✏️');
     copyBtn.click(function () {
         // Here we get the card text and copy it to the clipboard
         // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
         copyToClipboard(cardElem, text);
+    });
+    editBtn.off();
+    editBtn.click(function () {
+        $('#message-edit-text').val(text);
+        $('#message-edit-modal').modal('show');
+        $('#message-edit-text-save-button').off();
+        messageId = cardElem.find('.card-header').last().attr('message-id');
+        messageIndex = cardElem.find('.card-header').last().attr('message-index');
+
+        $('#message-edit-text-save-button').click(function () {
+            
+            var newtext = $('#message-edit-text').val();
+            ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+            $('#message-edit-modal').modal('hide');
+        });
     });
 
     let voteBox = $('<div>').addClass('vote-box').css({
@@ -234,7 +250,10 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         'right': '30px'
     });
     
+    voteBox.append(editBtn);
     voteBox.append(copyBtn);
+    // delete any previous votebox and add the new one
+    cardElem.find('.vote-box').remove();
     cardElem.append(voteBox);
     return
 }
