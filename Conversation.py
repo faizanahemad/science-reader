@@ -28,7 +28,7 @@ import dill
 import os
 import re
 
-from agents import ReflectionAgent
+from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 from prompts import prompts, xml_to_dict
@@ -52,7 +52,6 @@ pd.set_option('display.max_columns', 100)
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 
-LEN_CUTOFF_WEB_TEXT = 50
 
 from tenacity import (
     retry,
@@ -711,8 +710,9 @@ Write the extracted information briefly and concisely below:
         ]
         return preamble_names
 
-    def get_preamble(self, preamble_options, field, web_search_or_document_read=False):
+    def get_preamble(self, preamble_options, field, web_search_or_document_read=False, **kwargs):
         preamble = ""
+        agent = None
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
@@ -765,9 +765,9 @@ Write the extracted information briefly and concisely below:
         if field == "Agent_IdeaNovelty":
             pass
         if field == "Agent_WebSearch":
-            pass
+            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=180, gscholar=False)
         if field == "Agent_LiteratureReview":
-            pass
+            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=180, gscholar=False)
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":
@@ -783,7 +783,7 @@ Write the extracted information briefly and concisely below:
             final_preamble = None
         else:
             final_preamble = final_preamble.strip()
-        return final_preamble
+        return final_preamble, agent
 
     def agent_level_one_websearch_helper(self, messageText, queries=list(), checkboxes=dict()):
         query = dict()
@@ -927,7 +927,7 @@ Write the extracted information briefly and concisely below:
 
 
         retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
-        retrieval_preambles = self.get_preamble(retrieval_preambles,
+        retrieval_preamble, _ = self.get_preamble(retrieval_preambles,
                           checkboxes["field"] if "field" in checkboxes else None,)
         if science_sites_count > 1:
             preambles.append("Comparison")
@@ -981,7 +981,7 @@ Write the extracted information briefly and concisely below:
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
             query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
-        preamble = self.get_preamble(preambles,
+        preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
                                          attached_docs) > 0)
@@ -1597,102 +1597,108 @@ Write the extracted information briefly and concisely below:
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
-        ensemble = (checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))
-        try:
-            if ensemble:
-                if isinstance(model_name, (list, tuple)):
-                    model_names = model_name
-                    improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else ( "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0]))
-                else:
-                    model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
-                                   "openai/o1-mini",
-                                   "cohere/command-r-plus-08-2024",
-                                   "google/gemini-pro-1.5",
-
-                                   # "anthropic/claude-3-opus:beta",
-                                   # "mistralai/mistral-large",
-                                   # "deepseek/deepseek-chat",
-                                   # "meta-llama/llama-3.1-405b-instruct",
-                                   # "nousresearch/hermes-3-llama-3.1-405b",
-                                   ] + [model_name])
-                    improve_model = model_name
-                if provide_detailed_answers >= 3:
-                    model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large", "qwen/qwen-2.5-72b-instruct"
-                                                      # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
-                                                      ])
-                    if provide_detailed_answers >= 4:
-                        model_names.extend(["openai/o1-preview",  "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",])
-                llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
-                # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
-                main_ans_gen = make_stream(main_ans_gen, True)
-            else:
-                llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-
-            while len(answer) <= 10:
-                t2y = next(main_ans_gen)
-                yield {"text": t2y, "status": "answering in progress"}
-                answer += t2y
-        except Exception as e:
-            logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
-            traceback.print_exc()
-            # answer += f"We had an exception in answering using model - {model_name}"
-            yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
+        ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
+        if agent is not None:
+            agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
+            main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+        else:
+            
+            
             try:
                 if ensemble:
                     if isinstance(model_name, (list, tuple)):
                         model_names = model_name
-                        improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else (
-                            "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else (
-                                "anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else
-                                model_names[0]))
+                        improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else ( "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0]))
                     else:
                         model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
-                                        "openai/o1-mini",
-                                        "cohere/command-r-plus-08-2024",
-                                        "google/gemini-pro-1.5",
+                                    "openai/o1-mini",
+                                    "cohere/command-r-plus-08-2024",
+                                    "google/gemini-pro-1.5",
 
-                                        # "anthropic/claude-3-opus:beta",
-                                        # "mistralai/mistral-large",
-                                        # "deepseek/deepseek-chat",
-                                        # "meta-llama/llama-3.1-405b-instruct",
-                                        # "nousresearch/hermes-3-llama-3.1-405b",
-                                        ] + [model_name])
+                                    # "anthropic/claude-3-opus:beta",
+                                    # "mistralai/mistral-large",
+                                    # "deepseek/deepseek-chat",
+                                    # "meta-llama/llama-3.1-405b-instruct",
+                                    # "nousresearch/hermes-3-llama-3.1-405b",
+                                    ] + [model_name])
                         improve_model = model_name
                     if provide_detailed_answers >= 3:
-                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
-                                            # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
-                                            ])
+                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large", "qwen/qwen-2.5-72b-instruct"
+                                                        # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
+                                                        ])
                         if provide_detailed_answers >= 4:
-                            model_names.extend(
-                                ["openai/o1-preview", "deepseek/deepseek-chat", "mistralai/mistral-large",
-                                 "meta-llama/llama-3.1-405b-instruct", ])
+                            model_names.extend(["openai/o1-preview",  "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",])
                     llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
-                    main_ans_gen = make_stream(main_ans_gen, True)
+                    main_ans_gen = make_stream([main_ans_gen], do_stream=True)
                 else:
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
-                while len(answer) <= 10:
+                while len(answer) <= 10 and not isinstance(main_ans_gen, str):
                     t2y = next(main_ans_gen)
                     yield {"text": t2y, "status": "answering in progress"}
                     answer += t2y
             except Exception as e:
+                logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
                 traceback.print_exc()
-                logger.error(
-                    f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
                 # answer += f"We had an exception in answering using model - {model_name}"
-                yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
-                       "status": "stage 2 answering in progress"}
-                llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-                while len(answer) <= 10:
-                    t2y = next(main_ans_gen)
-                    yield {"text": t2y, "status": "answering in progress"}
-                    answer += t2y
+                yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
+                try:
+                    if ensemble:
+                        if isinstance(model_name, (list, tuple)):
+                            model_names = model_name
+                            improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else (
+                                "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else (
+                                    "anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else
+                                    model_names[0]))
+                        else:
+                            model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                                            "openai/o1-mini",
+                                            "cohere/command-r-plus-08-2024",
+                                            "google/gemini-pro-1.5",
+
+                                            # "anthropic/claude-3-opus:beta",
+                                            # "mistralai/mistral-large",
+                                            # "deepseek/deepseek-chat",
+                                            # "meta-llama/llama-3.1-405b-instruct",
+                                            # "nousresearch/hermes-3-llama-3.1-405b",
+                                            ] + [model_name])
+                            improve_model = model_name
+                        if provide_detailed_answers >= 3:
+                            model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
+                                                # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
+                                                ])
+                            if provide_detailed_answers >= 4:
+                                model_names.extend(
+                                    ["openai/o1-preview", "deepseek/deepseek-chat", "mistralai/mistral-large",
+                                    "meta-llama/llama-3.1-405b-instruct", ])
+                        llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
+                        # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
+                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
+                        main_ans_gen = make_stream([main_ans_gen], do_stream=True)
+                    else:
+                        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+
+                    while len(answer) <= 10 and not isinstance(main_ans_gen, str):
+                        t2y = next(main_ans_gen)
+                        yield {"text": t2y, "status": "answering in progress"}
+                        answer += t2y
+                except Exception as e:
+                    traceback.print_exc()
+                    logger.error(
+                        f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
+                    # answer += f"We had an exception in answering using model - {model_name}"
+                    yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
+                        "status": "stage 2 answering in progress"}
+                    llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                    while len(answer) <= 10 and not isinstance(main_ans_gen, str):
+                        t2y = next(main_ans_gen)
+                        yield {"text": t2y, "status": "answering in progress"}
+                        answer += t2y
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
@@ -1720,9 +1726,15 @@ Write the extracted information briefly and concisely below:
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
         code_session = None
-        for txt in main_ans_gen:
-            yield {"text": txt, "status": "answering in progress"}
-            answer += txt
+        for dcit in main_ans_gen:
+            if isinstance(dcit, dict):
+                txt = dcit["text"]
+                status = dcit["status"]
+            else:
+                txt = dcit
+                status = "answering in progress"
+            yield {"text": txt, "status": status}
+            answer += str(txt)
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
             drawio_code = extract_drawio(answer)
             if len(drawio_code.strip()) > 0 and drawio_code not in already_executed_drawio:

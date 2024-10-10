@@ -1,5 +1,6 @@
 import logging
 import os.path
+import uuid
 from datetime import datetime
 from uuid import uuid4
 
@@ -861,7 +862,7 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     dedup_results = search_post_processing(pre_query, results, "brightdata_google", only_science_sites=only_science_sites, only_pdf=only_pdf)
     return dedup_results
 
-@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
+@CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=False)
 def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
     from datetime import datetime, timedelta
     num = max(num, 10)
@@ -896,6 +897,7 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
     expected_res_length = max(num, 10)
     results = []
 
+    more_results_future = None
     if expected_res_length > 10:
         more_results_future = get_async_future(google_search, query, cse_id, google_api_key, num=20, filter=1, start=20)
     # Perform initial search
@@ -905,7 +907,7 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
         results.extend(initial_results)
 
         # Perform additional searches if needed
-    if len(results) < expected_res_length:
+    if len(results) < expected_res_length and more_results_future is not None:
         additional_results = more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else []
         if additional_results:
             results.extend(additional_results)
@@ -1778,9 +1780,9 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     else:
         query_strings = extra_queries
         use_original_query = True
-    if len(query_strings) <= 2:
+    if len(query_strings) <= 2 and provide_detailed_answers >= 2:
         num_res = 20
-    if len(query_strings) == 1:
+    if len(query_strings) == 1 and provide_detailed_answers >= 2:
         num_res = 40
 
     yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
@@ -1939,7 +1941,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
         if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
             for iqx, r in enumerate(s.result()):
-                if iqx > max(5, num_res//2):
+                if iqx > min(5, num_res//2):
                     break
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
@@ -2004,7 +2006,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
         if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
             for iqx, r in enumerate(s.result()):
-                if iqx <= max(5, num_res//2):
+                if iqx <= min(5, num_res//2):
                     continue
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers",
                                                                                         "").replace("research paper",
@@ -2104,6 +2106,221 @@ def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None
                                                  web_search_tmp_marker_name=web_search_tmp_marker_name)
     return [get_async_future(get_part_1_results, gen1), read_queue] # get_async_future(get_part_1_results, part1_res)
 
+
+
+
+def execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers):
+    answer = ""
+    web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
+    create_tmp_marker_file(web_search_tmp_marker_name)
+    web_results = get_async_future(web_search_queue, user_context, 'helpful ai assistant',
+                                   "",
+                                   keys, datetime.now().strftime("%Y-%m"), extra_queries=queries,
+                                   previous_turn_search_results=None,
+                                   gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
+                                   web_search_tmp_marker_name=web_search_tmp_marker_name)
+    max_time_to_wait_for_web_results = 30
+    cut_off = 15
+    search_results = next(web_results.result()[0].result())
+    atext = "**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch' role='button'></div> <div class='collapse' id='singleQueryWebSearch'>" + "\n"
+    answer += atext
+    atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
+    atext = "**Web searched with Queries:**" + "\n"
+    answer += atext
+    queries = two_column_list(search_results['queries'])
+    answer += (queries + "</div>\n")
+    if len(search_results['search_results']) > 0:
+        query_results_part1 = search_results['search_results']
+        seen_query_results = query_results_part1[:20]
+        atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
+        atext = "\n**Search Results:**" + "\n"
+        answer += atext
+        query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
+        query_results = two_column_list(query_results)
+        answer += (query_results + "</div>\n")
+    result_queue = web_results.result()[1]
+    qu_st = time.time()
+    st = time.time()
+    web_text_accumulator = []
+    while True:
+        qu_wait = time.time()
+        break_condition = len(web_text_accumulator) >= cut_off or (
+                (qu_wait - qu_st) > max(max_time_to_wait_for_web_results * 2,
+                                        max_time_to_wait_for_web_results * provide_detailed_answers))
+        if break_condition and result_queue.empty():
+            break
+        one_web_result = None
+        if not result_queue.empty():
+            one_web_result = result_queue.get()
+        qu_et = time.time()
+        if one_web_result is None and break_condition:
+            break
+        if one_web_result is None:
+            time.sleep(0.5)
+            continue
+        if one_web_result == TERMINATION_SIGNAL:
+            break
+
+        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
+                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
+            web_text_accumulator.append((one_web_result["text"],
+                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
+                                         one_web_result["llm_result_future"]))
+
+            time_logger.info(
+                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+        time.sleep(0.5)
+    web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
+    web_text_accumulator = list(filter(
+        lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(),
+        web_text_accumulator))
+    remove_tmp_marker_file(web_search_tmp_marker_name)
+    read_links = [[link.strip(), len(text.strip().split()),
+                   llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text]
+                  for text, link, llm_future_dict in web_text_accumulator]
+    if len(read_links) > 0:
+        atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
+        atext = "\n**We read the below links:**" + "\n"
+        read_links = atext + "\n\n".join([
+            f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(1024 if 'No Link' not in wta else 1024)])}"
+            for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
+
+        answer += read_links
+    else:
+        read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+
+        answer += read_links
+    answer += "</div>\n"
+    return answer
+
+
+
+
+
+def simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers=0):
+    answer = ""
+    st = time.time()
+    web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
+    web_results = get_async_future(web_search_queue, user_context, 'helpful ai assistant',
+                                   "",
+                                   keys, datetime.now().strftime("%Y-%m"), extra_queries=queries,
+                                   previous_turn_search_results=None,
+                                   gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
+                                   web_search_tmp_marker_name=web_search_tmp_marker_name)
+
+    create_tmp_marker_file(web_search_tmp_marker_name)
+    max_time_to_wait_for_web_results = 30
+    cut_off = 15
+    search_results = next(web_results.result()[0].result())
+    atext = "**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch' role='button'></div> <div class='collapse' id='singleQueryWebSearch'>" + "\n"
+    answer += atext
+    atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
+    atext = "**Web searched with Queries:**" + "\n"
+    answer += atext
+    queries = two_column_list(search_results['queries'])
+    answer += (queries + "</div>\n")
+    if len(search_results['search_results']) > 0:
+        query_results_part1 = search_results['search_results']
+        seen_query_results = query_results_part1[:20]
+        atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
+        atext = "\n**Search Results:**" + "\n"
+        answer += atext
+        query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
+        query_results = two_column_list(query_results)
+        answer += (query_results + "</div>\n")
+    result_queue = web_results.result()[1]
+    qu_st = time.time()
+    web_text_accumulator = []
+    while True:
+        qu_wait = time.time()
+        break_condition = len(web_text_accumulator) >= cut_off or (
+                    (qu_wait - qu_st) > max(max_time_to_wait_for_web_results * 2,
+                                            max_time_to_wait_for_web_results * provide_detailed_answers))
+        if break_condition and result_queue.empty():
+            break
+        one_web_result = None
+        if not result_queue.empty():
+            one_web_result = result_queue.get()
+        qu_et = time.time()
+        if one_web_result is None and break_condition:
+            break
+        if one_web_result is None:
+            time.sleep(0.5)
+            continue
+        if one_web_result == TERMINATION_SIGNAL:
+            break
+
+        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
+                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
+            web_text_accumulator.append((one_web_result["text"],
+                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
+                                         one_web_result["llm_result_future"]))
+            yield {"text": '',
+                   "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
+            time_logger.info(
+                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+        time.sleep(0.5)
+    web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
+    web_text_accumulator = list(filter(
+        lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(),
+        web_text_accumulator))
+    remove_tmp_marker_file(web_search_tmp_marker_name)
+    read_links = [[link.strip(), len(text.strip().split()),
+                   llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text]
+                  for text, link, llm_future_dict in web_text_accumulator]
+    if len(read_links) > 0:
+        atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
+        atext = "\n**We read the below links:**" + "\n"
+        read_links = atext + "\n\n".join([
+                                             f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(1024 if 'No Link' not in wta else 1024)])}"
+                                             for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
+        yield {"text": read_links, "status": "web search completed"}
+        answer += read_links
+    else:
+        read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+        yield {"text": read_links, "status": "web search completed"}
+        answer += read_links
+        
+    answer += "</div>\n"
+    yield {"text": answer, "status": "web search completed"}
+
+
+
+
+def simple_web_search_with_llm(keys, user_context, queries, gscholar, provide_detailed_answers=0, no_llm=False):
+    web_search_result = execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
+    # web_search_result = simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
+    if no_llm:
+        return web_search_result
+    llm = CallLLm(keys, model_name="gpt-4o")
+    llm_prompt = f"""
+You are a helpful AI assistant tasked with helping perform research using web search results. Use the given user context and web search results to create a detailed response. Your analysis should:
+
+1. Carefully analyze and integrate information from all provided web search results.
+2. Only use information from the provided web search results.
+3. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
+4. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
+
+After composing your response, please provide:
+1. A bibliography in LaTeX format, enclosed in a code block.
+
+User Context and conversation history:
+<|context|>
+{user_context}
+</|context|>
+
+Web Search Results:
+<|results|>
+{web_search_result}
+</|results|>
+
+Please begin your response with the literature review, followed by the bibliography.
+"""
+    response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+    return response
+
+
+
 def get_part_1_results(part1_res):
     queries = next(part1_res)["query"]
     results = []
@@ -2195,6 +2412,20 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed, "is_image": is_image}
 
 from concurrent.futures import ThreadPoolExecutor
+
+def link_has_html_version(link):
+    if "arxiv.org" in link:
+        return True
+    else:
+        return False
+
+
+def convert_pdf_link_to_html(link):
+    if "arxiv.org" in link:
+        link = link.replace("abs", "pdf").replace(".pdf", "")
+        link = link.replace("pdf", "html")
+    return link
+
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
             enabled=False)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
@@ -2218,9 +2449,22 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         answer = f"OCR (low accuracy) and image extraction results and answers: {answer}\n\n"
         result = {"link": link, "title": title, "text": answer, "exception": False, "full_text": answer, "is_pdf": False, "is_image": True}
     elif is_pdf:
-        result = read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        html_result_future = None
+        if link_has_html_version(link):
+            html_link = convert_pdf_link_to_html(link)
+            new_link_title_context_apikeys = (html_link, title, context, api_keys, text, detailed)
+            html_result_future = get_async_future(get_page_text, new_link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        pdf_result_future = get_async_future(read_pdf, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        while not (pdf_result_future.done() or (html_result_future is not None and html_result_future.done())):
+            time.sleep(0.1)
+        if pdf_result_future.done():
+            result = pdf_result_future.result()
+        if html_result_future.done():
+            result = html_result_future.result()
         result["is_pdf"] = True
         result["is_image"] = False
+
+
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False

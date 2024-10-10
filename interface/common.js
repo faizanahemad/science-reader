@@ -10,7 +10,7 @@ async function responseWaitAndSuccessChecker(url, responsePromise) {
         setTimeout(() => {
             location.reload();
         }, 6000);
-    }, 240000);  // 4 minute timeout
+    }, 480000);  // 8 minute timeout
 
     try {
         // Wait for the API response
@@ -664,6 +664,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="field-selector" class="mr-1">Agents</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
+                <option>Agent_WebSearch</option>
+                <option>Agent_LiteratureReview</option>
                 <option>Prompt_IdeaNovelty</option>
                 <option>Prompt_IdeaComparison</option>
                 <option>Prompt_IdeaFleshOut</option>
@@ -672,8 +674,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Prompt_ResearchPreventRejections</option>
                 
                 <option>Agent_IdeaNovelty</option>
-                <option>Agent_WebSearch</option>
-                <option>Agent_LiteratureReview</option>
+                
                 <option>Agent_CodeExecution</option>
                 <option>Agent_VerifyAndImprove</option>
                 <option>Agent_ElaborateDiveDeepExpand</option>

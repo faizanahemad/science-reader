@@ -34,6 +34,7 @@ DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
 MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 60))
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
+LEN_CUTOFF_WEB_TEXT = 50
 SCIENCE_KEYS = [
                         "methodology",
                         "previous_literature_and_differentiation",

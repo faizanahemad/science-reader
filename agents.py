@@ -1,9 +1,10 @@
 from typing import Union, List
 
-from base import CallLLm, CallMultipleLLM
+from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result
 from loggers import getLoggers
 import logging
+import re
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.WARNING, logging.INFO, logging.ERROR, logging.INFO)
 import time
 agents = []
@@ -18,17 +19,208 @@ class Agent:
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         pass
 
-class WebSearchWithTopicBreakdownAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=2, timeout=10):
+
+
+class WebSearchWithAgent(Agent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=120, gscholar=False, no_intermediate_llm=True):
         super().__init__(keys)
+        self.gscholar = gscholar
+        self.model_name = model_name
+        self.detail_level = detail_level
+        self.timeout = timeout
+        self.no_intermediate_llm = no_intermediate_llm
+        self.combiner_prompt = f"""
+You are tasked with synthesizing information from multiple web search results to provide a comprehensive and accurate response to the user's query. Your goal is to combine these results into a coherent and informative answer.
 
+Instructions:
+1. Carefully analyze and integrate information from all provided web search results.
+2. Only use information from the provided web search results.
+3. If the web search results are not helpful or relevant, state: "No relevant information found in the web search results." and end your response.
+4. If appropriate, include brief citations to indicate the source of specific information (e.g., "According to [Source],...").
+5. Organize the information in a logical and easy-to-read format.
+6. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
+
+Your response should include:
+1. A comprehensive answer to the user's query, synthesizing information from all relevant search results.
+2. If applicable, a brief summary of any conflicting information or differing viewpoints found in the search results.
+3. If no web search results are provided, please say "No web search results provided." and end your response.
+
+Web search results:
+<|results|>
+{{web_search_results}}
+</|results|>
+
+User's query and conversation history: 
+<|context|>
+{{text}}
+</|context|>
+
+Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
+"""
+    def extract_queries_contexts(self, code_string):
+        regex = r"```(?:\w+)?\s*(.*?)```"
+        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        
+        if not matches:
+            return None  # or you could return an empty list [], depending on your preference
+        
+        matches = [m.split("=")[-1].strip() for m in matches]
+        
+        code_to_execute = [c.strip() for c in matches if c.strip()!="" and c.strip()!="[]" and c.strip().startswith("[") and c.strip().endswith("]")][-1:]
+        return "\n".join(code_to_execute)
+    
+    def remove_code_blocks(self, text):
+        regex = r"```(?:\w+)?\s*(.*?)```"
+        return re.sub(regex, r"\1", text, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
+    def get_results_from_web_search(self, text, text_queries_contexts):
+        timeout = self.timeout * len(text_queries_contexts)
+        array_string = text_queries_contexts
+        web_search_results = []
+        try:
+            # Use ast.literal_eval to safely evaluate the string as a Python expression
+            import ast
+            text_queries_contexts = ast.literal_eval(array_string)
+            
+            # Ensure the result is a list of tuples
+            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+                raise ValueError("Invalid format: expected list of tuples")
+            
+            # Now we have text_queries_contexts as a list of tuples of the form [('query', 'context'), ...]
+            # We need to call simple_web_search_with_llm for each query and context
+            # simple_web_search_with_llm(keys, user_context, queries, gscholar)
+            
+            if True:
+                futures = []
+                for query, context in text_queries_contexts:
+                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm)
+                    futures.append(future)
+                
+                web_search_results = []
+                for future in futures:
+                    result = sleep_and_get_future_result(future, timeout=timeout)
+                    web_search_results.append(query + "\n\n" + context + "\n\n" + result)
+            else:
+                web_search_results = []
+                for query, context in text_queries_contexts:
+                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm)
+                    web_search_results.append(query + "\n\n" + context + "\n\n" + result)
+        except (SyntaxError, ValueError) as e:
+            logger.error(f"Error parsing text_queries_contexts: {e}")
+            text_queries_contexts = None
+        return "\n".join(web_search_results)
+    
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
-        # Break down topics in the text
-        # One search query for each topic of interest
-        # Search for each query
-        # RAG response of each query using LLM.
-        pass
+        # Extract queries and contexts from the text if present, otherwise set to None
+        # We will get "[('query', 'context')...,]" style large array which is string, need to eval or ast.literal_eval this to make it python array, then error handle side cases.
+        # Ensure the result is a list of tuples
+        # Parallel search all queries and generate markdown formatted response, latex formatted response and bibliography entries inside code blocks.
+        text_queries_contexts = self.extract_queries_contexts(text)
+        
+        
+        if text_queries_contexts is not None and len(text_queries_contexts) > 0:
+            yield {"text": '\n```\n'+text_queries_contexts+'\n```\n', "status": "Created/Obtained search queries and contexts"}
+            text = self.remove_code_blocks(text)
+            # Extract the array-like string from the text
+            web_search_results = self.get_results_from_web_search(text, text_queries_contexts)
+            # yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+            
+        else:
+            llm = CallLLm(self.keys, model_name="gpt-4o")
+            # Write a prompt for the LLM to generate queries and contexts
+            llm_prompt = f"""
+Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
+Format your response as a Python list of tuples as given below: 
+```python
+[
+    ('query1', 'detailed context1'), 
+    ('query2', 'detailed context2'), 
+    ...
+]
+```
 
+Text: {text}
+
+Generate up to 5 query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
+"""
+
+            # Call the LLM to generate queries and contexts
+            response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+
+            # Parse the response to extract queries and contexts
+            import ast
+            try:
+                # Use ast.literal_eval to safely evaluate the string as a Python expression
+                response = self.extract_queries_contexts(response)
+                text_queries_contexts = ast.literal_eval(response)
+                text = self.remove_code_blocks(text)
+                yield {"text": '\n```\n'+response+'\n```\n', "status": "Created/Obtained search queries and contexts"}
+                
+                # Validate the parsed result
+                if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in text_queries_contexts):
+                    raise ValueError("Invalid format: expected list of tuples")
+                
+                # If valid, proceed with web search using the generated queries and contexts
+                web_search_results = self.get_results_from_web_search(text, str(text_queries_contexts))
+                # yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+            except (SyntaxError, ValueError) as e:
+                logger.error(f"Error parsing LLM-generated queries and contexts: {e}")
+                web_search_results = []
+                
+        if len(web_search_results) == 0:
+            raise ValueError("No relevant information found in the web search results.")
+        
+        # if len(web_search_results) == 1 and not self.no_intermediate_llm:
+        #     yield {"text": '' + "\n", "status": "Completed literature review for a single query"}
+        
+        # Now we have web_search_results as a list of strings, each string is a web search result.
+        # After response is generated for all queries (within a timeout) then use a combiner LLM to combine all responses into a single response.
+        llm = CallLLm(self.keys, model_name=self.model_name)
+        
+        combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
+        yield {"text": '\n'+combined_response+'\n', "status": "Combined web search results"}
+        
+
+class LiteratureReviewAgent(WebSearchWithAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=120, gscholar=False, no_intermediate_llm=True):
+        super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
+        self.combiner_prompt = f"""
+You are tasked with creating a comprehensive literature survey based on multiple web search results. Your goal is to synthesize this information into a cohesive, academically rigorous review that addresses the user's query.
+
+Instructions:
+1. Carefully analyze and integrate information from all provided web search results.
+2. Only use information from the provided web search results.
+3. Include relevant references to support your points, citing them appropriately within the text.
+4. If the web search results are not helpful or relevant, state: "No relevant information found in the web search results." and end your response.
+5. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
+6. Write only a literature review section for LaTeX version.
+
+
+Your response should include:
+1. A comprehensive literature review in markdown format.
+2. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code to word wrap it instead of making lines too long.
+3. A bibliography in BibTeX format, enclosed in a code block.
+4. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
+
+These elements are crucial for compiling a complete academic document later.
+
+Web search results:
+<|results|>
+{{web_search_results}}
+</|results|>
+
+
+User's query and conversation history: 
+<|context|>
+{{text}}
+</|context|>
+
+Please compose your literature survey, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
+"""
+
+        
+        
 
 class ReflectionAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], improve_model: str, outline_model: str):
@@ -60,34 +252,19 @@ Follow the steps outlined below, using the specified XML-style tags to structure
    - Enclose your findings within `<primary_goals>` and `</primary_goals>` tags.  
   
 2. **Reflect on the Simple Answer:**  
-   - Analyze the simple expert answers provided.  
    - If more than one simple answer is provided by different models, consider each one and pick the best parts and aspects from each.
-   - For more than one simple expert answer, you can compare and contrast them to identify the strengths and weaknesses of each and then use a combination of them before improving them.
-   - Assess how it can be improved to better meet the user's needs.  
+   - Identify areas of improvement and gaps in the simple answers provided.
+   - Assess how these simple answers can be combined and improved to better meet the user's needs.  
    - Identify any missing information, corner cases, or important considerations.  
-   - Enclose your reflection within `<reflection>` and `</reflection>` tags.  
+   - Enclose your reflection within `<reflection>` and `</reflection>` tags using bullet points.  
   
-3. **Think Logically and Step by Step:**  
+3. **Think Logically and Step by Step about how to improve the answer:**  
    - Outline your thought process for improving the answer.  
    - Provide a logical, step-by-step explanation of enhancements.  
-   - Enclose your reasoning within `<thinking>` and `</thinking>` tags.  
-   
-4. **Recheck and Revise your reflection and thinking to make sure they are correct:**
-    - Review your reflection and thinking to ensure they are accurate and logical.
-    - Revise them if necessary.
-    - Check if you are using the best aspects of each simple answer to improve the final answer.
-    - Check if you are addressing all the user's needs and concerns.
-    - Check if you are overall improving the answer in a meaningful way and also maintaining good structure and format.
-    - Enclose your revised reflection within `<revised_reflection>` and `</revised_reflection>` tags.
-    - Enclose your revised thinking within `<revised_thinking>` and `</revised_thinking>` tags. 
-    - The `<recheck_and_revise>` tag wraps both the `<revised_reflection>` and `<revised_thinking>` sections to keep revisions organized.  
-    - If no revisions are needed, you can state that no changes were necessary in these sections inside `<recheck_and_revise>` tags.
-  
-5. **Provide the Improved Answer:**  
-   - Compose a new, comprehensive answer that addresses all aspects of the user's query.  
-   - Incorporate all improvements identified in your reflection.  
-   - Mention the improvements you are making specifically compared to the original answer inside the `<improvements>` and `</improvements>` tags.
-   - Ensure clarity, accuracy, and usefulness.  
+   - Enclose your reasoning within `<thinking>` and `</thinking>` tags using bullet points.  
+ 
+4. **Provide the Improved Answer:**  
+   - Compose a new, comprehensive answer that addresses all aspects of the user's query, incorporating all improvements identified in your reflection and all information from the simple expert answers.
    - Provide any and all details from the simple expert answers we already have in our final answer.
    - Enclose the final answer within `<answer>` and `</answer>` tags.  
   
@@ -97,10 +274,7 @@ Follow the steps outlined below, using the specified XML-style tags to structure
   - `<primary_goals>` ... `</primary_goals>`  
   - `<reflection>` ... `</reflection>`  
   - `<thinking>` ... `</thinking>`  
-  - `<revised_reflection>` ... `</revised_reflection>`
-  - `<revised_thinking>` ... `</revised_thinking>`
-  - `<improvements>` ... `</improvements>`
-  - `<answer>` ... `</answer>`
+  - `<answer>` complete and final improved answer `</answer>`
 
 User Query with context:
 <user_query>
@@ -126,19 +300,8 @@ Now your overall response would look and be formatted like this:
 <thinking>
     [Provide a step-by-step plan for enhancements.]  
 </thinking>
-<recheck_and_revise>  
-    <revised_reflection>  
-        [Revise your reflection if needed.]  
-    </revised_reflection>  
-    <revised_thinking>  
-        [Revise your thinking if needed.]  
-    </revised_thinking>  
-</recheck_and_revise>  
-<improvements>
-    [Detail the specific improvements over the simple answer.]  
-</improvements>
 <answer>
-    [Provide the improved answer to the user's query.] 
+    [Provide the complete and final improved answer to the user's query.] 
 </answer>
 
 If we have multiple simple answers, we include all ideas, insights, and improvements from each simple answer in our final answer. 
@@ -239,4 +402,23 @@ class IdeasRankingAgent(Agent):
 
     def __call__(self, prompt, web_search=False):
         pass
+    
+    
+if __name__ == "__main__":
+    keys = {
+                
+            }
+    # put keys in os.environ
+    import os
+    for k, v in keys.items():
+        os.environ[k] = v
+    agent = LiteratureReviewAgent(keys, model_name="gpt-4o")
+    for r in agent("""What is the best way to improve the quality of life for people with disabilities?
+```python
+[
+("What is the best way to improve the quality of life for people with disabilities?", "People with disabilities face unique challenges in their daily lives, and improving their quality of life requires a comprehensive approach that addresses their physical, emotional, and social needs. The best way to improve the quality of life for people with disabilities is to provide them with access to the resources and support they need to live independently and participate fully in society. This includes ensuring that they have access to appropriate healthcare, education, employment opportunities, and social services. It also involves promoting inclusion and diversity in all aspects of society, so that people with disabilities are treated with respect and dignity. By taking a holistic approach to supporting people with disabilities, we can help them lead fulfilling and meaningful lives.")
+]
+```
+    """):
+        print(r)
 

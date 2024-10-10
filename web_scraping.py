@@ -695,7 +695,7 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         }
     html_processing_end = time.time()
     time_logger.info(
-        f"[send_request_for_webpage] Page fetching time = {(html_processing_start - page_fetching_start):.2f}, bad tag removal time = {(html_bad_tag_removal_end - html_processing_start):.2f}, html processing time = {(html_processing_end - html_bad_tag_removal_end):.2f}, Fetched from {zenrows_or_ant}, result len = {len(result['text'].split())}, link = {url}")
+        f"[send_request_for_webpage] using provider = {zenrows_or_ant}, Page fetching time = {(html_processing_start - page_fetching_start):.2f}, bad tag removal time = {(html_bad_tag_removal_end - html_processing_start):.2f}, html processing time = {(html_processing_end - html_bad_tag_removal_end):.2f}, Fetched from {zenrows_or_ant}, result len = {len(result['text'].split())}, link = {url}")
 
     return result
 
