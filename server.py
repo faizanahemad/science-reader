@@ -631,12 +631,12 @@ def list_conversation_by_user(domain:str):
     # TODO: add ability to get only n conversations
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
-    stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
-    for conversation in stateless_conversations:
-        removeUserFromConversation(email, conversation.conversation_id)
-        del conversation_cache[conversation.conversation_id]
-        deleteConversationForUser(email, conversation.conversation_id)
-        conversation.delete_conversation()
+    # stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
+    # for conversation in stateless_conversations:
+    #     removeUserFromConversation(email, conversation.conversation_id)
+    #     del conversation_cache[conversation.conversation_id]
+    #     deleteConversationForUser(email, conversation.conversation_id)
+    #     conversation.delete_conversation()
     conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless and conversation.domain==domain]
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]

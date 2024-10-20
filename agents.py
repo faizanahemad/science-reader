@@ -22,11 +22,12 @@ class Agent:
 
 
 class WebSearchWithAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=120, gscholar=False, no_intermediate_llm=True):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=True):
         super().__init__(keys)
         self.gscholar = gscholar
         self.model_name = model_name
         self.detail_level = detail_level
+        self.concurrent_searches = True
         self.timeout = timeout
         self.no_intermediate_llm = no_intermediate_llm
         self.combiner_prompt = f"""
@@ -57,6 +58,24 @@ User's query and conversation history:
 
 Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
 """
+
+        self.llm_prompt = f"""
+Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
+Format your response as a Python list of tuples as given below: 
+```python
+[
+    ('query1', 'detailed context1'), 
+    ('query2', 'detailed context2'), 
+    ('query3', 'detailed context3'), 
+    ...
+]
+```
+
+Text: {{text}}
+
+Generate up to 3 highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
+"""
     def extract_queries_contexts(self, code_string):
         regex = r"```(?:\w+)?\s*(.*?)```"
         matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
@@ -74,7 +93,7 @@ Please compose your response, ensuring it thoroughly addresses the user's query 
         return re.sub(regex, r"\1", text, re.DOTALL | re.MULTILINE | re.IGNORECASE)
     
     def get_results_from_web_search(self, text, text_queries_contexts):
-        timeout = self.timeout * len(text_queries_contexts)
+
         array_string = text_queries_contexts
         web_search_results = []
         try:
@@ -90,20 +109,20 @@ Please compose your response, ensuring it thoroughly addresses the user's query 
             # We need to call simple_web_search_with_llm for each query and context
             # simple_web_search_with_llm(keys, user_context, queries, gscholar)
             
-            if True:
+            if self.concurrent_searches:
                 futures = []
                 for query, context in text_queries_contexts:
-                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm)
+                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
                     futures.append(future)
-                
+
                 web_search_results = []
                 for future in futures:
-                    result = sleep_and_get_future_result(future, timeout=timeout)
+                    result = sleep_and_get_future_result(future)
                     web_search_results.append(query + "\n\n" + context + "\n\n" + result)
             else:
                 web_search_results = []
                 for query, context in text_queries_contexts:
-                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm)
+                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm, timeout=self.timeout)
                     web_search_results.append(query + "\n\n" + context + "\n\n" + result)
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
@@ -123,27 +142,12 @@ Please compose your response, ensuring it thoroughly addresses the user's query 
             text = self.remove_code_blocks(text)
             # Extract the array-like string from the text
             web_search_results = self.get_results_from_web_search(text, text_queries_contexts)
-            # yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+            yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
             
         else:
             llm = CallLLm(self.keys, model_name="gpt-4o")
             # Write a prompt for the LLM to generate queries and contexts
-            llm_prompt = f"""
-Given the following text, generate a list of relevant queries and their corresponding contexts. 
-Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
-Format your response as a Python list of tuples as given below: 
-```python
-[
-    ('query1', 'detailed context1'), 
-    ('query2', 'detailed context2'), 
-    ...
-]
-```
-
-Text: {text}
-
-Generate up to 5 query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
-"""
+            llm_prompt = self.llm_prompt.format(text=text)
 
             # Call the LLM to generate queries and contexts
             response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
@@ -163,7 +167,7 @@ Generate up to 5 query-context pairs. Write your answer as a code block with eac
                 
                 # If valid, proceed with web search using the generated queries and contexts
                 web_search_results = self.get_results_from_web_search(text, str(text_queries_contexts))
-                # yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+                yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
             except (SyntaxError, ValueError) as e:
                 logger.error(f"Error parsing LLM-generated queries and contexts: {e}")
                 web_search_results = []
@@ -183,8 +187,9 @@ Generate up to 5 query-context pairs. Write your answer as a code block with eac
         
 
 class LiteratureReviewAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=120, gscholar=False, no_intermediate_llm=True):
+    def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=True):
         super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
+        self.concurrent_searches = False
         self.combiner_prompt = f"""
 You are tasked with creating a comprehensive literature survey based on multiple web search results. Your goal is to synthesize this information into a cohesive, academically rigorous review that addresses the user's query.
 
@@ -199,7 +204,7 @@ Instructions:
 
 Your response should include:
 1. A comprehensive literature review in markdown format.
-2. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code to word wrap it instead of making lines too long.
+2. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
 3. A bibliography in BibTeX format, enclosed in a code block.
 4. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
 
@@ -217,6 +222,26 @@ User's query and conversation history:
 </|context|>
 
 Please compose your literature survey, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
+"""
+
+        year = time.localtime().tm_year
+        self.llm_prompt = f"""
+Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
+Format your response as a Python list of tuples as given below: 
+```python
+[
+    ('query1 arxiv', 'detailed context1'), 
+    ('query2 research papers', 'detailed context2'), 
+    ('query3 research in {year}', 'detailed context3'), 
+    ...
+]
+```
+
+Text: {{text}}
+
+Add keywords like 'arxiv', 'research papers', 'research in {year}' to the queries to get relevant academic sources.
+Generate up to 3 highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
 
         

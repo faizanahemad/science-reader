@@ -2109,7 +2109,7 @@ def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None
 
 
 
-def execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers):
+def execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers, timeout=30):
     answer = ""
     web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
     create_tmp_marker_file(web_search_tmp_marker_name)
@@ -2119,7 +2119,7 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
                                    previous_turn_search_results=None,
                                    gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
                                    web_search_tmp_marker_name=web_search_tmp_marker_name)
-    max_time_to_wait_for_web_results = 30
+    max_time_to_wait_for_web_results = timeout
     cut_off = 15
     search_results = next(web_results.result()[0].result())
     atext = "**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch' role='button'></div> <div class='collapse' id='singleQueryWebSearch'>" + "\n"
@@ -2145,7 +2145,7 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
     while True:
         qu_wait = time.time()
         break_condition = len(web_text_accumulator) >= cut_off or (
-                (qu_wait - qu_st) > max(max_time_to_wait_for_web_results * 2,
+                (qu_wait - qu_st) > max(max_time_to_wait_for_web_results,
                                         max_time_to_wait_for_web_results * provide_detailed_answers))
         if break_condition and result_queue.empty():
             break
@@ -2287,8 +2287,8 @@ def simple_web_search(keys, user_context, queries, gscholar, provide_detailed_an
 
 
 
-def simple_web_search_with_llm(keys, user_context, queries, gscholar, provide_detailed_answers=0, no_llm=False):
-    web_search_result = execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
+def simple_web_search_with_llm(keys, user_context, queries, gscholar, provide_detailed_answers=0, no_llm=False, timeout=60):
+    web_search_result = execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers, timeout=(timeout if no_llm else timeout - 30))
     # web_search_result = simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
     if no_llm:
         return web_search_result
