@@ -664,8 +664,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="field-selector" class="mr-1">Agents</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
-                <option>Agent_WebSearch</option>
                 <option>Agent_LiteratureReview</option>
+                <option>Agent_WebSearch</option>
+                <option>Agent_BroadSearch</option>
                 <option>Prompt_IdeaNovelty</option>
                 <option>Prompt_IdeaComparison</option>
                 <option>Prompt_IdeaFleshOut</option>

@@ -22,7 +22,7 @@ class Agent:
 
 
 class WebSearchWithAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=True):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False):
         super().__init__(keys)
         self.gscholar = gscholar
         self.model_name = model_name
@@ -112,7 +112,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             if self.concurrent_searches:
                 futures = []
                 for query, context in text_queries_contexts:
-                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 and self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
+                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 or self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
                     futures.append(future)
 
                 web_search_results = []
@@ -122,7 +122,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             else:
                 web_search_results = []
                 for query, context in text_queries_contexts:
-                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 and self.no_intermediate_llm, timeout=self.timeout)
+                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 or self.no_intermediate_llm, timeout=self.timeout)
                     web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
@@ -202,7 +202,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         
 
 class LiteratureReviewAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=True):
+    def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
         super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
         self.concurrent_searches = False
         self.combiner_prompt = f"""
@@ -275,6 +275,27 @@ Write your response with two items (Literature review in LaTeX enclosed in code 
                                 system=system)
         return "\n\n" + combined_response
 
+
+class BroadSearchAgent(WebSearchWithAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=True):
+        super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
+        self.llm_prompt = f"""
+Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
+Format your response as a Python list of tuples as given below: 
+```python
+[
+    ('query1 word1_for_localisation', 'detailed context1'), 
+    ('query2 maybe_word2_for_site_specific_searches', 'detailed context2'), 
+    ('query3', 'detailed context3'), 
+    ...
+]
+```
+
+Text: {{text}}
+
+Generate as many as needed relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
+"""
 
 class ReflectionAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], improve_model: str, outline_model: str):

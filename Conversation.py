@@ -28,7 +28,7 @@ import dill
 import os
 import re
 
-from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent
+from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 from prompts import prompts, xml_to_dict
@@ -765,9 +765,11 @@ Write the extracted information briefly and concisely below:
         if field == "Agent_IdeaNovelty":
             pass
         if field == "Agent_WebSearch":
-            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=180, gscholar=False)
+            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
         if field == "Agent_LiteratureReview":
-            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=180, gscholar=False)
+            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
+        if field == "Agent_BroadSearch":
+            agent = BroadSearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":
