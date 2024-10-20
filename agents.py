@@ -42,7 +42,7 @@ Instructions:
 6. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
 
 Your response should include:
-1. A comprehensive answer to the user's query, synthesizing information from all relevant search results.
+1. A comprehensive answer to the user's query, synthesizing information from all relevant search results with references in markdown link format closest to where applicable.
 2. If applicable, a brief summary of any conflicting information or differing viewpoints found in the search results.
 3. If no web search results are provided, please say "No web search results provided." and end your response.
 
@@ -135,15 +135,23 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         # Ensure the result is a list of tuples
         # Parallel search all queries and generate markdown formatted response, latex formatted response and bibliography entries inside code blocks.
         text_queries_contexts = self.extract_queries_contexts(text)
+
+        answer = ""
+        answer += f"""User's query and conversation history: 
+<|context|>
+{text}
+</|context|>\n\n"""
+
         
         
         if text_queries_contexts is not None and len(text_queries_contexts) > 0:
+            answer += f"Generated Queries and Contexts: {text_queries_contexts}\n\n"
             yield {"text": '\n```\n'+text_queries_contexts+'\n```\n', "status": "Created/Obtained search queries and contexts"}
             text = self.remove_code_blocks(text)
             # Extract the array-like string from the text
             web_search_results = self.get_results_from_web_search(text, text_queries_contexts)
             yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
-            
+            answer += f"{web_search_results}\n\n"
         else:
             llm = CallLLm(self.keys, model_name="gpt-4o")
             # Write a prompt for the LLM to generate queries and contexts
@@ -160,6 +168,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
                 text_queries_contexts = ast.literal_eval(response)
                 text = self.remove_code_blocks(text)
                 yield {"text": '\n```\n'+response+'\n```\n', "status": "Created/Obtained search queries and contexts"}
+                answer += f"Generated Queries and Contexts: ```\n{response}\n```\n\n"
                 
                 # Validate the parsed result
                 if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in text_queries_contexts):
@@ -168,6 +177,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
                 # If valid, proceed with web search using the generated queries and contexts
                 web_search_results = self.get_results_from_web_search(text, str(text_queries_contexts))
                 yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+                answer += f"{web_search_results}\n\n"
             except (SyntaxError, ValueError) as e:
                 logger.error(f"Error parsing LLM-generated queries and contexts: {e}")
                 web_search_results = []
@@ -184,6 +194,11 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         
         combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
         yield {"text": '\n'+combined_response+'\n', "status": "Combined web search results"}
+        answer += f"{combined_response}\n\n"
+        yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
+
+    def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
+        return ""
         
 
 class LiteratureReviewAgent(WebSearchWithAgent):
@@ -199,14 +214,7 @@ Instructions:
 3. Include relevant references to support your points, citing them appropriately within the text.
 4. If the web search results are not helpful or relevant, state: "No relevant information found in the web search results." and end your response.
 5. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
-6. Write only a literature review section for LaTeX version.
-
-
-Your response should include:
-1. A comprehensive literature review in markdown format.
-2. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
-3. A bibliography in BibTeX format, enclosed in a code block.
-4. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
+6. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
 
 These elements are crucial for compiling a complete academic document later.
 
@@ -221,7 +229,7 @@ User's query and conversation history:
 {{text}}
 </|context|>
 
-Please compose your literature survey, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
+Please compose your literature survey, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results. Include the Latex version of the literature review and bibliography in BibTeX format at the end of your response.
 """
 
         year = time.localtime().tm_year
@@ -243,9 +251,31 @@ Text: {{text}}
 Add keywords like 'arxiv', 'research papers', 'research in {year}' to the queries to get relevant academic sources.
 Generate up to 3 highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
+        self.write_in_latex_prompt = f"""
+You were tasked with creating a comprehensive literature survey based on multiple web search results. Our goal was to synthesize this information into a cohesive, academically rigorous review that addresses the user's query.
+Based on the user's query and the web search results, you have generated a literature review in markdown format. Now, you need to convert this markdown literature review into LaTeX format.
+If any useful references were missed in the literature review, you can include them in the LaTeX version along with the existing content.
 
-        
-        
+Given below is the user's query, the web search results and markdown literature review you have generated:
+<|context|>
+{{answer}}
+</|context|>
+
+Now your task is to convert this markdown literature review into LaTeX format. Ensure that the LaTeX version is well-formatted and follows academic writing conventions. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
+Your response must include the LaTeX version of the literature review, enclosed in a code block. Include the below.
+1. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
+2. A bibliography in BibTeX format, enclosed in a code block.
+
+Write your response below.
+"""
+    def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
+        llm = CallLLm(self.keys, model_name=self.model_name)
+
+        combined_response = llm(self.write_in_latex_prompt.format(answer=answer),
+                                temperature=temperature, stream=False, max_tokens=max_tokens,
+                                system=system)
+        return "\n\n" + combined_response
+
 
 class ReflectionAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], improve_model: str, outline_model: str):

@@ -662,9 +662,7 @@ def validate_scraping_result(html):
 
 def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=True):
     page_fetching_start = time.time()
-    page_stat = check_page_status(url)
-    if not page_stat:
-        raise GenericShortException(f"[send_request_for_webpage] Page not found {url}")
+
     if zenrows_or_ant == 'zenrows':
         html = send_request_zenrows_html(url, apikey, readability)
     elif zenrows_or_ant == 'ant':
@@ -836,6 +834,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     zenrows_service_result = None
     ant_service_result = None
     bright_data_result = None
+    page_stat = check_page_status(link)
+    if not page_stat:
+        raise GenericShortException(f"[send_request_for_webpage] Page not found {link}")
     if "zenrows" in apikeys:
         zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
         scraping_futures_list.append(zenrows_service_result)
