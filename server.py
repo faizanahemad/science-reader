@@ -637,7 +637,7 @@ def list_conversation_by_user(domain:str):
     #     del conversation_cache[conversation.conversation_id]
     #     deleteConversationForUser(email, conversation.conversation_id)
     #     conversation.delete_conversation()
-    conversations = [conversation for conversation in conversations if conversation is not None and not conversation.stateless and conversation.domain==domain]
+    conversations = [conversation for conversation in conversations if conversation is not None and conversation.domain==domain] #  and not conversation.stateless
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]
     sorted_data_reverse = sorted(data, key=lambda x: x[0]['last_updated'], reverse=True)
