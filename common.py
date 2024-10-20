@@ -56,6 +56,15 @@ import diskcache as dc
 cache = dc.Cache(temp_dir)
 # cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': cache_days * 24 * 60 * 60})
 
+import requests
+
+def check_page_status(url):
+    response = requests.head(url)
+    if response.status_code == 404 or response.status_code >= 400:
+        return False
+    else:
+        return True
+
 def is_int(s):
     try:
         int(s)

@@ -662,6 +662,9 @@ def validate_scraping_result(html):
 
 def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=True):
     page_fetching_start = time.time()
+    page_stat = check_page_status(url)
+    if not page_stat:
+        raise GenericShortException(f"[send_request_for_webpage] Page not found {url}")
     if zenrows_or_ant == 'zenrows':
         html = send_request_zenrows_html(url, apikey, readability)
     elif zenrows_or_ant == 'ant':

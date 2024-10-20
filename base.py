@@ -1122,7 +1122,7 @@ def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, onl
 
 # TODO: Add caching
 from web_scraping import web_scrape_page, soup_html_parser, soup_html_parser_fast_v3, fetch_content_brightdata_html, \
-    send_request_zenrows_html
+    send_request_zenrows_html, send_request_ant_html
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
@@ -2587,8 +2587,12 @@ def convert_arxiv_link_to_html(link):
         arxiv_id = link.split("/")[-1]
         new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
         new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+    if "html" in link and "pdf" not in link and "abs" not in link:
+        arxiv_id = link.split("/")[-1]
+        new_link = link
+        new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
 
-    return new_link, new_link_2
+    return new_link.strip(), new_link_2.strip()
 
 def get_arxiv_pdf_link(link):
     try:
@@ -2608,9 +2612,13 @@ def get_arxiv_pdf_link(link):
             arxiv_id = link.split("/")[-1]
             new_link = f"https://ar5iv.labs.arxiv.org/html/{arxiv_id}"
             new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
+        if "html" in link and "pdf" not in link and "abs" not in link:
+            arxiv_id = link.split("/")[-1]
+            new_link = link
+            new_link_2 = f"https://arxiv.org/html/{arxiv_id}"
         logger.debug(f"Converted arxiv link {link} to {new_link}")
-        arxiv_request_v2 = get_async_future(requests.get, new_link_2, timeout=10)
-        arxiv_request = requests.get(new_link, timeout=10)
+        arxiv_request_v2 = get_async_future(requests.get, new_link_2, timeout=15)
+        arxiv_request = requests.get(new_link, timeout=15)
         if arxiv_request.status_code == 200:
             arxiv_text = arxiv_request.text
         else:
@@ -2647,8 +2655,10 @@ def get_arxiv_pdf_link(link):
         logger.warning(f"Error reading arxiv / ar5iv pdf {link} with error = {str(e)}\n{traceback.format_exc()}")
         raise e
 
+
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, _, detailed = link_title_context_apikeys
+    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
     assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
     st = time.time()
     # Reading PDF
@@ -2656,6 +2666,10 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     # convert_api_pdf_future = get_async_future(convert_pdf_to_txt, link, os.getenv("CONVERT_API_SECRET_KEY"))
     convert_api_pdf_future = None
     pdf_text_future = None
+    if "arxiv.org" not in link or ("arxiv.org" in link and "html" in link):
+        page_stat = check_page_status(link)
+        if not page_stat:
+            raise AssertionError(f"PDF Page not found for link {link}")
     if "arxiv.org" in link and ("html" in link or "pdf" not in link):
         pass
     else:
@@ -2664,13 +2678,15 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     arxiv_brightdata_future_1 = None
     arxiv_brightdata_future_2 = None
     arxiv_zenrows_future = None
+    arxiv_ant_future = None
     result_from = "TIMEOUT_PDF_READER"
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
         arxiv_html_link = convert_arxiv_link_to_html(link)
         arxiv_brightdata_future_1 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[0], api_keys['brightdataUrl'], False, True)
-        arxiv_brightdata_future_2 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[1], api_keys['brightdataUrl'], False, True)
-        arxiv_zenrows_future = get_async_future(send_request_zenrows_html, arxiv_html_link[0], api_keys['zenrows'], readability=False, js_render=False, clean_parse=True)
+        # arxiv_brightdata_future_2 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[1], api_keys['brightdataUrl'], False, True)
+        # arxiv_zenrows_future = get_async_future(send_request_zenrows_html, arxiv_html_link[0], api_keys['zenrows'], readability=False, js_render=False, clean_parse=True)
+        arxiv_ant_future = get_async_future(send_request_ant_html, arxiv_html_link[1], api_keys['scrapingant'], readability=False)
     text = ''
     while time.time() - st < (45 if detailed <= 1 else 75):
         if pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None:
@@ -2700,14 +2716,14 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                                                                                                       '')
                 txt_len = len(txt.strip().split())
                 if txt_len > 500:
-                    result_from = "arxiv"
+                    result_from = "arxiv_html"
                     break
         if arxiv_brightdata_future_1 is not None and arxiv_brightdata_future_1.done() and arxiv_brightdata_future_1.exception() is None:
             text = str(arxiv_brightdata_future_1.result())
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
                 if txt_len > 500:
-                    result_from = "arxiv_brightdata"
+                    result_from = "arxiv_brightdata_1"
                     break
 
         if arxiv_brightdata_future_2 is not None and arxiv_brightdata_future_2.done() and arxiv_brightdata_future_2.exception() is None:
@@ -2715,7 +2731,7 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
                 if txt_len > 500:
-                    result_from = "arxiv_brightdata"
+                    result_from = "arxiv_brightdata_2"
                     break
 
         if arxiv_zenrows_future is not None and arxiv_zenrows_future.done() and arxiv_zenrows_future.exception() is None:
@@ -2723,7 +2739,15 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
                 if txt_len > 500:
-                    result_from = "arxiv_brightdata"
+                    result_from = "arxiv_zenrows"
+                    break
+
+        if arxiv_ant_future is not None and arxiv_ant_future.done() and arxiv_ant_future.exception() is None:
+            text = str(arxiv_ant_future.result())
+            if isinstance(text, str):
+                txt_len = len(text.strip().split())
+                if txt_len > 500:
+                    result_from = "arxiv_ant"
                     break
         time.sleep(0.5)
 
@@ -2733,7 +2757,6 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f} with text len = {txt_len}")
 
     assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
-    assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
     # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
     return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
 
