@@ -112,18 +112,18 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             if self.concurrent_searches:
                 futures = []
                 for query, context in text_queries_contexts:
-                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
+                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 and self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
                     futures.append(future)
 
                 web_search_results = []
                 for future in futures:
                     result = sleep_and_get_future_result(future)
-                    web_search_results.append(query + "\n\n" + context + "\n\n" + result)
+                    web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
             else:
                 web_search_results = []
                 for query, context in text_queries_contexts:
-                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 2 and self.no_intermediate_llm, timeout=self.timeout)
-                    web_search_results.append(query + "\n\n" + context + "\n\n" + result)
+                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 and self.no_intermediate_llm, timeout=self.timeout)
+                    web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
             text_queries_contexts = None

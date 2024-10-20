@@ -1600,6 +1600,8 @@ Write the extracted information briefly and concisely below:
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
         if agent is not None:
             agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
+            agent.detail_level = provide_detailed_answers
+            agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
             main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
         else:
             

@@ -2110,6 +2110,7 @@ def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None
 
 
 def execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers, timeout=30):
+    random_identifier = str(uuid.uuid4())
     answer = ""
     web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
     create_tmp_marker_file(web_search_tmp_marker_name)
@@ -2122,18 +2123,18 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
     max_time_to_wait_for_web_results = timeout
     cut_off = 15
     search_results = next(web_results.result()[0].result())
-    atext = "**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch' role='button'></div> <div class='collapse' id='singleQueryWebSearch'>" + "\n"
+    atext = f"**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + "\n"
     answer += atext
-    atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
-    atext = "**Web searched with Queries:**" + "\n"
+    atext = f"**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries-{random_identifier}' role='button'></div> <div class='collapse' id='webSearchedQueries-{random_identifier}'>"
+    # atext = "**Web searched with Queries:**" + "\n"
     answer += atext
     queries = two_column_list(search_results['queries'])
     answer += (queries + "</div>\n")
     if len(search_results['search_results']) > 0:
         query_results_part1 = search_results['search_results']
         seen_query_results = query_results_part1[:20]
-        atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
-        atext = "\n**Search Results:**" + "\n"
+        atext = f"\n**Search Results:** <div data-toggle='collapse' href='#searchResults-{random_identifier}' role='button'></div> <div class='collapse' id='searchResults-{random_identifier}'>" + "\n"
+        # atext = "\n**Search Results:**" + "\n"
         answer += atext
         query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
         query_results = two_column_list(query_results)
@@ -2179,8 +2180,8 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
                    llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text]
                   for text, link, llm_future_dict in web_text_accumulator]
     if len(read_links) > 0:
-        atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
-        atext = "\n**We read the below links:**" + "\n"
+        atext = f"\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2-{random_identifier}' role='button'></div> <div class='collapse' id='readLinksStage2-{random_identifier}'>" + "\n"
+        # atext = "\n**We read the below links:**" + "\n"
         read_links = atext + "\n\n".join([
             f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(1024 if 'No Link' not in wta else 1024)])}"
             for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
