@@ -2458,10 +2458,11 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         pdf_result_future = get_async_future(read_pdf, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         while not (pdf_result_future.done() or (html_result_future is not None and html_result_future.done())):
             time.sleep(0.1)
+        if html_result_future is not None and html_result_future.done():
+            result = html_result_future.result()
         if pdf_result_future.done():
             result = pdf_result_future.result()
-        if html_result_future.done():
-            result = html_result_future.result()
+
         result["is_pdf"] = True
         result["is_image"] = False
 
