@@ -261,12 +261,11 @@ Given below is the user's query, the web search results and markdown literature 
 {{answer}}
 </|context|>
 
-Now your task is to convert this markdown literature review into LaTeX format. Ensure that the LaTeX version is well-formatted and follows academic writing conventions. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
-Your response must include the LaTeX version of the literature review, enclosed in a code block. Include the below.
-1. A LaTeX version of your literature review, enclosed in a code block. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long.
-2. A bibliography in BibTeX format, enclosed in a code block.
+Include the only two items below in your response.
+1. Literature review written in LaTeX, enclosed in a code block. Use newlines in the LaTeX code after each full sentence to wrap it instead of making lines too long. Ensure that the LaTeX version is well-formatted and follows academic writing conventions.
+2. A bibliography in BibTeX format, enclosed in a separate code block.
 
-Write your response below.
+Write your response with two items (Literature review in LaTeX enclosed in code block and bibliography in BibTeX format enclosed in a separate code block) below.
 """
     def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
         llm = CallLLm(self.keys, model_name=self.model_name)

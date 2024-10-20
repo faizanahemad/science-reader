@@ -1575,7 +1575,7 @@ Write the extracted information briefly and concisely below:
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
-                                                       previous_messages=previous_messages,
+                                                       previous_messages=previous_messages if agent is None else "",
                                                        permanent_instructions=permanent_instructions + memory_pad + coding_rules,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
