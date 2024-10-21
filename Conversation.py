@@ -1600,7 +1600,10 @@ Write the extracted information briefly and concisely below:
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
-        if agent is not None:
+        if model_name == FILLER_MODEL:
+            # main_ans_gen = a generator that yields Acked.
+            main_ans_gen = make_stream(["Acked"], do_stream=True)
+        elif agent is not None:
             agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
             agent.detail_level = provide_detailed_answers
             agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
@@ -2131,6 +2134,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "o1-preview"
     elif model_name == "o1-mini":
         model_name = "o1-mini"
+    elif model_name == FILLER_MODEL:
+        model_name = FILLER_MODEL
     else:
         raise ValueError(f"Model name {model_name} not found in the list")
     return model_name

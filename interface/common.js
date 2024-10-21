@@ -226,7 +226,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     copyBtn.click(function () {
         // Here we get the card text and copy it to the clipboard
         // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
-        copyToClipboard(cardElem, text);
+        copyToClipboard(cardElem, text.replace('<answer>', '').replace('</answer>', ''));
     });
     editBtn.off();
     editBtn.click(function () {
@@ -621,7 +621,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>o1-preview</option>
                 <option>o1-mini</option>
                 <option>gpt-4o</option>
-                <option>gpt-4-turbo</option> 
+                <option>gpt-4-turbo</option>
+                <option>Filler</option>
                 <option>Gemini 1.5</option>
                 <option>Mistral Large</option>
                 <option>Command-r+</option>
