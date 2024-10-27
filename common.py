@@ -825,6 +825,8 @@ def parse_array_string(s):
 
 
 def normalize_whitespace(s):
+    if s is None:
+        return ""
     # Replace multiple spaces with a single space
     s = re.sub(r' {2,}', ' ', s)
 

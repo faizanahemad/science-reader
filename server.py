@@ -645,7 +645,7 @@ def list_conversation_by_user(domain:str):
 
     if len(sorted_data_reverse) > 0 and len(sorted_data_reverse[0][0]["summary_till_now"].strip()) > 0:
         sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: len(x[0]['summary_till_now'].strip()), reverse=False)
-        if sorted_data_reverse[0][0]["summary_till_now"].strip() == "":
+        if sorted_data_reverse[0][0]["summary_till_now"].strip() == "" and len(sorted_data_reverse[0][1].get_message_list()) == 0:
             new_conversation = sorted_data_reverse[0][1]
             sorted_data_reverse = sorted_data_reverse[1:]
             sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]['last_updated'], reverse=True)
@@ -955,6 +955,7 @@ def transcribe_audio():
             return jsonify({"transcription": transcription.strip()})
 
         except Exception as e:
+            traceback.print_exc()
             return jsonify({"error": str(e)}), 500
 
         finally:
