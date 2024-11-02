@@ -457,6 +457,119 @@ Write down the characteristics of a good answer in detail following the above gu
         }
 
 
+class PerplexitySearchAgent(WebSearchWithAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
+        super().__init__(keys, model_name, detail_level, timeout)
+        self.num_queries = num_queries
+        self.perplexity_models = [
+            "perplexity/llama-3.1-sonar-small-128k-online",
+            "perplexity/llama-3.1-sonar-large-128k-online"
+        ]
+        
+        year = time.localtime().tm_year
+        
+        # Override the llm_prompt to generate more diverse queries while maintaining the same format
+        self.llm_prompt = f"""
+Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Generate diverse queries that:
+1. Directly address the main topic
+2. Explore related subtopics and side aspects
+3. Include domain-specific variations (as relevant) by adding keywords like:
+   - For scientific topics: "research papers", "arxiv", "scientific studies"
+   - For location-based topics: append relevant place names
+   - For temporal topics: add years/timeframes
+   - For domain-specific topics: add field identifiers (finance, politics, technology, etc.)
+
+Format your response as a Python list of tuples as given below: 
+```python
+[
+    ('main topic exact query', 'detailed context about main topic'), 
+    ('main topic research papers [if query is about research]', 'context focusing on academic research'),
+    ('related subtopic with year {year}', 'context about temporal aspects'),
+    ('specific aspect in domain/location', 'context about domain-specific elements'),
+    ('main topic with location [if query is about location]', 'context about location'),
+    ('main topic with year', 'context about temporal aspects'),
+    ('side aspect topic with location', 'context about location'),
+    ('another side aspect topic', 'context about side aspect'),
+    ('more related subtopics', 'context about more related subtopics'),
+    ...
+]
+```
+
+Text: {{text}}
+
+Generate exactly {self.num_queries} highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
+"""
+
+        # Override the combiner_prompt to better handle multiple model responses
+        self.combiner_prompt = f"""
+You are tasked with synthesizing information from multiple search results obtained from different models and queries. Your goal is to combine these results into a comprehensive and accurate response.
+
+Instructions:
+1. Carefully analyze and integrate information from all provided search results, including both models' perspectives
+2. Only use information from the provided search results
+3. Put relevant citations inline in markdown format
+4. If no search results are provided, state: "No search results provided."
+5. Use results from the side aspect queries to provide more context and broader perspective.
+
+Web search results (from multiple models):
+<|results|>
+{{web_search_results}}
+</|results|>
+
+User's query and conversation history: 
+<|context|>
+{{text}}
+</|context|>
+
+Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results and model perspectives.
+"""
+
+    def get_results_from_web_search(self, text, text_queries_contexts):
+        array_string = text_queries_contexts
+        web_search_results = []
+        try:
+            # Use ast.literal_eval to safely evaluate the string as a Python expression
+            import ast
+            text_queries_contexts = ast.literal_eval(array_string)
+            
+            # Ensure the result is a list of tuples
+            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+                raise ValueError("Invalid format: expected list of tuples")
+            
+            futures = []
+            # For each query, create futures for both perplexity models
+            for query, context in text_queries_contexts:
+                for model in self.perplexity_models:
+                    llm = CallLLm(self.keys, model_name=model)
+                    future = get_async_future(
+                        llm,
+                        text + "\n\n" + context + "\n\nQuery: " + query,
+                        timeout=self.timeout
+                    )
+                    futures.append((query, context, model, future))
+
+            # Collect and format results
+            for query, context, model, future in futures:
+                try:
+                    result = sleep_and_get_future_result(future)
+                    model_name = model.split('/')[-1]  # Extract shorter model name
+                    web_search_results.append(
+                        f"<b>Query:</b> {query}\n"
+                        f"<b>Context:</b> {context}\n"
+                        f"<b>Model ({model_name}):</b>\n{result}\n"
+                        f"---\n"
+                    )
+                except Exception as e:
+                    logger.error(f"Error getting response for query '{query}' from model {model}: {e}")
+                    
+        except (SyntaxError, ValueError) as e:
+            logger.error(f"Error parsing text_queries_contexts: {e}")
+            text_queries_contexts = None
+            
+        return "\n".join(web_search_results)
+
+
 class IdeaEvalAgent(Agent):
     def __init__(self):
         pass
@@ -464,19 +577,23 @@ class IdeaEvalAgent(Agent):
     def __call__(self, prompt, web_search=False):
         pass
 
-class IdeaCompareAgent(Agent):
-    def __init__(self):
-        pass
 
-    def __call__(self, prompt, web_search=False):
-        pass
+class BrowseXAgent(Agent):
+    pass
 
-class IdeasRankingAgent(Agent):
-    def __init__(self):
-        pass
 
-    def __call__(self, prompt, web_search=False):
-        pass
+class TopicToPodCastAgent:
+    pass
+
+class DocumentToPodCastAgent:
+    pass
+
+class FinancialDocumentToPodCastAgent:
+    pass
+
+class ScientificDocumentToPodCastAgent:
+    pass
+
     
     
 if __name__ == "__main__":

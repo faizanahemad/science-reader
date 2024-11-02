@@ -28,7 +28,7 @@ import dill
 import os
 import re
 
-from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent
+from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 from prompts import prompts, xml_to_dict
@@ -717,6 +717,8 @@ Write the extracted information briefly and concisely below:
             # remove "md format" and "better formatting" from preamble options
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
+        if "TTS" in preamble_options:
+            preamble += "We are using a TTS engine to read out to blind users. Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening.\nFor pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc.\n"
         if "Paper Summary" in preamble_options:
             preamble += "\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches.  3) Datasets used and experiments performed. 4) Key Insights gained and findings reported  5) Results, Drawback of their methods and experiments and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.\nRemember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n"
         if "Comparison" in preamble_options:
@@ -764,6 +766,8 @@ Write the extracted information briefly and concisely below:
             pass
         if field == "Agent_IdeaNovelty":
             pass
+        if field == "Agent_PerplexitySearch":
+            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90)
         if field == "Agent_WebSearch":
             agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
         if field == "Agent_LiteratureReview":

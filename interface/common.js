@@ -593,6 +593,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Long</option>
                 <option>CoT</option>
                 <option>md format</option>
+                <option>TTS</option>
                 <option>better formatting</option>
                 <option>no format</option>
                 <option>no ai</option>
@@ -666,6 +667,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
                 <option>Agent_LiteratureReview</option>
+                <option>Agent_PerplexitySearch</option>
                 <option>Agent_WebSearch</option>
                 <option>Agent_BroadSearch</option>
                 <option>Prompt_IdeaNovelty</option>
