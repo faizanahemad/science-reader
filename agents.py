@@ -461,7 +461,7 @@ Write down the characteristics of a good answer in detail following the above gu
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=10):
         super().__init__(keys, model_name, detail_level, timeout)
         self.num_queries = num_queries
         self.perplexity_models = [
@@ -489,15 +489,17 @@ generate diverse queries that:
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('main topic exact query', 'detailed context about main topic'), 
-    ('main topic research papers [if query is about research]', 'context focusing on academic research'),
-    ('related subtopic with year {year}', 'context about temporal aspects'),
-    ('specific aspect in domain/location', 'context about domain-specific elements'),
-    ('main topic with location [if query is about location]', 'context about location'),
-    ('main topic with year', 'context about temporal aspects'),
-    ('side aspect topic with location', 'context about location'),
-    ('another side aspect topic', 'context about side aspect'),
-    ('more related subtopics', 'context about more related subtopics'),
+    ('main topic exact query', 'short context about main topic'), 
+    ('main topic research papers [if query is about research]', 'short context focusing on academic research'),
+    ('related subtopic with year {year}', 'short context about temporal aspects'),
+    ('specific aspect in domain/location', 'very short context about domain-specific elements'),
+    ('main topic with location [if query is about location]', 'short and brief context about location'),
+    ('main topic with year', 'short and brief context about temporal aspects'),
+    ('side aspect topic with location', 'short and brief context about location'),
+    ('another side aspect topic', 'short and brief context about side aspect'),
+    ('more related subtopics', 'very short and brief context about more related subtopics'),
+    ('more related side aspect topics', 'very short and brief context about more related side aspect topics'),
+    ('wider coverage topics with year', 'very short and brief context about wider coverage topics with year'),
     ...
 ]
 ```
