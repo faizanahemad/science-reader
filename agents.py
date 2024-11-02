@@ -1,8 +1,10 @@
+from itertools import tee
 from typing import Union, List
 import uuid
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result
+from hf_model_server import generate
 from loggers import getLoggers
 import logging
 import re
@@ -468,11 +470,14 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         ]
         
         year = time.localtime().tm_year
+        self.get_references = f"""
+[Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at references and information exhaustively and dive deep before answering. Think carefully before answering and provide an comprehensive, extensive answer using the references deeply. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.]
+""".strip()
         
         # Override the llm_prompt to generate more diverse queries while maintaining the same format
         self.llm_prompt = f"""
-Given the following text, generate a list of relevant queries and their corresponding contexts. 
-Generate diverse queries that:
+Given tee following text, generate a list of relevant queries and their corresponding contexts. 
+generate diverse queries that:
 1. Directly address the main topic
 2. Explore related subtopics and side aspects
 3. Include domain-specific variations (as relevant) by adding keywords like:
@@ -545,7 +550,8 @@ Please compose your response, ensuring it thoroughly addresses the user's query 
                     llm = CallLLm(self.keys, model_name=model)
                     future = get_async_future(
                         llm,
-                        text + "\n\n" + context + "\n\nQuery: " + query,
+                        # text + "\n\n" + context + "\n\nQuery: " + query,
+                        "Query: " + query + "\n" + self.get_references,
                         timeout=self.timeout
                     )
                     futures.append((query, context, model, future))
