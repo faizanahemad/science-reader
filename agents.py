@@ -511,7 +511,7 @@ Generate exactly {self.num_queries} highly relevant query-context pairs. Write y
 
         # Override the combiner_prompt to better handle multiple model responses
         self.combiner_prompt = f"""
-You are tasked with collating and combining information from multiple search results obtained from different queries. Your goal is to combine these results into a comprehensive response for the user's query.
+Collate and combine information from multiple search results obtained from different queries. Your goal is to combine these results into a comprehensive response for the user's query.
 
 Instructions:
 1. Integrate information from all provided search results.
@@ -530,7 +530,7 @@ User's query and conversation history:
 {{text}}
 </|context|>
 
-Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
+Please use the given search results to answer the user's query while combining information from all provided search results.
 """
 
     def get_results_from_web_search(self, text, text_queries_contexts):
