@@ -1,4 +1,5 @@
 from typing import Union, List
+import uuid
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result
@@ -554,11 +555,14 @@ Please compose your response, ensuring it thoroughly addresses the user's query 
                 try:
                     result = sleep_and_get_future_result(future)
                     model_name = model.split('/')[-1]  # Extract shorter model name
+                    random_identifier = str(uuid.uuid4())
                     web_search_results.append(
+                        f"**Single Query Web Search with query '{query}' :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
                         f"<b>Query:</b> {query}\n"
                         f"<b>Context:</b> {context}\n"
                         f"<b>Model ({model_name}):</b>\n{result}\n"
                         f"---\n"
+                        f"</div>"
                     )
                 except Exception as e:
                     logger.error(f"Error getting response for query '{query}' from model {model}: {e}")
