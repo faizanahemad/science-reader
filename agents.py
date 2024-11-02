@@ -511,15 +511,14 @@ Generate exactly {self.num_queries} highly relevant query-context pairs. Write y
 
         # Override the combiner_prompt to better handle multiple model responses
         self.combiner_prompt = f"""
-You are tasked with synthesizing information from multiple search results obtained from different models and queries. Your goal is to combine these results into a comprehensive and accurate response for the user's query.
+You are tasked with collating and combining information from multiple search results obtained from different queries. Your goal is to combine these results into a comprehensive response for the user's query.
 
 Instructions:
-1. Carefully analyze and integrate information from all provided search results.
-2. Only use information from the provided search results
-3. Put citations inline in markdown format
-4. Use results from the side aspect queries to provide more context and broader perspective.
-5. Write your response in a way that is easy to understand and follow but also detailed and comprehensive. Write full answers with all details eloquently.
-6. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
+1. Integrate information from all provided search results.
+2. Put citations inline in markdown format
+3. Use results from the side aspect queries to provide more context and broader perspective.
+4. Write your response in a way that is easy to understand and follow but also detailed and comprehensive. Write full answers with all details eloquently.
+5. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
 
 Web search results (from multiple models):
 <|results|>
