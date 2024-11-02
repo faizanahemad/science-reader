@@ -517,6 +517,7 @@ Instructions:
 3. Put citations inline in markdown format
 4. Use results from the side aspect queries to provide more context and broader perspective.
 5. Write your response in a way that is easy to understand and follow but also detailed and comprehensive.
+6. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
 
 Web search results (from multiple models):
 <|results|>
