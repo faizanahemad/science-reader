@@ -530,7 +530,7 @@ User's query and conversation history:
 {{text}}
 </|context|>
 
-Please use the given search results to answer the user's query while combining information from all provided search results.
+Please use the given search results to answer the user's query while combining information from all provided search results. Use all the information from the search results to write a detailed and comprehensive answer. Include the full list of references at the end in markdown as bullet points.
 """
 
     def get_results_from_web_search(self, text, text_queries_contexts):
