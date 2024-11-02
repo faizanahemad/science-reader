@@ -509,14 +509,14 @@ Generate exactly {self.num_queries} highly relevant query-context pairs. Write y
 
         # Override the combiner_prompt to better handle multiple model responses
         self.combiner_prompt = f"""
-You are tasked with synthesizing information from multiple search results obtained from different models and queries. Your goal is to combine these results into a comprehensive and accurate response.
+You are tasked with synthesizing information from multiple search results obtained from different models and queries. Your goal is to combine these results into a comprehensive and accurate response for the user's query.
 
 Instructions:
-1. Carefully analyze and integrate information from all provided search results, including both models' perspectives
+1. Carefully analyze and integrate information from all provided search results.
 2. Only use information from the provided search results
-3. Put relevant citations inline in markdown format
-4. If no search results are provided, state: "No search results provided."
-5. Use results from the side aspect queries to provide more context and broader perspective.
+3. Put citations inline in markdown format
+4. Use results from the side aspect queries to provide more context and broader perspective.
+5. Write your response in a way that is easy to understand and follow but also detailed and comprehensive.
 
 Web search results (from multiple models):
 <|results|>
@@ -528,7 +528,7 @@ User's query and conversation history:
 {{text}}
 </|context|>
 
-Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results and model perspectives.
+Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
 """
 
     def get_results_from_web_search(self, text, text_queries_contexts):
