@@ -476,7 +476,7 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         
         # Override the llm_prompt to generate more diverse queries while maintaining the same format
         self.llm_prompt = f"""
-Given tee following text, generate a list of relevant queries and their corresponding contexts. 
+Given the following user query and context, generate a list of relevant queries and their corresponding contexts. 
 generate diverse queries that:
 1. Directly address the main topic
 2. Explore related subtopics and side aspects
@@ -504,7 +504,10 @@ Format your response as a Python list of tuples as given below:
 ]
 ```
 
-Text: {{text}}
+User's query and conversation history: 
+<|context|>
+{{text}}
+</|context|>
 
 Generate exactly {self.num_queries} highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
@@ -514,13 +517,11 @@ Generate exactly {self.num_queries} highly relevant query-context pairs. Write y
 Collate and combine information from multiple search results obtained from different queries. Your goal is to combine these results into a comprehensive response for the user's query.
 
 Instructions:
-1. Integrate information from all provided search results.
-2. Put citations inline in markdown format
-3. Use results from the side aspect queries to provide more context and broader perspective.
-4. Write your response in a way that is easy to understand and follow but also detailed and comprehensive. Write full answers with all details eloquently.
-5. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
+1. Integrate and utilize information from all provided search results to write your extensive response.
+2. Write a detailed, in-depth, wide coverage and comprehensive response to the user's query using all the information from the search results. Write full answers with all details well formatted.
+3. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
 
-Web search results (from multiple models):
+Web search results (from multiple sources):
 <|results|>
 {{web_search_results}}
 </|results|>
