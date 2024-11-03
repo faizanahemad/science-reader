@@ -466,7 +466,7 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         self.num_queries = num_queries
         self.perplexity_models = [
             "perplexity/llama-3.1-sonar-small-128k-online",
-            "perplexity/llama-3.1-sonar-large-128k-online"
+            # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
         year = time.localtime().tm_year
