@@ -520,6 +520,7 @@ Instructions:
 1. Integrate and utilize information from all provided search results to write your extensive response.
 2. Write a detailed, in-depth, wide coverage and comprehensive response to the user's query using all the information from the search results. Write full answers with all details well formatted.
 3. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
+4. Provide side information from the search results to provide more context and broader perspective.
 
 Web search results (from multiple sources):
 <|results|>
