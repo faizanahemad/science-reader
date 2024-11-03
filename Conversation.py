@@ -767,13 +767,13 @@ Write the extracted information briefly and concisely below:
         if field == "Agent_IdeaNovelty":
             pass
         if field == "Agent_PerplexitySearch":
-            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90)
+            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "Agent_WebSearch":
-            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
+            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_LiteratureReview":
-            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
+            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_BroadSearch":
-            agent = BroadSearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=1, timeout=90, gscholar=False)
+            agent = BroadSearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":
@@ -990,7 +990,7 @@ Write the extracted information briefly and concisely below:
         preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0)
+                                         attached_docs) > 0, detail_level=provide_detailed_answers)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (

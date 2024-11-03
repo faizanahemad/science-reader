@@ -469,6 +469,9 @@ class PerplexitySearchAgent(WebSearchWithAgent):
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
+        if detail_level > 2:
+            self.perplexity_models.append("perplexity/llama-3.1-sonar-large-128k-online")
+        
         year = time.localtime().tm_year
         self.get_references = f"""
 [Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at references and information exhaustively and dive deep before answering. Think carefully before answering and provide an comprehensive, extensive answer using the references deeply. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.]
