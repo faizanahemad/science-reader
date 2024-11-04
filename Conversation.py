@@ -1552,20 +1552,22 @@ Write the extracted information briefly and concisely below:
         if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
             model_name = model_name[0].strip()
 
-        yield {"text": f"", "status": "starting answer generation"}
+        
 
         if google_scholar or perform_web_search:
             web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
             if perplexity_results_future is not None and perplexity_results_future.done() and perplexity_results_future.exception() is None:
-                perplexity_results = perplexity_results_future.result()
-                perplexity_text = "\n\n" + perplexity_results["text"]
                 random_identifier = str(uuid.uuid4())
-                web_text = web_text + f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
+                perplexity_results = perplexity_results_future.result()
+                perplexity_text = "\n" + perplexity_results["text"] + "\n"
+                perplexity_text = f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
+                yield {"text": perplexity_text, "status": "Perplexity search completed"}
+                web_text = web_text + perplexity_text
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
-
+        yield {"text": f"", "status": "starting answer generation"}
         if probable_prompt_length < 90000 and (model_name is None):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
