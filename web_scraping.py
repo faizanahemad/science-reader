@@ -825,6 +825,8 @@ def post_process_web_page_scrape(link, result_from, result, st):
 
     return result
 
+failed_links = SetQueue(maxsize=10000)
+
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
             enabled=False)
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
@@ -834,8 +836,11 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     zenrows_service_result = None
     ant_service_result = None
     bright_data_result = None
+    if link in failed_links.set:
+        raise GenericShortException(f"[send_request_for_webpage] Detected Previously Failed link: {link}")
     page_stat = check_page_status(link)
     if not page_stat:
+        failed_links.add(link)
         raise GenericShortException(f"[send_request_for_webpage] Page not found {link}")
     if "zenrows" in apikeys:
         zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
@@ -861,6 +866,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
                 time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
                 return post_process_web_page_scrape(link, result_from, result, st)
     logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
+    failed_links.add(link)
     raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")
 
 def web_scrape_page_deprecated(link, context, apikeys, web_search_tmp_marker_name=None):
