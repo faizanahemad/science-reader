@@ -1045,8 +1045,8 @@ Write the extracted information briefly and concisely below:
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
             
             
-            agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=10 if provide_detailed_answers >= 3 else 5)
-            perplexity_results_future = get_async_future(agent.get_answer, "User Query:\n" + user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '') + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
+            perplexity_agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=10 if provide_detailed_answers >= 3 else 5)
+            perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '') + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
 
 
