@@ -413,7 +413,10 @@ Only provide answer from the document given above.
             llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         except Exception as e:
+            document = " ".join(document.split()[:limit//2])
             traceback.print_exc()
+
+            prompt = self.prompt.format(context=context, document=document)
             llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)

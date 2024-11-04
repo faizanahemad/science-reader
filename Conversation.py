@@ -1,49 +1,18 @@
 import shutil
-import sys
-import random
-import uuid
-from functools import partial
-import glob
-from filelock import FileLock, Timeout
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from collections import defaultdict
-import re
-from semanticscholar import SemanticScholar
-from semanticscholar.SemanticScholar import Paper
-from collections import Counter
-import mmh3
-from pprint import pprint
-import time
-import concurrent.futures
-import pandas as pd
-import tiktoken
-from copy import deepcopy, copy
-from collections import defaultdict
-import requests
-import tempfile
-from tqdm import tqdm
-import requests
-import dill
-import os
-import re
+
+from filelock import FileLock
 
 from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent
+
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
+
 from prompts import prompts, xml_to_dict
-from datetime import datetime, timedelta
+
 
 from pathlib import Path
-from more_itertools import peekable
-from concurrent.futures import Future
-
-import openai
-import tiktoken
-
-from common import *
 from base import *
-from base import CallMultipleLLM
+
 
 pd.options.display.float_format = '{:,.2f}'.format
 pd.set_option('max_colwidth', 800)
@@ -51,33 +20,16 @@ pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
-
-
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
-
-import asyncio
-import threading
-from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
 import time
 
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
-from langchain.memory import ConversationSummaryMemory, ChatMessageHistory
-import secrets
+
+
 import string
 import tiktoken
-# try:
-#     import ujson as json
-# except ImportError:
-#     import json
 import json
 alphabet = string.ascii_letters + string.digits
+
 
 class Conversation:
     def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:

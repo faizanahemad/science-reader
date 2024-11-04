@@ -1,10 +1,8 @@
-from itertools import tee
 from typing import Union, List
 import uuid
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
-from hf_model_server import generate
 from loggers import getLoggers
 import logging
 import re
@@ -14,6 +12,7 @@ agents = []
 adl = []
 adllib = []
 agent_language_parser = []
+
 
 class Agent:
     def __init__(self, keys):
@@ -196,7 +195,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         llm = CallLLm(self.keys, model_name=self.model_name)
         
         combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
-        yield {"text": '\n'+combined_response+'\n', "status": "Combined web search results"}
+        yield {"text": '\n'+combined_response+'\n', "status": "Completed web search with agent"}
         answer += f"{combined_response}\n\n"
         yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
 
@@ -204,7 +203,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         return ""
     
     def get_answer(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
-        return convert_stream_to_iterable(self.__call__(text, images, temperature, stream, max_tokens, system, web_search))[-1]
+        return convert_stream_to_iterable(self.__call__(text, images, temperature, stream, max_tokens, system, web_search))[-2]
 
 class LiteratureReviewAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
@@ -278,7 +277,7 @@ Write your response with two items (Literature review in LaTeX enclosed in code 
         combined_response = llm(self.write_in_latex_prompt.format(answer=answer),
                                 temperature=temperature, stream=False, max_tokens=max_tokens,
                                 system=system)
-        return "\n\n" + combined_response
+        return "\n\n<hr></br>" + combined_response
 
 
 class BroadSearchAgent(WebSearchWithAgent):
@@ -589,29 +588,7 @@ Please use the given search results to answer the user's query while combining i
         return "\n".join(web_search_results)
 
 
-class IdeaEvalAgent(Agent):
-    def __init__(self):
-        pass
 
-    def __call__(self, prompt, web_search=False):
-        pass
-
-
-class BrowseXAgent(Agent):
-    pass
-
-
-class TopicToPodCastAgent:
-    pass
-
-class DocumentToPodCastAgent:
-    pass
-
-class FinancialDocumentToPodCastAgent:
-    pass
-
-class ScientificDocumentToPodCastAgent:
-    pass
 
     
     
