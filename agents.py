@@ -3,7 +3,7 @@ from typing import Union, List
 import uuid
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
-from common import get_async_future, sleep_and_get_future_result
+from common import get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
 from hf_model_server import generate
 from loggers import getLoggers
 import logging
@@ -202,7 +202,9 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
 
     def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
         return ""
-        
+    
+    def get_answer(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
+        return convert_stream_to_iterable(self.__call__(text, images, temperature, stream, max_tokens, system, web_search))[-1]
 
 class LiteratureReviewAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
@@ -469,7 +471,7 @@ class PerplexitySearchAgent(WebSearchWithAgent):
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
-        if detail_level > 2:
+        if detail_level >= 3:
             self.perplexity_models.append("perplexity/llama-3.1-sonar-large-128k-online")
         
         year = time.localtime().tm_year

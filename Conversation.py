@@ -1078,6 +1078,7 @@ Write the extracted information briefly and concisely below:
         unchanged_message_lookback = message_lookback
 
         web_search_tmp_marker_name = None
+        perplexity_results_future = None
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
             create_tmp_marker_file(web_search_tmp_marker_name)
@@ -1090,6 +1091,11 @@ Write the extracted information briefly and concisely below:
                                            previous_context,
                                            self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            
+            
+            agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=10 if provide_detailed_answers >= 3 else 5)
+            perplexity_results_future = get_async_future(agent.get_answer, "User Query:\n" + user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '') + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
+            
 
 
         # raw_documents_index = self.get_field("raw_documents_index")
@@ -1552,6 +1558,11 @@ Write the extracted information briefly and concisely below:
             web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
+            if perplexity_results_future is not None and perplexity_results_future.done() and perplexity_results_future.exception() is None:
+                perplexity_results = perplexity_results_future.result()
+                perplexity_text = "\n\n" + perplexity_results["text"]
+                random_identifier = str(uuid.uuid4())
+                web_text = web_text + f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
 

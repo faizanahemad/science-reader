@@ -712,11 +712,11 @@ def convert_iterable_to_stream(iterable):
     for t in iterable:
         yield t
 
-def convert_stream_to_iterable(stream):
+def convert_stream_to_iterable(stream, join_strings=True):
     ans = []
     for t in stream:
         ans.append(t)
-    if isinstance(ans[0], str):
+    if isinstance(ans[0], str) and join_strings:
         ans = "".join(ans)
     return ans
 
