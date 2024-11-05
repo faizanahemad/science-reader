@@ -1,31 +1,17 @@
-# import gevent.monkey
-# gevent.monkey.patch_all()
-import copy
-import random
-import secrets
-import sys
 import tempfile
-from urllib.parse import unquote
 from functools import wraps
-import mmh3
 import ast
 import traceback
 from flask import Flask, request, jsonify, send_file, session, redirect, url_for, render_template_string
-from authlib.integrations.flask_client import OAuth
+
 from flask_session import Session
-from collections import defaultdict
-import requests
-from io import BytesIO
-from collections import defaultdict
+from DocIndex import DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
+
 from Conversation import Conversation
-from DocIndex import DocFAISS, DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
+
 import os
 import time
-import multiprocessing
-import glob
-from rank_bm25 import BM25Okapi
 from typing import List, Dict
-from flask import Flask, Response, stream_with_context
 import sys
 sys.setrecursionlimit(sys.getrecursionlimit()*16)
 import logging
@@ -37,9 +23,7 @@ import sqlite3
 from sqlite3 import Error
 from common import checkNoneOrEmpty, convert_http_to_https, DefaultDictQueue, convert_to_pdf_link_if_needed, \
     verify_openai_key_and_fetch_models
-from base import convert_doc_to_pdf
-# from spacy.lang.en import English
-# from spacy.pipeline import Lemmatizer
+
 from flask.json.provider import JSONProvider
 from common import SetQueue
 import secrets
@@ -54,9 +38,11 @@ import typing as t
 # except ImportError:
 #     import json
 
+
+
 import json
 from flask import Flask, redirect, url_for
-from flask_dance.contrib.google import make_google_blueprint, google
+
 
 class FlaskJSONProvider(JSONProvider):
     def dumps(self, obj: t.Any, **kwargs: t.Any) -> str:
@@ -230,17 +216,17 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
-    level=logging.ERROR,
+    level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
         logging.FileHandler(os.path.join(os.getcwd(), "log.txt"))
     ]
 )
 log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
+log.setLevel(logging.INFO)
 log = logging.getLogger('faiss.loader')
-log.setLevel(logging.ERROR)
-logger.setLevel(logging.ERROR)
+log.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
 time_logger = logging.getLogger(__name__ + " | TIMING")
 time_logger.setLevel(logging.INFO)  # Set log level for this logger
 
@@ -257,16 +243,6 @@ if __name__ == "__main__":
 else:
     folder = "storage"
     login_not_needed = True
-app = OurFlask(__name__)
-app.config['SESSION_PERMANENT'] = False
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
-app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
-app.secret_key = os.environ.get("SECRET_KEY")
-app.config["RATELIMIT_STRATEGY"] = "moving-window"
-app.config["RATELIMIT_STORAGE_URL"] = "memory://"
 
 def limiter_key_func():
     # logger.info(f"limiter_key_func called with {session.get('email')}")
@@ -277,43 +253,73 @@ def limiter_key_func():
         return email
     # Here, you might want to use a different fallback or even raise an error
     return get_remote_address()
-limiter = Limiter(
-    app=app,
-    key_func=limiter_key_func,
-    default_limits=["200 per hour", "10 per minute"]
-)
-# app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
-Session(app)
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.INFO)
-log = logging.getLogger('__main__')
-log.setLevel(logging.INFO)
-log = logging.getLogger('DocIndex')
-log.setLevel(logging.INFO)
-log = logging.getLogger('Conversation')
-log.setLevel(logging.INFO)
-log = logging.getLogger('base')
-log.setLevel(logging.INFO)
-log = logging.getLogger('faiss.loader')
-log.setLevel(logging.INFO)
-os.makedirs(os.path.join(os.getcwd(), folder), exist_ok=True)
-cache_dir = os.path.join(os.getcwd(), folder, "cache")
-users_dir = os.path.join(os.getcwd(), folder, "users")
-pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
-os.makedirs(cache_dir, exist_ok=True)
-os.makedirs(users_dir, exist_ok=True)
-os.makedirs(pdfs_dir, exist_ok=True)
-os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
-# nlp = English()  # just the language with no model
-# _ = nlp.add_pipe("lemmatizer")
-# nlp.initialize()
-conversation_folder = os.path.join(os.getcwd(), folder, "conversations")
-folder = os.path.join(os.getcwd(), folder, "documents")
-os.makedirs(folder, exist_ok=True)
-os.makedirs(conversation_folder, exist_ok=True)
+
+import platform
+import faulthandler
+faulthandler.enable()
+
+def check_environment():
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Platform: {platform.platform()}")
+    logger.info(f"CPU Architecture: {platform.machine()}")
+    logger.info(f"System: {platform.system()}")
+
+if __name__ == '__main__':
+    try:
+        check_environment()
+        app = OurFlask(__name__)
+        app.config['SESSION_PERMANENT'] = False
+        app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+        app.config['SESSION_TYPE'] = 'filesystem'
+        app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
+        app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
+        app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+        app.secret_key = os.environ.get("SECRET_KEY")
+        app.config["RATELIMIT_STRATEGY"] = "moving-window"
+        app.config["RATELIMIT_STORAGE_URL"] = "memory://"
+
+        limiter = Limiter(
+            app=app,
+            key_func=limiter_key_func,
+            default_limits=["200 per hour", "10 per minute"]
+        )
+        # app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
+        Session(app)
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.INFO)
+        log = logging.getLogger('__main__')
+        log.setLevel(logging.INFO)
+        log = logging.getLogger('DocIndex')
+        log.setLevel(logging.INFO)
+        log = logging.getLogger('Conversation')
+        log.setLevel(logging.INFO)
+        log = logging.getLogger('base')
+        log.setLevel(logging.INFO)
+        log = logging.getLogger('faiss.loader')
+        log.setLevel(logging.INFO)
+        os.makedirs(os.path.join(os.getcwd(), folder), exist_ok=True)
+        cache_dir = os.path.join(os.getcwd(), folder, "cache")
+        users_dir = os.path.join(os.getcwd(), folder, "users")
+        pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
+        os.makedirs(cache_dir, exist_ok=True)
+        os.makedirs(users_dir, exist_ok=True)
+        os.makedirs(pdfs_dir, exist_ok=True)
+        os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
+        # nlp = English()  # just the language with no model
+        # _ = nlp.add_pipe("lemmatizer")
+        # nlp.initialize()
+        conversation_folder = os.path.join(os.getcwd(), folder, "conversations")
+        folder = os.path.join(os.getcwd(), folder, "documents")
+        os.makedirs(folder, exist_ok=True)
+        os.makedirs(conversation_folder, exist_ok=True)
+
+        cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir,
+                                   'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
+
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
 
 
-cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir, 'CACHE_DEFAULT_TIMEOUT': 7 * 24 * 60 * 60})
 
 def check_login(session):
     email = dict(session).get('email', None)
@@ -988,9 +994,7 @@ create_tables()
 #     conn.close()
 #
 # removeAllUsersFromConversation()
-
-if __name__ == '__main__':
-    
+if __name__=="__main__":
     port = 443
    # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
     app.run(host="0.0.0.0", port=5000,threaded=True) # ssl_context="adhoc"

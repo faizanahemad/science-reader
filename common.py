@@ -32,7 +32,7 @@ TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 3000))
 TOKEN_LIMIT_FOR_NORMAL = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 5500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
-MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 60))
+MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 45))
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
 FILLER_MODEL = "Filler"
 LEN_CUTOFF_WEB_TEXT = 50
@@ -945,22 +945,22 @@ class DefaultDictQueue:
     def __init__(self, maxsize, default_factory=None):  # Added default_factory parameter
         self.maxsize = maxsize
         self.queue = collections.deque(maxlen=maxsize)
-        self.set = set()
+        self.set_of_items = set()
         self.data = dict()
         self.lock = threading.RLock()
         self.default_factory = default_factory  # Save the default factory
 
     def __delitem__(self, key):
         with self.lock:
-            if key in self.set:
-                self.set.remove(key)
+            if key in self.set_of_items:
+                self.set_of_items.remove(key)
                 self.queue.remove(key)
                 del self.data[key]
 
     def remove_any(self, item):
         with self.lock:
-            if item in self.set:
-                self.set.remove(item)
+            if item in self.set_of_items:
+                self.set_of_items.remove(item)
                 self.queue.remove(item)
                 del self.data[item]
 
@@ -969,15 +969,15 @@ class DefaultDictQueue:
             self.remove_any(item)
             if len(self.queue) >= self.maxsize - 1:
                 removed = self.queue.popleft()
-                self.set.remove(removed)
+                self.set_of_items.remove(removed)
                 del self.data[removed]
             self.queue.append(item)
-            self.set.add(item)
+            self.set_of_items.add(item)
             self.data[item] = item_data if item_data is not None else self.default_factory(item) if self.default_factory else None
 
     def __contains__(self, item):
         with self.lock:
-            return item in self.set
+            return item in self.set_of_items
 
     def __len__(self):
         with self.lock:
@@ -989,16 +989,23 @@ class DefaultDictQueue:
 
     def get_data(self, item):
         with self.lock:
-            if item not in self.set and self.default_factory:
+            if item not in self.set_of_items and self.default_factory:
                 self.add(item, self.default_factory(item))
             return self.data.get(item, None)
 
     def __getitem__(self, item):
         return self.get_data(item)
 
-    def __setitem__(self, item, data):
+    def get(self, item):
+        return self.get_data(item)
+
+    def set(self, item, data, *args, **kwargs):
+        self.__setitem__(item, data, *args, **kwargs)
+
+
+    def __setitem__(self, item, data, *args, **kwargs):
         with self.lock:
-            if item in self.set:
+            if item in self.set_of_items:
                 self.data[item] = data
             else:
                 self.add(item, data)
@@ -1149,7 +1156,7 @@ def typed_memoize(cache, *types):
             if result is None or isinstance(result, Exception) or (isinstance(result, (list, tuple, set)) and len(result) == 0):
                 result = f(*args, **kwargs)
             if result is not None and not isinstance(result, Exception) and not (isinstance(result, (list, tuple, set)) and len(result) == 0):
-                cache.set(key, result, expire=cache_timeout)
+                cache.set_of_items(key, result, expire=cache_timeout)
 
             return result
 
@@ -2004,7 +2011,7 @@ from gevent.event import AsyncResult
 def run_in_greenlet(fn, args, kwargs, async_result):
     try:
         result = fn(*args, **kwargs)
-        async_result.set(result)
+        async_result.set_of_items(result)
     except Exception as e:
         print(f"Greenlet failed with exception: {e}")
 

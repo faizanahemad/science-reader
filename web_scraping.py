@@ -827,8 +827,8 @@ def post_process_web_page_scrape(link, result_from, result, st):
 
 failed_links = SetQueue(maxsize=10000)
 
-@CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
-            enabled=False)
+@CacheResults(cache=DefaultDictQueue(100), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
+            enabled=True)
 def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     logger.debug(f"[web_scrape_page] Invoke for {link}.")

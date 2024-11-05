@@ -409,6 +409,10 @@ Only provide answer from the document given above.
     def get_one(self, context, document, model_name="google/gemini-pro", limit=64_000):
         document = " ".join(document.split()[:limit])
         prompt = self.prompt.format(context=context, document=document)
+        if get_gpt3_word_count(prompt) > 100_000:
+            limit = limit//2
+            document = " ".join(document.split()[:limit])
+            prompt = self.prompt.format(context=context, document=document)
         try:
             llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
