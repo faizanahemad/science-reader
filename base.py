@@ -2463,9 +2463,9 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
             new_link_title_context_apikeys = (html_link, title, context, api_keys, text, detailed)
             html_result_future = get_async_future(get_page_text, new_link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         pdf_result_future = get_async_future(read_pdf, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-        while not (pdf_result_future.done() or (html_result_future is not None and html_result_future.done())):
+        while not (pdf_result_future.done() or (html_result_future is not None and html_result_future.done() and not html_result_future.exception())):
             time.sleep(0.1)
-        if html_result_future is not None and html_result_future.done():
+        if html_result_future is not None and html_result_future.done() and html_result_future.exception() is None:
             result = html_result_future.result()
         if pdf_result_future.done():
             result = pdf_result_future.result()
