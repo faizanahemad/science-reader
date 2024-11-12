@@ -954,9 +954,9 @@ Write the extracted information briefly and concisely below:
             answer += attached_docs[0].get_doc_long_summary()
             answer += "</answer>\n"
             yield {"text": "</answer>\n", "status": "answering ended ..."}
-            time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+            
             time_dict["total_time_to_reply"] = time.time() - st
-            time_dict["bot_time_to_reply"] = time.time() - et
+            
             answer = answer.replace(prompt, "")
             yield {"text": '', "status": "saving answer ..."}
             yield {"text": '', "status": "saving message ..."}
@@ -988,9 +988,9 @@ Write the extracted information briefly and concisely below:
                 answer += attached_docs[0].get_raw_doc_text()
                 answer += "</answer>\n"
                 yield {"text": "</answer>\n", "status": "answering ended ..."}
-                time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+                
                 time_dict["total_time_to_reply"] = time.time() - st
-                time_dict["bot_time_to_reply"] = time.time() - et
+                
                 answer = answer.replace(prompt, "")
                 yield {"text": '', "status": "saving answer ..."}
                 yield {"text": '', "status": "saving message ..."}
