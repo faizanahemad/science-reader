@@ -942,7 +942,7 @@ Write the extracted information briefly and concisely below:
             assert attached_docs_for_summary == query['messageText'].strip(), "Attached docs for summary should be the only docs in the message text."
             
         attached_docs_for_summary = attached_docs_for_summary.replace("summary_", "")
-        attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, attached_docs_for_summary)
+        attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
         _, attached_docs, doc_names, (_, _), (
             _, _) = attached_docs_for_summary_future.result()
         if len(attached_docs) > 0:
@@ -975,7 +975,7 @@ Write the extracted information briefly and concisely below:
             assert attached_docs_for_full == query['messageText'].strip(), "Attached docs for full text should be the only docs in the message text."
             
             attached_docs_for_full = attached_docs_for_full.replace("full_", "")
-            attached_docs_for_full_future = get_async_future(self.get_uploaded_documents_for_query, attached_docs_for_full)
+            attached_docs_for_full_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": attached_docs_for_full})
             _, attached_docs, doc_names, (_, _), (
                 _, _) = attached_docs_for_full_future.result()
                 
