@@ -321,6 +321,7 @@ class DocIndex:
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
             answer = llm(llm_context, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
             setattr(self, "_long_summary", answer)
+            self.save_local()
             return answer
         else:
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
@@ -360,6 +361,7 @@ Comprehensive Summary:
             
             long_summary = llm(summary_prompt.format(identification=identification, text=text), temperature=0.7, stream=False)
             setattr(self, "_long_summary", long_summary)
+            self.save_local()
             return long_summary
 
 
