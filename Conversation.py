@@ -957,7 +957,7 @@ Write the extracted information briefly and concisely below:
             
             time_dict["total_time_to_reply"] = time.time() - st
             
-            answer = answer.replace(prompt, "")
+            
             yield {"text": '', "status": "saving answer ..."}
             yield {"text": '', "status": "saving message ..."}
             get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
@@ -991,7 +991,7 @@ Write the extracted information briefly and concisely below:
                 
                 time_dict["total_time_to_reply"] = time.time() - st
                 
-                answer = answer.replace(prompt, "")
+                
                 yield {"text": '', "status": "saving answer ..."}
                 yield {"text": '', "status": "saving message ..."}
                 get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
