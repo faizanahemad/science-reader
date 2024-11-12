@@ -307,6 +307,60 @@ class DocIndex:
         for ans in self.streaming_get_short_answer(query, mode, save_answer):
             answer += ans
         return answer
+    
+    def get_raw_doc_text(self):
+        return self.brief_summary + "\n\n" + self.get_doc_data("static_data", "doc_text")
+    
+    def get_doc_long_summary(self):
+        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        if hasattr(self, "_long_summary"):
+            return self._long_summary
+        if "arxiv" in self.doc_source:
+            paper_summary = prompts.paper_summary_prompt()
+            llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed summary of the paper below.\n\n"
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+            answer = llm(llm_context, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+            setattr(self, "_long_summary", answer)
+            return answer
+        else:
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+            
+            # Step 1: Identify document type and key aspects
+            identify_prompt = """
+Analyze the following document and:
+1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.).
+2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
+3. Outline a plan for creating an in-depth summary. We need to ensure all Key Aspects are addressed. Any key takeaways and important points are included.
+
+Document text:
+{text}
+
+Respond in the following format:
+Document Type: [Your identified document type]
+Key Aspects: [List of key aspects]
+Key Takeaways: [List of key takeaways in short bullet points]
+Key words: [List of key words]
+Summary Plan: [Outline of the summary plan]
+""".lstrip()
+            
+            identification = llm(identify_prompt.format(text=text[:3000]), temperature=0.7, stream=False)
+            
+            # Step 2: Generate the comprehensive summary
+            summary_prompt = """We have read the document and following is the analysis of the document:
+
+{identification}
+
+Now, create a comprehensive, detailed, and in-depth summary of the entire document. Follow the Summary Plan and ensure all Key Aspects are addressed. The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
+
+Full document text:
+{text}
+
+Comprehensive Summary:
+""".lstrip()
+            
+            long_summary = llm(summary_prompt.format(identification=identification, text=text), temperature=0.7, stream=False)
+            setattr(self, "_long_summary", long_summary)
+            return long_summary
 
 
     @property
@@ -660,6 +714,11 @@ class ImageDocIndex(DocIndex):
         else:
             yield text
 
+
+class YouTubeDocIndex(DocIndex):
+    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage,
+                 keys):
+        pass
 
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import UnstructuredMarkdownLoader

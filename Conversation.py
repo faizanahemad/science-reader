@@ -672,7 +672,7 @@ Write the extracted information briefly and concisely below:
         if "TTS" in preamble_options:
             preamble += "We are using a TTS engine to read out to blind users. Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening.\nFor pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc.\n"
         if "Paper Summary" in preamble_options:
-            preamble += "\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches.  3) Datasets used and experiments performed. 4) Key Insights gained and findings reported  5) Results, Drawback of their methods and experiments and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.\nRemember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n"
+            preamble += prompts.paper_summary_prompt()
         if "Comparison" in preamble_options:
             preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
@@ -934,7 +934,73 @@ Write the extracted information briefly and concisely below:
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
+        
+        attached_docs_for_summary = re.findall(r'#summary_doc_\d+', query['messageText'])
+        attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
+        if len(attached_docs_for_summary) > 0:
+            assert len(attached_docs_for_summary) == 1, "Only one doc is allowed for summary."
+            assert attached_docs_for_summary == query['messageText'].strip(), "Attached docs for summary should be the only docs in the message text."
+            
+        attached_docs_for_summary = attached_docs_for_summary.replace("summary_", "")
+        attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, attached_docs_for_summary)
+        _, attached_docs, doc_names, (_, _), (
+            _, _) = attached_docs_for_summary_future.result()
+        if len(attached_docs) > 0:
+            yield {"text": '', "status": "Reading your attached documents for summary."}
+            yield {"text":  "<answer>\n", "status": "Generating summary of the document."}
+            yield {"text": attached_docs[0].get_doc_long_summary(), "status": "Generating summary of the document."}
+            answer += "<answer>\n"
+            answer += attached_docs[0].get_doc_long_summary()
+            answer += "</answer>\n"
+            yield {"text": "</answer>\n", "status": "answering ended ..."}
+            time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+            time_dict["total_time_to_reply"] = time.time() - st
+            time_dict["bot_time_to_reply"] = time.time() - et
+            answer = answer.replace(prompt, "")
+            yield {"text": '', "status": "saving answer ..."}
+            yield {"text": '', "status": "saving message ..."}
+            get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
+            message_ids = self.get_message_ids(query["messageText"], answer)
+            yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+            return
+        
+        
+        # Handle full document text request
+        attached_docs_for_full = re.findall(r'#full_doc_\d+', query['messageText'])
+        attached_docs_for_full = " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
+        
+        if len(attached_docs_for_full) > 0:
+            assert len(attached_docs_for_full) == 1, "Only one doc is allowed for full text view."
+            assert attached_docs_for_full == query['messageText'].strip(), "Attached docs for full text should be the only docs in the message text."
+            
+            attached_docs_for_full = attached_docs_for_full.replace("full_", "")
+            attached_docs_for_full_future = get_async_future(self.get_uploaded_documents_for_query, attached_docs_for_full)
+            _, attached_docs, doc_names, (_, _), (
+                _, _) = attached_docs_for_full_future.result()
+                
+            if len(attached_docs) > 0:
+                yield {"text": '', "status": "Reading your attached document for full text view."}
+                yield {"text":  "<answer>\n", "status": "Getting full text of the document."}
+                yield {"text": attached_docs[0].get_raw_doc_text(), "status": "Getting full text of the document."}
+                answer += "<answer>\n"
+                answer += attached_docs[0].get_raw_doc_text()
+                answer += "</answer>\n"
+                yield {"text": "</answer>\n", "status": "answering ended ..."}
+                time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+                time_dict["total_time_to_reply"] = time.time() - st
+                time_dict["bot_time_to_reply"] = time.time() - et
+                answer = answer.replace(prompt, "")
+                yield {"text": '', "status": "saving answer ..."}
+                yield {"text": '', "status": "saving message ..."}
+                get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
+                message_ids = self.get_message_ids(query["messageText"], answer)
+                yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+                return
 
+        
+            
+        
+        
         field = checkboxes["field"] if "field" in checkboxes else None
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
@@ -1520,18 +1586,22 @@ Write the extracted information briefly and concisely below:
         probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
         logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
         yield {"text": f"", "status": "starting answer generation"}
-        if probable_prompt_length < 90000 and (model_name is None):
+        time_dict["previous_messages_long"] = len(previous_messages_long.split())
+        time_dict["previous_messages_very_long"] = len(previous_messages_very_long.split())
+        time_dict["previous_messages"] = len(previous_messages.split())
+        time_dict["previous_messages_short"] = len(previous_messages_short.split())
+        if probable_prompt_length < 90000 and (model_name is None  or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
-        elif probable_prompt_length < 48000 and (model_name is None):
+        elif probable_prompt_length < 48000 and (model_name is None or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
             previous_messages = previous_messages_very_long
-            truncate_text = truncate_text_for_gpt4_64k
-        elif probable_prompt_length < 28000 and (model_name is None):
-            previous_messages = previous_messages_long
-            truncate_text = truncate_text_for_gpt4_32k
+            truncate_text = truncate_text_for_gpt4_96k
+        elif probable_prompt_length < 28000 and (model_name is None or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
+            previous_messages = previous_messages_very_long
+            truncate_text = truncate_text_for_gpt4_96k
         else:
-            previous_messages = previous_messages_long
-            truncate_text = truncate_text_for_gpt4_32k
+            previous_messages = previous_messages_very_long
+            truncate_text = truncate_text_for_gpt4_96k
 
         memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
 

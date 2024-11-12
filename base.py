@@ -57,8 +57,8 @@ gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
 
 def call_chat_model(model, text, images, temperature, system, keys):
-    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") and not model=='openai/gpt-4-32k') else keys["OPENROUTER_API_KEY"]
-    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k' else dict()
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") and not model.startswith('openai/')) else keys["OPENROUTER_API_KEY"]
+    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model.startswith('openai/') else dict()
     openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k'
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
@@ -146,6 +146,8 @@ Deduce what the question or query is asking about and then go above and beyond t
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
+                                                                                                                                                 "openai/gpt-4o-mini",
+                                                                                                                                                 "openai/gpt-4o",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b"]
