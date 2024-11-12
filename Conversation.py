@@ -938,7 +938,7 @@ Write the extracted information briefly and concisely below:
         attached_docs_for_summary = re.findall(r'#summary_doc_\d+', query['messageText'])
         attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
         if len(attached_docs_for_summary) > 0:
-            assert len(attached_docs_for_summary) == 1, "Only one doc is allowed for summary."
+            
             assert attached_docs_for_summary == query['messageText'].strip(), "Attached docs for summary should be the only docs in the message text."
             
         attached_docs_for_summary = attached_docs_for_summary.replace("summary_", "")
@@ -946,6 +946,7 @@ Write the extracted information briefly and concisely below:
         _, attached_docs, doc_names, (_, _), (
             _, _) = attached_docs_for_summary_future.result()
         if len(attached_docs) > 0:
+            assert len(attached_docs) == 1, "Only one doc is allowed for summary."
             yield {"text": '', "status": "Reading your attached documents for summary."}
             yield {"text":  "<answer>\n", "status": "Generating summary of the document."}
             yield {"text": attached_docs[0].get_doc_long_summary(), "status": "Generating summary of the document."}
@@ -970,7 +971,7 @@ Write the extracted information briefly and concisely below:
         attached_docs_for_full = " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
         
         if len(attached_docs_for_full) > 0:
-            assert len(attached_docs_for_full) == 1, "Only one doc is allowed for full text view."
+            
             assert attached_docs_for_full == query['messageText'].strip(), "Attached docs for full text should be the only docs in the message text."
             
             attached_docs_for_full = attached_docs_for_full.replace("full_", "")
@@ -979,6 +980,7 @@ Write the extracted information briefly and concisely below:
                 _, _) = attached_docs_for_full_future.result()
                 
             if len(attached_docs) > 0:
+                assert len(attached_docs) == 1, "Only one doc is allowed for summary."
                 yield {"text": '', "status": "Reading your attached document for full text view."}
                 yield {"text":  "<answer>\n", "status": "Getting full text of the document."}
                 yield {"text": attached_docs[0].get_raw_doc_text(), "status": "Getting full text of the document."}
