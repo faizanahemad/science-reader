@@ -442,18 +442,40 @@ textarea.form-control.dynamic-textarea {
 }
 
 
-[data-toggle="collapse"]::after {
-    display: inline-block;
-    content: '▼';
-    /* content: '▶'; */
-    padding-left: 10px;
-    /* transform: rotate(-90deg); */
-    transition: transform 0.3s ease;
-}
+
 
 [data-toggle="collapse"].collapsed::after {
     transform: rotate(-90deg);
 }
+
+[data-toggle='collapse'] {
+    cursor: pointer;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    transition: transform 0.2s ease;
+    
+}
+
+[data-toggle='collapse'][aria-expanded="true"]::before {
+    content: '▲ Hide';
+}
+
+[data-toggle='collapse'].collapsed::before {
+    content: '▲ Hide';
+}
+
+[data-toggle='collapse']::before {
+    content: '▼ Show';
+}
+
+[data-toggle='collapse'][aria-expanded="false"]::before {
+    content: '▼ Show';
+}
+
+
+
+
 
 [data-toggle="collapse"]:hover::after {
     color: blue;

@@ -425,6 +425,16 @@ Write down the characteristics of a good answer in detail following the above gu
         self.improve_model = CallLLm(keys, self.improve_model)
         self.outline_model = CallLLm(keys, self.outline_model) if isinstance(self.outline_model, str) else CallLLm(keys, self.improve_model)
 
+    @property
+    def model_name(self):
+        return self.writer_model
+    
+    @model_name.setter
+    def model_name(self, model_name):
+        self.writer_model = model_name
+        self.improve_model = model_name if isinstance(model_name, str) else model_name[0]
+        self.outline_model = model_name if isinstance(model_name, str) else model_name[0]
+        
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         st = time.time()
         # outline_future = get_async_future(self.outline_model, self.good_answer_characteristics_prompt.format(query=text), images, temperature, False, max_tokens, system)
@@ -449,6 +459,9 @@ Write down the characteristics of a good answer in detail following the above gu
         revised_thinking = improved_response.split('</revised_thinking>')[0].split('<revised_thinking>')[-1]
         improvements = improved_response.split('</improvements>')[0].split('<improvements>')[-1]
         answer = improved_response.split('</answer>')[0].split('<answer>')[-1]
+        random_identifier = str(uuid.uuid4())
+        first_response = f"**First Response :** <div data-toggle='collapse' href='#firstResponse-{random_identifier}' role='button'></div> <div class='collapse' id='firstResponse-{random_identifier}'>\n" + first_response + f"\n</div>"
+        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button'></div> <div class id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
         # return a dictionary
         return {
             'primary_goals': primary_goals,
@@ -458,6 +471,159 @@ Write down the characteristics of a good answer in detail following the above gu
             'revised_thinking': revised_thinking,
             'improvements': improvements,
             'answer': answer
+        }
+        
+        
+class BestOfNAgent(Agent):
+    def __init__(self, keys, writer_model: Union[List[str], str], evaluator_model: str, n_responses: int = 3):
+        self.keys = keys
+        self.writer_model = writer_model
+        self.evaluator_model = evaluator_model
+        self.n_responses = n_responses
+        self.system = """
+As an AI language model assistant, your task is to generate multiple high-quality responses and select the best one through careful evaluation.
+Answer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose clear, detailed, comprehensive, thoughtful and highly informative responses.
+We need to help people with hand, wrist disability and minimise typing and editing on their side. Write full answers that require minimal editing.
+        """.strip()
+
+        self.evaluator_prompt = f"""
+You are tasked with evaluating multiple responses to a user query and selecting the best one. 
+Analyze each response carefully and rate them based on the following criteria:
+- Correctness and accuracy of information
+- Comprehensiveness and completeness
+- Clarity and organization
+- Relevance to the query
+- Practical usefulness
+- Technical depth and expertise demonstrated
+- Quality of explanations and examples
+
+User Query:
+<user_query>
+{{query}}
+</user_query>
+
+Generated Responses:
+<generated_responses>
+{{responses}}
+</generated_responses>
+
+Please evaluate each response and provide your analysis in the following XML format:
+
+<evaluation>
+    <analysis>
+        [Detailed analysis of each response, comparing their strengths and weaknesses]
+    </analysis>
+    
+    <rankings>
+        [Numerical rankings of responses with brief justification for each]
+    </rankings>
+    
+    <reasoning>
+        [Detailed reasoning for selecting the best response]
+    </reasoning>
+    
+    <best_response_index>
+        [Index of the best response (0-based)]
+    </best_response_index>
+    
+    
+</evaluation>
+"""
+
+    @property
+    def model_name(self):
+        return self.writer_model
+    
+    @model_name.setter
+    def model_name(self, model_name):
+        self.writer_model = model_name
+        self.evaluator_model = model_name if isinstance(model_name, str) else model_name[0]
+    
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        st = time.time()
+        
+        # Generate N responses in parallel
+        futures = []
+        for _ in range(self.n_responses):
+            if isinstance(self.writer_model, str):
+                first_model = CallLLm(self.keys, self.writer_model)
+                future = get_async_future(first_model, text, images, temperature, False, max_tokens, system)
+                futures.append(future)
+            else:
+                for model in self.writer_model:
+                    first_model = CallLLm(self.keys, model)
+                    future = get_async_future(first_model, text, images, temperature, False, max_tokens, system)
+                    futures.append(future)
+
+        # Collect responses
+        responses = []
+        for i, future in enumerate(futures):
+            try:
+                response = sleep_and_get_future_result(future)
+                responses.append((i, response))
+            except Exception as e:
+                logger.error(f"Error getting response {i}: {e}")
+
+        time_logger.info(f"Time taken to get {len(responses)} responses: {time.time() - st}")
+
+        # Format responses for evaluation
+        formatted_responses = "\n\n".join([f"Response {i}:\n{response}" for i, response in responses])
+        
+        # Evaluate responses
+        evaluator = CallLLm(self.keys, self.evaluator_model)
+        eval_text = self.evaluator_prompt.format(query=text, responses=formatted_responses)
+        evaluation = evaluator(
+            eval_text,
+            images=images,
+            temperature=temperature,
+            stream=False,
+            max_tokens=max_tokens,
+            system=system
+        )
+
+        # Parse evaluation
+        analysis = evaluation.split('</analysis>')[0].split('<analysis>')[-1].strip()
+        rankings = evaluation.split('</rankings>')[0].split('<rankings>')[-1].strip()
+        best_index = int(evaluation.split('</best_response_index>')[0].split('<best_response_index>')[-1].strip())
+        reasoning = evaluation.split('</reasoning>')[0].split('<reasoning>')[-1].strip()
+
+        # Format the final answer with collapsible sections
+        random_identifier = str(uuid.uuid4())
+        
+        # Format all responses in collapsible divs
+        all_responses = []
+        for i, (_, response) in enumerate(responses):
+            is_best = i == best_index
+            response_class = 'collapse show' if is_best else 'collapse'
+            response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
+            all_responses.append(
+                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button'></div> "
+                f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
+            )
+
+        # Format evaluation details in a collapsible div
+        evaluation_details = (
+            f"**Evaluation Details:** <div data-toggle='collapse' href='#evaluation-{random_identifier}' role='button'></div> "
+            f"<div class='collapse' id='evaluation-{random_identifier}'>\n"
+            f"### Analysis\n{analysis}\n\n"
+            f"### Rankings\n{rankings}\n\n"
+            f"### Reasoning for Best Response\n{reasoning}\n"
+            f"</div>"
+        )
+
+        # Combine everything into the final answer
+        final_answer = "\n\n".join([
+            "# Generated Responses and Evaluation",
+            "\n\n".join(all_responses),
+            evaluation_details
+        ])
+
+        return {
+            'answer': final_answer,
+            'best_response_index': best_index,
+            'analysis': analysis,
+            'rankings': rankings,
+            'reasoning': reasoning
         }
 
 

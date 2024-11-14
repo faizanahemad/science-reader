@@ -670,6 +670,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Agent_PerplexitySearch</option>
                 <option>Agent_WebSearch</option>
                 <option>Agent_BroadSearch</option>
+                <option>Agent_BestOfN</option>
                 <option>Prompt_IdeaNovelty</option>
                 <option>Prompt_IdeaComparison</option>
                 <option>Prompt_IdeaFleshOut</option>

@@ -2,7 +2,7 @@ import shutil
 
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent
+from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -405,10 +405,10 @@ Compact list of bullet points:
     def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
-        token_limit_very_short = 2000
-        token_limit_short = 3000
-        token_limit_long = 7500
-        token_limit_very_long = 24000
+        token_limit_very_short = 3000
+        token_limit_short = 4000
+        token_limit_long = 15000
+        token_limit_very_long = 48000
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
         memory, messages = [sleep_and_get_future_result(f) for f in futures]
         message_lookback = 2
@@ -726,6 +726,9 @@ Write the extracted information briefly and concisely below:
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_BroadSearch":
             agent = BroadSearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+        if field == "Agent_BestOfN":
+            model_name = kwargs.get("model_name", "gpt-4o")
+            agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":
@@ -1618,7 +1621,7 @@ Write the extracted information briefly and concisely below:
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
-                                                       previous_messages=previous_messages if agent is None else "",
+                                                       previous_messages=previous_messages if agent is None else previous_messages_short,
                                                        permanent_instructions=permanent_instructions + memory_pad + coding_rules,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
@@ -1645,10 +1648,20 @@ Write the extracted information briefly and concisely below:
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif agent is not None:
-            agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
-            agent.detail_level = provide_detailed_answers
-            agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
+            if isinstance(agent, (BestOfNAgent, ReflectionAgent)):
+                if hasattr(agent, "n_responses"):
+                    agent.n_responses = 5 if provide_detailed_answers >= 3 else 3
+                if hasattr(agent, "model_name"):
+                    agent.model_name = model_name
+            else:
+                agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
+            if hasattr(agent, "detail_level"):
+                agent.detail_level = provide_detailed_answers
+            if hasattr(agent, "timeout"):
+                agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
             main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+            if isinstance(main_ans_gen, dict):
+                main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
         else:
             
             
@@ -1679,7 +1692,7 @@ Write the extracted information briefly and concisely below:
                     llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
-                    main_ans_gen = make_stream([main_ans_gen], do_stream=True)
+                    main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                 else:
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
@@ -1725,7 +1738,7 @@ Write the extracted information briefly and concisely below:
                         llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                         # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                         main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
-                        main_ans_gen = make_stream([main_ans_gen], do_stream=True)
+                        main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                     else:
                         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                         main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
@@ -2022,6 +2035,9 @@ class TemporaryConversation(Conversation):
             setattr(self, top_key, tk)
         else:
             setattr(self, top_key, value)
+            
+    def add_to_memory_pad_from_response(self, *args, **kwargs):
+        pass
 
 
 

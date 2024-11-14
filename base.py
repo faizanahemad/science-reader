@@ -273,6 +273,10 @@ class CallMultipleLLM:
             logger.warning(f"[CallMultipleLLM] got response from model {resp[0]} with success/failure as ```{resp[1].exception()}``` with elapsed time as {(time.time() - start_time):.2f} seconds")
             try:
                 result = resp[1].result()
+                
+                random_identifier = str(uuid.uuid4())
+                result = f"**Response from {resp[0]} :** <div data-toggle='collapse' href='#responseFrom-{random_identifier}' role='button'></div> <div class='collapse' id='responseFrom-{random_identifier}'>\n" + result + f"\n</div>"
+                
                 responses.append((resp[0], result))
                 logger.warning(
                     f"[CallMultipleLLM] added response from model: {resp[0]} to `responses` with elapsed time as {(time.time() - start_time):.2f} seconds")
@@ -280,6 +284,8 @@ class CallMultipleLLM:
             except Exception as e:
                 result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens,
                                            system=system, *args, **kwargs)
+                random_identifier = str(uuid.uuid4())
+                result = f"**Response from {self.backup_model.model_name} :** <div data-toggle='collapse' href='#responseFrom-{random_identifier}' role='button'></div> <div class='collapse' id='responseFrom-{random_identifier}'>\n" + result + f"\n</div>"
                 responses.append((self.backup_model.model_name, result))
                 logger.error(
                     f"[CallMultipleLLM] got response from backup model {self.backup_model.model_name} due to error from model {resp[0]}")
