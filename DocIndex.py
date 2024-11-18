@@ -316,8 +316,8 @@ class DocIndex:
         if hasattr(self, "_long_summary"):
             return self._long_summary
         if "arxiv" in self.doc_source:
-            paper_summary = prompts.paper_summary_prompt()
-            llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed summary of the paper below.\n\n"
+            paper_summary = prompts.paper_summary_prompt
+            llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
             answer = llm(llm_context, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
             setattr(self, "_long_summary", answer)

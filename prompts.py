@@ -380,7 +380,18 @@ Explain which idea is better overall and why, taking into account the scores, th
 Please ensure that your response is well-structured, detailed, and provides clear justification for the ranking and recommendation. 
 Highlight the strengths and weaknesses of each idea and provide actionable insights on how to improve the chosen idea to increase its chances of acceptance and impact.  
 """.lstrip(),
-            PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. In the report first write a one sentence summary of what the research does and why it's important. Then proceed with the following sections - 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches.  3) Datasets used and experiments performed. 4) Key Insights gained and findings reported  5) Results, Drawback of their methods and experiments and Future Work to be done. All the five sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.\nRemember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n""".lstrip(),
+            PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. 
+In the report first write a one sentence summary of what the research does and why it's important. 
+Then proceed with the following sections - 
+1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
+2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
+3) Datasets used and experiments performed. 
+4) Key Insights gained and findings reported  
+5) Results, Drawback of their methods and experiments and Future Work to be done. 
+6) Glossary of terms used in the paper and their meanings.
+7) Preliminaries, prior work and assumptions made in the paper.
+All the seven sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
+Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n""".lstrip(),
             IdeaFleshOut=f"""
 I would like you to help me flesh out a machine learning research idea. Please guide me through the development of this idea by addressing the following aspects in detail. For each aspect, provide insightful suggestions, ask clarifying questions if needed, and help me expand on the points presented.  
   

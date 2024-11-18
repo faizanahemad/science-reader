@@ -991,9 +991,11 @@ You are an expert content creator and reviewer. Using the markdown transcript, v
 - Key takeaways, findings, suggestions, and lessons.  
 - A detailed compilation of all the important information and insights from the video with your own comments and analysis in a separate section in a nuanced and detailed manner.  
 - Incorporate the images at appropriate points by including the placeholders (e.g., [Image 1 here]) where they best fit in the narrative.  
+- Include images that convey important information in any form, including charts, graphs, plots, statistics, and other visual elements.
 - **Please ensure that the image placeholders are used in the text where the images should be inserted.**  
 - Define and describe any jargon or less common terms at the end of the document in a glossary section.  
 - Use tables or bullet points to summarize key information where appropriate.  
+- Lastly include a section with your own comments and analysis, including what you think about the information presented and your own thoughts and opinions about what the video could entail and what you think the implications of the information are. Your analysis should be nuanced and detailed.  
   
 {additional_guidance}  
   
