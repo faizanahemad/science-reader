@@ -3,7 +3,7 @@ from copy import deepcopy
 
 PaperSummary=f"""\nYou will write a detailed, elaborate, comprehensive and in-depth research report on the provided link or paper in context. 
 In the report first write a two paragraphs for extended summary of what the research does, their methodology and why it's important. 
-Then proceed with the following seven sections - 
+Then proceed with the following eight sections - 
 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
 3) Datasets used, experiments performed and ablation studies performed. 
@@ -15,7 +15,7 @@ Then proceed with the following seven sections -
 
 Other instructions:
 1. All sections must be detailed, comprehensive and in-depth. All sections must be easy to understand and follow.
-2. All the seven sections need to be well formatted for easy reading. 
+2. All the eight sections need to be well formatted for easy reading. 
 3. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
 4. Maintain academic rigor and academic tone throughout the report.
 5. Be critical, skeptical and question the work done in the paper.
