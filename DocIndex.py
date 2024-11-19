@@ -411,7 +411,7 @@ Respond in JSON format:
     "technical_level": "high/medium/low",
     "summary_focus": ["specific aspects to focus on"],
     "improvements": ["list of improvements to be made to the summary"],
-    "missing_elements": ["list of missing elements from the summary"]
+    "missing_elements": ["list of missing elements from the summary which could be added if present in the document"]
 }}
 """.lstrip()
         
@@ -464,7 +464,9 @@ Respond in JSON format:
                     iteration=i,
                     doc_type=doc_analysis["doc_type"],
                     key_elements=", ".join(doc_analysis["key_elements"]),
-                    technical_level=doc_analysis["technical_level"]
+                    technical_level=doc_analysis["technical_level"],
+                    improvements=", ".join(doc_analysis["improvements"]),
+                    missing_elements=", ".join(doc_analysis["missing_elements"])
                 ),
                 temperature=0.7,
                 stream=False,

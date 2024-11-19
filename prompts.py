@@ -40,7 +40,7 @@ Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
 List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary: {missing_elements}
+List of missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -69,7 +69,7 @@ Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
 List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary: {missing_elements}
+List of missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -98,7 +98,7 @@ Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
 List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary: {missing_elements}
+List of missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -127,7 +127,7 @@ Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
 List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary: {missing_elements}
+List of missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
