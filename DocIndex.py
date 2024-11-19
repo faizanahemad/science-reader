@@ -154,7 +154,7 @@ class DocIndex:
             brief_summary = self.title + "\n" + self.short_summary
             brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
             self._brief_summary = brief_summary
-            _ = self.get_doc_long_summary()
+            _ = get_async_future(self.get_doc_long_summary)
             text = self.brief_summary + doc_text
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
