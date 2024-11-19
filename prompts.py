@@ -1,6 +1,19 @@
 import os
 from copy import deepcopy
 
+PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. 
+In the report first write a one sentence summary of what the research does and why it's important. 
+Then proceed with the following sections - 
+1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
+2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
+3) Datasets used and experiments performed. 
+4) Key Insights gained and findings reported  
+5) Results, Drawback of their methods and experiments and Future Work to be done. 
+6) Glossary of terms used in the paper and their meanings.
+7) Preliminaries, prior work and assumptions made in the paper.
+All the seven sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
+Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n""".lstrip()
+
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
 1. Information Preservation:
@@ -52,23 +65,18 @@ Technical Detail Level: {technical_level}
 List of suggested improvements to be made to the summary: {improvements}
 List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
-Original text:
+Instructions for writing a good paper or research summary:
+{PaperSummary}
+
+Original text of the paper or research:
 {text}
 
 Previous summary iterations:
 {previous_summaries}
 
 Instructions for this iteration:
-1. Preserve and enhance:
-   - Research methodology and technical details
-   - Experimental results and statistical significance
-   - Theoretical foundations and mathematical formulations
-   - Key findings and their implications
-2. Add new layers of:
-   - Technical precision and specificity
-   - Experimental details and parameters
-   - Theoretical connections and implications
-   - Future research directions
+1. Preserve and enhance the previous summary. Follow the instructions for writing a good paper or research summary.
+2. Add new layers of information, details, examples, data, evidence, technical details, mathematical formulations, equations, relationships, cause-and-effect connections, technical dependencies, performance considerations, error handling and edge cases, integration points and interfaces, etc.
 
 Write your denser scientific summary below:
 """.lstrip()
@@ -539,18 +547,6 @@ Explain which idea is better overall and why, taking into account the scores, th
 Please ensure that your response is well-structured, detailed, and provides clear justification for the ranking and recommendation. 
 Highlight the strengths and weaknesses of each idea and provide actionable insights on how to improve the chosen idea to increase its chances of acceptance and impact.  
 """.lstrip(),
-            PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. 
-In the report first write a one sentence summary of what the research does and why it's important. 
-Then proceed with the following sections - 
-1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
-2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
-3) Datasets used and experiments performed. 
-4) Key Insights gained and findings reported  
-5) Results, Drawback of their methods and experiments and Future Work to be done. 
-6) Glossary of terms used in the paper and their meanings.
-7) Preliminaries, prior work and assumptions made in the paper.
-All the seven sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
-Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n""".lstrip(),
             IdeaFleshOut=f"""
 I would like you to help me flesh out a machine learning research idea. Please guide me through the development of this idea by addressing the following aspects in detail. For each aspect, provide insightful suggestions, ask clarifying questions if needed, and help me expand on the points presented.  
   
@@ -819,7 +815,7 @@ Cover the below points while answering and also add other necessary points as ne
     
     @property
     def paper_summary_prompt(self):
-        return self.gpt4_prompts["PaperSummary"]
+        return PaperSummary
 
     @property
     def prompts(self):

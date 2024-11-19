@@ -444,7 +444,8 @@ Respond in JSON format:
                 key_elements=", ".join(doc_analysis["key_elements"]),
                 technical_level=doc_analysis["technical_level"],
                 improvements=", ".join(doc_analysis["improvements"]),
-                missing_elements=", ".join(doc_analysis["missing_elements"])
+                missing_elements=", ".join(doc_analysis["missing_elements"]),
+                PaperSummary=prompts.PaperSummary
             ),
             temperature=0.7,
             stream=False,
@@ -466,7 +467,8 @@ Respond in JSON format:
                     key_elements=", ".join(doc_analysis["key_elements"]),
                     technical_level=doc_analysis["technical_level"],
                     improvements="N/A",
-                    missing_elements="N/A"
+                    missing_elements="N/A",
+                    PaperSummary=prompts.PaperSummary
                 ),
                 temperature=0.7,
                 stream=False,
