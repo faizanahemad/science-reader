@@ -314,7 +314,7 @@ class DocIndex:
         return self.brief_summary + "\n\n" + self.get_doc_data("static_data", "doc_text")
     
     def get_doc_long_summary(self):
-        while time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
+        while hasattr(self, "long_summary_waiting") and time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
             time.sleep(0.1)
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         if hasattr(self, "_long_summary"):
