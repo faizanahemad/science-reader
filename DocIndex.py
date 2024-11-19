@@ -318,7 +318,7 @@ class DocIndex:
             time.sleep(0.1)
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         if hasattr(self, "_long_summary"):
-            return self._long_summary
+            yield self._long_summary
         if "arxiv" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
@@ -363,7 +363,11 @@ Full document text:
 Comprehensive Summary:
 """.lstrip()
             
-            long_summary = llm(summary_prompt.format(identification=identification, text=text), temperature=0.7, stream=False)
+            long_summary = ""
+            for ans in llm(summary_prompt.format(identification=identification, text=text), temperature=0.7, stream=True):
+                long_summary += ans
+                yield ans
+                
             setattr(self, "_long_summary", long_summary)
             self.save_local()
             return long_summary
@@ -379,7 +383,7 @@ Comprehensive Summary:
         if hasattr(self, "_long_summary"):
             base_summary = self._long_summary
         else:
-            base_summary = self.get_doc_long_summary()
+            base_summary = make_stream(self.get_doc_long_summary(), False)
         
         
         llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")

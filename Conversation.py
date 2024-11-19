@@ -960,11 +960,12 @@ Write the extracted information briefly and concisely below:
             
             answer += "<answer>\n"
             if is_dense:
-                summary = attached_docs[0].get_chain_of_density_summary()
+                summary = make_stream(attached_docs[0].get_chain_of_density_summary(), True)
             else:
-                summary = attached_docs[0].get_doc_long_summary()
-            answer += summary
-            yield {"text": summary, "status": "Generating summary of the document."}
+                summary = make_stream(attached_docs[0].get_doc_long_summary(), True)
+            for ans in summary:
+                answer += ans
+                yield {"text": ans, "status": "Generating summary of the document."}
             
             answer += "</answer>\n"
             yield {"text": "</answer>\n", "status": "answering ended ..."}
