@@ -1,18 +1,26 @@
 import os
 from copy import deepcopy
 
-PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. 
-In the report first write a one paragraph extended summary of what the research does, their methodology and why it's important. 
-Then proceed with the following sections - 
+PaperSummary=f"""\nYou will write a detailed, elaborate, comprehensive and in-depth research report on the provided link or paper in context. 
+In the report first write a two paragraphs for extended summary of what the research does, their methodology and why it's important. 
+Then proceed with the following seven sections - 
 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
-3) Datasets used and experiments performed. 
-4) Key Insights gained and findings reported  
+3) Datasets used, experiments performed and ablation studies performed. 
+4) Key Insights gained and findings reported in detail. 
 5) Results, Drawback of their methods and experiments and Future Work to be done. 
-6) Glossary of terms used in the paper and their meanings.
-7) Preliminaries, prior work and assumptions made in the paper.
-All the seven sections need to be well formatted and bullet points for easy reading. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
-Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details.\n""".lstrip()
+6) Glossary of terms used in the paper and their meanings comprehensively.
+7) Preliminaries (prior knowledge needed to understand the paper in detail, any foundational knowledge needed to understand the paper in detail or any foundational math needed to understand the paper in detail), prior work and assumptions made in the paper.
+8) Criticisms and Trivializations of the paper. How can this work be trivialized? Could a simple or trivial work be mistaken as novel and important? Can a easy and trivial solution be better than what is proposed in the paper or research?
+
+Other instructions:
+1. All sections must be detailed, comprehensive and in-depth. All sections must be easy to understand and follow.
+2. All the seven sections need to be well formatted for easy reading. 
+3. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
+4. Maintain academic rigor and academic tone throughout the report.
+5. Be critical, skeptical and question the work done in the paper.
+
+Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details. Section 2 must cover all about the methodology and the approach used in the paper, and why it is important and needed and how it improves over previous work.\n""".lstrip()
 
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
@@ -65,8 +73,6 @@ Technical Detail Level: {technical_level}
 List of suggested improvements to be made to the summary: {improvements}
 List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
-Instructions for writing a good paper or research summary:
-{PaperSummary}
 
 Original text of the paper or research:
 {text}
@@ -74,9 +80,13 @@ Original text of the paper or research:
 Previous summary iterations:
 {previous_summaries}
 
+Instructions for writing a good paper or research summary (follow these instructions carefully):
+{PaperSummary}
+
 Instructions for this iteration:
-1. Preserve and enhance the previous summary. Follow the instructions for writing a good paper or research summary.
+1. Preserve and enhance the previous summary. Follow the instructions for writing a good paper or research summary. Add more details and elaborate more on the previous summary in the same format.
 2. Add new layers of information, details, examples, data, evidence, technical details, mathematical formulations, equations, relationships, cause-and-effect connections, technical dependencies, performance considerations, error handling and edge cases, integration points and interfaces, etc.
+3. Make each section of the summary follow the instructions for writing a good paper or research summary and be more detailed, elaborate, longer, comprehensive and in-depth.
 
 Write your denser scientific summary below:
 """.lstrip()
