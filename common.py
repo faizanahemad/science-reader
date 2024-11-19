@@ -701,7 +701,7 @@ def check_if_stream_and_raise_exception(iterable_or_str):
         # If it's a generator, we need to peek at it.
         try:
             peeked = peekable(iterable_or_str)
-            peeked.peek()  # This will raise StopIteration if the generator is empty.
+            peek_val = peeked.peek()  # This will raise StopIteration if the generator is empty.
             return peeked
         except StopIteration:
             # Here you could handle the empty generator case.

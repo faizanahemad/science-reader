@@ -319,14 +319,18 @@ class DocIndex:
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         if hasattr(self, "_long_summary"):
             yield self._long_summary
-        if "arxiv" in self.doc_source:
+
+        elif "arxiv" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
-            answer = llm(llm_context, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+            answer = ""
+            for ans in llm(llm_context, images=[], temperature=0.7, stream=True, max_tokens=None, system=None):
+                answer += ans
+                yield ans
             setattr(self, "_long_summary", answer)
             self.save_local()
-            return answer
+
         else:
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
             
@@ -370,7 +374,7 @@ Comprehensive Summary:
                 
             setattr(self, "_long_summary", long_summary)
             self.save_local()
-            return long_summary
+
         
     
     def get_chain_of_density_summary(self):

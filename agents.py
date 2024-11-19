@@ -1,7 +1,6 @@
 from typing import Union, List
 import uuid
 
-from torchmetrics import Accuracy
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
