@@ -463,7 +463,7 @@ Write down the characteristics of a good answer in detail following the above gu
         answer = improved_response.split('</answer>')[0].split('<answer>')[-1]
         random_identifier = str(uuid.uuid4())
         first_response = f"**First Response :** <div data-toggle='collapse' href='#firstResponse-{random_identifier}' role='button'></div> <div class='collapse' id='firstResponse-{random_identifier}'>\n" + first_response + f"\n</div>\n\n"
-        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button'></div> <div id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
+        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
         # return a dictionary
         return {
             'primary_goals': primary_goals,
@@ -598,8 +598,9 @@ Please evaluate each response and provide your analysis in the following XML for
             is_best = i == best_index
             response_class = 'collapse show' if is_best else 'collapse'
             response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
+            aria_expanded = 'true' if is_best else 'false'
             all_responses.append(
-                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button'></div> "
+                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button' aria-expanded='{aria_expanded}'></div> "
                 f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
             )
 
@@ -654,8 +655,9 @@ class NResponseAgent(BestOfNAgent):
             is_best = i == best_index
             response_class = 'collapse show' if is_best else 'collapse'
             response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
+            aria_expanded = 'true' if is_best else 'false'
             all_responses.append(
-                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button'></div> "
+                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button' aria-expanded='{aria_expanded}'></div> "
                 f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
             )
 
@@ -784,7 +786,6 @@ Please use the given search results to answer the user's query while combining i
                     web_search_results.append(
                         f"**Single Query Web Search with query '{query}' :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
                         f"<b>Query:</b> {query}\n"
-                        f"<b>Context:</b> {context}\n"
                         f"<b>Model ({model_name}):</b>\n{result}\n"
                         f"---\n"
                         f"</div>"

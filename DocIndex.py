@@ -483,7 +483,7 @@ Respond in JSON format:
         answer = ""
         for ix, summary in enumerate(all_summaries):
             answer += f"\n\n**Summary {ix + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{ix}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{ix}'>\n" + summary + f"\n</div>\n\n"
-        answer += f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button'></div> <div id='final-summary-{random_identifier}'>\n" + all_summaries[-1] + f"\n</div>"
+        answer += f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='final-summary-{random_identifier}'>\n" + all_summaries[-1] + f"\n</div>"
         
         return answer
 
