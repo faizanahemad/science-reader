@@ -38,8 +38,11 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
    - Summary should be comprehensive and detailed
    - Well formatted and typeset with proper headings and subheadings, bold and italic text for emphasis etc.
    - Fully formed sentences and paragraphs with complete thoughts for ease of reading.
+   - Write in a friendly and engaging tone in full sentences.
+   - Be detail oriented and provide all necessary information.
+   - Focus on readability, clarity and informativeness.
 
-Remember: Each new summary must be a superset of information from previous summaries, never removing details while adding new ones.""".lstrip()
+Remember: Each new summary must be a more comprehensive and detailed version of the previous summary. New Summary must be more informative, readable, clearer, understandable and detailed than the previous summary.""".lstrip()
 
 scientific_chain_of_density_prompt = """You are creating an increasingly detailed and dense summary of a scientific paper through multiple iterations. This is iteration {iteration}.
 
