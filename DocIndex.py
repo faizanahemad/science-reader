@@ -405,14 +405,14 @@ Summary text:
 Only give JSON in your response in the format given below.
 
 Respond in JSON format:
-{
+{{
     "doc_type": "type of document",
     "key_elements": ["list of important structural elements and key aspects for a detailed and comprehensive summary"],
     "technical_level": "high/medium/low",
     "summary_focus": ["specific aspects to focus on"],
     "improvements": ["list of improvements to be made to the summary"],
     "missing_elements": ["list of missing elements from the summary"]
-}
+}}
 """.lstrip()
         
         json_response = llm(
@@ -421,7 +421,6 @@ Respond in JSON format:
             stream=False
         )
         logger.info(f"Chain of density identify response: \n{json_response}")
-        print(f"Chain of density identify response: \n{json_response}")
         doc_analysis = json.loads(json_response)
         
         # Select appropriate density prompt based on document type
