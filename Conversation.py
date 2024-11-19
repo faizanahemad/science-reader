@@ -957,12 +957,15 @@ Write the extracted information briefly and concisely below:
             assert len(attached_docs) == 1, "Only one doc is allowed for summary."
             yield {"text": '', "status": "Reading your attached documents for summary."}
             yield {"text":  "<answer>\n", "status": "Generating summary of the document."}
-            yield {"text": attached_docs[0].get_doc_long_summary(), "status": "Generating summary of the document."}
+            
             answer += "<answer>\n"
             if is_dense:
                 summary = attached_docs[0].get_chain_of_density_summary()
             else:
                 summary = attached_docs[0].get_doc_long_summary()
+            answer += summary
+            yield {"text": summary, "status": "Generating summary of the document."}
+            
             answer += "</answer>\n"
             yield {"text": "</answer>\n", "status": "answering ended ..."}
             
@@ -1677,7 +1680,7 @@ Write the extracted information briefly and concisely below:
                 if ensemble:
                     if isinstance(model_name, (list, tuple)):
                         model_names = model_name
-                        improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else ( "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0]))
+                        improve_model = "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("openai/o1-preview" if "openai/o1-preview" in model_names else ( "gpt-4o" if"gpt-4o" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0])))
                     else:
                         model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
                                     "openai/o1-mini",
