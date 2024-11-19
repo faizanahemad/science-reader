@@ -31,7 +31,6 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
 
 2. Density Progression:
    - Each iteration should maintain similar length but pack in more information
-   - Use precise, concise language to make room for new details
    - Replace general statements with specific details
    - Combine related ideas efficiently without losing clarity
 
@@ -57,7 +56,6 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
    - Ensure the summary is easy to understand and follow
    - Use clear and concise language
    - Summary should be comprehensive and detailed
-   - Well formatted and typeset with proper headings and subheadings, bold and italic text for emphasis etc.
    - Fully formed sentences and paragraphs with complete thoughts for ease of reading.
    - Write in a friendly and engaging tone in full sentences.
    - Be detail oriented and provide all necessary information.
