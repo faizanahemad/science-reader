@@ -22,7 +22,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.INFO, logging.ERROR, logging.INFO)
 import time
 
 class DocFAISS(FAISS):
@@ -421,6 +421,7 @@ Respond in JSON format:
             stream=False
         )
         logger.info(f"Chain of density identify response: \n{json_response}")
+        print(f"Chain of density identify response: \n{json_response}")
         doc_analysis = json.loads(json_response)
         
         # Select appropriate density prompt based on document type
