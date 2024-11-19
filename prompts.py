@@ -87,6 +87,7 @@ Instructions for this iteration:
 1. Preserve and enhance the previous summary. Follow the instructions for writing a good paper or research summary. Add more details and elaborate more on the previous summary in the same format.
 2. Add new layers of information, details, examples, data, evidence, technical details, mathematical formulations, equations, relationships, cause-and-effect connections, technical dependencies, performance considerations, error handling and edge cases, integration points and interfaces, etc.
 3. Make each section of the summary follow the instructions for writing a good paper or research summary and be more detailed, elaborate, longer, comprehensive and in-depth.
+4. Write the full new summary at once. Do not break this into parts.
 
 Write your denser scientific summary below:
 """.lstrip()
