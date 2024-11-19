@@ -2,7 +2,7 @@ import os
 from copy import deepcopy
 
 PaperSummary=f"""\nYou will write a detailed one page report on the provided link or paper in context. 
-In the report first write a one sentence summary of what the research does and why it's important. 
+In the report first write a one paragraph extended summary of what the research does, their methodology and why it's important. 
 Then proceed with the following sections - 
 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
@@ -727,6 +727,7 @@ Cover the below points while answering and also add other necessary points as ne
     - what is their justification in using this method? Why do they use this method? 
     - Any insights from their methods
     - Any drawbacks in their method or process
+    - What mathematical formulations or equations are used in the work, their meaning and justification?
 """,
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.
