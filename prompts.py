@@ -39,8 +39,8 @@ scientific_chain_of_density_prompt = """You are creating an increasingly detaile
 Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
-List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary which could be added if present in the document: {missing_elements}
+List of suggested improvements to be made to the summary: {improvements}
+List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -68,8 +68,8 @@ business_chain_of_density_prompt = """You are creating an increasingly detailed 
 Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
-List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary which could be added if present in the document: {missing_elements}
+List of suggested improvements to be made to the summary: {improvements}
+List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -97,8 +97,8 @@ technical_chain_of_density_prompt = """You are creating an increasingly detailed
 Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
-List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary which could be added if present in the document: {missing_elements}
+List of suggested improvements to be made to the summary: {improvements}
+List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}
@@ -126,8 +126,8 @@ general_chain_of_density_prompt = """You are creating an increasingly detailed a
 Document Type: {doc_type}
 Key Elements to Focus On: {key_elements}
 Technical Detail Level: {technical_level}
-List of improvements to be made to the summary: {improvements}
-List of missing elements from the summary which could be added if present in the document: {missing_elements}
+List of suggested improvements to be made to the summary: {improvements}
+List of suggested missing elements from the summary which could be added if present in the document: {missing_elements}
 
 Original text:
 {text}

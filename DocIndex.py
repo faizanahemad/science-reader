@@ -465,8 +465,8 @@ Respond in JSON format:
                     doc_type=doc_analysis["doc_type"],
                     key_elements=", ".join(doc_analysis["key_elements"]),
                     technical_level=doc_analysis["technical_level"],
-                    improvements=", ".join(doc_analysis["improvements"]),
-                    missing_elements=", ".join(doc_analysis["missing_elements"])
+                    improvements="N/A",
+                    missing_elements="N/A"
                 ),
                 temperature=0.7,
                 stream=False,
