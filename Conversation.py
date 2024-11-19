@@ -2,7 +2,7 @@ import shutil
 
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
+from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -672,7 +672,7 @@ Write the extracted information briefly and concisely below:
         if "TTS" in preamble_options:
             preamble += "We are using a TTS engine to read out to blind users. Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening.\nFor pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc.\n"
         if "Paper Summary" in preamble_options:
-            preamble += prompts.paper_summary_prompt()
+            preamble += prompts.paper_summary_prompt
         if "Comparison" in preamble_options:
             preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
@@ -729,6 +729,8 @@ Write the extracted information briefly and concisely below:
         if field == "Agent_BestOfN":
             model_name = kwargs.get("model_name", "gpt-4o")
             agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
+        if field == "Agent_NResponseAgent":
+            agent = NResponseAgent(self.get_api_keys(), writer_model=kwargs.get("model_name", "gpt-4o"), n_responses=kwargs.get("n_responses", 3))
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":

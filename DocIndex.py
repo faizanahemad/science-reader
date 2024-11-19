@@ -148,11 +148,13 @@ class DocIndex:
             sleep_and_get_future_result(f, 0.1)
         time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
         self.set_api_keys(keys)
+        self.long_summary_waiting = time.time()
         def set_raw_index_small():
             _ = sleep_and_get_future_result(set_title_summary_future)
             brief_summary = self.title + "\n" + self.short_summary
             brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
             self._brief_summary = brief_summary
+            _ = self.get_doc_long_summary()
             text = self.brief_summary + doc_text
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
@@ -312,6 +314,8 @@ class DocIndex:
         return self.brief_summary + "\n\n" + self.get_doc_data("static_data", "doc_text")
     
     def get_doc_long_summary(self):
+        while time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
+            time.sleep(0.1)
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         if hasattr(self, "_long_summary"):
             return self._long_summary

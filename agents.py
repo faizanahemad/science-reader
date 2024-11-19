@@ -1,6 +1,8 @@
 from typing import Union, List
 import uuid
 
+from torchmetrics import Accuracy
+
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
 from common import get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
 from loggers import getLoggers
@@ -481,9 +483,7 @@ class BestOfNAgent(Agent):
         self.evaluator_model = evaluator_model
         self.n_responses = n_responses
         self.system = """
-As an AI language model assistant, your task is to generate multiple high-quality responses and select the best one through careful evaluation.
-Answer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose clear, detailed, comprehensive, thoughtful and highly informative responses.
-We need to help people with hand, wrist disability and minimise typing and editing on their side. Write full answers that require minimal editing.
+Select the best response from the given multiple responses.
         """.strip()
 
         self.evaluator_prompt = f"""
@@ -538,8 +538,8 @@ Please evaluate each response and provide your analysis in the following XML for
     def model_name(self, model_name):
         self.writer_model = model_name
         self.evaluator_model = model_name if isinstance(model_name, str) else model_name[0]
-    
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        
+    def get_multiple_responses(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         st = time.time()
         
         # Generate N responses in parallel
@@ -568,7 +568,9 @@ Please evaluate each response and provide your analysis in the following XML for
 
         # Format responses for evaluation
         formatted_responses = "\n\n".join([f"Response {i}:\n{response}" for i, response in responses])
-        
+        return formatted_responses, responses
+    
+    def combine_responses(self, formatted_responses, responses, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         # Evaluate responses
         evaluator = CallLLm(self.keys, self.evaluator_model)
         eval_text = self.evaluator_prompt.format(query=text, responses=formatted_responses)
@@ -578,7 +580,7 @@ Please evaluate each response and provide your analysis in the following XML for
             temperature=temperature,
             stream=False,
             max_tokens=max_tokens,
-            system=system
+            system=system + "\n\n" + self.system
         )
 
         # Parse evaluation
@@ -624,6 +626,49 @@ Please evaluate each response and provide your analysis in the following XML for
             'analysis': analysis,
             'rankings': rankings,
             'reasoning': reasoning
+        }
+    
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        formatted_responses, responses = self.get_multiple_responses(text, images, temperature, stream, max_tokens, system, web_search)
+        combined_response = self.combine_responses(formatted_responses, responses, text, images, temperature, stream, max_tokens, system, web_search)
+        return combined_response
+        
+        
+
+
+class NResponseAgent(BestOfNAgent):
+    def __init__(self, keys, writer_model: Union[List[str], str], n_responses: int = 3):
+        super().__init__(keys, writer_model, None, n_responses)
+
+
+    # No need for model_name property and setter since they are inherited from BestOfNAgent
+    
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        _, responses = self.get_multiple_responses(text, images, temperature, stream, max_tokens, system, web_search)
+        # Format the final answer with collapsible sections
+        random_identifier = str(uuid.uuid4())
+        best_index = 0
+        # Format all responses in collapsible divs
+        all_responses = []
+        for i, (_, response) in enumerate(responses):
+            is_best = i == best_index
+            response_class = 'collapse show' if is_best else 'collapse'
+            response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
+            all_responses.append(
+                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button'></div> "
+                f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
+            )
+
+        # Combine everything into the final answer
+        final_answer = "\n\n".join([
+            "# Generated Responses and Evaluation",
+            "\n\n".join(all_responses)
+        ])
+
+        return {
+            'answer': final_answer,
+            'best_response_index': best_index,
+            
         }
 
 
