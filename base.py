@@ -148,6 +148,7 @@ Deduce what the question or query is asking about and then go above and beyond t
                                                                                                                                                  "gpt-4-turbo",
                                                                                                                                                  "openai/gpt-4o-mini",
                                                                                                                                                  "openai/gpt-4o",
+                                                                                                                                                 "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b"]

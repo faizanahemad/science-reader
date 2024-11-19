@@ -616,16 +616,24 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.5</option>    
-                <option>Claude Opus</option>
                 <option>openai/o1-preview</option>
-                <option>openai/o1-mini</option>
-                <option>o1-preview</option>
-                <option>o1-mini</option>
+                <option>Claude Opus</option>
                 <option>gpt-4o</option>
-                <option>gpt-4-turbo</option>
+
                 <option>Filler</option>
                 <option>Gemini 1.5</option>
+                <option>Pixtral Large</option>
+                
+                <option>o1-preview</option>
+                
+                
+                
+                
+
                 <option>Mistral Large</option>
+                <option>gpt-4-turbo</option>
+                <option>o1-mini</option>
+                <option>openai/o1-mini</option>
                 <option>Command-r+</option>
                 <option>DeepSeek-V2.5 Chat</option>
                 <option>Jamba</option>

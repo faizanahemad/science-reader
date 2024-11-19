@@ -367,6 +367,117 @@ Comprehensive Summary:
             setattr(self, "_long_summary", long_summary)
             self.save_local()
             return long_summary
+        
+    
+    def get_chain_of_density_summary(self):
+        """Generate a high-density summary using chain-of-density technique adapted to document type."""
+        
+        if hasattr(self, "_dense_summary"):
+            return self._dense_summary
+        
+        # Get base summary and document analysis
+        if hasattr(self, "_long_summary"):
+            base_summary = self._long_summary
+        else:
+            base_summary = self.get_doc_long_summary()
+        
+        
+        llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+        
+        # First determine document type and structure using the identification from long summary
+        identify_prompt = """
+Analyze this summary and determine:
+1. The type of document (e.g., scientific paper, business report, technical documentation, news article, etc.)
+2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
+3. The key structural elements that should be emphasized in a dense summary
+4. The appropriate level of technical detail needed
+5. List of improvements to be made to the summary
+6. List of missing elements from the summary
+
+Allowed document types:
+```
+["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
+```
+
+Summary text:
+{text}
+
+Respond in JSON format:
+{
+    "doc_type": "type of document",
+    "key_elements": ["list of important structural elements and key aspects for a detailed and comprehensive summary"],
+    "technical_level": "high/medium/low",
+    "summary_focus": ["specific aspects to focus on"],
+    "improvements": ["list of improvements to be made to the summary"],
+    "missing_elements": ["list of missing elements from the summary"]
+}
+""".lstrip()
+        
+        doc_analysis = json.loads(llm(
+            identify_prompt.format(text=base_summary),
+            temperature=0.1,
+            stream=False
+        ))
+        
+        # Select appropriate density prompt based on document type
+        if doc_analysis["doc_type"] in ["scientific paper", "research paper", "technical paper"]:
+            density_prompt = prompts.scientific_chain_of_density_prompt
+        elif doc_analysis["doc_type"] in ["business report", "business proposal", "business plan"]:
+            density_prompt = prompts.business_chain_of_density_prompt
+        elif doc_analysis["doc_type"] in ["technical documentation", "api documentation", "user manual"]:
+            density_prompt = prompts.technical_chain_of_density_prompt
+        else:
+            density_prompt = prompts.general_chain_of_density_prompt
+        
+        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        # Initialize with first dense summary
+        current_summary = llm(
+            density_prompt.format(
+                text=text,
+                previous_summaries=base_summary,
+                iteration=1,
+                doc_type=doc_analysis["doc_type"],
+                key_elements=", ".join(doc_analysis["key_elements"]),
+                technical_level=doc_analysis["technical_level"],
+                improvements=", ".join(doc_analysis["improvements"]),
+                missing_elements=", ".join(doc_analysis["missing_elements"])
+            ),
+            temperature=0.7,
+            stream=False,
+            system=prompts.chain_of_density_system_prompt
+        )
+        
+        all_summaries = [base_summary, current_summary]
+        
+        # Generate 3 increasingly dense iterations
+        for i in range(2, 3):
+            previous_summaries = "\n---\n".join(all_summaries)
+            
+            current_summary = llm(
+                density_prompt.format(
+                    text=base_summary,
+                    previous_summaries=previous_summaries,
+                    iteration=i,
+                    doc_type=doc_analysis["doc_type"],
+                    key_elements=", ".join(doc_analysis["key_elements"]),
+                    technical_level=doc_analysis["technical_level"]
+                ),
+                temperature=0.7,
+                stream=False,
+                system=prompts.chain_of_density_system_prompt
+            )
+            
+            all_summaries.append(current_summary)
+            
+        setattr(self, "_dense_summary", all_summaries[-1])
+        self.save_local()
+        random_identifier = str(uuid.uuid4())
+        answer = ""
+        for ix, summary in enumerate(all_summaries):
+            answer += f"**Summary {ix + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{ix}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{ix}'>\n" + summary + f"\n</div>"
+        answer += f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button'></div> <div id='final-summary-{random_identifier}'>\n" + all_summaries[-1] + f"\n</div>"
+        
+        return answer
 
 
     @property

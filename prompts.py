@@ -1,6 +1,155 @@
 import os
 from copy import deepcopy
 
+chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
+
+1. Information Preservation:
+   - Never remove information from previous summaries
+   - Each iteration must contain ALL information from previous iterations
+   - Only add new information, never subtract
+
+2. Density Progression:
+   - Each iteration should maintain similar length but pack in more information
+   - Use precise, concise language to make room for new details
+   - Replace general statements with specific details
+   - Combine related ideas efficiently without losing clarity
+
+3. Detail Enhancement:
+   - Add specific examples, data, and evidence
+   - Include technical details appropriate to the document type
+   - Highlight relationships between concepts
+   - Clarify cause-and-effect connections
+
+4. Writing Style:
+   - Use clear, precise language
+   - Maintain logical flow and coherence
+   - Employ efficient sentence structure
+   - Balance technical accuracy with readability
+
+5. Quality Control:
+   - Verify all information is accurate
+   - Ensure no contradictions between iterations
+   - Maintain consistent terminology
+   - Preserve key context and nuance
+
+Remember: Each new summary must be a superset of information from previous summaries, never removing details while adding new ones.""".lstrip()
+
+scientific_chain_of_density_prompt = """You are creating an increasingly detailed and dense summary of a scientific paper through multiple iterations. This is iteration {iteration}.
+
+Document Type: {doc_type}
+Key Elements to Focus On: {key_elements}
+Technical Detail Level: {technical_level}
+List of improvements to be made to the summary: {improvements}
+List of missing elements from the summary: {missing_elements}
+
+Original text:
+{text}
+
+Previous summary iterations:
+{previous_summaries}
+
+Instructions for this iteration:
+1. Preserve and enhance:
+   - Research methodology and technical details
+   - Experimental results and statistical significance
+   - Theoretical foundations and mathematical formulations
+   - Key findings and their implications
+2. Add new layers of:
+   - Technical precision and specificity
+   - Experimental details and parameters
+   - Theoretical connections and implications
+   - Future research directions
+
+Write your denser scientific summary below:
+""".lstrip()
+
+business_chain_of_density_prompt = """You are creating an increasingly detailed and dense summary of a business document through multiple iterations. This is iteration {iteration}.
+
+Document Type: {doc_type}
+Key Elements to Focus On: {key_elements}
+Technical Detail Level: {technical_level}
+List of improvements to be made to the summary: {improvements}
+List of missing elements from the summary: {missing_elements}
+
+Original text:
+{text}
+
+Previous summary iterations:
+{previous_summaries}
+
+Instructions for this iteration:
+1. Preserve and enhance:
+   - Key business metrics and KPIs
+   - Market analysis and competitive insights
+   - Strategic recommendations and action items
+   - Financial projections and assumptions
+2. Add new layers of:
+   - Market-specific details and trends
+   - Operational implications
+   - Risk factors and mitigation strategies
+   - Implementation timelines and resources
+
+Write your denser business summary below:
+""".lstrip()
+
+technical_chain_of_density_prompt = """You are creating an increasingly detailed and dense summary of technical documentation through multiple iterations. This is iteration {iteration}.
+
+Document Type: {doc_type}
+Key Elements to Focus On: {key_elements}
+Technical Detail Level: {technical_level}
+List of improvements to be made to the summary: {improvements}
+List of missing elements from the summary: {missing_elements}
+
+Original text:
+{text}
+
+Previous summary iterations:
+{previous_summaries}
+
+Instructions for this iteration:
+1. Preserve and enhance:
+   - Technical specifications and requirements
+   - Implementation details and procedures
+   - System architecture and components
+   - Usage examples and best practices
+2. Add new layers of:
+   - Technical dependencies and prerequisites
+   - Performance considerations
+   - Error handling and edge cases
+   - Integration points and interfaces
+
+Write your denser technical summary below:
+""".lstrip()
+
+general_chain_of_density_prompt = """You are creating an increasingly detailed and dense summary through multiple iterations. This is iteration {iteration}.
+
+Document Type: {doc_type}
+Key Elements to Focus On: {key_elements}
+Technical Detail Level: {technical_level}
+List of improvements to be made to the summary: {improvements}
+List of missing elements from the summary: {missing_elements}
+
+Original text:
+{text}
+
+Previous summary iterations:
+{previous_summaries}
+
+Instructions for this iteration:
+1. Preserve and enhance:
+   - Main ideas and key arguments
+   - Supporting evidence and examples
+   - Important relationships and connections
+   - Context and implications
+2. Add new layers of:
+   - Specific details and examples
+   - Cause-and-effect relationships
+   - Comparative analysis
+   - Practical applications
+
+Write your denser summary below:
+""".lstrip()
+
 class CustomPrompts:
     def __init__(self, llm, role):
         self.llm = llm
@@ -614,6 +763,26 @@ Cover the below points while answering and also add other necessary points as ne
             }
         )
 
+    @property
+    def chain_of_density_system_prompt(self):
+        return chain_of_density_system_prompt
+    
+    @property
+    def scientific_chain_of_density_prompt(self):
+        return scientific_chain_of_density_prompt
+    
+    @property
+    def business_chain_of_density_prompt(self):
+        return business_chain_of_density_prompt
+    
+    @property
+    def technical_chain_of_density_prompt(self):
+        return technical_chain_of_density_prompt
+    
+    @property
+    def general_chain_of_density_prompt(self):
+        return general_chain_of_density_prompt
+    
     @property
     def idea_novelty_prompt(self):
         return self.gpt4_prompts["IdeaNovelty"]

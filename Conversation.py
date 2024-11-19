@@ -940,13 +940,15 @@ Write the extracted information briefly and concisely below:
         # check if a pattern like #doc_<number> is present in query['messageText']
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
         
-        attached_docs_for_summary = re.findall(r'#summary_doc_\d+', query['messageText'])
+        attached_docs_for_summary = re.findall(r'#(dense_)?summary_doc_\d+', query['messageText'])
         attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
         if len(attached_docs_for_summary) > 0:
             
             assert attached_docs_for_summary == query['messageText'].strip(), "Attached docs for summary should be the only docs in the message text."
             
-        attached_docs_for_summary = attached_docs_for_summary.replace("summary_", "")
+        is_dense = "dense_summary" in attached_docs_for_summary
+            
+        attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "")
         attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
         _, attached_docs, doc_names, (_, _), (
             _, _) = attached_docs_for_summary_future.result()
@@ -956,7 +958,10 @@ Write the extracted information briefly and concisely below:
             yield {"text":  "<answer>\n", "status": "Generating summary of the document."}
             yield {"text": attached_docs[0].get_doc_long_summary(), "status": "Generating summary of the document."}
             answer += "<answer>\n"
-            answer += attached_docs[0].get_doc_long_summary()
+            if is_dense:
+                summary = attached_docs[0].get_chain_of_density_summary()
+            else:
+                summary = attached_docs[0].get_doc_long_summary()
             answer += "</answer>\n"
             yield {"text": "</answer>\n", "status": "answering ended ..."}
             
@@ -2162,6 +2167,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-3.5-sonnet:beta"
     elif model_name == "Mistral Large":
         model_name = "mistralai/mistral-large"
+    elif model_name == "Pixtral Large":
+        model_name = "mistralai/pixtral-large-2411"
     elif model_name == "DeepSeek-V2.5 Chat":
         model_name = "deepseek/deepseek-chat"
     elif model_name == "deepseek/deepseek-coder":

@@ -463,7 +463,7 @@ Write down the characteristics of a good answer in detail following the above gu
         answer = improved_response.split('</answer>')[0].split('<answer>')[-1]
         random_identifier = str(uuid.uuid4())
         first_response = f"**First Response :** <div data-toggle='collapse' href='#firstResponse-{random_identifier}' role='button'></div> <div class='collapse' id='firstResponse-{random_identifier}'>\n" + first_response + f"\n</div>"
-        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button'></div> <div class id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
+        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button'></div> <div id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
         # return a dictionary
         return {
             'primary_goals': primary_goals,
