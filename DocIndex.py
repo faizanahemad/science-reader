@@ -454,7 +454,7 @@ Respond in JSON format:
         all_summaries = [base_summary, current_summary]
         
         # Generate 3 increasingly dense iterations
-        for i in range(2, 3):
+        for i in range(2, 2):
             previous_summaries = "\n---\n".join(all_summaries)
             
             current_summary = llm(

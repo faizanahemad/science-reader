@@ -31,6 +31,13 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
    - Ensure no contradictions between iterations
    - Maintain consistent terminology
    - Preserve key context and nuance
+   
+6. Clarity and Readability:
+   - Ensure the summary is easy to understand and follow
+   - Use clear and concise language
+   - Summary should be comprehensive and detailed
+   - Well formatted and typeset with proper headings and subheadings, bold and italic text for emphasis etc.
+   - Fully formed sentences and paragraphs with complete thoughts for ease of reading.
 
 Remember: Each new summary must be a superset of information from previous summaries, never removing details while adding new ones.""".lstrip()
 
