@@ -402,6 +402,8 @@ Allowed document types:
 Summary text:
 {text}
 
+Only give JSON in your response in the format given below.
+
 Respond in JSON format:
 {
     "doc_type": "type of document",
@@ -413,11 +415,13 @@ Respond in JSON format:
 }
 """.lstrip()
         
-        doc_analysis = json.loads(llm(
+        json_response = llm(
             identify_prompt.format(text=base_summary),
             temperature=0.1,
             stream=False
-        ))
+        )
+        logger.info(f"Chain of density identify response: \n{json_response}")
+        doc_analysis = json.loads(json_response)
         
         # Select appropriate density prompt based on document type
         if doc_analysis["doc_type"] in ["scientific paper", "research paper", "technical paper"]:
