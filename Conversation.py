@@ -941,10 +941,11 @@ Write the extracted information briefly and concisely below:
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
         
         attached_docs_for_summary = re.findall(r'#(dense_)?summary_doc_\d+', query['messageText'])
-        attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
+        attached_docs_for_summary = " ".join([f"#{match[0] or ''}summary_doc_{match[1]}" if isinstance(match, tuple) else match 
+                                            for match in attached_docs_for_summary]) if len(attached_docs_for_summary) > 0 else ""
         if len(attached_docs_for_summary) > 0:
             
-            assert attached_docs_for_summary == query['messageText'].strip(), "Attached docs for summary should be the only docs in the message text."
+            assert attached_docs_for_summary == query['messageText'].strip(), f"Attached docs for summary should be the only docs in the message text. Our message text is:\n{query['messageText']}\n\nAttached docs are:\n{attached_docs_for_summary}"
             
         is_dense = "dense_summary" in attached_docs_for_summary
             
