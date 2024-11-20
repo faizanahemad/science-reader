@@ -319,17 +319,13 @@ class DocIndex:
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         if hasattr(self, "_long_summary"):
             yield self._long_summary
+            return
 
         elif "arxiv" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
-            answer = ""
-            for ans in llm(llm_context, images=[], temperature=0.7, stream=True, max_tokens=None, system=None):
-                answer += ans
-                yield ans
-            setattr(self, "_long_summary", answer)
-            self.save_local()
+            
 
         else:
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
@@ -366,14 +362,41 @@ Full document text:
 
 Comprehensive Summary:
 """.lstrip()
+            llm_context = summary_prompt.format(identification=identification, text=text)
             
-            long_summary = ""
-            for ans in llm(summary_prompt.format(identification=identification, text=text), temperature=0.7, stream=True):
+            
+        ans_generator = llm(llm_context, temperature=0.7, stream=True)
+        if "arxiv" in self.doc_source:
+        
+            llm2 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+            llm3 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+            method_prompt = prompts.paper_details_map["methodology"]
+            method_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the methodology used in the paper."
+            method_ans_generator = llm2(method_prompt, temperature=0.7, stream=True)
+            literature_prompt = prompts.paper_details_map["previous_literature_and_differentiation"]
+            literature_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the previous literature and why their work is different from previous literature."
+            literature_ans_generator = llm3(literature_prompt, temperature=0.7, stream=True)
+            
+            
+        long_summary = ""
+        for ans in ans_generator:
+            long_summary += ans
+            yield ans
+            
+        if "arxiv" in self.doc_source:
+            long_summary += "\n\n <b> ### More Details on their methodology </b> \n"
+            yield "\n\n <b> ### More Details on their methodology </b> \n"
+            for ans in method_ans_generator:
                 long_summary += ans
                 yield ans
-                
-            setattr(self, "_long_summary", long_summary)
-            self.save_local()
+            long_summary += "\n\n <b> ### Previous Literature and Differentiation </b> \n"
+            yield "\n\n <b> ### Previous Literature and Differentiation </b> \n"
+            for ans in literature_ans_generator:
+                long_summary += ans
+                yield ans
+            
+        setattr(self, "_long_summary", long_summary)
+        self.save_local()
 
         
     
@@ -391,9 +414,20 @@ Comprehensive Summary:
         
         
         llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
-        
-        # First determine document type and structure using the identification from long summary
-        identify_prompt = """
+        if "arxiv" in self.doc_source:
+            doc_analysis = json.loads("""
+                                      {
+                                            "doc_type": "scientific paper",
+                                            "key_elements": [],
+                                            "technical_level": "high",
+                                            "summary_focus": [],
+                                            "improvements": [],
+                                            "missing_elements": []
+                                        }
+                                      """)
+        else:
+            # First determine document type and structure using the identification from long summary
+            identify_prompt = """
 Analyze this summary and determine:
 1. The type of document (e.g., scientific paper, business report, technical documentation, news article, etc.)
 2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
@@ -423,13 +457,13 @@ Respond in JSON format:
 }}
 """.lstrip()
         
-        json_response = llm(
-            identify_prompt.format(text=base_summary),
-            temperature=0.1,
-            stream=False
-        )
-        logger.info(f"Chain of density identify response: \n{json_response}")
-        doc_analysis = json.loads(json_response)
+            json_response = llm(
+                identify_prompt.format(text=base_summary),
+                temperature=0.1,
+                stream=False
+            )
+            logger.info(f"Chain of density identify response: \n{json_response}")
+            doc_analysis = json.loads(json_response)
         
         # Select appropriate density prompt based on document type
         if doc_analysis["doc_type"] in ["scientific paper", "research paper", "technical paper"]:
@@ -443,7 +477,14 @@ Respond in JSON format:
         
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         # Initialize with first dense summary
-        current_summary = llm(
+        random_identifier = str(uuid.uuid4())
+        answer = f"\n\n**Summary {0 + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{0}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{0}'>\n" + base_summary + f"\n</div>\n\n"
+        yield answer
+        preamble = f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='final-summary-{random_identifier}'>\n"
+        answer += preamble
+        yield preamble
+        
+        generator = llm(
             density_prompt.format(
                 text=text,
                 previous_summaries=base_summary,
@@ -456,44 +497,21 @@ Respond in JSON format:
                 PaperSummary=prompts.paper_summary_prompt
             ),
             temperature=0.7,
-            stream=False,
+            stream=True,
             system=prompts.chain_of_density_system_prompt
         )
+        for ans in generator:
+            yield ans
+            answer += ans
+        answer += "\n</div>\n\n"
+        yield f"\n</div>\n\n"
         
-        all_summaries = [base_summary, current_summary]
-        
-        # Generate 3 increasingly dense iterations
-        for i in range(2, 2):
-            previous_summaries = "\n---\n".join(all_summaries)
-            
-            current_summary = llm(
-                density_prompt.format(
-                    text=base_summary,
-                    previous_summaries=previous_summaries,
-                    iteration=i,
-                    doc_type=doc_analysis["doc_type"],
-                    key_elements=", ".join(doc_analysis["key_elements"]),
-                    technical_level=doc_analysis["technical_level"],
-                    improvements="N/A",
-                    missing_elements="N/A",
-                    PaperSummary=prompts.paper_summary_prompt
-                ),
-                temperature=0.7,
-                stream=False,
-                system=prompts.chain_of_density_system_prompt
-            )
-            
-            all_summaries.append(current_summary)
+        all_summaries = [base_summary, answer]
             
         setattr(self, "_dense_summary", all_summaries[-1])
         self.save_local()
         random_identifier = str(uuid.uuid4())
-        answer = ""
-        for ix, summary in enumerate(all_summaries):
-            answer += f"\n\n**Summary {ix + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{ix}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{ix}'>\n" + summary + f"\n</div>\n\n"
-        answer += f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='final-summary-{random_identifier}'>\n" + all_summaries[-1] + f"\n</div>"
-        
-        return answer
+        yield ""
 
 
     @property

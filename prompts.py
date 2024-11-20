@@ -3,22 +3,19 @@ from copy import deepcopy
 
 PaperSummary=f"""\nYou will write a detailed, elaborate, comprehensive and in-depth research report on the provided link or paper in context. 
 In the report first write a two paragraphs for extended summary of what the research does, their methodology and why it's important. 
-Then proceed with the following eight sections - 
+Then proceed with the following 6 sections in your report - 
 1) Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
 2) Proposed Solution (What methods/solutions/approaches they propose? Cover all significant aspects of their methodology, including what they do, their motivation, why and how they do?). Write in detail about the Proposed Solutions/methods/approaches. Explain any mathematical formulations or equations and how they are used in the work.
 3) Datasets used, experiments performed and ablation studies performed. 
 4) Key Insights gained and findings reported in detail. 
 5) Results, Drawback of their methods and experiments and Future Work to be done. 
-6) Glossary of terms used in the paper and their meanings comprehensively.
-7) Preliminaries (prior knowledge needed to understand the paper in detail, any foundational knowledge needed to understand the paper in detail or any foundational math needed to understand the paper in detail), prior work and assumptions made in the paper.
-8) Criticisms and Trivializations of the paper. How can this work be trivialized? Could a simple or trivial work be mistaken as novel and important? Can a easy and trivial solution be better than what is proposed in the paper or research?
+6) Glossary of uncommon terms used in the paper and their meanings comprehensively.
 
 Other instructions:
 1. All sections must be detailed, comprehensive and in-depth. All sections must be easy to understand and follow.
-2. All the eight sections need to be well formatted for easy reading. 
-3. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
-4. Maintain academic rigor and academic tone throughout the report.
-5. Be critical, skeptical and question the work done in the paper.
+2. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
+3. Maintain academic rigor and academic tone throughout the report.
+4. Be critical, skeptical and question the work done in the paper.
 
 Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details. Section 2 must cover all about the methodology and the approach used in the paper, and why it is important and needed and how it improves over previous work.\n""".lstrip()
 
@@ -728,7 +725,7 @@ Continue the answer using additional information from the documents.
             "methodology": """
 Read the document and provide information about "Motivation and Methodology" of the work.
 Cover the below points while answering and also add other necessary points as needed.
-    - What do the authors do in this overall work (i.e. their methodology) with details.
+    - What do the authors do in this overall work (i.e. their methodology) with details, include all aspects of their methodology, provide comprehensive details and go deep into their work.
     - Detailed methodology and approach described in this work.
     - what problem do they address ?
     - how do they solve the problem, provide details?
@@ -737,15 +734,31 @@ Cover the below points while answering and also add other necessary points as ne
     - Any insights from their methods
     - Any drawbacks in their method or process
     - What mathematical formulations or equations are used in the work, their meaning and justification?
+    - Evaluate the soundness and innovation of the proposed methodology. Are the techniques well-justified?  
+    - Consider the novelty of the proposed methodology and its potential to advance the state-of-the-art. Is the proposed methodology just a simple extension of existing methods?
+    - Consider whether the methodology is appropriate for the problem being addressed.  
+    
+Writing Instructions:
+- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
+- Write in a friendly and engaging tone in full sentences.
+- Be detail oriented and provide all necessary information.
+- Focus on readability, clarity and informativeness.
 """,
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.
 Cover the below points while answering and also add other necessary points as needed.
+    - Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
     - What is this work's unique contribution over previous works?
     - what previous literature or works are referred to?
     - How are the previous works relevant to the problem this method is solving?
     - how their work is different from previous literature?
     - What improvements does their work bring over previous methods.
+    
+Writing Instructions:
+- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
+- Write in a friendly and engaging tone in full sentences and paragraphs.
+- Be detail oriented and provide all necessary information.
+- Focus on readability, clarity and informativeness.
 """,
             "experiments_and_evaluation":"""
 Read the document and provide information about "Experiments and Evaluation" of the work.
