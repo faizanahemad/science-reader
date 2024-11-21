@@ -518,11 +518,13 @@ Only provide answer from the document given above.
         st = time.time()
         doc_word_count = len(text_document.split())
         logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
-        if preferred_model is None:
-            preferred_model = "openai/gpt-4o-mini"
+        if preferred_model is None and doc_word_count < 200_000:
+            preferred_model = "google/gemini-flash-1.5"
+        elif preferred_model is None and doc_word_count > 200_000:
+            preferred_model = "google/gemini-pro-1.5"
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
-        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 100_000),
-                                                   get_async_future(self.get_one, context_user_query, text_document, preferred_model), join_method)
+        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5-8b", 200_000),
+                                                   get_async_future(self.get_one, context_user_query, text_document, preferred_model, 200_000), join_method)
         if self.provide_short_responses:
             result = sleep_and_get_future_result(initial_reading)
             return result, initial_reading
@@ -538,7 +540,7 @@ Only provide answer from the document given above.
             return sleep_and_get_future_result(initial_reading), initial_reading
 
         elif doc_word_count > 32_000:
-            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 140_000, 32_000, 2_000)
+            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 100_000, 32_000, 2_000)
             global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
         if global_reading is None:
