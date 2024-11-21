@@ -629,7 +629,7 @@ def concat_array_two_at_a_time(array):
 
 def make_stream(res, do_stream:bool):
     is_generator = inspect.isgenerator(res)
-    if is_generator:
+    if is_generator and do_stream:
         res = check_if_stream_and_raise_exception(res)
         return res
     if do_stream and not is_generator:
@@ -1485,7 +1485,7 @@ def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api
         return embeddings
     else:
         # Handle errors (e.g., invalid API key, rate limits, etc.)
-        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: {(len(input_text), len(input_text.split()))}")
+        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: {(len(input_text), len(input_text.split() if isinstance(input_text, str) else 0))}")
         raise Exception(f"Failed to fetch embedding(s): {response.text}")
 
 

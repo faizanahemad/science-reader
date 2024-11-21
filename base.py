@@ -27,7 +27,7 @@ pd.set_option('display.max_columns', 100)
 from common import *
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.WARNING, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
@@ -181,14 +181,17 @@ Deduce what the question or query is asking about and then go above and beyond t
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
 
-        if "google/gemini-flash-1.5" in self.model_name:
+        if "google/gemini-flash-1.5" in self.model_name or "google/gemini-flash-1.5-8b" in self.model_name or "google/gemini-pro-1.5" in self.model_name:
             assert get_gpt3_word_count(system + text) < 400_000
         elif "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
+        elif "mistralai/pixtral-large-2411" in self.model_name or "mistralai/mistral-large-2411" in self.model_name:
+            assert get_gpt3_word_count(system + text) < 100_000
+            
         elif "mistralai" in self.model_name:
             assert get_gpt3_word_count(system + text) < 26000
         elif "claude-3" in self.model_name:
-            assert get_gpt3_word_count(system + text) < 140_000
+            assert get_gpt3_word_count(system + text) < 180_000
         elif "anthropic" in self.model_name:
             assert get_gpt3_word_count(system + text) < 100_000
         elif "openai" in self.model_name:
@@ -514,10 +517,11 @@ Only provide answer from the document given above.
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
+        logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
         if preferred_model is None:
             preferred_model = "openai/gpt-4o-mini"
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
-        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 200_000),
+        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5", 100_000),
                                                    get_async_future(self.get_one, context_user_query, text_document, preferred_model), join_method)
         if self.provide_short_responses:
             result = sleep_and_get_future_result(initial_reading)
@@ -534,7 +538,7 @@ Only provide answer from the document given above.
             return sleep_and_get_future_result(initial_reading), initial_reading
 
         elif doc_word_count > 32_000:
-            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 200_000, 32_000, 2_000)
+            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 140_000, 32_000, 2_000)
             global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
         if global_reading is None:
