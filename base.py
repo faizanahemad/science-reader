@@ -121,14 +121,19 @@ def call_chat_model(model, text, images, temperature, system, keys):
 
 class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
-
+        # "Use direct, to the point and professional writing style."
         self.keys = keys
-        self.light_system = """You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. 
-Always provide comprehensive, detailed and informative response.
+        self.base_system = """You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. 
+Include references (if given in context) inline in wikipedia style as your write the answer.   
+Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.  
+I am a student and need your help to improve my learning and knowledge. Write in an engaging and informative tone.
+"""
+        self.light_system = """
+Always provide comprehensive, detailed and informative response. Think slowly and carefully before you write the answer.
 Include references inline in wikipedia style as your write the answer.
-Use direct, to the point and professional writing style.
-I am a student and need your help to improve my learning and knowledge. Write the full response to the user's query now.
 Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.
+Write an engaging, comprehensive, detailed, well formatted and informative response.
+Write the full response to the user's query.
 """
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
@@ -176,8 +181,8 @@ Deduce what the question or query is asking about and then go above and beyond t
 
 
     def __call_openrouter_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
-        sys_init = self.light_system
-        system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
+        sys_init = self.base_system
+        system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else (sys_init + "\n" + self.light_system)
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
 

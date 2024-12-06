@@ -268,7 +268,13 @@ Conversation Summary and title in xml style format:
 
 
             chat_slow_reply_prompt=f"""You are given conversation details between human and AI. We will be replying to the user's query or message given.
+{self.complex_output_instructions}
+
+Today's date is:
 {self.date_string}
+
+Answer the user's query or message using the following information:
+
 {{conversation_docs_answer}}{{doc_answer}}{{web_text}}{{link_result_text}}
 {{summary_text}}
 {{permanent_instructions}}
