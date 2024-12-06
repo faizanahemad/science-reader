@@ -183,7 +183,7 @@ class CustomPrompts:
         # Use markdown formatting to typeset and format your answer better.
         self.complex_output_instructions = """Use the below rules while providing response.
 1. Use markdown lists and paragraphs for formatting.
-2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
+2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format."""
 
         self.simple_output_instructions = """Use the below rules while providing response.
