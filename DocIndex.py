@@ -324,11 +324,11 @@ class DocIndex:
         elif "arxiv" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
             
 
         else:
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
             
             # Step 1: Identify document type and key aspects
             identify_prompt = """
@@ -483,6 +483,8 @@ Respond in JSON format:
         preamble = f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='final-summary-{random_identifier}'>\n"
         answer += preamble
         yield preamble
+        
+        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
         
         generator = llm(
             density_prompt.format(
