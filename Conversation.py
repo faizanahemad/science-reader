@@ -683,7 +683,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "Comparison" in preamble_options:
             preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
-            preamble += "\nWrite the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language. Be a straight shooter.\n"
+            preamble += """
+Write the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language.
+VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or words to avoid:  
+- Replace these common AI phrases and their variations:  
+  * "moreover", "furthermore", "additionally"  
+  * "it's important to note", "it's worth mentioning"  
+  * "in conclusion", "to sum up"  
+  * "comprehensive", "pivotal", "crucial"  
+  * "delve into", "explore"  
+  * "various", "numerous"  
+  * Any phrases starting with "it is" or "there are"  
+  * "leverage", "utilize", "optimize"  
+  * "robust", "significant", "key"  
+"""
         if "md format" in preamble_options:
             preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting. Write the full response to the user's query now.\n"
         if "better formatting" in preamble_options:
@@ -1689,7 +1702,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if ensemble:
                     if isinstance(model_name, (list, tuple)):
                         model_names = model_name
-                        improve_model = "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else ("openai/o1-preview" if "openai/o1-preview" in model_names else ( "gpt-4o" if"gpt-4o" in model_names else ("anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else model_names[0])))
+                        improve_model = model_hierarchies(model_names)
                     else:
                         model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
                                     "openai/o1-mini",
@@ -1730,10 +1743,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     if ensemble:
                         if isinstance(model_name, (list, tuple)):
                             model_names = model_name
-                            improve_model = "openai/o1-preview" if "openai/o1-preview" in model_names else (
-                                "anthropic/claude-3.5-sonnet:beta" if "anthropic/claude-3.5-sonnet:beta" in model_names else (
-                                    "anthropic/claude-3-opus:beta" if "anthropic/claude-3-opus:beta" in model_names else
-                                    model_names[0]))
+                            improve_model = model_hierarchies(model_names)
                         else:
                             model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
                                             "openai/o1-mini",
@@ -2234,3 +2244,21 @@ def extract_user_answer(text):
     else:
         # If no <answer> tags are found, return the entire text
         return text.strip()
+    
+    
+def model_hierarchies(model_names: List[str]):
+    if "gpt-4o" in model_names:
+        improve_model = "gpt-4o"
+    elif "anthropic/claude-3.5-sonnet:beta" in model_names:
+        improve_model = "anthropic/claude-3.5-sonnet:beta"
+    elif "openai/o1-preview" in model_names:
+        improve_model = "openai/o1-preview"
+    elif "o1-preview" in model_names:
+        improve_model = "o1-preview"
+    elif "o1-mini" in model_names:
+        improve_model = "o1-mini"
+    elif "anthropic/claude-3-opus:beta" in model_names:
+        improve_model = "anthropic/claude-3-opus:beta"
+    else:
+        improve_model = model_names[0]
+    return improve_model

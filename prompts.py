@@ -16,6 +16,7 @@ Other instructions:
 2. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
 3. Maintain academic rigor and academic tone throughout the report.
 4. Be critical, skeptical and question the work done in the paper.
+5. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
 Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details. Section 2 must cover all about the methodology and the approach used in the paper, and why it is important and needed and how it improves over previous work.\n""".lstrip()
 
@@ -42,6 +43,7 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
    - Maintain logical flow and coherence
    - Employ efficient sentence structure
    - Balance technical accuracy with readability
+   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
 5. Quality Control:
    - Verify all information is accurate
@@ -141,6 +143,8 @@ Instructions for this iteration:
    - Performance considerations
    - Error handling and edge cases
    - Integration points and interfaces
+   
+Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
 Write your denser technical summary below:
 """.lstrip()
@@ -170,6 +174,8 @@ Instructions for this iteration:
    - Cause-and-effect relationships
    - Comparative analysis
    - Practical applications
+   
+Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
 Write your denser summary below:
 """.lstrip()
