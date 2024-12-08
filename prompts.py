@@ -292,6 +292,7 @@ user's most recent message:
 <|/user_message|>
 
 Response to the user's query:
+<|assistant_response|>
 """,
 
             web_search_question_answering_prompt=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>

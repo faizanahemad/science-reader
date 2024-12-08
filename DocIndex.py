@@ -368,7 +368,7 @@ Comprehensive Summary:
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
         if "arxiv" in self.doc_source:
         
-            llm2 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+            llm2 = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
             llm3 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
             method_prompt = prompts.paper_details_map["methodology"]
             method_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the methodology used in the paper."

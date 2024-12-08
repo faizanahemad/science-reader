@@ -589,17 +589,21 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option>Is Coding Request</option>
                 <option>Paper Summary</option>
-                <option>Short</option>
                 <option>Long</option>
                 <option>CoT</option>
+                <option>Short</option>
+                <option>No Lazy</option>
+                <option>Easy Copy</option>
+                <option>no ai</option>
+                
                 <option>md format</option>
                 <option>TTS</option>
                 <option>better formatting</option>
                 <option>no format</option>
-                <option>no ai</option>
+                
                 <option>No Code Exec</option>
                 <option>Code Exec</option>
-                <option>Easy Copy</option>
+                
                 <option>Short references</option>
                 <option>Latex Eqn</option>
                 <option>Comparison</option>
@@ -607,7 +611,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Creative</option>
                 <option>Argumentative</option>
                 <option>Blackmail</option>
-                <option selected>No Lazy</option>
+                
                 <option>Web Search</option>
             </select>
         </div>
@@ -632,13 +636,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <option>Mistral Large</option>
                 <option>gpt-4-turbo</option>
-                <option>o1-mini</option>
-                <option>openai/o1-mini</option>
-                <option>Command-r+</option>
+                <!-- option>o1-mini</option -->
+                <!-- option>openai/o1-mini</option -->
+                <!-- option>Command-r+</option -->
                 <option>DeepSeek-V2.5 Chat</option>
-                <option>Jamba</option>
+                <!-- option>Jamba</option -->
                 <option>llama-3.1-405b</option>
-                <option>Qwen 2</option>
+                <!-- option>Qwen 2</option -->
                 
                 
                 <option>Hermes llama-3.1-405b</option>
