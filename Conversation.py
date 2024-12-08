@@ -456,8 +456,8 @@ Compact list of bullet points:
 
 
     def get_message_ids(self, query, response):
-        user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False))
-        response_message_id = str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False))
+        user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query["messageText"] if isinstance(query, dict) else query, signed=False))
+        response_message_id = str(mmh3.hash(self.conversation_id + self.user_id + response["messageText"] if isinstance(response, dict) else response, signed=False))
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
     @timer
