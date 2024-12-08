@@ -634,7 +634,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
 
-                <option>Mistral Large</option>
+                <!-- option>Mistral Large</option -->
                 <option>gpt-4-turbo</option>
                 <!-- option>o1-mini</option -->
                 <!-- option>openai/o1-mini</option -->
