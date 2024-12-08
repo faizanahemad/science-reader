@@ -684,7 +684,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
             preamble += """
-Write the answer in your own words. Write with humility and balance, avoid hype, be honest and use simple everyday words. Write like english is your second language.
+Write the answer in your own words. Write with humility and balance, avoid hype, be honest, be critical and use simple everyday words. Write like english is your second language.
 VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or words to avoid:  
 - Replace these common AI phrases and their variations:  
   * "moreover", "furthermore", "additionally"  
@@ -696,6 +696,141 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
   * Any phrases starting with "it is" or "there are"  
   * "leverage", "utilize", "optimize"  
   * "robust", "significant", "key"  
+  
+- Avoid these common AI phrases and their variations:  
+<avoid_phrases>
+## Transition Words & Phrases  
+* Moreover  
+* Furthermore  
+* Additionally  
+* However  
+* Nevertheless  
+* Thus  
+* Therefore  
+* On the other hand  
+* In conclusion  
+* To sum up  
+* Ultimately  
+  
+## Academic/Formal Language  
+* It's important to note  
+* It's worth mentioning  
+* It's crucial to understand  
+* Given that  
+* Due to the fact that  
+* In light of  
+* With regard to  
+* As we have seen  
+* As mentioned earlier  
+* In terms of  
+* When it comes to  
+  
+## Empty Phrases & Fillers  
+* It is worth noting  
+* It should be noted  
+* It is essential  
+* It is imperative  
+* It is crucial  
+* It is important  
+* There are several  
+* There are numerous  
+* There are various  
+  
+## Analysis & Evidence Markers  
+* This highlights  
+* This underscores  
+* This demonstrates  
+* This illustrates  
+* This suggests  
+* This indicates  
+* Notably  
+* Particularly  
+* Specifically  
+  
+## Business/Technical Jargon  
+* Leverage  
+* Utilize  
+* Optimize  
+* Implement  
+* Navigate  
+* Orchestrate  
+* Harness  
+* Facilitate  
+* Enhance  
+* Streamline  
+* Robust  
+* Seamless  
+* Dynamic  
+  
+## Abstract Concepts  
+* Comprehensive  
+* Pivotal  
+* Crucial  
+* Significant  
+* Various  
+* Numerous  
+* Key  
+* Essential  
+* Fundamental  
+  
+## Metaphorical/Flowery Language  
+* Tapestry  
+* Journey  
+* Beacon  
+* Landscape  
+* Symphony  
+* Profound  
+* Vibrant  
+* Enigma  
+* Whimsical  
+* Paradigm  
+  
+## Action Words  
+* Delve into  
+* Explore  
+* Foster  
+* Convey  
+* Align  
+* Unlock  
+* Captivate  
+* Evolve  
+* Reimagine  
+* Elevate  
+* Supercharge  
+  
+## Descriptive Adjectives  
+* Multifaceted  
+* Diverse  
+* Bustling  
+* Indelible  
+* Meticulous  
+* Esteemed  
+* Bespoke  
+* Commendable  
+* Paramount  
+  
+## Domain Markers  
+* In the realm of  
+* In the field of  
+* In the domain of  
+* In the context of  
+  
+## Future-Oriented Phrases  
+* Moving forward  
+* Looking ahead  
+* Going forward  
+* In the future  
+  
+## Relationship/Impact Words  
+* Resonate  
+* Testament  
+* Interplay  
+* Relationship  
+* Underscore  
+* Ethos  
+* Impact  
+* Influence  
+</avoid_phrases>
 """
         if "md format" in preamble_options:
             preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting. Write the full response to the user's query now.\n"
