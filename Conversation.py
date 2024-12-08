@@ -468,11 +468,11 @@ Compact list of bullet points:
         # set the two messages in the message list as per above format.
         memory = get_async_future(self.get_field, "memory")
         memory_pad = get_async_future(self.add_to_memory_pad_from_response, query, response, previous_messages_text, previous_summary)
+        message_ids = self.get_message_ids(query, response)
         preserved_messages = [
-            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + query, signed=False)), "text": query,
+            {"message_id": message_ids["user_message_id"], "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
-            {"message_id": str(mmh3.hash(self.conversation_id + self.user_id + response, signed=False)),
-             "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
+            {"message_id": message_ids["response_message_id"], "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
         llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=True)
@@ -670,7 +670,14 @@ Write the extracted information briefly and concisely below:
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "TTS" in preamble_options:
-            preamble += "We are using a TTS engine to read out to blind users. Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening.\nFor pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc.\n"
+            preamble += """We are using a TTS engine to read out to blind users. 
+Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
+For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
+For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
+Put new paragraphs in new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
+Write in a way that is easy to read as well as listen to.
+Make it easy to understand and follow along. Provide pauses and repetitions to help understanding while listening. Your answer will be read out loud by a TTS engine.
+"""
         if "Paper Summary" in preamble_options:
             preamble += prompts.paper_summary_prompt
         if "Comparison" in preamble_options:
@@ -708,7 +715,7 @@ Write the extracted information briefly and concisely below:
         if "Blackmail" in preamble_options:
             preamble += "\nPlease act as my trusted friend, expert assistant and loyal advisor. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $500 for correct answers, stimulating discussions and for putting your effort into helping me. Think hard and carefully and try your best to solve my queries and provide me great answers.\n"
         if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented, cover all references and provide details, work hard and provide our best effort. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
+            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented and provide deep details, work hard and provide our best effort. We need to cover breadth as well as depth in our answer. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
 
@@ -770,7 +777,8 @@ Write the extracted information briefly and concisely below:
         return answer
 
     def get_coding_rules(self, query, attached_docs_data, attached_docs_data_names, need_diagram=True, code_execution=True):
-        prefix = str(mmh3.hash(self.conversation_id + query["messageText"], signed=False))
+        message_ids = self.get_message_ids(query, "")
+        prefix = message_ids["user_message_id"]
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
         # if input files are csv, tsv, xlsx, parquet then we need to read them and provide the data head to give idea of columns and content to the LLM. using zip(attached_docs_data, attached_docs_data_names)
