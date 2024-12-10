@@ -353,7 +353,7 @@ Respond in the following xml like format:
     </document_type>
     
     <key_aspects>
-    [List of key aspects]
+    [List of key aspects for understanding the document]
     </key_aspects>
     
     <key_takeaways>
