@@ -12,7 +12,7 @@ Then proceed with the following 6 sections in your report -
 6) Glossary of uncommon terms used in the paper and their meanings comprehensively.
 
 Other instructions:
-1. All sections must be detailed, comprehensive and in-depth. All sections must be easy to understand and follow.
+1. All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 2. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
 3. Maintain academic rigor and academic tone throughout the report.
 4. Be critical, skeptical and question the work done in the paper.

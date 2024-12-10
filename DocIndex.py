@@ -317,6 +317,7 @@ class DocIndex:
         # while hasattr(self, "long_summary_waiting") and time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
         #     time.sleep(0.1)
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        long_summary = ""
         if hasattr(self, "_long_summary"):
             yield self._long_summary
             return
@@ -345,32 +346,77 @@ Allowed document types:
 Document text:
 {text}
 
-Respond in the following format:
-Document Type: [Your identified document type]
-Key Aspects: [List of key aspects]
-Key Takeaways: [List of key takeaways in short bullet points]
-Key words: [List of key words]
-Summary Plan: [Outline of the summary plan]
+Respond in the following xml like format:
+<response>
+    <document_type>
+    [Your identified document type]
+    </document_type>
+    
+    <key_aspects>
+    [List of key aspects]
+    </key_aspects>
+    
+    <key_takeaways>
+    [Detailed list of key takeaways in bullet points]
+    </key_takeaways>
+    
+    
+    <detailed_summary_prompt>
+    [Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.]
+    </detailed_summary_prompt>
+    </response>
+</response>
+
+Your response should be in the xml format given above. Write the response below.
 """.lstrip()
             
+            
             identification = llm(identify_prompt.format(text=text[:3000]), temperature=0.7, stream=False)
-            document_type = identification.split("Document Type: ")[1].split("\n")[0].lower()
+            document_type = identification.split("<document_type>")[1].split("</document_type>")[0].lower()
+            key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower()
+            key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower()
+            
+            long_summary += f"\n\n<b> Document Type: {document_type} </b> \n"
+            yield f"\n\n<b> Document Type: {document_type} </b> \n"
+            
+            long_summary += f"\n\n<b> Key Aspects: \n{key_aspects} </b> \n"
+            yield f"\n\n<b> Key Aspects: \n{key_aspects} </b> \n"
+            
+            long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} </b> \n"
+            yield f"\n\n<b> Key Takeaways: \n{key_takeaways} </b> \n"
+            
+            detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower()
             if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
             # Step 2: Generate the comprehensive summary
             summary_prompt = """We have read the document and following is the analysis of the document:
 
-{identification}
+Document Type: {document_type}
 
-Now, create a comprehensive, detailed, and in-depth summary of the entire document. Follow the Summary Plan and ensure all Key Aspects are addressed. The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
+Key Aspects: 
+{key_aspects}
+
+Key Takeaways: 
+{key_takeaways}
+
+Use the below guidelines to generate the summary:
+
+{detailed_summary_prompt}
+
+Now, create a comprehensive, detailed, and in-depth summary of the entire document. 
+Follow the Summary Plan and ensure all Key Aspects are addressed. 
+The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
+Use the Detailed Summary Prompt to guide the LLM to generate the summary.
+All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
+Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
 Full document text:
 {text}
 
-Comprehensive Summary:
+Comprehensive and In-depth Summary:
 """.lstrip()
-            llm_context = summary_prompt.format(identification=identification, text=text)
+            llm_context = summary_prompt.format(document_type=document_type, key_aspects=key_aspects, key_takeaways=key_takeaways, detailed_summary_prompt=detailed_summary_prompt, text=text)
             
             
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
@@ -386,7 +432,7 @@ Comprehensive Summary:
             literature_ans_generator = llm3(literature_prompt, temperature=0.7, stream=True)
             
             
-        long_summary = ""
+        
         for ans in ans_generator:
             long_summary += ans
             yield ans
