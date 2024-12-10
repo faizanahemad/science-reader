@@ -347,25 +347,30 @@ Document text:
 {text}
 
 Respond in the following xml like format:
+
+```xml
 <response>
-    <document_type>
-    [Your identified document type]
-    </document_type>
-    
-    <key_aspects>
-    [List of key aspects for understanding the document]
-    </key_aspects>
-    
-    <key_takeaways>
-    [Detailed list of key takeaways in bullet points]
-    </key_takeaways>
-    
-    
-    <detailed_summary_prompt>
-    [Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.]
-    </detailed_summary_prompt>
-    </response>
+
+<document_type>
+[Your identified document type]
+</document_type>
+
+<key_aspects>
+[List of key aspects for understanding the document]
+</key_aspects>
+
+<key_takeaways>
+[Detailed list of key takeaways in bullet points]
+</key_takeaways>
+
+
+<detailed_summary_prompt>
+[Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.]
+</detailed_summary_prompt>
+
 </response>
+```
+
 
 Your response should be in the xml format given above. Write the response below.
 """.lstrip()
