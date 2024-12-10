@@ -372,20 +372,21 @@ Your response should be in the xml format given above. Write the response below.
             
             
             identification = llm(identify_prompt.format(text=text[:3000]), temperature=0.7, stream=False)
-            document_type = identification.split("<document_type>")[1].split("</document_type>")[0].lower()
-            key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower()
-            key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower()
+            document_type = identification.split("<document_type>")[1].split("</document_type>")[0].lower().strip()
+            key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower().strip()
+            key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower().strip()
             
-            long_summary += f"\n\n<b> Document Type: {document_type} </b> \n"
-            yield f"\n\n<b> Document Type: {document_type} </b> \n"
+            long_summary += f"\n\n<b> Document Type: {document_type} \n</b> \n"
+            yield f"\n\n<b> Document Type: {document_type} \n</b> \n"
             
-            long_summary += f"\n\n<b> Key Aspects: \n{key_aspects} </b> \n"
-            yield f"\n\n<b> Key Aspects: \n{key_aspects} </b> \n"
+            long_summary += f"\n\n<b> Key Aspects: \n{key_aspects} \n</b> \n"
+            yield f"\n\n<b> Key Aspects: \n{key_aspects} \n</b> \n"
             
-            long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} </b> \n"
-            yield f"\n\n<b> Key Takeaways: \n{key_takeaways} </b> \n"
+            long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
+            yield f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
             
-            detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower()
+            detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower().strip()
+            logger.info(f"Document Type: {document_type}, ")
             if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
@@ -420,7 +421,7 @@ Comprehensive and In-depth Summary:
             
             
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
-        if "arxiv" in self.doc_source or document_type == "scientific paper":
+        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
         
             llm2 = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
             llm3 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
@@ -437,7 +438,7 @@ Comprehensive and In-depth Summary:
             long_summary += ans
             yield ans
             
-        if "arxiv" in self.doc_source or document_type == "scientific paper":
+        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
             long_summary += "\n\n <b> ### More Details on their methodology </b> \n"
             yield "\n\n <b> ### More Details on their methodology </b> \n"
             for ans in method_ans_generator:
