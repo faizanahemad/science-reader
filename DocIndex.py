@@ -325,17 +325,22 @@ class DocIndex:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             llm = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
+            document_type = "scientific paper"
             
-
         else:
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
+            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
             
             # Step 1: Identify document type and key aspects
             identify_prompt = """
 Analyze the following document and:
-1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.).
+1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.) from the list of allowed document types.
 2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
 3. Outline a plan for creating an in-depth summary. We need to ensure all Key Aspects are addressed. Any key takeaways and important points are included.
+
+Allowed document types:
+```
+["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
+```
 
 Document text:
 {text}
@@ -349,6 +354,9 @@ Summary Plan: [Outline of the summary plan]
 """.lstrip()
             
             identification = llm(identify_prompt.format(text=text[:3000]), temperature=0.7, stream=False)
+            document_type = identification.split("Document Type: ")[1].split("\n")[0].lower()
+            if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
+                raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
             # Step 2: Generate the comprehensive summary
             summary_prompt = """We have read the document and following is the analysis of the document:
@@ -366,7 +374,7 @@ Comprehensive Summary:
             
             
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
-        if "arxiv" in self.doc_source:
+        if "arxiv" in self.doc_source or document_type == "scientific paper":
         
             llm2 = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
             llm3 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
@@ -383,7 +391,7 @@ Comprehensive Summary:
             long_summary += ans
             yield ans
             
-        if "arxiv" in self.doc_source:
+        if "arxiv" in self.doc_source or document_type == "scientific paper":
             long_summary += "\n\n <b> ### More Details on their methodology </b> \n"
             yield "\n\n <b> ### More Details on their methodology </b> \n"
             for ans in method_ans_generator:
