@@ -744,27 +744,22 @@ Cover the below points while answering and also add other necessary points as ne
     - how do they solve the problem, provide details?
     - Why do they solve this particular problem?
     - what is their justification in using this method? Why do they use this method? 
-    - Any insights from their methods
-    - Any drawbacks in their method or process
     - What mathematical formulations or equations are used in the work, their meaning and justification?
-    - Evaluate the soundness and innovation of the proposed methodology. Are the techniques well-justified?  
-    - Consider the novelty of the proposed methodology and its potential to advance the state-of-the-art. Is the proposed methodology just a simple extension of existing methods?
-    - Consider whether the methodology is appropriate for the problem being addressed.  
+    - Is the proposed methodology just a simple extension of existing methods?
     
 Writing Instructions:
 - Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
 - Write in a friendly and engaging tone in full sentences.
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 """,
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.
 Cover the below points while answering and also add other necessary points as needed.
     - Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
     - What is this work's unique contribution over previous works?
-    - what previous literature or works are referred to?
-    - How are the previous works relevant to the problem this method is solving?
-    - how their work is different from previous literature?
+    - what previous literature or works are referred to and how are they relevant to the problem this method is solving?
     - What improvements does their work bring over previous methods.
     
 Writing Instructions:
@@ -772,6 +767,7 @@ Writing Instructions:
 - Write in a friendly and engaging tone in full sentences and paragraphs.
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 """,
             "experiments_and_evaluation":"""
 Read the document and provide information about "Experiments and Evaluation" of the work.
@@ -783,6 +779,13 @@ Cover the below points while answering and also add other necessary points as ne
     - Are there any experiments with surprising insights?
     - Any other surprising experiments or insights
     - Any drawbacks in their evaluation or experiments
+    
+Writing Instructions:
+- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
+- Write in a friendly and engaging tone in full sentences and paragraphs.
+- Be detail oriented and provide all necessary information.
+- Focus on readability, clarity and informativeness.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 """,
             "results_and_comparison": """
 Read the document and provide information about "Results" of the work.
@@ -791,6 +794,13 @@ Cover the below points while answering and also add other necessary points as ne
     - how does this method perform compared to other methods?
     - Make markdown tables to highlight most important results.
     - Any Insights or surprising details from their results and their tables
+    
+Writing Instructions:
+- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
+- Write in a friendly and engaging tone in full sentences and paragraphs.
+- Be detail oriented and provide all necessary information.
+- Focus on readability, clarity and informativeness.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 """,
             "limitations_and_future_work":"""
 Read the document and provide information about "Limitations and Future Work" of the work. 
@@ -800,6 +810,13 @@ Cover the below points while answering and also add other necessary points as ne
     - What are some further future research opportunities for this domain as a follow up to this method?
     - What are some tangential interesting research questions or problems that a reader may want to follow upon?
     - What are some overlooked experiments which could have provided more insights into this approach or work.
+    
+Writing Instructions:
+- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
+- Write in a friendly and engaging tone in full sentences and paragraphs.
+- Be detail oriented and provide all necessary information.
+- Focus on readability, clarity and informativeness.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 """,
 
             }

@@ -589,7 +589,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option>Is Coding Request</option>
                 <option>Paper Summary</option>
-                <option>Long</option>
+                <option selected>Long</option>
                 <option>CoT</option>
                 <option>Short</option>
                 <option>No Lazy</option>
