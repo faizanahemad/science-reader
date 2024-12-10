@@ -757,10 +757,10 @@ Writing Instructions:
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.
 Cover the below points while answering and also add other necessary points as needed.
-    - Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?) 
-    - What is this work's unique contribution over previous works?
-    - what previous literature or works are referred to and how are they relevant to the problem this method is solving?
-    - What improvements does their work bring over previous methods.
+    - Original Problem and previous work in the area (What specific problems does this paper address? What has been done already and why that is not enough?). Go into details about the previous methods and how they are not enough.
+    - What is this work's unique contribution above and beyond previous works?
+    - Give in-depth details about what previous literature or works are referred to and how are they relevant to the problem this method is solving?
+    - Provide detailed comparison of their work with previous methods and how their work improves over previous methods.
     
 Writing Instructions:
 - Write fully formed sentences and paragraphs with complete thoughts for ease of reading.

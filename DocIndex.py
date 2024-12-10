@@ -444,13 +444,13 @@ Comprehensive and In-depth Summary:
             yield ans
             
         if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
-            long_summary += "\n\n <b> ### More Details on their methodology </b> \n"
-            yield "\n\n <b> ### More Details on their methodology </b> \n"
+            long_summary += "\n\n ## More Details on their methodology \n"
+            yield "\n\n ## More Details on their methodology \n"
             for ans in method_ans_generator:
                 long_summary += ans
                 yield ans
-            long_summary += "\n\n <b> ### Previous Literature and Differentiation </b> \n"
-            yield "\n\n <b> ### Previous Literature and Differentiation </b> \n"
+            long_summary += "\n\n ## Previous Literature and Differentiation \n"
+            yield "\n\n ## Previous Literature and Differentiation \n"
             for ans in literature_ans_generator:
                 long_summary += ans
                 yield ans
