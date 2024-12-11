@@ -590,6 +590,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Is Coding Request</option>
                 <option>Paper Summary</option>
                 <option selected>Long</option>
+                <option selected>Explain Maths</option>
                 <option>CoT</option>
                 <option>Short</option>
                 <option>No Lazy</option>

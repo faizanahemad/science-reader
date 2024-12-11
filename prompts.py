@@ -17,8 +17,19 @@ Other instructions:
 3. Maintain academic rigor and academic tone throughout the report.
 4. Be critical, skeptical and question the work done in the paper.
 5. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
+6. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding.
 
 Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details. Section 2 must cover all about the methodology and the approach used in the paper, and why it is important and needed and how it improves over previous work.\n""".lstrip()
+
+GeneralSummary=f"""\nYou will write a detailed, elaborate, comprehensive and in-depth research report on the provided link or document in context. 
+
+In the report first write a two paragraphs for extended summary of what the document does, its purpose and why it's important. Then proceed with writing in detail and depth about the document.
+
+Other instructions:
+1. All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
+2. Maintain rigor and professional tone throughout the report.
+3. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
+""".lstrip()
 
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
@@ -752,7 +763,7 @@ Writing Instructions:
 - Write in a friendly and engaging tone in full sentences.
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
 """,
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.

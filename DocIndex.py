@@ -384,8 +384,7 @@ Your response should be in the xml format given above. Write the response below.
             long_summary += f"\n\n<b> Document Type: {document_type} \n</b> \n"
             yield f"\n\n<b> Document Type: {document_type} \n</b> \n"
             
-            long_summary += f"\n\n<b> Key Aspects: \n{key_aspects} \n</b> \n"
-            yield f"\n\n<b> Key Aspects: \n{key_aspects} \n</b> \n"
+            
             
             long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
             yield f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
@@ -413,7 +412,7 @@ Use the below guidelines to generate the summary:
 Now, create a comprehensive, detailed, and in-depth summary of the entire document. 
 Follow the Summary Plan and ensure all Key Aspects are addressed. 
 The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
-Use the Detailed Summary Prompt to guide the LLM to generate the summary.
+Use the Detailed Summary Prompt to guide the LLM to generate the summary. Cover the key aspects in depth in your long and comprehensive report.
 All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
 
