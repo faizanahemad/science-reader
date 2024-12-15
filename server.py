@@ -954,7 +954,8 @@ def transcribe_audio():
                 transcription = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio,
-                    response_format="text"
+                    response_format="text",
+                    language='en'
                 )
 
                 # Return the transcribed text
