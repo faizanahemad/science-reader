@@ -2309,7 +2309,9 @@ truncate_text_for_others = truncate_text_for_gpt4
 
 def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
-    if model_name == "gpt-4-turbo":
+    if model_name == "openai/o1":
+        model_name = "openai/o1"
+    elif model_name == "gpt-4-turbo":
         model_name = "gpt-4-turbo"
     elif model_name == "gpt-4o":
         model_name = "gpt-4o"
@@ -2390,6 +2392,8 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "anthropic/claude-3.5-sonnet:beta"
     elif "openai/o1-preview" in model_names:
         improve_model = "openai/o1-preview"
+    elif "openai/o1" in model_names:
+        improve_model = "openai/o1"
     elif "o1-preview" in model_names:
         improve_model = "o1-preview"
     elif "o1-mini" in model_names:
