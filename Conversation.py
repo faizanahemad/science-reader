@@ -1096,6 +1096,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         links = list(set([l.strip() for l in query["links"] if
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
+        if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText']:
+            links = []
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
         
         pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+)'
@@ -2309,7 +2311,9 @@ truncate_text_for_others = truncate_text_for_gpt4
 
 def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
-    if model_name == "openai/o1":
+    if model_name == "o1":
+        model_name = "o1"
+    elif model_name == "openai/o1":
         model_name = "openai/o1"
     elif model_name == "gpt-4-turbo":
         model_name = "gpt-4-turbo"
