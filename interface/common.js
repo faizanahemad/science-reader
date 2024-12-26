@@ -591,10 +591,17 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Paper Summary</option>
                 <option selected>Long</option>
                 <option selected>Explain Maths</option>
+                <option>No Lazy</option>
+                <option>Argumentative</option>
+                <option>Blackmail</option>
+                <option>ML System Design Roleplay</option>
+                <option>ML System Design Answer</option>
+                <option>Easy Copy</option>
+                
                 <option>CoT</option>
                 <option>Short</option>
-                <option>No Lazy</option>
-                <option>Easy Copy</option>
+                
+                
                 <option>no ai</option>
                 
                 <option>md format</option>
@@ -610,8 +617,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Comparison</option>
                 <option>Explore</option>
                 <option>Creative</option>
-                <option>Argumentative</option>
-                <option>Blackmail</option>
+                
                 
                 <option>Web Search</option>
             </select>
