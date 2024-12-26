@@ -1096,9 +1096,11 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         links = list(set([l.strip() for l in query["links"] if
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
-        if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText']:
-            links = []
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
+        
+        # if any of the patterns are present in query['messageText'], then set links to [], don't process links
+        if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText'] or "no_link_processing" in query['messageText'] or "no_link_parsing" in query['messageText']  or "no_links_parsing" in query['messageText'] or "parse_no_links" in query['messageText'] or "parse_no_link" in query['messageText'] or "avoid_links_processing" in query['messageText'] or "avoid_link_parsing" in query['messageText'] or "avoid_link_processing" in query['messageText']:
+            links = []
         
         pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+)'
         attached_docs_for_summary = re.findall(pattern, query['messageText'])
