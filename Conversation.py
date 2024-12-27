@@ -686,6 +686,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "ML System Design Answer" in preamble_options:
             preamble += prompts.ml_system_design_answer
             
+        if "ML System Design Answer Short" in preamble_options:
+            preamble += prompts.ml_system_design_answer_short
+            
         if "Comparison" in preamble_options:
             preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
