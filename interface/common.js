@@ -595,6 +595,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Argumentative</option>
                 <option>Blackmail</option>
                 <option>ML System Design Roleplay</option>
+                <option>No Links</option>
                 
                 <option>ML System Design Answer</option>
                 <option>ML System Design Answer Short</option>

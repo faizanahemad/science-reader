@@ -1054,6 +1054,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preambles.append("Paper Summary")
             preambles.append("Long")
             preambles.append("Latex Eqn")
+            preambles.append("Explain Maths")
 
 
         retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
@@ -1109,6 +1110,9 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         
         # if any of the patterns are present in query['messageText'], then set links to [], don't process links
         if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText'] or "no_link_processing" in query['messageText'] or "no_link_parsing" in query['messageText']  or "no_links_parsing" in query['messageText'] or "parse_no_links" in query['messageText'] or "parse_no_link" in query['messageText'] or "avoid_links_processing" in query['messageText'] or "avoid_link_parsing" in query['messageText'] or "avoid_link_processing" in query['messageText']:
+            links = []
+            
+        if "No Links" in preambles:
             links = []
         
         pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+)'
