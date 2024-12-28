@@ -43,6 +43,16 @@ var ConversationManager = {
         });
     },
 
+    cloneConversation: function (conversationId) {
+        return $.ajax({
+            url: '/clone_conversation/' + conversationId,
+            type: 'POST',
+            success: function (result) {
+                ConversationManager.setActiveConversation(result.conversation_id);
+            }
+        });
+    },
+
     statelessConversation: function (conversationId) {
         return $.ajax({
             url: '/make_conversation_stateless/' + conversationId,
@@ -772,7 +782,7 @@ function loadConversations(autoselect = true) {
         data.forEach(function (conversation) {
             var conversationItem = $('<a href="#" class="list-group-item list-group-item-action" data-conversation-id="' + conversation.conversation_id + '"></a>');
             var deleteButton = $('<small><button class="btn p-0 ms-2 delete-chat-button"><i class="bi bi-trash-fill"></i></button></small>');
-
+            var cloneButton = $('<small><button class="btn p-0 ms-2 clone-conversation-button"><i class="bi bi-clone"></i></button></small>');
             conversationItem.append('<strong class="conversation-title-in-sidebar">' + conversation.title.slice(0, 60).trim() + '</strong></br>');
             conversationItem.append(deleteButton);
 
@@ -807,6 +817,13 @@ function loadConversations(autoselect = true) {
             event.stopPropagation();
             var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
             ConversationManager.deleteConversation(conversationId);
+        });
+
+        $('.clone-conversation-button').click(function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
+            ConversationManager.cloneConversation(conversationId);
         });
 
         // Handle click events for the stateless button

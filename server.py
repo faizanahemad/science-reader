@@ -827,6 +827,19 @@ def edit_message_from_conversation(conversation_id, message_id, index):
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
 
+@app.route('/clone_conversation/<conversation_id>', methods=['POST'])
+@limiter.limit("25 per minute")
+@login_required
+def clone_conversation(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+    new_conversation: Conversation = conversation.clone_conversation()
+    new_conversation.save_local()
+    addConversationToUser(email, new_conversation.conversation_id)
+    conversation_cache[new_conversation.conversation_id] = new_conversation
+    return jsonify({'message': f'Conversation {conversation_id} cloned', 'conversation_id': new_conversation.conversation_id})
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
 @limiter.limit("5000 per minute")

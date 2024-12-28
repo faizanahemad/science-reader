@@ -1,3 +1,4 @@
+import secrets
 import shutil
 
 from filelock import FileLock
@@ -285,6 +286,63 @@ Compact list of bullet points:
                 logger.error(
                     f"Error deleting local storage {folder} with error {e}")
             return None
+    
+    def clone_conversation(self):
+        # Create new storage path for clone
+        uuid = ''.join(secrets.choice(alphabet) for i in range(6))
+        new_conversation_id = f"{self.conversation_id}_clone_{uuid}"
+        new_storage = os.path.join(os.path.dirname(self._storage), new_conversation_id)
+        os.makedirs(new_storage, exist_ok=True)
+        
+        # Create new conversation with correct parameters
+        new_conversation = Conversation(
+            user_id=self.user_id,
+            openai_embed=None,  # Will be set via set_api_keys
+            storage=new_storage,
+            conversation_id=new_conversation_id,
+            domain=self.domain
+        )
+        
+        # Set API keys
+        new_conversation.set_api_keys(self.get_api_keys())
+        
+        # Properties with getters/setters
+        new_conversation.domain = self.domain
+        new_conversation.stateless = self.stateless
+        new_conversation.doc_infos = self.doc_infos
+        new_conversation.running_summary = self.running_summary
+        new_conversation.memory_pad = self.memory_pad if hasattr(self, '_memory_pad') else ''
+        
+        # Clone uploaded documents
+        uploaded_docs = self.get_field("uploaded_documents_list") or []
+        if uploaded_docs:
+            # Copy document files to new storage
+            new_docs_path = os.path.join(new_storage, "uploaded_documents")
+            os.makedirs(new_docs_path, exist_ok=True)
+            for doc_id, doc_storage, pdf_url in uploaded_docs:
+                if os.path.exists(doc_storage):
+                    new_doc_storage = os.path.join(new_docs_path, os.path.basename(doc_storage))
+                    shutil.copytree(doc_storage, new_doc_storage, dirs_exist_ok=True)
+        new_conversation.set_field("uploaded_documents_list", uploaded_docs)
+        
+        # Clone other fields
+        fields_to_clone = [
+            "title",
+            "summary_till_now", 
+            "last_updated",
+            "memory",
+            "messages",
+            "indices",
+            "raw_documents",
+            "raw_documents_index"
+        ]
+        
+        for field in fields_to_clone:
+            value = self.get_field(field)
+            if value is not None:
+                new_conversation.set_field(field, value)
+                
+        return new_conversation
     
     def delete_conversation(self):
         try:
