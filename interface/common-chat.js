@@ -785,6 +785,7 @@ function loadConversations(autoselect = true) {
             var cloneButton = $('<small><button class="btn p-0 ms-2 clone-conversation-button"><i class="bi bi-clone"></i></button></small>');
             conversationItem.append('<strong class="conversation-title-in-sidebar">' + conversation.title.slice(0, 60).trim() + '</strong></br>');
             conversationItem.append(deleteButton);
+            conversationItem.append(cloneButton);
 
             // Add a button for conversation state
             var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
