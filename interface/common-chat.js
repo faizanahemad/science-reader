@@ -782,7 +782,7 @@ function loadConversations(autoselect = true) {
         data.forEach(function (conversation) {
             var conversationItem = $('<a href="#" class="list-group-item list-group-item-action" data-conversation-id="' + conversation.conversation_id + '"></a>');
             var deleteButton = $('<small><button class="btn p-0 ms-2 delete-chat-button"><i class="bi bi-trash-fill"></i></button></small>');
-            var cloneButton = $('<small><button class="btn p-0 ms-2 clone-conversation-button"><i class="bi bi-clone"></i></button></small>');
+            var cloneButton = $('<small><button class="btn p-0 ms-2 clone-conversation-button"><i class="bi bi-copy"></i></button></small>');
             conversationItem.append('<strong class="conversation-title-in-sidebar">' + conversation.title.slice(0, 60).trim() + '</strong></br>');
             conversationItem.append(deleteButton);
             conversationItem.append(cloneButton);
