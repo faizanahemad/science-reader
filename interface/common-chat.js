@@ -48,7 +48,10 @@ var ConversationManager = {
             url: '/clone_conversation/' + conversationId,
             type: 'POST',
             success: function (result) {
-                ConversationManager.setActiveConversation(result.conversation_id);
+                loadConversations(true).done(function () {
+                    // Set the new conversation as the active conversation and highlight it
+                    ConversationManager.setActiveConversation(result.conversation_id);
+                });
             }
         });
     },
