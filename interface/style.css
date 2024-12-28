@@ -157,6 +157,43 @@
     color: red;
 }
 
+/* Clone button for Chat */
+.list-group-item-action .clone-conversation-button {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;            /* Adjust padding as needed */
+    color: #000000;
+}
+
+.clone-conversation-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
+.clone-conversation-button:visited {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: #551A8B;
+}
+
+.list-group-item-action.active .clone-conversation-button,
+.list-group-item-action.active .clone-conversation-button:visited {
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px; 
+    color: #FFFFFF;
+}
+
+.list-group-item-action.active .clone-conversation-button:hover {
+    border: 1px solid #000000;  /* Change color as needed */
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;   
+    color: red;
+}
+
 /* Show details button for Chat */
 .list-group-item-action .stateless-button {
     border: 1px solid #000000;  /* Change color as needed */
