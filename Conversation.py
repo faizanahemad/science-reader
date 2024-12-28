@@ -327,9 +327,6 @@ Compact list of bullet points:
         
         # Clone other fields
         fields_to_clone = [
-            "title",
-            "summary_till_now", 
-            "last_updated",
             "memory",
             "messages",
             "indices",
@@ -341,8 +338,9 @@ Compact list of bullet points:
             value = self.get_field(field)
             if value is not None:
                 new_conversation.set_field(field, value)
-                
+                    
         return new_conversation
+    
     
     def delete_conversation(self):
         try:
