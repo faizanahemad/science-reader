@@ -1,9 +1,9 @@
 import secrets
 import shutil
-
+from prompts import tts_friendly_format_instructions
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
+from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -558,6 +558,63 @@ Your response will be in below xml style format:
         self.save_local()
         msg_set.result()
         memory_pad.result()
+        
+    def convert_to_tts(self, text, message_id, message_index):
+        """
+        Convert text to speech using TTSAgent.
+        
+        Args:
+            text (str): Text to convert to speech
+            message_id (str|None): Message ID for the text
+            message_index (int): Index of the message
+            
+        Returns:
+            str: Path to the audio file
+        """
+        # Create audio messages directory
+        audio_dir = os.path.join(self._storage, "audio_messages")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        # If message_id is None or undefined, try to get it from the last message
+        if not message_id or str(message_id) == "None" or str(message_id) == "" or str(message_id).lower() == "nan" or str(message_id).lower() == "undefined":
+            messages = self.get_field("messages")
+            if messages:
+                message_id = messages[-1].get("message_id")
+            
+        if not message_id:
+            logger.error(f"Could not determine message_id for index {message_index}")
+            return None
+        
+        # Use consistent filename format
+        filename = f"{message_id}.mp3"
+        audio_path = os.path.join(audio_dir, filename)
+        
+        # If audio file already exists, return its path
+        if os.path.exists(audio_path):
+            # if it is an mp3 file, return its path
+            if audio_path.endswith(".mp3"):
+                logger.info(f"Found existing audio file for message_id {message_id}")
+                return audio_path
+            else:
+                logger.info(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
+                raise Exception(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
+            
+        try:
+            # Initialize TTSAgent with the specific output path
+            tts_agent = TTSAgent(
+                keys=self.get_api_keys(),
+                storage_path=audio_path,
+                convert_to_tts_friendly_format=True
+            )
+            
+            # Convert text to audio and get the output path
+            output_path = tts_agent(text)
+            
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Error converting text to speech: {e}")
+            return None
 
     def delete_message(self, message_id, index):
         index = int(index)
@@ -726,12 +783,9 @@ Write the extracted information briefly and concisely below:
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "TTS" in preamble_options:
-            preamble += """We are using a TTS engine to read out to blind users. 
-Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
-For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
-For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
-Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
-Write in a way that is easy to read as well as listen to.
+            preamble += f"""We are using a TTS engine to read out to blind users. 
+{tts_friendly_format_instructions}
+
 Make it easy to understand and follow along. Provide pauses and repetitions to help understanding while listening. Your answer will be read out loud by a TTS engine.
 """
         if "Engineering Excellence" in preamble_options:

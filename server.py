@@ -940,6 +940,44 @@ def get_conversation_output_docs(conversation_id, document_file_name):
         return jsonify({"message": "Document not found"}), 404
 
 
+@app.route('/tts/<conversation_id>/<message_id>', methods=['POST'])
+@login_required
+def tts(conversation_id, message_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    text = request.json.get('text')
+    message_index = request.json.get('message_index')
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    location = conversation.convert_to_tts(text, message_id, message_index)
+    import requests
+    import tempfile
+    import os
+    
+    # Download the file
+    response = requests.get('https://download.samplelib.com/mp3/sample-15s.mp3')
+    
+    # Create temp file
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+    temp.write(response.content)
+    temp.close()
+    
+    # Send file and cleanup
+    try:
+        # return send_file(temp.name, mimetype='audio/mpeg')
+        pass
+    finally:
+        os.unlink(temp.name)
+    return send_file(location, mimetype='audio/mpeg')
+
+@app.route('/is_tts_done/<conversation_id>/<message_id>', methods=['POST'])
+def is_tts_done(conversation_id, message_id):
+    text = request.json.get('text')
+    return jsonify({"is_done": True}), 200
 
 
 

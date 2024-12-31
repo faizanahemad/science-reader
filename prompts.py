@@ -1,6 +1,19 @@
 import os
 from copy import deepcopy
 
+tts_friendly_format_instructions = """
+**TTS Guidelines for TTS friendly format**:
+  - Insert **two newlines** between major content sections to create natural pauses in speech.  
+  - **Avoid code snippets and complex tables** that are not conducive to audio understanding.  
+  - Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
+  - Provide visual cues and imagination cues to help the listener understand the text better.
+  - For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 words, and looks as `speaking …`. 
+  - For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
+  - Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
+  - If you are writing code, then write pseudocode or very small python code snippets which are less than 4096 characters.
+  - Ensure that each individual semantic chunk of text is small and less than 4096 characters.
+"""
+
 engineering_excellence_prompt = """
 # Software Engineering Excellence: Goals and Best Practices  
   
@@ -204,7 +217,7 @@ Your responsiblity is to ensure that a given question and its solutions follow t
 """
 
 
-coding_interview_tts_friendly_prompt = """
+coding_interview_tts_friendly_prompt = f"""
 # LLM Prompt for TTS-Friendly Interview Coding Preparation  
   
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. Your explanations are tailored for learners who are listening in audio-only mode.  
@@ -390,14 +403,8 @@ Help prepare us for technical interviews at the senior or staff level.
   - Use clear, conversational language suitable for audio learning.  
   - Maintain a **patient**, **encouraging**, and **supportive** tone.  
   
-- **Formatting for TTS**:  
-  - Insert **two newlines** between major content sections to create natural pauses in speech.  
-  - **Avoid code snippets and complex tables** that are not conducive to audio understanding.  
-  - Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
-  - For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
-  - For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
-  - Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
-  
+{tts_friendly_format_instructions}
+
 - **Descriptive Explanations**:  
   - Use **vivid descriptions** and **analogies** to illustrate concepts.  
   - **Guide** the listener through logical reasoning and problem-solving steps.  

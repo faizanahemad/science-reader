@@ -226,7 +226,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     copyBtn.click(function () {
         // Here we get the card text and copy it to the clipboard
         // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
-        copyToClipboard(cardElem, text.replace('<answer>', '').replace('</answer>', ''));
+        copyToClipboard(cardElem, text.replace('<answer>', '').replace('</answer>', '').trim());
     });
     editBtn.off();
     editBtn.click(function () {
@@ -244,12 +244,45 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         });
     });
 
+    let ttsBtn = $('<button>').addClass('vote-btn').addClass('tts-btn').text('🔊');
+    ttsBtn.click(function () {
+        messageId = cardElem.find('.card-header').last().attr('message-id');
+        messageIndex = cardElem.find('.card-header').last().attr('message-index');
+        
+        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem)
+            .then(response => {
+                // Create blob URL from the response
+                const audioUrl = URL.createObjectURL(response);
+                
+                // Create audio player
+                let audioPlayer = $('<audio controls>').addClass('tts-audio')
+                    .attr('src', audioUrl)
+                    .css({
+                        'height': '30px',
+                        'width': Math.min(window.innerWidth * 0.4, 400) + 'px'
+                    });
+                
+                // Clean up blob URL when audio is done
+                audioPlayer.on('ended', function() {
+                    URL.revokeObjectURL(audioUrl);
+                });
+                
+                // Replace TTS button with audio player
+                ttsBtn.replaceWith(audioPlayer);
+            })
+            .catch(error => {
+                console.error('TTS Error:', error);
+                alert('Failed to convert text to speech: ' + error);
+            });
+    });
+
     let voteBox = $('<div>').addClass('vote-box').css({
         'position': 'absolute',
         'top': '5px',
         'right': '30px'
     });
     
+    voteBox.append(ttsBtn);
     voteBox.append(editBtn);
     voteBox.append(copyBtn);
     // delete any previous votebox and add the new one
@@ -257,6 +290,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     cardElem.append(voteBox);
     return
 }
+
 const markdownParser = new marked.Renderer();
 marked.setOptions({
     renderer: markdownParser,

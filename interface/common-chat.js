@@ -133,6 +133,22 @@ var ConversationManager = {
         });
     },
 
+    convertToTTS: function (text, messageId, messageIndex, cardElem) {
+        activeConversationId = this.activeConversationId
+        return $.ajax({
+            url: '/tts/' + activeConversationId + '/' + messageId,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ 'text': text, 'message_id': messageId, 'message_index': messageIndex }),
+            xhrFields: {
+                responseType: 'blob'
+            },
+            success: function (result) {
+                console.log("TTS done");
+            }
+        });
+    },
+
     fetchMemoryPad: function () {
         activeConversationId = this.activeConversationId
         return $.ajax({

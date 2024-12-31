@@ -1,5 +1,6 @@
 from typing import Union, List
 import uuid
+from prompts import tts_friendly_format_instructions
 
 import os
 import tempfile
@@ -36,17 +37,11 @@ class TTSAgent(Agent):
         super().__init__(keys)
         self.storage_path = storage_path
         self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
-        self.client = OpenAI()
-        self.system = """
+        self.client = OpenAI(api_key=os.environ.get("openAIKey", keys["openAIKey"]))
+        self.system = f"""
 You are an expert TTS agent. You will be given a text and you need to convert it into a TTS friendly format.
 
-TTS Guidelines for TTS friendly format:
-- Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
-- For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
-- For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
-- Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
-- Make it easy to understand and follow along. Provide pauses and repetitions to help understanding while listening. 
-- Ensure that the TTS friendly answer is not missing any details and elaborations present in the original answer.
+{tts_friendly_format_instructions}
 
 """
 
@@ -61,12 +56,45 @@ Write your response with TTS friendly answer using the above TTS Guidelines and 
 
 
 
+    def is_tts_friendly(self, text):
+        """
+        Check if the text is already in TTS-friendly format by looking for
+        specific markers like pauses, tone indicators, and ensuring chunks
+        are within size limits.
+        
+        Args:
+            text (str): The text to check
+            
+        Returns:
+            bool: True if text appears to be TTS-friendly, False otherwise
+        """
+        # Check for pause markers
+        pause_pattern = r'\*(?:pause|short pause)\*'
+        
+        # Check for tone indicators - matches [speaking ...] or [positive tone] etc.
+        tone_pattern = r'\[(speaking|positive|cautious|serious)(?:\s+\w+)?\]'
+        
+        # Check for enumeration markers
+        enumeration_pattern = r'(?:Firstly|Secondly|Thirdly)'
+        
+        # Check format markers
+        has_markers = bool(re.search(pause_pattern, text, re.IGNORECASE) or 
+                        re.search(tone_pattern, text, re.IGNORECASE) or 
+                        re.search(enumeration_pattern, text))
+        
+        # Check chunk sizes
+        chunks = text.split('\n\n')
+        MAX_CHUNK_SIZE = 4000
+        chunks_within_limit = all(len(chunk.strip()) <= MAX_CHUNK_SIZE for chunk in chunks)
+        
+        return has_markers and chunks_within_limit
+    
     def __call__(self, text, images=[], temperature=0.2, stream=False, max_tokens=None, system=None, web_search=False):
         # Convert to TTS friendly format if needed
-        if self.convert_to_tts_friendly_format:
+        if self.convert_to_tts_friendly_format and not self.is_tts_friendly(text):
             llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
             text = llm(self.prompt.format(text=text), images=images, temperature=temperature, 
-                      stream=stream, max_tokens=max_tokens, system=self.system)
+                      stream=False, max_tokens=max_tokens, system=self.system)
 
         # Create temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -91,7 +119,8 @@ Write your response with TTS friendly answer using the above TTS Guidelines and 
                         )
                 
                 # Collect results
-                for future in concurrent.futures.as_completed(futures):
+                # Wait for all futures to complete and process in original order
+                for future in futures:
                     chunk_file = future.result()
                     if chunk_file:
                         chunk_files.append(chunk_file)
@@ -282,7 +311,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
             answer += f"{web_search_results}\n\n"
         else:
-            llm = CallLLm(self.keys, model_name="gpt-4o")
+            llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
             # Write a prompt for the LLM to generate queries and contexts
             llm_prompt = self.llm_prompt.format(text=text)
 
