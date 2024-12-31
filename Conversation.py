@@ -92,7 +92,7 @@ Write the new extracted information below in compact bullet points.
 ## New Information:
 
 """
-        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
         new_memory = llm(prompt, temperature=0.2, stream=False)
         new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
@@ -119,7 +119,7 @@ Compact list of bullet points:
 
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 2):
-                llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=False)
+                llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
                 if i + 1 < len(memory_parts):
                     memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
                 else:
@@ -531,7 +531,7 @@ Compact list of bullet points:
             {"message_id": message_ids["response_message_id"], "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
         msg_set = get_async_future(self.set_field, "messages", preserved_messages)
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 18000, 10_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -687,7 +687,7 @@ Now lets extract relevant information for answering the current user query from 
 Extract and copy relevant information verbatim from the above conversation messages and summary and paste it below.
 Write the extracted information briefly and concisely below:
 """
-        final_information = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:2000])
@@ -730,10 +730,19 @@ Write the extracted information briefly and concisely below:
 Can you write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
 For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
 For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
-Put new paragraphs in new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
+Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
 Write in a way that is easy to read as well as listen to.
 Make it easy to understand and follow along. Provide pauses and repetitions to help understanding while listening. Your answer will be read out loud by a TTS engine.
 """
+        if "Engineering Excellence" in preamble_options:
+            preamble += prompts.engineering_excellence_prompt
+            
+        if "Coding Interview" in preamble_options:
+            preamble += prompts.coding_interview_prompt
+            
+        if "Coding Interview TTS Friendly" in preamble_options:
+            preamble += prompts.coding_interview_tts_friendly_prompt
+        
         if "Paper Summary" in preamble_options:
             preamble += prompts.paper_summary_prompt
         if "ML System Design Roleplay" in preamble_options:
@@ -1090,7 +1099,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
         if enable_planner:
             # TODO: use gpt4o with planner. Don't execute code unless user has asked to explicitly execute code.
-            planner_text_gen = CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True)(planner_prompt,
+            planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True)(planner_prompt,
                                                                                           temperature=0.2, stream=True)
         elif checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
@@ -1551,7 +1560,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                                                                                  previous_web_search_results=query_results,
                                                                                  previous_web_search_queries=queries,
                                                                                  previous_web_search_results_text=full_web_string)
-                search_decision = CallLLm(self.get_api_keys(), use_16k=True,
+                search_decision = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_16k=True,
                                          use_gpt4=False)(query_is_answered_by_search, temperature=0.3, stream=False)
                 search_decision = search_decision.strip().lower()
                 search_decision = parser_fn(search_decision)
@@ -1642,7 +1651,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                                                                doc_answer='', web_text="\n"+full_web_string,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                answer_summary = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_16k=True,
+                answer_summary = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_16k=True,
                                          use_gpt4=True)(prompt, temperature=0.3, stream=False)
                 # web_text_accumulator.append((answer_summary, f"[Generated Answer from {start + 1} to {end + 1}](No Link)", answer_summary))
                 et = time.time()
@@ -1994,7 +2003,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                     # answer += f"We had an exception in answering using model - {model_name}"
                     yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
                         "status": "stage 2 answering in progress"}
-                    llm = CallLLm(self.get_api_keys(), use_gpt4=True, use_16k=True)
+                    llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
                     while len(answer) <= 10 and not isinstance(main_ans_gen, str):
                         t2y = next(main_ans_gen)
@@ -2079,7 +2088,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
                 success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],
                                                                                               coding_rules,
-                                                                                              CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), model_name="gpt-4o", use_gpt4=True, use_16k=True),
+                                                                                              CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0], use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True),
                                                                                               code_to_execute, session=code_session)
                 if success:
                     successfull_code = code_string

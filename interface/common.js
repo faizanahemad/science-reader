@@ -607,6 +607,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <option>ML System Design Answer</option>
                 <option>ML System Design Answer Short</option>
+
+                <option>Engineering Excellence</option>
+                <option>Coding Interview</option>
+                <option>Coding Interview TTS Friendly</option>
+
                 <option>Easy Copy</option>
                 
                 <option>CoT</option>
@@ -651,12 +656,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>o1-preview</option>
 
                 
-                <option>o1</option>
+                <!-- option>o1</option -->
                 
                 
                 
                 
-                <option>openai/o1</option>
+                <!-- option>openai/o1</option -->
                 
                 
                 

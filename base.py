@@ -252,8 +252,8 @@ class CallMultipleLLM:
         self.model_names = model_names
 
         self.merge = merge
-        self.merge_model = CallLLm(keys, model_name=merge_model) if merge_model is not None else CallLLm(keys, model_name="gpt-4-turbo")
-        self.backup_model = CallLLm(keys, model_name="gpt-4-turbo", use_gpt4=True, use_16k=True)
+        self.merge_model = CallLLm(keys, model_name=merge_model) if merge_model is not None else CallLLm(keys, model_name=EXPENSIVE_LLM[0])
+        self.backup_model = CallLLm(keys, model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True)
         self.models:List[CallLLm] = [CallLLm(keys, model_name=model_name) for model_name in model_names]
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
@@ -423,7 +423,7 @@ Only provide answer from the document given above.
 """
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
-    def get_one(self, context, document, model_name="google/gemini-pro", limit=64_000):
+    def get_one(self, context, document, model_name=LONG_CONTEXT_LLM[0], limit=64_000):
         document = " ".join(document.split()[:limit])
         prompt = self.prompt.format(context=context, document=document)
         if get_gpt3_word_count(prompt) > 100_000:
@@ -438,15 +438,15 @@ Only provide answer from the document given above.
             traceback.print_exc()
 
             prompt = self.prompt.format(context=context, document=document)
-            llm = CallLLm(self.keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
             result = llm(prompt, temperature=0.4, stream=False)
         assert isinstance(result, str)
         return result
 
-    def get_one_chunked(self, context, document, model_name="google/gemini-flash-1.5", limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
+    def get_one_chunked(self, context, document, model_name=CHEAP_LONG_CONTEXT_LLM[0], limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
         try:
             short_reading = get_async_future(self.get_one, "Provide a short summary", document,
-                                             model_name, 16_000)
+                                             CHEAP_LONG_CONTEXT_LLM[0], 16_000)
             document = " ".join(document.split()[:limit])
             context = context + "\n\nShort summary of the document to help your reading is below." + sleep_and_get_future_result(short_reading)
             chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -465,8 +465,8 @@ Only provide answer from the document given above.
         join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
             x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
             y) + "\n<|/LLM_2|>"
-        result = join_two_futures(get_async_future(CallLLm(self.keys, model_name="google/gemini-flash-1.5"), prompt, temperature=0.4, stream=False),
-                                  get_async_future(CallLLm(self.keys, model_name="openai/gpt-4o-mini"), prompt, temperature=0.4, stream=False), join_method
+        result = join_two_futures(get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False),
+                                  get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
                                   )
 
         result = sleep_and_get_future_result(result)
@@ -524,11 +524,11 @@ Only provide answer from the document given above.
         doc_word_count = len(text_document.split())
         logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
         if preferred_model is None and doc_word_count < 200_000:
-            preferred_model = "google/gemini-flash-1.5"
+            preferred_model = CHEAP_LONG_CONTEXT_LLM[1]
         elif preferred_model is None and doc_word_count > 200_000:
-            preferred_model = "google/gemini-pro-1.5"
+            preferred_model = LONG_CONTEXT_LLM[0]
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
-        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, "google/gemini-flash-1.5-8b", 200_000),
+        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[0], 200_000),
                                                    get_async_future(self.get_one, context_user_query, text_document, preferred_model, 200_000), join_method)
         if self.provide_short_responses:
             result = sleep_and_get_future_result(initial_reading)
@@ -545,7 +545,7 @@ Only provide answer from the document given above.
             return sleep_and_get_future_result(initial_reading), initial_reading
 
         elif doc_word_count > 32_000:
-            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document, "openai/gpt-4o-mini", 100_000, 32_000, 2_000)
+            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document,CHEAP_LLM[0], 100_000, 32_000, 2_000)
             global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
         if global_reading is None:
@@ -1532,8 +1532,8 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         im.save(image_file_path, quality=90)
         mb_size_2 = os.path.getsize(image_file_path) / 1_000
         print(mb_size_1, mb_size_2)
-        llm1 = CallLLm(self.keys, model_name="google/gemini-pro-1.5")
-        llm2 = CallLLm(self.keys, model_name="gpt-4o")
+        llm1 = CallLLm(self.keys, model_name=LONG_CONTEXT_LLM[0])
+        llm2 = CallLLm(self.keys, model_name=CHEAP_LLM[0])
         system, prompt = self.ocr_efficient_prompt(page_text)
         llm1_res = get_async_future(llm1, prompt, images=[image_file_path], system=system)
         llm2_res = get_async_future(llm2, prompt, images=[image_file_path], system=system)
@@ -1778,14 +1778,14 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     use_original_query = False
     if (len(extra_queries) == 0) or (len(extra_queries) <= 1 and provide_detailed_answers >= 2):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
-        query_strings = CallLLm(api_keys, use_gpt4=False, model_name="gpt-4o")(prompt, temperature=0.5, max_tokens=100)
+        query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(prompt, temperature=0.5, max_tokens=100)
         query_strings.split("###END###")[0].strip()
         logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
         query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
         query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
 
         if len(query_strings) == 0:
-            query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
+            query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(prompt, temperature=0.2, max_tokens=100)
             query_strings.split("###END###")[0].strip()
             query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
             query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
@@ -2320,7 +2320,7 @@ def simple_web_search_with_llm(keys, user_context, queries, gscholar, provide_de
     # web_search_result = simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
     if no_llm:
         return web_search_result
-    llm = CallLLm(keys, model_name="gpt-4o")
+    llm = CallLLm(keys, model_name=CHEAP_LLM[0])
     llm_prompt = f"""
 You are a helpful AI assistant tasked with helping perform research using web search results. Use the given user context and web search results to create a detailed response. Your analysis should:
 
@@ -2466,9 +2466,9 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     is_image = sleep_and_get_future_result(is_image_link_future)
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_image:
-        llm = CallLLm(api_keys, use_gpt4=True, use_16k=True, model_name="anthropic/claude-3-haiku:beta")
+        llm = CallLLm(api_keys, use_gpt4=True, use_16k=True, model_name=EXPENSIVE_LLM[0])
         doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[link], stream=False)
-        llm = CallLLm(api_keys, use_gpt4=True, model_name="gpt-4o")
+        llm = CallLLm(api_keys, use_gpt4=True, model_name=CHEAP_LLM[0])
         new_context = context.replace(link, 'this given image')
         prompt = prompts.deep_caption_prompt_with_query(query=new_context)
         # prompt = f"You are an AI expert at reading images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. OCR the image, extract text, tables, data, charts or plot information or any other text and tell me what this image says. Then answer the query: {context}"
@@ -2958,14 +2958,14 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
 def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, provide_detailed_answers=False, provide_raw_text=True, dont_join_answers=False):
     # prompt = prompts.document_search_prompt.format(context=query, doc_context=current_doc_summary)
     # api_keys = additional_docs[0].get_api_keys()
-    # query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100)
+    # query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100, model_name=CHEAP_LLM[0])
     # query_strings.split("###END###")[0].strip()
     # logger.debug(f"Query string for {query} = {query_strings}")  # prompt = \n```\n{prompt}\n```\n
     # query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
     # # select the longest string from the above array
     #
     # if len(query_strings) == 0:
-    #     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100)
+    #     query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.2, max_tokens=100, model_name=CHEAP_LLM[0])
     #     query_strings.split("###END###")[0].strip()
     #     query_strings = [q.strip() for q in parse_array_string(query_strings.strip())[:4]]
     # query_strings = sorted(query_strings, key=lambda x: len(x), reverse=True)

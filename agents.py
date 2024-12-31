@@ -1,9 +1,17 @@
 from typing import Union, List
 import uuid
 
+import os
+import tempfile
+import shutil
+import concurrent.futures
+import logging
+from openai import OpenAI
+from pydub import AudioSegment  # For merging audio files
+
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
-from common import get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
+from common import CHEAP_LLM, get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
 from loggers import getLoggers
 import logging
 import re
@@ -22,6 +30,124 @@ class Agent:
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         pass
 
+
+class TTSAgent(Agent):
+    def __init__(self, keys, storage_path, convert_to_tts_friendly_format=True):
+        super().__init__(keys)
+        self.storage_path = storage_path
+        self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
+        self.client = OpenAI()
+        self.system = """
+You are an expert TTS agent. You will be given a text and you need to convert it into a TTS friendly format.
+
+TTS Guidelines for TTS friendly format:
+- Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
+- For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 or 3 words, and looks as `speaking …`. 
+- For enumerations use `Firstly,`, `Secondly,`, `Thirdly,` etc. For repetitions use `repeating`, `repeating again`, `repeating once more` etc. Write in a good hierarchy and structure. 
+- Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs. 
+- Make it easy to understand and follow along. Provide pauses and repetitions to help understanding while listening. 
+- Ensure that the TTS friendly answer is not missing any details and elaborations present in the original answer.
+
+"""
+
+        self.prompt = self.system + """
+Original answer:
+<|context|>
+{text}
+</|context|>\n\n
+
+Write your response with TTS friendly answer using the above TTS Guidelines and the original answer below:
+"""
+
+
+
+    def __call__(self, text, images=[], temperature=0.2, stream=False, max_tokens=None, system=None, web_search=False):
+        # Convert to TTS friendly format if needed
+        if self.convert_to_tts_friendly_format:
+            llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
+            text = llm(self.prompt.format(text=text), images=images, temperature=temperature, 
+                      stream=stream, max_tokens=max_tokens, system=self.system)
+
+        # Create temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Split text into chunks
+            chunks = text.split('\n\n')
+            chunk_files = []
+
+            # Process chunks in parallel
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = []
+                
+                # Submit tasks for each chunk
+                for i, chunk in enumerate(chunks):
+                    if chunk.strip():  # Skip empty chunks
+                        temp_file = os.path.join(temp_dir, f'chunk_{i}.mp3')
+                        futures.append(
+                            executor.submit(
+                                self._generate_audio_chunk,
+                                chunk.strip(),
+                                temp_file
+                            )
+                        )
+                
+                # Collect results
+                for future in concurrent.futures.as_completed(futures):
+                    chunk_file = future.result()
+                    if chunk_file:
+                        chunk_files.append(chunk_file)
+
+            # Determine final output path
+            if self.storage_path.endswith('.mp3'):
+                output_path = self.storage_path
+            else:
+                os.makedirs(self.storage_path, exist_ok=True)
+                output_path = os.path.join(self.storage_path, 'output.mp3')
+
+            # Merge audio files if there are multiple chunks
+            if len(chunk_files) > 1:
+                self._merge_audio_files(chunk_files, output_path)
+            elif len(chunk_files) == 1:
+                shutil.copy2(chunk_files[0], output_path)
+
+        return output_path
+
+    def _generate_audio_chunk(self, text, output_file):
+        """Generate audio for a single chunk of text"""
+        try:
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice="nova",  # Using nova as default, can be made configurable
+                input=text
+            )
+            response.stream_to_file(output_file)
+            return output_file
+        except Exception as e:
+            logger.error(f"Error generating audio for chunk: {e}")
+            return None
+
+    def _merge_audio_files(self, chunk_files, output_path):
+        """Merge multiple audio files into one"""
+        try:
+            from pydub import AudioSegment
+            
+            # Load the first file
+            combined = AudioSegment.from_mp3(chunk_files[0])
+            
+            # Add small pause between chunks (500ms)
+            pause = AudioSegment.silent(duration=500)
+            
+            # Append the rest
+            for chunk_file in chunk_files[1:]:
+                audio_chunk = AudioSegment.from_mp3(chunk_file)
+                combined += pause + audio_chunk
+            
+            # Export the final file
+            combined.export(output_path, format="mp3")
+        except Exception as e:
+            logger.error(f"Error merging audio files: {e}")
+            # If merge fails, copy the first file as fallback
+            if chunk_files:
+                shutil.copy2(chunk_files[0], output_path)
 
 
 class WebSearchWithAgent(Agent):

@@ -127,8 +127,8 @@ class DocIndex:
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
                 chunks = "\n\n".join(raw_data['chunks'][0:4])
-                short_summary = CallLLm(keys, model_name="anthropic/claude-3-haiku:beta", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
-                title = CallLLm(keys, use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+                short_summary = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
+                title = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
                 setattr(self, "_title", title)
                 setattr(self, "_short_summary", short_summary)
             set_title_summary_future = get_async_future(set_title_summary)
@@ -325,11 +325,11 @@ class DocIndex:
         elif "arxiv" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
             document_type = "scientific paper"
             
         else:
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
             
             # Step 1: Identify document type and key aspects
             identify_prompt = """
@@ -427,8 +427,8 @@ Comprehensive and In-depth Summary:
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
         if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
         
-            llm2 = CallLLm(self.get_api_keys(), model_name="gpt-4-turbo")
-            llm3 = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+            llm2 = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[1])
+            llm3 = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
             method_prompt = prompts.paper_details_map["methodology"]
             method_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the methodology used in the paper."
             method_ans_generator = llm2(method_prompt, temperature=0.7, stream=True)
@@ -472,7 +472,7 @@ Comprehensive and In-depth Summary:
             base_summary = make_stream(self.get_doc_long_summary(), False)
         
         
-        llm = CallLLm(self.get_api_keys(), model_name="anthropic/claude-3.5-sonnet:beta")
+        llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
         if "arxiv" in self.doc_source:
             doc_analysis = json.loads("""
                                       {
@@ -543,7 +543,7 @@ Respond in JSON format:
         answer += preamble
         yield preamble
         
-        llm = CallLLm(self.get_api_keys(), model_name="gpt-4o")
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
         
         generator = llm(
             density_prompt.format(
@@ -656,7 +656,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
                 raw_text += "\n\n" + small_raw_text
 
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
-            llm = CallLLm(self.get_api_keys(), model_name="gpt-4o" if detail_level >= 3 else "gpt-4o-mini",
+            llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0] if detail_level >= 3 else CHEAP_LLM[0],
                           use_gpt4=True,
                           use_16k=True)
             additional_info = get_async_future(llm, prompt, temperature=0.8)
@@ -688,7 +688,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
         elif self.doc_type == "image":
             return "image"
         else:
-            title = CallLLm(self.get_api_keys(),model_name="gpt-4o-mini")(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+            title = CallLLm(self.get_api_keys(),model_name=VERY_CHEAP_LLM[0])(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
             setattr(self, "_title", title)
             self.save_local()
             return title
@@ -703,7 +703,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
         elif self.doc_type == "image":
             return "image"
         else:
-            short_summary = CallLLm(self.get_api_keys(), model_name="gpt-4o-mini", use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
+            short_summary = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
             setattr(self, "_short_summary", short_summary)
             self.save_local()
             return short_summary
@@ -837,8 +837,8 @@ class ImageDocIndex(DocIndex):
                                 "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
 
         def complete_init_image_doc_index():
-            llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="gpt-4o")
-            llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name="google/gemini-flash-1.5")
+            llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LLM[0])
+            llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LONG_CONTEXT_LLM[0])
             doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
             doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
 
@@ -919,7 +919,7 @@ class ImageDocIndex(DocIndex):
         doc_text = self.get_doc_data("static_data", "doc_text")
         text = self.brief_summary + doc_text
         if mode["provide_detailed_answers"] >= 3:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name="gpt-4o")
+            llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name=EXPENSIVE_LLM[0])
             prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
             answer = llm(prompt, images=[self.doc_source], temperature=0.7, stream=False)
             yield answer
