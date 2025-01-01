@@ -833,7 +833,11 @@ class NResponseAgent(BestOfNAgent):
             
         }
         
-        
+def is_future_ready(future):
+    """Check if a future is ready without blocking"""
+    return future.done() if hasattr(future, 'done') else True
+
+
 class WhatIfAgent(Agent):
     def __init__(self, keys, writer_models: Union[List[str], str], n_scenarios: int = 3):
         super().__init__(keys)
@@ -926,16 +930,15 @@ Please provide an answer for this modified scenario."""
         return self.writer_models[index % len(self.writer_models)]
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        # Use first model for what-if generation
-        what_if_llm = CallLLm(self.keys, self.writer_models[0])
+        # Start what-if generation immediately in parallel
         what_if_future = get_async_future(
-            what_if_llm,
+            what_if_llm := CallLLm(self.keys, self.writer_models[0]),
             self.what_if_prompt.format(text=text, n_scenarios=self.n_scenarios),
             temperature=temperature,
             stream=False
         )
 
-        # Use first model for initial response
+        # Start initial response streaming immediately
         writer_llm = CallLLm(self.keys, self.writer_models[0])
         initial_response_stream = writer_llm(
             text, 
@@ -946,55 +949,79 @@ Please provide an answer for this modified scenario."""
             system=system
         )
 
-        # Stream initial response
+        # Variables to track state
         initial_response = ""
+        what_if_scenarios = None
+        what_if_futures = []
+        random_identifier = str(uuid.uuid4())
+        
+        # Stream initial response while checking if what-if scenarios are ready
         for chunk in initial_response_stream:
             initial_response += chunk
             yield {"text": chunk, "status": "Generating initial response"}
+            
+            # Check if what-if scenarios are ready (non-blocking)
+            if what_if_scenarios is None and is_future_ready(what_if_future):
+                # Get scenarios and start their responses immediately
+                what_if_response = sleep_and_get_future_result(what_if_future)
+                what_if_scenarios = self.extract_what_ifs(what_if_response)
+                
+                # Start generating what-if responses in parallel
+                for i, scenario in enumerate(what_if_scenarios, 1):
+                    model = self.get_next_model(i)
+                    writer_llm = CallLLm(self.keys, model)
+                    modified_query = self.format_what_if_query(text, scenario)
+                    future = get_async_future(
+                        writer_llm,
+                        modified_query,
+                        images=images,
+                        temperature=temperature,
+                        stream=False,
+                        max_tokens=max_tokens,
+                        system=system
+                    )
+                    what_if_futures.append((scenario, future, model))
 
-        # Get what-if scenarios
-        what_if_response = sleep_and_get_future_result(what_if_future)
-        scenarios = self.extract_what_ifs(what_if_response)
-        
-        # Format scenarios for display
+        # If what-if scenarios weren't ready during streaming, get them now
+        if what_if_scenarios is None:
+            what_if_response = sleep_and_get_future_result(what_if_future)
+            what_if_scenarios = self.extract_what_ifs(what_if_response)
+            
+            # Start generating what-if responses
+            for i, scenario in enumerate(what_if_scenarios, 1):
+                model = self.get_next_model(i)
+                writer_llm = CallLLm(self.keys, model)
+                modified_query = self.format_what_if_query(text, scenario)
+                future = get_async_future(
+                    writer_llm,
+                    modified_query,
+                    images=images,
+                    temperature=temperature,
+                    stream=False,
+                    max_tokens=max_tokens,
+                    system=system
+                )
+                what_if_futures.append((scenario, future, model))
+
+        # Format and yield what-if scenarios
         scenarios_text = "# What-If Scenarios Generated:\n\n"
-        for i, (title, query, explanation) in enumerate(scenarios, 1):
-            model_used = self.get_next_model(i)  # Get model for this scenario
+        for i, (title, query, explanation) in enumerate(what_if_scenarios, 1):
+            model_used = self.get_next_model(i)
             scenarios_text += f"**Scenario {i}: {title}** (Using model: {model_used})\n"
             scenarios_text += f"- Modified Situation: {query}\n"
             scenarios_text += f"- Impact: {explanation}\n\n"
         
         yield {"text": "\n\n" + scenarios_text, "status": "Generated what-if scenarios"}
 
-        # Generate responses for what-if scenarios in parallel
-        futures = []
-        for i, scenario in enumerate(scenarios, 1):
-            model = self.get_next_model(i)  # Get model in round-robin fashion
-            writer_llm = CallLLm(self.keys, model)
-            modified_query = self.format_what_if_query(text, scenario)
-            future = get_async_future(
-                writer_llm,
-                modified_query,
-                images=images,
-                temperature=temperature,
-                stream=False,
-                max_tokens=max_tokens,
-                system=system
-            )
-            futures.append((scenario, future, model))
-
-        # Format all responses with collapsible sections
-        random_identifier = str(uuid.uuid4())
-        
-        # Format initial response
+        # Format initial response with collapsible section
         all_responses = [
             f"**Initial Response** (Using model: {self.writer_models[0]}):\n"
             f"<div data-toggle='collapse' href='#response-{random_identifier}-initial' role='button' aria-expanded='true'></div> "
             f"<div class='collapse show' id='response-{random_identifier}-initial'>\n{initial_response}\n</div>"
         ]
 
-        # Collect and format what-if responses
-        for i, (scenario, future, model) in enumerate(futures, 1):
+        # Collect and format what-if responses as they complete
+        for i, (scenario, future, model) in enumerate(what_if_futures, 1):
             try:
                 response = sleep_and_get_future_result(future)
                 title = scenario[0]
@@ -1012,21 +1039,16 @@ Please provide an answer for this modified scenario."""
             except Exception as e:
                 logger.error(f"Error getting response for scenario {i} with model {model}: {e}")
 
-        # Combine everything into final answer
-        # final_answer = "\n\n".join([
-        #     "# Complete Analysis with What-If Scenarios",
-        #     "\n\n".join(all_responses)
-        # ])
-
+        # Final yield with metadata
         yield {
             "text": "\n\n",
             "status": "Completed what-if analysis",
-            "scenarios": scenarios,
+            "scenarios": what_if_scenarios,
             "initial_response": initial_response,
             "models_used": {
                 "initial": self.writer_models[0],
                 "what_if_generator": self.writer_models[0],
-                "scenario_responses": [self.get_next_model(i) for i in range(1, len(scenarios) + 1)]
+                "scenario_responses": [self.get_next_model(i) for i in range(1, len(what_if_scenarios) + 1)]
             }
         }
 
