@@ -946,6 +946,7 @@ def tts(conversation_id, message_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     text = request.json.get('text')
+    recompute = request.json.get('recompute', False)
     message_index = request.json.get('message_index')
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     if conversation_id not in conversation_ids:
@@ -953,7 +954,7 @@ def tts(conversation_id, message_id):
     else:
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
-    location = conversation.convert_to_tts(text, message_id, message_index)
+    location = conversation.convert_to_tts(text, message_id, message_index, recompute)
     return send_file(location, mimetype='audio/mpeg')
 
 @app.route('/is_tts_done/<conversation_id>/<message_id>', methods=['POST'])

@@ -133,13 +133,18 @@ var ConversationManager = {
         });
     },
 
-    convertToTTS: function (text, messageId, messageIndex, cardElem) {
+    convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false) {
         activeConversationId = this.activeConversationId
         return $.ajax({
             url: '/tts/' + activeConversationId + '/' + messageId,
             type: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ 'text': text, 'message_id': messageId, 'message_index': messageIndex }),
+            data: JSON.stringify({ 
+                'text': text, 
+                'message_id': messageId, 
+                'message_index': messageIndex,
+                'recompute': recompute 
+            }),
             xhrFields: {
                 responseType: 'blob'
             },

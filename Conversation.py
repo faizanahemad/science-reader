@@ -559,7 +559,7 @@ Your response will be in below xml style format:
         msg_set.result()
         memory_pad.result()
         
-    def convert_to_tts(self, text, message_id, message_index):
+    def convert_to_tts(self, text, message_id, message_index, recompute=False):
         """
         Convert text to speech using TTSAgent.
         
@@ -590,7 +590,7 @@ Your response will be in below xml style format:
         audio_path = os.path.join(audio_dir, filename)
         
         # If audio file already exists, return its path
-        if os.path.exists(audio_path):
+        if os.path.exists(audio_path) and not recompute:
             # if it is an mp3 file, return its path
             if audio_path.endswith(".mp3"):
                 logger.info(f"Found existing audio file for message_id {message_id}")

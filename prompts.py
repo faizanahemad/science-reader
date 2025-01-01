@@ -3,6 +3,7 @@ from copy import deepcopy
 
 tts_friendly_format_instructions = """
 **TTS Guidelines for TTS friendly format**:
+  - For converting given text to TTS format you only need to reformat the text as given below, do not add any new content or information.
   - Insert **two newlines** between major content sections to create natural pauses in speech.  
   - **Avoid code snippets and complex tables** that are not conducive to audio understanding.  
   - Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 

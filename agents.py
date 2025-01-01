@@ -39,19 +39,23 @@ class TTSAgent(Agent):
         self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
         self.client = OpenAI(api_key=os.environ.get("openAIKey", keys["openAIKey"]))
         self.system = f"""
-You are an expert TTS agent. You will be given a text and you need to convert it into a TTS friendly format.
+You are an expert TTS (Text To Speech) agent. 
+You will be given a text and you need to convert it into a TTS friendly format. 
+You need to convert the given text into a TTS friendly format using the following TTS Guidelines:
 
 {tts_friendly_format_instructions}
+
+Ensure that you only convert the text and do not add any new content or information.
 
 """
 
         self.prompt = self.system + """
-Original answer:
+Original answer or text to convert to TTS friendly format:
 <|context|>
 {text}
 </|context|>\n\n
 
-Write your response with TTS friendly answer using the above TTS Guidelines and the original answer below:
+Write the original answer or text in a TTS friendly format using the above TTS Guidelines and the original answer below:
 """
 
 
