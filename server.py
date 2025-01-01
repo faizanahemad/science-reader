@@ -954,24 +954,6 @@ def tts(conversation_id, message_id):
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
     location = conversation.convert_to_tts(text, message_id, message_index)
-    import requests
-    import tempfile
-    import os
-    
-    # Download the file
-    response = requests.get('https://download.samplelib.com/mp3/sample-15s.mp3')
-    
-    # Create temp file
-    temp = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-    temp.write(response.content)
-    temp.close()
-    
-    # Send file and cleanup
-    try:
-        # return send_file(temp.name, mimetype='audio/mpeg')
-        pass
-    finally:
-        os.unlink(temp.name)
     return send_file(location, mimetype='audio/mpeg')
 
 @app.route('/is_tts_done/<conversation_id>/<message_id>', methods=['POST'])
