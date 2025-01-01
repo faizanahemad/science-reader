@@ -832,6 +832,203 @@ class NResponseAgent(BestOfNAgent):
             'best_response_index': best_index,
             
         }
+        
+        
+class WhatIfAgent(Agent):
+    def __init__(self, keys, writer_models: Union[List[str], str], n_scenarios: int = 3):
+        super().__init__(keys)
+        self.keys = keys
+        # Convert single model to list for consistent handling
+        self.writer_models = [writer_models] if isinstance(writer_models, str) else writer_models
+        self.n_scenarios = n_scenarios
+        
+        self.what_if_prompt = """
+You are tasked with generating creative "what-if" scenarios that would change the answer to the user's query in interesting ways.
+
+For the given text/query, generate {n_scenarios} alternative what-if scenarios where the answer would be significantly different.
+These scenarios can:
+1. Add new constraints or remove existing ones
+2. Change the context or situation in subtle ways
+3. Introduce unexpected elements
+4. Consider edge cases or extreme situations
+5. Explore creative possibilities
+6. Make sure the scenarios you generate are realistic and grounded in the context of the query and the domain of the query.
+
+Format your response as a Python list of tuples, where each tuple contains:
+1. A brief title for the what-if scenario
+2. The modified query/situation incorporating the what-if
+3. A short explanation of how this changes things
+
+The format should be exactly like this:
+```python
+[
+("Brief Title 1", "Modified query/situation 1", "How this changes things 1"),
+("Brief Title 2", "Modified query/situation 2", "How this changes things 2"),
+...
+]
+```
+
+Original query/text:
+<query>
+{text}
+</query>
+
+Generate exactly {n_scenarios} creative and diverse what-if scenarios that would lead to different answers.
+Write your response as a code block containing only the Python list of tuples.
+"""
+
+
+        
+    def extract_what_ifs(self, response):
+        """Extract and validate the what-if scenarios from LLM response"""
+        import re
+        import ast
+        
+        # Extract code block
+        code_pattern = r"```(?:python)?\s*(.*?)```"
+        matches = re.findall(code_pattern, response, re.DOTALL)
+        
+        if not matches:
+            return []
+            
+        try:
+            # Get the last code block and evaluate it
+            scenarios = ast.literal_eval(matches[-1].strip())
+            
+            # Validate format
+            if not isinstance(scenarios, list) or not all(
+                isinstance(s, tuple) and len(s) == 3 
+                for s in scenarios
+            ):
+                return []
+                
+            return scenarios
+            
+        except Exception as e:
+            logger.error(f"Error parsing what-if scenarios: {e}")
+            return []
+
+    def format_what_if_query(self, original_text: str, what_if: tuple) -> str:
+        """Format the what-if scenario into a query for the LLM"""
+        title, modified_query, explanation = what_if
+        return f"""Original Query/Situation:
+{original_text}
+
+What-if Scenario: {title}
+Modified Situation: {modified_query}
+Impact: {explanation}
+
+Please provide an answer for this modified scenario."""
+
+        
+    def get_next_model(self, index: int) -> str:
+        """Get next model in round-robin fashion"""
+        return self.writer_models[index % len(self.writer_models)]
+
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        # Use first model for what-if generation
+        what_if_llm = CallLLm(self.keys, self.writer_models[0])
+        what_if_future = get_async_future(
+            what_if_llm,
+            self.what_if_prompt.format(text=text, n_scenarios=self.n_scenarios),
+            temperature=temperature,
+            stream=False
+        )
+
+        # Use first model for initial response
+        writer_llm = CallLLm(self.keys, self.writer_models[0])
+        initial_response_stream = writer_llm(
+            text, 
+            images=images,
+            temperature=temperature,
+            stream=True,
+            max_tokens=max_tokens,
+            system=system
+        )
+
+        # Stream initial response
+        initial_response = ""
+        for chunk in initial_response_stream:
+            initial_response += chunk
+            yield {"text": chunk, "status": "Generating initial response"}
+
+        # Get what-if scenarios
+        what_if_response = sleep_and_get_future_result(what_if_future)
+        scenarios = self.extract_what_ifs(what_if_response)
+        
+        # Format scenarios for display
+        scenarios_text = "# What-If Scenarios Generated:\n\n"
+        for i, (title, query, explanation) in enumerate(scenarios, 1):
+            model_used = self.get_next_model(i)  # Get model for this scenario
+            scenarios_text += f"**Scenario {i}: {title}** (Using model: {model_used})\n"
+            scenarios_text += f"- Modified Situation: {query}\n"
+            scenarios_text += f"- Impact: {explanation}\n\n"
+        
+        yield {"text": "\n\n" + scenarios_text, "status": "Generated what-if scenarios"}
+
+        # Generate responses for what-if scenarios in parallel
+        futures = []
+        for i, scenario in enumerate(scenarios, 1):
+            model = self.get_next_model(i)  # Get model in round-robin fashion
+            writer_llm = CallLLm(self.keys, model)
+            modified_query = self.format_what_if_query(text, scenario)
+            future = get_async_future(
+                writer_llm,
+                modified_query,
+                images=images,
+                temperature=temperature,
+                stream=False,
+                max_tokens=max_tokens,
+                system=system
+            )
+            futures.append((scenario, future, model))
+
+        # Format all responses with collapsible sections
+        random_identifier = str(uuid.uuid4())
+        
+        # Format initial response
+        all_responses = [
+            f"**Initial Response** (Using model: {self.writer_models[0]}):\n"
+            f"<div data-toggle='collapse' href='#response-{random_identifier}-initial' role='button' aria-expanded='true'></div> "
+            f"<div class='collapse show' id='response-{random_identifier}-initial'>\n{initial_response}\n</div>"
+        ]
+
+        # Collect and format what-if responses
+        for i, (scenario, future, model) in enumerate(futures, 1):
+            try:
+                response = sleep_and_get_future_result(future)
+                title = scenario[0]
+                
+                response_html = (
+                    f"**What-If Scenario {i}: {title}** (Using model: {model})\n"
+                    f"<div data-toggle='collapse' href='#response-{random_identifier}-{i}' "
+                    f"role='button' aria-expanded='false'></div> "
+                    f"<div class='collapse' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
+                )
+                
+                all_responses.append(response_html)
+                yield {"text": "\n\n" + response_html, "status": f"Generated response for scenario {i} using {model}"}
+                
+            except Exception as e:
+                logger.error(f"Error getting response for scenario {i} with model {model}: {e}")
+
+        # Combine everything into final answer
+        # final_answer = "\n\n".join([
+        #     "# Complete Analysis with What-If Scenarios",
+        #     "\n\n".join(all_responses)
+        # ])
+
+        yield {
+            "text": "\n\n",
+            "status": "Completed what-if analysis",
+            "scenarios": scenarios,
+            "initial_response": initial_response,
+            "models_used": {
+                "initial": self.writer_models[0],
+                "what_if_generator": self.writer_models[0],
+                "scenario_responses": [self.get_next_model(i) for i in range(1, len(scenarios) + 1)]
+            }
+        }
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):

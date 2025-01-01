@@ -3,7 +3,7 @@ import shutil
 from prompts import tts_friendly_format_instructions
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent
+from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
 
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -1008,21 +1008,24 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             pass
         if field == "Prompt_IdeaNovelty":
             pass
+        
+        model_name = kwargs.get("model_name", EXPENSIVE_LLM[0])
         if field == "Agent_IdeaNovelty":
             pass
         if field == "Agent_PerplexitySearch":
-            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90)
+            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "Agent_WebSearch":
-            agent = WebSearchWithAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = WebSearchWithAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_LiteratureReview":
-            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_BroadSearch":
-            agent = BroadSearchAgent(self.get_api_keys(), model_name=kwargs.get("model_name", "gpt-4o"), detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = BroadSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_BestOfN":
-            model_name = kwargs.get("model_name", "gpt-4o")
             agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
         if field == "Agent_NResponseAgent":
-            agent = NResponseAgent(self.get_api_keys(), writer_model=kwargs.get("model_name", "gpt-4o"), n_responses=kwargs.get("n_responses", 3))
+            agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
+        if field == "Agent_WhatIf":
+            agent = WhatIfAgent(self.get_api_keys(), writer_models=model_name, n_scenarios=kwargs.get("n_scenarios", 3))
         if field == "Agent_CodeExecution":
             pass
         if field == "Agent_VerifyAndImprove":
@@ -1320,13 +1323,21 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         
         
         field = checkboxes["field"] if "field" in checkboxes else None
+        model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
+        if isinstance(model_name, (tuple, list)):
+            model_name = list(map(model_name_to_canonical_name, model_name))
+        else:
+            model_name = model_name_to_canonical_name(model_name)
+        if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
+            model_name = model_name[0].strip()
+            
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
             query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
         preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0, detail_level=provide_detailed_answers)
+                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
@@ -1879,14 +1890,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         yield {"text": '', "status": "Preparing prompt context ..."}
         yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
 
-        # TODO: add capability to use mistral-large, Claude OPUS models for answering.
-        model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
-        if isinstance(model_name, (tuple, list)):
-            model_name = list(map(model_name_to_canonical_name, model_name))
-        else:
-            model_name = model_name_to_canonical_name(model_name)
-        if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
-            model_name = model_name[0].strip()
+        
 
         
 

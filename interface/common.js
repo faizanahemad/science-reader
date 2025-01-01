@@ -849,6 +849,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Agent_BroadSearch</option>
                 <option>Agent_BestOfN</option>
                 <option>Agent_NResponseAgent</option>
+                <option>Agent_WhatIf</option>
                 <option>Agent_LiteratureReview</option>
                 
                 <option>Prompt_IdeaNovelty</option>
