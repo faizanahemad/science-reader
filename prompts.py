@@ -6,6 +6,7 @@ tts_friendly_format_instructions = """
   - For converting given text to TTS format you only need to reformat the text as given below, do not add any new content or information.
   - Insert **two newlines** between major content sections to create natural pauses in speech.  
   - **Avoid code snippets and complex tables** that are not conducive to audio understanding.  
+  - If you need to write math or equations, then write very simple math or equations using text which can be read out by TTS.
   - Write the answer in a way that it is TTS friendly without missing any details and elaborations, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
   - Provide visual cues and imagination cues to help the listener understand the text better.
   - For pauses use `*pause*` and `*short pause*`, while for changing voice tones use `[speaking thoughtfully]` , `[positive tone]` , `[cautious tone]`, `[serious tone]`, `[Speaking with emphasis]`, `[Speaking warmly]`, `[Speaking with authority]`, `[Speaking encouragingly]`,  etc, notice that the tones use square brackets and can only have 2 words, and looks as `speaking …`. 

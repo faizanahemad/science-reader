@@ -580,10 +580,17 @@ Your response will be in below xml style format:
             messages = self.get_field("messages")
             if messages:
                 message_id = messages[-1].get("message_id")
+                text = messages[-1].get("text")
             
         if not message_id:
             logger.error(f"Could not determine message_id for index {message_index}")
             return None
+        
+        if message_id:
+            messages = self.get_field("messages")
+            message = next((m for m in messages if m["message_id"] == message_id), None)
+            if message:
+                text = message["text"]
         
         # Use consistent filename format
         filename = f"{message_id}.mp3"
