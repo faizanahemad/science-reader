@@ -2,7 +2,7 @@ import tempfile
 from functools import wraps
 import ast
 import traceback
-from flask import Flask, request, jsonify, send_file, session, redirect, url_for, render_template_string
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
 
 from flask_session import Session
 from DocIndex import DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
@@ -268,8 +268,14 @@ if __name__ == '__main__':
     try:
         check_environment()
         app = OurFlask(__name__)
-        app.config['SESSION_PERMANENT'] = False
-        app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+        app.config['SESSION_PERMANENT'] = True
+        app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+        app.config.update(
+            SESSION_COOKIE_SECURE=True,
+            SESSION_COOKIE_HTTPONLY=True,
+            SESSION_COOKIE_SAMESITE='Lax',
+            PERMANENT_SESSION_LIFETIME=timedelta(days=30)  # Max lifetime for remembered sessions
+        )
         app.config['SESSION_TYPE'] = 'filesystem'
         app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID")
         app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET")
@@ -341,22 +347,23 @@ def check_credentials(username, password):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    error = None
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
         if check_credentials(email, password):
+            session.permanent = True
             session['email'] = email
             session['name'] = email
+            session['created_at'] = datetime.now().isoformat()
+            session['user_agent'] = request.user_agent.string
             return redirect(url_for('interface'))
         else:
-            return "Invalid credentials", 401
-    return '''
-        <form method="post">
-            Username: <input type="text" name="email"><br>
-            Password: <input type="password" name="password"><br>
-            <input type="submit" value="Login">
-        </form>
-    '''
+            error = "Invalid credentials"
+    return render_template_string(
+        open('interface/login.html').read(),
+        error=error
+    )
 
 
 @app.route('/logout')
