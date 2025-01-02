@@ -1169,7 +1169,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             planner_text_gen = ""
         else:
             planner_text_gen = ""
-            # planner_text_gen = CallLLm(self.get_api_keys(), use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            # planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
 
         google_scholar = checkboxes["googleScholar"]

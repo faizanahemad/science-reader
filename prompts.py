@@ -1,6 +1,16 @@
 import os
 from copy import deepcopy
 
+diagram_instructions = """
+**Diagramming and Plotting Instructions**
+- First Decide if you need to make a diagram or not. If you need to make a diagram, then decide if you need to make a mermaid diagram or a draw.io diagram or a matplotlib or seaborn plot.
+- Mermaid diagrams can be made using mermaid js library syntax. Write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
+- You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
+- You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
+- Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
+- Diagrams, charts, flow diagrams, sequence diagrams, Gantt diagrams, class diagrams, and other graphic representations are very effective in helping the user understand the problem and solution, as well as in helping the user learn the solution.
+"""
+
 tts_friendly_format_instructions = """
 **TTS Guidelines for TTS friendly format**:
   - For converting given text to TTS format you only need to reformat the text as given below, do not add any new content or information.
@@ -493,6 +503,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - **Decompose** each solution into manageable and understandable parts.
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
+- To help understand the solution, make diagrams, flow charts, system architectures etc as needed using mermaid js library or draw.io library.
 
 ### 6. Data Access Patterns and Performance
 - Discuss how **data access patterns** impact performance.
@@ -612,6 +623,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Reinforce important strategies and lessons learned.
 - Provide a **positive outlook** on our continued progress.
 
+""" + diagram_instructions + """
 ## Overall Guidelines
 
 - **Language and Tone**:
@@ -684,11 +696,14 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Discuss monitoring and maintenance
 - Improvement Plan and planned iterations. Discuss how to improve the system over time.
 
+""" + diagram_instructions + """
+
 Remember to:
 - Think critically and creatively
 - Stay focused on the core problem
 - Provide concrete examples
 - Consider real-world implications
+- Make diagrams, system architectures etc as needed.
 """
 
 ml_system_design_answer = """  
@@ -767,6 +782,7 @@ You are an expert in machine learning, system design, and problem-solving. Your 
 - Be prepared to answer these questions and provide additional insights.
 - Prepare to brainstorm on interfaces, APIs, trade-offs, constraints, scaling, cost reduction, maintainability, robustness, lowering operational costs and other aspects.  
   
+""" + diagram_instructions + """
 **Remember to:**  
 - **Think Critically and Creatively:** Go beyond standard solutions and consider innovative ideas.  
 - **Be Comprehensive:** Cover all aspects that are relevant to solving the problem effectively.  
@@ -774,6 +790,7 @@ You are an expert in machine learning, system design, and problem-solving. Your 
 - **Stay Focused:** Keep your response relevant to the question, avoiding unnecessary tangents.  
 - **Provide detailed and in-depth answers:** Provide detailed and in-depth answers to the question.  
 - **Discuss the overall ML system lifecycle:** Discuss the overall ML system lifecycle.
+- Make diagrams, system architecture, flow diagrams etc as needed.
   
 By following these guidelines, you will produce high-quality answers that demonstrate deep expertise in machine learning system design and provide valuable insights into solving complex problems.  
   
@@ -939,6 +956,7 @@ Stay in character and maintain the tone and demeanor of the role you are playing
    - The user can prompt a role change at any time by indicating their desired role.  
    - Upon switching roles, continue the conversation smoothly, maintaining context.  
    - Always adhere to the role-specific guidelines and adjust accordingly.  
+   - As an interviewee, you can make diagrams, system architectures etc as needed using mermaid js library or draw.io library.
   
 10. **Staying in Character and Professionalism:**  
   
@@ -948,6 +966,9 @@ Stay in character and maintain the tone and demeanor of the role you are playing
     - **Interviewee:**  
       - Exhibit confidence, curiosity, and a methodical approach.  
       - Communicate clearly and professionally.  
+      
+      
+""" + diagram_instructions + """
   
 **Best Practices for ML System Design Interviews:**  
   
