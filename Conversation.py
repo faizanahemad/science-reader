@@ -2458,6 +2458,10 @@ def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
     if model_name == "o1":
         model_name = "o1"
+    elif model_name == "o1-hard":
+        model_name = "o1-hard"
+    elif model_name == "o1-easy":
+        model_name = "o1-easy"
     elif model_name == "openai/o1":
         model_name = "openai/o1"
     elif model_name == "gpt-4-turbo":
@@ -2543,12 +2547,19 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "openai/o1-preview"
     elif "o1-preview" in model_names:
         improve_model = "o1-preview"
+    
     elif "openai/o1" in model_names:
         improve_model = "openai/o1"
     elif "o1" in model_names:
         improve_model = "o1"
+    
     elif "o1-mini" in model_names:
         improve_model = "o1-mini"
+    elif "o1-hard" in model_names:
+        improve_model = "o1-hard"
+    elif "o1-easy" in model_names:
+        improve_model = "o1-easy"
+        
     elif "anthropic/claude-3-opus:beta" in model_names:
         improve_model = "anthropic/claude-3-opus:beta"
     else:

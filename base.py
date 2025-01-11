@@ -63,6 +63,13 @@ def call_chat_model(model, text, images, temperature, system, keys):
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
     extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
+    
+    if model == "o1-hard":
+        model = "o1"
+        extras_2.update(dict(reasoning_effort="high"))
+    elif model == "o1-easy":
+        model = "o1"
+        extras_2.update(dict(reasoning_effort="low"))
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
     if len(images) > 0:
@@ -140,12 +147,12 @@ Write the full response to the user's query.
         self.use_16k = use_16k
         self.gpt4_enc = gpt4_enc
         self.model_name = model_name
-        self.model_type = "openai" if model_name is None or model_name.startswith("gpt") else "openrouter"
+        self.model_type = "openai" if model_name is None or model_name.startswith("gpt") or model_name.startswith("o1") else "openrouter"
 
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name in ["o1", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
+            assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
                                                                                                                                                  "anthropic/claude-3-opus:beta",
                                                                                                                                                  "anthropic/claude-3-sonnet:beta",
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
@@ -227,7 +234,7 @@ Write the full response to the user's query.
             pass
         elif model_name == "gpt-4-turbo":
             pass
-        elif model_name == "o1":
+        elif model_name == "o1" or model_name == "o1-hard" or model_name == "o1-easy":
             pass
         elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"
