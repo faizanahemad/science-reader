@@ -57,9 +57,9 @@ gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
 
 def call_chat_model(model, text, images, temperature, system, keys):
-    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") and not model.startswith('openai/')) else keys["OPENROUTER_API_KEY"]
-    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model.startswith('openai/') else dict()
-    openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini") or model=='openai/gpt-4-32k'
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") and not model.startswith('openai/')) else keys["OPENROUTER_API_KEY"]
+    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") or model.startswith('openai/') else dict()
+    openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") or model=='openai/gpt-4-32k'
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
     extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
@@ -145,13 +145,14 @@ Write the full response to the user's query.
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name in ["gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
+            assert (self.model_type == "openai" and self.model_name in ["o1", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
                                                                                                                                                  "anthropic/claude-3-opus:beta",
                                                                                                                                                  "anthropic/claude-3-sonnet:beta",
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
                                                                                                                                                  "openai/gpt-4o-mini",
+                                                                                                                                                 "openai/o1",
                                                                                                                                                  "openai/gpt-4o",
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
@@ -225,6 +226,8 @@ Write the full response to the user's query.
         elif model_name == "o1-preview":
             pass
         elif model_name == "gpt-4-turbo":
+            pass
+        elif model_name == "o1":
             pass
         elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"
