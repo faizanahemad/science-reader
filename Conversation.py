@@ -2541,10 +2541,12 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "anthropic/claude-3.5-sonnet:beta"
     elif "openai/o1-preview" in model_names:
         improve_model = "openai/o1-preview"
-    elif "openai/o1" in model_names:
-        improve_model = "openai/o1"
     elif "o1-preview" in model_names:
         improve_model = "o1-preview"
+    elif "openai/o1" in model_names:
+        improve_model = "openai/o1"
+    elif "o1" in model_names:
+        improve_model = "o1"
     elif "o1-mini" in model_names:
         improve_model = "o1-mini"
     elif "anthropic/claude-3-opus:beta" in model_names:

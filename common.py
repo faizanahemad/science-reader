@@ -82,9 +82,21 @@ cache = dc.Cache(temp_dir)
 
 import requests
 
+import requests
+from requests.exceptions import RequestException, Timeout, ConnectionError
+
 def check_page_status(url):
+    """
+    Checks if a webpage is available. Tries an HTTP HEAD request first, then optionally
+    falls back to a GET request if HEAD might not be supported or indicates an error.
+
+    Returns:
+        bool: True if the page is reachable (status < 400), otherwise False.
+    """
+
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -92,15 +104,35 @@ def check_page_status(url):
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate', 
+        'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1'
     }
-    response = requests.head(url, headers=headers)
-    if response.status_code == 404 or response.status_code >= 400:
+
+    timeout_seconds = 8
+
+    # 1. Attempt HEAD request
+    try:
+        response = requests.head(url, headers=headers, timeout=timeout_seconds)
+
+        # HEAD is successful and status < 400
+        if response.ok:
+            return True
+
+        # HEAD might be unsupported - codes like 405 (Method Not Allowed), 501 (Not Implemented)
+        # or simply an unexpected 4xx/5xx. We will try a fallback GET below.
+    except (Timeout, ConnectionError, RequestException):
+        # If it fails outright, we proceed to fallback
+        pass
+
+    # 2. Fallback to GET
+    try:
+        response_get = requests.get(url, headers=headers, timeout=timeout_seconds)
+        return response_get.ok  # True if status < 400
+    except (Timeout, ConnectionError, RequestException):
+        # If GET fails, we return False
         return False
-    else:
-        return True
+    
 
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
@@ -983,6 +1015,51 @@ class DefaultDictQueue:
                 self.data[item] = data
             else:
                 self.add(item, data)
+                
+                
+from collections import OrderedDict
+import threading
+
+class SetQueueWithCount:
+    def __init__(self, maxsize):
+        self.maxsize = maxsize
+        self._data = OrderedDict()  # key: item, value: count
+        self.lock = threading.RLock()
+
+    def add(self, item):
+        with self.lock:
+            # If item already present, just move to end and increment count
+            if item in self._data:
+                self._data[item] += 1
+                self._data.move_to_end(item, last=True)
+            else:
+                # Check capacity
+                if len(self._data) >= self.maxsize:
+                    # Pop oldest
+                    self._data.popitem(last=False)
+                # Insert new
+                self._data[item] = 1
+
+    def remove_any(self, item):
+        with self.lock:
+            if item in self._data:
+                del self._data[item]
+
+    def count(self, item):
+        with self.lock:
+            return self._data.get(item, 0)
+
+    def __contains__(self, item):
+        with self.lock:
+            return item in self._data
+
+    def __len__(self):
+        with self.lock:
+            return len(self._data)
+
+    def items(self):
+        with self.lock:
+            return list(self._data.keys())
 
 def convert_http_to_https(url):
     parsed_url = urlparse(url)

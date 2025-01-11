@@ -777,6 +777,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.5</option>   
+
+                <option>o1</option>
+                
                 
                 <option>openai/o1-preview</option>
                 
@@ -788,14 +791,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Claude Opus</option>
                 <option>Pixtral Large</option>
                 <option>o1-preview</option>
+                <option>openai/o1</option>
 
                 
-                <!-- option>o1</option -->
                 
-                
-                
-                
-                <!-- option>openai/o1</option -->
                 
                 
                 
