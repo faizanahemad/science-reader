@@ -37,7 +37,10 @@ class TTSAgent(Agent):
         super().__init__(keys)
         self.storage_path = storage_path
         self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
-        self.client = OpenAI(api_key=os.environ.get("openAIKey", keys["openAIKey"]))
+        from elevenlabs.client import ElevenLabs
+        self.client = ElevenLabs(
+            api_key=os.environ.get("elevenLabsKey", keys["elevenLabsKey"])
+        )
         self.system = f"""
 You are an expert TTS (Text To Speech) agent. 
 You will be given a text and you need to convert it into a TTS friendly format. 
@@ -98,7 +101,7 @@ Write the original answer or text in a TTS friendly format using the above TTS G
         if self.convert_to_tts_friendly_format and not self.is_tts_friendly(text):
             llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
             text = llm(self.prompt.format(text=text), images=images, temperature=temperature, 
-                      stream=False, max_tokens=max_tokens, system=self.system)
+                    stream=False, max_tokens=max_tokens, system=self.system)
 
         # Create temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -114,16 +117,22 @@ Write the original answer or text in a TTS friendly format using the above TTS G
                 for i, chunk in enumerate(chunks):
                     if chunk.strip():  # Skip empty chunks
                         temp_file = os.path.join(temp_dir, f'chunk_{i}.mp3')
+                        
+                        # Get previous and next chunks for context
+                        previous_text = chunks[i-1].strip() if i > 0 else ""
+                        next_text = chunks[i+1].strip() if i < len(chunks)-1 else ""
+                        
                         futures.append(
                             executor.submit(
                                 self._generate_audio_chunk,
                                 chunk.strip(),
-                                temp_file
+                                temp_file,
+                                previous_text,
+                                next_text
                             )
                         )
                 
                 # Collect results
-                # Wait for all futures to complete and process in original order
                 for future in futures:
                     chunk_file = future.result()
                     if chunk_file:
@@ -144,15 +153,21 @@ Write the original answer or text in a TTS friendly format using the above TTS G
 
         return output_path
 
-    def _generate_audio_chunk(self, text, output_file):
-        """Generate audio for a single chunk of text"""
+    def _generate_audio_chunk(self, text, output_file, previous_text="", next_text=""):
+        """Generate audio for a single chunk of text with context"""
         try:
-            response = self.client.audio.speech.create(
-                model="tts-1",
-                voice="nova",  # Using nova as default, can be made configurable
-                input=text
+            audio = self.client.generate(
+                voice="Sarah",  # Can be made configurable
+                text=text,
+                model_id="eleven_turbo_v2",
+                output_format="mp3_44100_64",
+                previous_text=previous_text,
+                next_text=next_text
             )
-            response.stream_to_file(output_file)
+            
+            # Write the audio to file
+            with open(output_file, "wb") as f:
+                f.write(audio)
             return output_file
         except Exception as e:
             logger.error(f"Error generating audio for chunk: {e}")
