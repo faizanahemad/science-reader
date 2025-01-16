@@ -174,7 +174,9 @@ var ConversationManager = {
             $(window).scrollTop(0);
             // $('#messageText').focus();
             $("#show-sidebar").focus();
-            $('#show-sidebar').click();
+            if (window.innerWidth < 768) { // Only trigger on mobile screens
+                $('#show-sidebar').click();
+            }
             
 
         });
