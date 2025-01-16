@@ -164,6 +164,7 @@ Write the full response to the user's query.
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         self.model_name = substitute_llm_name(self.model_name, len(images) > 0)
+        self.model_type = "openrouter"
         if len(images) > 0:
             assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["minimax/minimax-01", 
                                                                                                                                                                              "anthropic/claude-3-haiku:beta",
