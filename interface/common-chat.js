@@ -1012,24 +1012,31 @@ function scrollToBottom() {
     var $scrollToBottomBtn = $('#scrollToBottomBtn');
     var $messageText = $('#messageText');
 
+
+    // Function to check the scroll position
     function checkScroll() {
+        // Calculate the distance from the bottom
         var scrollTop = $chatView.scrollTop();
         var scrollHeight = $chatView.prop('scrollHeight');
         var chatViewHeight = $chatView.innerHeight();
         var distanceFromBottom = scrollHeight - (scrollTop + chatViewHeight);
-        var chat_area = $("#chat-content");
-        var is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none');
-        var isMobile = window.innerWidth <= 767.98;
 
-        if (distanceFromBottom > (isMobile ? 200 : 400) && is_chat_visible) {
+        // Show button if more than 400 pixels from the bottom, otherwise hide and it is chat context
+        chat_area = $("#chat-content")
+        // if chat area is visible
+        is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
+
+        if (distanceFromBottom > 400 && is_chat_visible) {
             var $toggleChatControls = $('#toggleChatControls');
             if ($toggleChatControls.text().trim() === '▼') {
                 var textareaOffset = $messageText.offset().top + $messageText.outerHeight();
                 var fromBottom = $(window).height() - textareaOffset;
-                var additionalSpace = isMobile ? 80 : 50;
+                var additionalSpace = 50;
+                // If the text is a down arrow, set the bottom position to 180px
                 $scrollToBottomBtn.css('bottom', fromBottom + additionalSpace + 'px');
             } else {
-                $scrollToBottomBtn.css('bottom', isMobile ? '160px' : '80px');
+                // Otherwise, set the bottom position to 80px
+                $scrollToBottomBtn.css('bottom', '80px');
             }
             $scrollToBottomBtn.show();
         } else {

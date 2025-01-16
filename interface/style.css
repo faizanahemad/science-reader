@@ -562,37 +562,3 @@ pre code.hljs {
 table, tr, thead, th, td {
     border: 1px solid grey;
 }
-
-/* Add these media queries for mobile devices */
-@media (max-width: 767.98px) {
-    /* Adjust main container heights */
-    #chat-assistant-view,
-    #chat-assistant,
-    #mainView,
-    .scrolling-row {
-        height: calc(100vh - 100px) !important;
-        max-height: calc(100vh - 100px) !important;
-    }
-
-    /* Adjust chat view height to leave space for input */
-    #chatView {
-        height: calc(100vh - 200px) !important;
-        max-height: calc(100vh - 200px) !important;
-    }
-
-    /* Ensure chat controls stay at bottom */
-    #chat-controls {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: white;
-        padding: 10px;
-        z-index: 1000;
-    }
-
-    /* Add padding to prevent content from being hidden behind fixed chat controls */
-    #mainView {
-        padding-bottom: 160px;
-    }
-}
