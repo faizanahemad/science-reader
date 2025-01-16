@@ -872,7 +872,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
 
         <div class="form-check form-check-inline mt-1">
-            <input class="form-check-input" id="enable_planner" type="checkbox">
+            <input class="form-check-input" id="enable_planner" type="checkbox" checked>
             <label class="form-check-label" for="enable_planner">Planner</label>
         </div>
         
