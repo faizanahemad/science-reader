@@ -4,6 +4,8 @@ import ast
 import traceback
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
 
+import secrets
+from typing import Any, Optional
 from flask_session import Session
 from DocIndex import DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
 
