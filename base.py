@@ -124,7 +124,19 @@ def call_chat_model(model, text, images, temperature, system, keys):
         raise e
 
 
-
+def substitute_llm_name(model_name, images=False):
+    model_name = model_name.lower().strip()
+    
+    if "o1" in model_name and images:
+        model_name = "anthropic/claude-3.5-sonnet:beta"
+    elif "o1" in model_name and not images:
+        model_name = "openai/o1-preview"
+        
+    openai_models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4-32k", "o1-preview", "o1-mini", "o1-hard", "o1-easy", "o1", "gpt-4-vision-preview", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4-32k"]
+    if model_name in openai_models:
+        model_name = "openai/" + model_name
+    
+    return model_name
 
 class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
@@ -151,8 +163,12 @@ Write the full response to the user's query.
 
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        self.model_name = substitute_llm_name(self.model_name, len(images) > 0)
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["anthropic/claude-3-haiku:beta",
+            assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["minimax/minimax-01", 
+                                                                                                                                                                             "anthropic/claude-3-haiku:beta",
+                                                                                                                                                                             "qwen/qvq-72b-preview",
+                                                                                                                                                                             "meta-llama/llama-3.2-90b-vision-instruct",
                                                                                                                                                  "anthropic/claude-3-opus:beta",
                                                                                                                                                  "anthropic/claude-3-sonnet:beta",
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",

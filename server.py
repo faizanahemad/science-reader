@@ -175,6 +175,8 @@ def removeUserFromConversation(user_email, conversation_id):
 def keyParser(session):
     keyStore = {
         "openAIKey": os.getenv("openAIKey", ''),
+        "jinaAIKey": os.getenv("jinaAIKey", ''),
+        "ASSEMBLYAI_API_KEY": os.getenv("ASSEMBLYAI_API_KEY", ''),
         "mathpixId": os.getenv("mathpixId", ''),
         "mathpixKey": os.getenv("mathpixKey", ''),
         "cohereKey": os.getenv("cohereKey", ''),
@@ -969,7 +971,50 @@ def is_tts_done(conversation_id, message_id):
     text = request.json.get('text')
     return jsonify({"is_done": True}), 200
 
+@app.route('/transcribe', methods=['POST'])
+def transcribe_audio():
+    import assemblyai as aai
+    from werkzeug.utils import secure_filename
 
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files['audio']
+
+    if audio_file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    if audio_file:
+        # Create a temporary file to store the uploaded audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio_file:
+            audio_file.save(temp_audio_file.name)
+
+        try:
+            # Configure AssemblyAI
+            aai.settings.api_key = os.environ.get("ASSEMBLYAI_API_KEY")
+            
+            # Initialize transcriber
+            transcriber = aai.Transcriber()
+            
+            # Start transcription
+            transcript = transcriber.transcribe(temp_audio_file.name)
+
+            # Check status and return result
+            if transcript.status == aai.TranscriptStatus.error:
+                return jsonify({"error": f"Transcription failed: {transcript.error}"}), 500
+
+            # Return the transcribed text
+            return jsonify({"transcription": transcript.text.strip()})
+
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"error": str(e)}), 500
+
+        finally:
+            # Clean up the temporary file
+            os.unlink(temp_audio_file.name)
+
+    return jsonify({"error": "Failed to process audio file"}), 500
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe_audio():

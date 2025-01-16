@@ -1532,6 +1532,81 @@ import requests
 from typing import List, Union
 
 
+def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str) -> Union[
+    List[float], List[List[float]]]:
+    """
+    Fetches the embedding(s) for the given input text using Jina's embedding service.
+    
+    Parameters:
+    - input_text: The text (or texts) for which to generate the embedding(s)
+    - model_name: The Jina model to use (e.g., 'jina-embeddings-v3')
+    - api_key: The Jina API key for authorization
+    
+    Returns:
+    - A list of floats representing the embedding, or a list of lists of floats if the input was a list of strings
+    """
+    # Define the URL for the Jina API embeddings endpoint
+    url = "https://api.jina.ai/v1/embeddings"
+
+    # Prepare the headers
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    # Preprocess input text
+    if isinstance(input_text, list):
+        # Handle list of strings
+        processed_texts = [
+            " ".join(text[:20000].strip().split()[:4000]) if text else "<EMPTY STRING>"
+            for text in input_text
+        ]
+        # Remove empty strings and replace with placeholder
+        processed_texts = [
+            text if len(text.strip()) > 0 else "<EMPTY STRING>" 
+            for text in processed_texts
+        ]
+    else:
+        # Handle single string
+        processed_texts = [" ".join(input_text[:20000].strip().split()[:4000])]
+
+    # Prepare the data payload
+    data = {
+        "model": model_name,
+        "input": processed_texts,
+        "task": "text-matching",
+        "dimensions": "512",
+        "embedding_type": "float"
+    }
+
+    try:
+        # Send POST request to the API
+        response = requests.post(url, headers=headers, json=data)
+        
+        # Check if request was successful
+        if response.status_code == 200:
+            response_json = response.json()
+            
+            # Extract embeddings from response
+            embeddings = [item["embedding"] for item in response_json["data"]]
+            
+            # Return single embedding list if input was a string
+            if not isinstance(input_text, list):
+                return embeddings[0]
+            return embeddings
+            
+        else:
+            # Handle API errors
+            logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: "
+                        f"{(len(processed_texts), len(processed_texts[0].split()))}")
+            raise Exception(f"Failed to fetch embedding(s): {response.text}")
+            
+    except Exception as e:
+        # Handle request errors
+        logger.error(f"Exception in get_jina_embedding: {str(e)}")
+        raise Exception(f"Failed to fetch embedding(s): {str(e)}")
+
+
 def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str) -> Union[
     List[float], List[List[float]]]:
     """
@@ -1611,11 +1686,11 @@ class OpenAIEmbeddingsParallel:
         if len(texts) >= 8:
             futures = []
             for i in range(0, len(texts), 8):
-                futures.append(embed_executor.submit(get_openai_embedding, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
+                futures.append(embed_executor.submit(get_jina_embedding, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
             results = [sleep_and_get_future_result(future) for future in futures]
             return [item for sublist in results for item in sublist]
         else:
-            return get_openai_embedding(texts, model_name=self.model, api_key=self.openai_api_key)
+            return get_jina_embedding(texts, model_name=self.model, api_key=self.openai_api_key)
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:
@@ -1625,7 +1700,7 @@ def get_embedding_model(keys):
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
         from embedding_client_server import EmbeddingClient
         return EmbeddingClient(keys["embeddingsUrl"])
-    openai_key = keys["openAIKey"]
+    openai_key = keys["jinaAIKey"]
     assert openai_key
     openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=2000)
     return openai_embed

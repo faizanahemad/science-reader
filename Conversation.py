@@ -2515,6 +2515,12 @@ def model_name_to_canonical_name(model_name):
         model_name = "o1-preview"
     elif model_name == "o1-mini":
         model_name = "o1-mini"
+    elif model_name == "minimax/minimax-01":
+        model_name = "minimax/minimax-01"
+    elif model_name == "qwen/qvq-72b-preview":
+        model_name = "qwen/qvq-72b-preview"
+    elif model_name == "meta-llama/llama-3.2-90b-vision-instruct":
+        model_name = "meta-llama/llama-3.2-90b-vision-instruct"
     elif model_name == FILLER_MODEL:
         model_name = FILLER_MODEL
     else:
@@ -2545,8 +2551,11 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "anthropic/claude-3.5-sonnet:beta"
     elif "openai/o1-preview" in model_names:
         improve_model = "openai/o1-preview"
+    elif "minimax/minimax-01" in model_names:
+        improve_model = "minimax/minimax-01"
     elif "o1-preview" in model_names:
         improve_model = "o1-preview"
+    
     
     elif "openai/o1" in model_names:
         improve_model = "openai/o1"
@@ -2559,6 +2568,10 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "o1-hard"
     elif "o1-easy" in model_names:
         improve_model = "o1-easy"
+    elif "qwen/qvq-72b-preview" in model_names:
+        improve_model = "qwen/qvq-72b-preview"
+    elif "meta-llama/llama-3.2-90b-vision-instruct" in model_names:
+        improve_model = "meta-llama/llama-3.2-90b-vision-instruct"
         
     elif "anthropic/claude-3-opus:beta" in model_names:
         improve_model = "anthropic/claude-3-opus:beta"
