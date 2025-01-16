@@ -754,7 +754,7 @@ The summary of the conversation is as follows:
 
 Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
 For certain type of information, like code, tables, equations, etc, extract them verbatim and paste it below if they are relevant to the user query.
-Write the useful information extracted from the above conversation messages and summary below:
+Write the useful information extracted from the above conversation messages and summary below in a concise and short manner:
 """
         final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
