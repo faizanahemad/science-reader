@@ -170,7 +170,11 @@ var ConversationManager = {
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function (messages) {
             ChatManager.renderMessages(conversationId, messages, true);
-            $('#messageText').focus();
+            $(document).scrollTop(0);
+            $(window).scrollTop(0);
+            // $('#messageText').focus();
+            $("#show-sidebar").focus();
+            
 
         });
         this.fetchMemoryPad().fail(function () {
