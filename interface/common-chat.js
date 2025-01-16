@@ -174,6 +174,7 @@ var ConversationManager = {
             $(window).scrollTop(0);
             // $('#messageText').focus();
             $("#show-sidebar").focus();
+            $('#show-sidebar').click();
             
 
         });
