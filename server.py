@@ -176,6 +176,7 @@ def keyParser(session):
     keyStore = {
         "openAIKey": os.getenv("openAIKey", ''),
         "jinaAIKey": os.getenv("jinaAIKey", ''),
+        "elevenLabsKey": os.getenv("elevenLabsKey", ''),
         "ASSEMBLYAI_API_KEY": os.getenv("ASSEMBLYAI_API_KEY", ''),
         "mathpixId": os.getenv("mathpixId", ''),
         "mathpixKey": os.getenv("mathpixKey", ''),
