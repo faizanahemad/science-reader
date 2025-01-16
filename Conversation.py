@@ -1155,7 +1155,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             checkboxes["permanentText"].strip()) > 0 else ""
 
         yield {"text": '', "status": "Getting planner response ..."}
-        planner_prompt = prompts.planner_checker_prompt_explicit.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
+        planner_prompt = prompts.planner_checker_prompt.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
                                               summary_text=summary, previous_messages=remove_code_blocks(previous_messages_very_short), context=remove_code_blocks(query["messageText"]))
 
         st_planner = time.time()
@@ -1371,17 +1371,13 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 planner_text = "<planner>" + planner_text + "</planner>"
                 planner_dict = xml_to_dict(planner_text)
 
-                if planner_dict["domain"] != "None":
-                    checkboxes["domain"] = planner_dict["domain"]
-                if planner_dict["need_finance_data"]:
-                    pass
-                if planner_dict["need_diagram"]:
+                if planner_dict["is_diagram_asked_explicitly"] == "yes":
                     checkboxes["need_diagram"] = True
 
-                if planner_dict["code_execution"]:
+                if planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"] == "yes":
                     checkboxes["code_execution"] = True
 
-                if planner_dict["web_search_needed"] and len(links) == 0:
+                if planner_dict["web_search_asked_explicitly"] == "yes" and len(links) == 0:
                     checkboxes["perform_web_search"] = True
                     if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
                         if "search" in query and isinstance(query["search"], list):
@@ -1394,11 +1390,9 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                         if planner_dict['web_search_type'].lower() == "academic":
                             checkboxes["googleScholar"] = True
 
-                if planner_dict["read_uploaded_document"] and 'document_search_queries' in planner_dict and len(
-                        planner_dict['document_search_queries']) > 0:
-                    document_query = "\n".join(
-                        [f"{d['document_id']}: {d['query']}" for d in planner_dict['document_search_queries']])
-                    query["messageText"] = query["messageText"] + "\n" + document_query
+                if planner_dict["read_uploaded_document"] == "yes":
+                    document_ids = [d["document_id"] for d in planner_dict["documents_to_read"]]
+                    query["messageText"] = query["messageText"] + "\n" + " ".join(document_ids)
 
                 break
         et_planner = time.time()

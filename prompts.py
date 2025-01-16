@@ -2193,205 +2193,10 @@ Write your output decision in the above planner xml format.
         time = datetime.datetime.now().strftime("%H:%M:%S")
         return f"The current date is '{date}', year is {year}, month is {month}, day is {day}. It is a {weekday_name}. The current time is {time}."
 
-    @property
-    def planner_checker_prompt_explicit(self):
-        # TODO: Fire web search and document search prior to planner for speed.
-        import datetime
-        year = datetime.datetime.now().strftime("%Y")
-        web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
-{self.date_string}
-Now based on given user message and conversation context we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
-
-Planner rules:
-- Inside need_finance_data tag, you will write yes if the user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
-- Inside need_diagram tag, you will write yes if a diagram is asked explicitly in the user message. This will be needed if user has explicitly asked us to draw a diagram or plot or graph or show something that can be shown via drawing/charting/plotting/graphing/visualization.
-- Inside code_execution tag, you will write yes if python code execution or data analysis or matplotlib/seaborn is asked explicitly in the user message. Code execution is needed when user asks data analysis results or plotting or diagraming of specific types with python. This will be needed if user has explicitly asked us to write python code.
-- Inside code_execution tag, you will write no if user has asked for code but did not ask to execute the code or user did not ask for data analysis or python plotting.
-- Inside web_search_needed tag, you will write yes if asked explicitly for web search or google search in the user message. This will be needed if user has explicitly asked us to do web search. If user has not asked for web search then put web search needed as no.
-- Inside read_uploaded_document tag, you will write yes if we need to read any uploaded document given under 'Available Document Details' to answer the user query. This will be needed if user has uploaded a document relevant to this current user message and we need to read that particular document to answer the query.
-- When user wants to refer to a particular document themselves they write as 'refer to document #doc_id' or 'refer to document titled "title of document"'. For example - "Summarise #doc_1" means we need to read the uploaded #doc_1 and summarise it. So read_uploaded_document will be yes, and within document_search_queries we will write <document_query><document_id>#doc_1</document_id><query>Summarise this document.</query></document_query>.
-- User may also refer to uploaded docs by title or by their short names. Look at Previous User Messages as well to understand if current user message refers to any document in a hidden way.
-- Sometimes the user may have referred to document title or document id as #doc_id in previous messages instead of the current user message. Infer the document id or title from the previous messages and write the document id or title in the document_query.
-Your output should look be a valid xml tree with our plan of execution like below example format.
-<planner>
-    <domain>Science</domain>
-    <need_finance_data>yes/no</need_finance_data>
-    <need_diagram>yes/no</need_diagram>
-    <code_execution>yes/no</code_execution>
-    <web_search_needed>yes/no</web_search_needed>
-    <web_search_type>general/academic</web_search_type>
-    <web_search_queries>
-        <query>diverse google search query based on given user message with year ({year}) if recent results are important.</query>
-        <query>different_web_query based on the user message and conversation</query>
-        <query>search engine optimised query based on the question and conversation</query>
-        <query>search query based on the question and conversation</query>
-    </web_search_queries>
-    <read_uploaded_document>yes/no</read_uploaded_document>
-    <document_search_queries>
-        <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the datasets used?</query></document_query>
-    </document_search_queries>
-</planner>
-
-<document_search_queries> will be empty and not needed in the planner xml at all if no documents are uploaded or no documents need to be read.
-<web_search_queries> will be empty if no web search is needed, and not needed in the planner xml at all.
-<web_search_type> will not be needed in the planner xml if web search is not needed.
-Example of how planner xml looks like if both web search is not needed and document search is not needed.
-<planner>
-    <domain>Identified Domain</domain>
-    <need_finance_data>yes/no</need_finance_data>
-    <need_diagram>yes/no</need_diagram>
-    <code_execution>yes/no</code_execution>
-    <web_search_needed>no</web_search_needed>
-    <read_uploaded_document>no</read_uploaded_document>
-</planner>
-
-Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
-Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
-<need_finance_data> will be yes if user message needs finance historical data, stocks historical data or stock market daily data like price and volume or company financial and quarterly/annual reports data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
-<need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions, doesn't need finance data so <need_finance_data> will be no.
-<read_uploaded_document> could be yes if this current user message or any previous user message refers to an uploaded document and current message is asking indirectly about the uploaded document with phrases like "how does the work ... " or "what are their unqiue contributions?" etc. Here you need to infer document id or title from the previous messages and write the document id in the document_query.
-List of possible domains:
-- None
-- Science
-- Arts
-- Health
-- Psychology
-- Finance
-- Stock Market, Trading & Investing
-- Mathematics
-- QnA
-- AI
-- Software
-
-
-Choose Domain as None if the user message query doesn't fit into any of the other domains.
-{{permanent_instructions}}
-
-If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not under read_uploaded_document.
-Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
-'''{{doc_details}}'''
-
-Conversation context and summary:
-'''{{summary_text}}'''
-
-Previous User Messages:
-'''{{previous_messages}}'''
-
-
-Current user message: 
-'''{{context}}'''
-
-Valid xml planner tree with our reasons and decisions:
-"""
-        return web_search_prompt
-
-    @property
-    def planner_checker_prompt_short(self):
-        # TODO: Fire web search and document search prior to planner for speed.
-        import datetime
-        date = datetime.datetime.now().strftime("%d %B %Y")
-        year = datetime.datetime.now().strftime("%Y")
-        month = datetime.datetime.now().strftime("%B")
-        day = datetime.datetime.now().strftime("%d")
-        web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message and then answers the user's message if needed by themselves. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
-{self.date_string}
-
-Now based on given user message and conversation context we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
-
-Planner rules:
-- Inside need_finance_data tag, you will write yes if the user message needs finance data, stocks data or company data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
-- Inside need_diagram tag, you will write yes if a diagram is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need a diagram for clear explanation or if user has explicitly asked us to draw a diagram or plot or graph.
-- Inside code_execution tag, you will write yes if python code execution or data analysis or matplotlib/seaborn is really needed or asked explicitly in the user message. Data analysis and plotting may also be needed for finance data use cases or when user asks plotting or diagramming of specific types with python. This will be needed for questions which need python code execution or data analysis or matplotlib plot or if user has explicitly asked us to write python code.
-- Inside code_execution tag, you will write no if user has asked for code or about python code but we don't need to execute code to answer the user query.
-- Inside web_search_needed tag, you will write yes if web search is needed for clear explanation or asked explicitly in the user message. This will be needed for questions which need web search for clear explanation, or questions needs recent updated information or if user has explicitly asked us to do web search. Web search takes extra time and user has to wait for the answer so if an LLM or you can answer well without web search then put web search needed as no.
-
-Your output should look be a valid xml tree with our plan of execution like below example format.
-<planner>
-    <domain>Science</domain>
-    <need_finance_data>yes/no</need_finance_data>
-    <need_diagram>yes/no</need_diagram>
-    <code_execution>yes/no</code_execution>
-    <web_search_needed>yes/no</web_search_needed>
-    <web_search_type>general/academic</web_search_type>
-    <web_search_queries>
-        <query>diverse google search query based on given user message with year ({year}) if recent results are important.</query>
-        <query>different_web_query based on the user message and conversation</query>
-        <query>search engine optimised query based on the question and conversation</query>
-        <query>search query based on the question and conversation</query>
-    </web_search_queries>
-    <read_uploaded_document>yes/no</read_uploaded_document>
-    <document_search_queries>
-        <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the datasets used?</query></document_query>
-    </document_search_queries>
-</planner>
-
-<document_search_queries> will be empty and not needed in the planner xml at all if no documents are uploaded or no documents need to be read.
-<web_search_queries> will be empty if no web search is needed, and not needed in the planner xml at all.
-<web_search_type> will not be needed in the planner xml if web search is not needed.
-Example of how planner xml looks like if both web search is not needed and document search is not needed.
-<planner>
-    <domain>Identified Domain</domain>
-    <need_finance_data>yes/no</need_finance_data>
-    <need_diagram>yes/no</need_diagram>
-    <code_execution>yes/no</code_execution>
-    <web_search_needed>no</web_search_needed>
-    <read_uploaded_document>no</read_uploaded_document>
-</planner>
-
-web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
-Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
-Generate 4 well specified and diverse web search queries if web search is needed. Include year and date in web search query if it needs recent, up to date or latest information.
-We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
-<need_finance_data> will be yes if user message needs finance historical data, stocks historical data or stock market daily data like price and volume or company financial and quarterly/annual reports data to answer the query. This will be needed for questions which need financial data or stock market or historical market data or company financial results or fund house data to answer them.
-<need_finance_data> will be no if it is a finance question but doesn't need any finance data or stock market data to answer the query, like asking for book recommendations or asking for finance concepts or definitions, doesn't need finance data so <need_finance_data> will be no.
-
-List of possible domains:
-- None
-- Science
-- Arts
-- Health
-- Psychology
-- Finance
-- Stock Market, Trading & Investing
-- Mathematics
-- QnA
-- AI
-- Software
-
-
-Choose Domain as None if the user message query doesn't fit into any of the other domains.
-{{permanent_instructions}}
-
-If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
-Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
-'''{{doc_details}}'''
-
-Conversation context and summary:
-'''{{summary_text}}'''
-
-Previous User Messages:
-'''{{previous_messages}}'''
-
-
-Current user message: 
-'''{{context}}'''
-
-Valid xml planner tree with our reasons and decisions:
-"""
-        return web_search_prompt
-
+    
     @property
     def planner_checker_prompt(self):
-        # TODO: Fire web search and document search prior to planner for speed.
-        import datetime
-        date = datetime.datetime.now().strftime("%d %B %Y")
-        year = datetime.datetime.now().strftime("%Y")
-        month = datetime.datetime.now().strftime("%B")
-        day = datetime.datetime.now().strftime("%d")
+        
         web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message and then answers the user's message if needed by themselves. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
 {self.date_string}
 
@@ -2399,53 +2204,33 @@ Now based on given user message and conversation context we need to decide a pla
 
 Your output should look be a valid xml tree with our plan of execution like below example format.
 <planner>
-    <domain>Science</domain>
-    <is_question_about_finance_stocks_mutual_fund_etf>yes/no<is_question_about_finance_stocks_mutual_fund_etf>
-    <company_stock_fund_etf_name>company_ticker</company_stock_fund_etf_name>
-    <is_diagram_needed_for_clear_explanation_or_asked_explicitly>yes/no</is_diagram_needed_for_clear_explanation_or_asked_explicitly>
-    <suggested_diagram_type>
-        <diagram_type>What type of diagram best explains what is asked or needed by user.</diagram_type>
-        <drawing_library>Which Library from among mermaid js, draw.io (diagrams.net) xml, or python matplotlib/seaborn code is to be used</drawing_library>
-    </suggested_diagram_type>
-    <python_code_execution_or_data_analysis_or_matplotlib_needed_or_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_needed_or_asked_explicitly>
-    <use_memory_pad>no</use_memory_pad>
-    <web_search_needed_for_clear_explanation_or_asked_explicitly>yes/no</web_search_needed_for_clear_explanation_or_asked_explicitly>
-    <web_search_type>general</web_search_type>
+    <is_diagram_asked_explicitly>yes/no</is_diagram_asked_explicitly>
+    <python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>
+    <web_search_asked_explicitly>yes/no</web_search_asked_explicitly>
+    <web_search_type>general/academic</web_search_type>
     <web_search_queries>
         <query>diverse google search query based on given document</query>
-        <query>different_web_query based on the document and conversation</query>
         <query>search engine optimised query based on the question and conversation</query>
-        <query>search query based on the question and conversation</query>
     </web_search_queries>
     <read_uploaded_document>yes/no</read_uploaded_document>
-    <document_search_queries>
-        <document_query><document_id>#doc_2</document_id><query>What is the methodology</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the results</query></document_query>
-        <document_query><document_id>#doc_3</document_id><query>What are the datasets used?</query></document_query>
-    </document_search_queries>
+    <documents_to_read>
+        <document_id>#doc_2</document_id>
+        <document_id>#doc_3</document_id>
+        <document_id>#doc_3</document_id>
+    </documents_to_read>
 </planner>
 
 <document_search_queries> will be empty if no documents are uploaded or no documents need to be read.
 <web_search_queries> will be empty if no web search is needed.
-web_search will usually be yes if we have not done any web search previously or if the question is looking for latest information that an LLM can't answer. For programming framework help or general knowledge questions we may not need to do web search always but for frameworks or programming questions where we are not certain if you can answer by yourself then perform web search.
+web_search will be yes if user has asked for web search explicitly.
 Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
-Generate 4 well specified and diverse web search queries if web search is needed. 
-We keep important factual information in short form in our memory pad. use_memory_pad will be yes if we need to use some information from the memory pad for better answering. This will generally be needed for questions which need facts to answer them and those facts are part of our conversation earlier.
+Generate 2 well specified and diverse web search queries if web search is needed. 
 
-Possible Domains:
-- None
-- Science
-- Arts
-- Health
-- Psychology
-- Finance
-- Mathematics
-- QnA
-- AI
-- Software
-
-Choose Domain as None if the user message query doesn't fit into any of the other domains.
 {{permanent_instructions}}
+
+
+Previous User Messages:
+'''{{previous_messages}}'''
 
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
@@ -2454,17 +2239,32 @@ Available Document Details (empty if no documents are uploaded, for read_uploade
 Conversation context and summary:
 '''{{summary_text}}'''
 
-Previous User Messages:
-'''{{previous_messages}}'''
-
 
 Current user message: 
 '''{{context}}'''
+
+Your answer should be a valid xml tree with our reasons and decisions in below example format.
+
+<planner>
+    <is_diagram_asked_explicitly>yes/no</is_diagram_asked_explicitly>
+    <python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>
+    <web_search_asked_explicitly>yes/no</web_search_asked_explicitly>
+    <web_search_type>general/academic</web_search_type>
+    <web_search_queries>
+        <query>diverse google search query based on given document</query>
+        <query>search engine optimised query based on the question and conversation</query>
+    </web_search_queries>
+    <read_uploaded_document>yes/no</read_uploaded_document>
+    <documents_to_read>
+        <document_id>#doc_<number></document_id>
+    </documents_to_read>
+</planner>
 
 Valid xml planner tree with our reasons and decisions:
 """
         return web_search_prompt
 
+    
     @property
     def web_search_prompt(self):
         import datetime
