@@ -1249,7 +1249,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         if "No Links" in preambles:
             links = []
         
-        pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+)'
+        pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+|#summarise_doc_\d+|#summarize_doc_\d+|#dense_summarise_doc_\d+|#dense_summarize_doc_\d+)'
         attached_docs_for_summary = re.findall(pattern, query['messageText'])
         attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
         if len(attached_docs_for_summary) > 0:
