@@ -276,6 +276,9 @@ if __name__ == '__main__':
             SESSION_COOKIE_SECURE=True,
             SESSION_COOKIE_HTTPONLY=True,
             SESSION_COOKIE_SAMESITE='Lax',
+            SESSION_REFRESH_EACH_REQUEST=True, 
+            SESSION_COOKIE_NAME='session_id',
+            SESSION_COOKIE_PATH='/',   
             PERMANENT_SESSION_LIFETIME=timedelta(days=30)  # Max lifetime for remembered sessions
         )
         app.config['SESSION_TYPE'] = 'filesystem'
@@ -347,19 +350,152 @@ def login_required(f):
 def check_credentials(username, password):
     return os.getenv("PASSWORD", "XXXX") == password
 
+
+from hashlib import sha256
+import secrets
+import json
+import os
+
+def generate_remember_token(email: str) -> str:
+    """
+    Generate a secure remember-me token for the user.
+    
+    Args:
+        email (str): User's email address
+        
+    Returns:
+        str: A secure token string
+    """
+    # Generate a random 32-byte token
+    random_token = secrets.token_hex(32)
+    
+    # Combine email and random token
+    combined = f"{email}:{random_token}:{int(datetime.now().timestamp())}"
+    
+    # Create a hash of the combined string
+    token = sha256(combined.encode()).hexdigest()
+    
+    # Store the token mapping
+    store_remember_token(email, token)
+    
+    return token
+
+def store_remember_token(email: str, token: str) -> None:
+    """
+    Store the remember-me token mapping.
+    
+    Args:
+        email (str): User's email address
+        token (str): Generated remember token
+    """
+    tokens_file = os.path.join(users_dir, "remember_tokens.json")
+    
+    try:
+        # Load existing tokens
+        if os.path.exists(tokens_file):
+            with open(tokens_file, 'r') as f:
+                tokens = json.load(f)
+        else:
+            tokens = {}
+        
+        # Store new token with timestamp
+        tokens[token] = {
+            'email': email,
+            'created_at': datetime.now().isoformat(),
+            'expires_at': (datetime.now() + timedelta(days=30)).isoformat()
+        }
+        
+        # Save updated tokens
+        with open(tokens_file, 'w') as f:
+            json.dump(tokens, f)
+            
+    except Exception as e:
+        logger.error(f"Failed to store remember token: {e}")
+        raise
+
+def verify_remember_token(token: str) -> Optional[str]:
+    """
+    Verify a remember-me token and return the associated email if valid.
+    
+    Args:
+        token (str): Token to verify
+        
+    Returns:
+        Optional[str]: Associated email if token is valid, None otherwise
+    """
+    tokens_file = os.path.join(users_dir, "remember_tokens.json")
+    
+    try:
+        # Load tokens
+        if not os.path.exists(tokens_file):
+            return None
+            
+        with open(tokens_file, 'r') as f:
+            tokens = json.load(f)
+        
+        # Check if token exists
+        if token not in tokens:
+            return None
+            
+        token_data = tokens[token]
+        
+        # Check if token has expired
+        expires_at = datetime.fromisoformat(token_data['expires_at'])
+        if datetime.now() > expires_at:
+            # Remove expired token
+            del tokens[token]
+            with open(tokens_file, 'w') as f:
+                json.dump(tokens, f)
+            return None
+            
+        return token_data['email']
+        
+    except Exception as e:
+        logger.error(f"Failed to verify remember token: {e}")
+        return None
+    
+@app.before_request
+def check_remember_token():
+    """Check for remember-me token if session is not active."""
+    if 'email' not in session:
+        remember_token = request.cookies.get('remember_token')
+        if remember_token:
+            email = verify_remember_token(remember_token)
+            if email:
+                session.permanent = True
+                session['email'] = email
+                session['name'] = email
+                session['created_at'] = datetime.now().isoformat()
+                session['user_agent'] = request.user_agent.string
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
+        remember = request.form.get('remember') == 'on'  # Check if remember checkbox is checked
+        
         if check_credentials(email, password):
+            # Set session permanent before adding any values
             session.permanent = True
+            # Create the response object
+            response = redirect(url_for('interface'))
+            
+            # Only set remember token if remember me was checked
+            if remember:
+                response.set_cookie('remember_token', 
+                                  value=generate_remember_token(email),
+                                  expires=datetime.now() + timedelta(days=30),
+                                  secure=True,
+                                  httponly=True,
+                                  samesite='Lax')
+            
             session['email'] = email
             session['name'] = email
             session['created_at'] = datetime.now().isoformat()
             session['user_agent'] = request.user_agent.string
-            return redirect(url_for('interface'))
+            return response
         else:
             error = "Invalid credentials"
     return render_template_string(

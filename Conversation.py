@@ -78,16 +78,21 @@ class Conversation:
     def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
         # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
         prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and system response.
-Conversation Summary: '''{conversation_summary}'''
+
 Previous messages: '''{previous_messages}'''
+
+Conversation Summary: '''{conversation_summary}'''
+
 Older memory: '''{self.memory_pad}'''
 
 User query: '''{queryText}'''
+
 Response: '''{responseText}'''
 
 Only add new details, facts, numbers, metrics from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
+Refrain from adding any information that is already present in the older memory.
 Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
-Write the new extracted information below in compact bullet points.
+Write the new extracted information below in bullet points.
 
 ## New Information:
 
@@ -2388,27 +2393,15 @@ def get_probable_prompt_length(messageText, web_text, doc_answer, link_result_te
     # return len(enc.encode(prompt))
 
 
-def truncate_text_for_gpt3(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-3.5-turbo")
 
-def truncate_text_for_gpt4(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4")
 
-def truncate_text_for_gpt4_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-16k")
 
-def truncate_text_for_gpt4_32k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-32k")
 
-def truncate_text_for_gpt4_64k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-64k")
 
 
 def truncate_text_for_gpt4_96k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
     return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-96k")
 
-def truncate_text_for_gpt3_16k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-3.5-turbo-16k")
 
 def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4"):
     enc = tiktoken.encoding_for_model(model)
@@ -2452,7 +2445,7 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
     web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + conversation_docs_answer)))
     return link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer
 
-truncate_text_for_others = truncate_text_for_gpt4
+
 
 def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
