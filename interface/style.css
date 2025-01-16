@@ -562,3 +562,58 @@ pre code.hljs {
 table, tr, thead, th, td {
     border: 1px solid grey;
 }
+
+
+@media screen and (max-width: 768px) {
+    #chat-content {
+        height: calc(100% - 90px) !important;
+        max-height: calc(100vh - 90px) !important;
+    }
+
+    #mainView {
+        height: calc(100vh - 110px) !important;
+        max-height: calc(100vh - 110px) !important;
+    }
+
+    #chat-assistant {
+        height: calc(100vh - 110px) !important;
+        max-height: calc(100vh - 110px) !important;
+    }
+
+    #chat-assistant-sidebar {
+        height: calc(100vh - 110px) !important;
+        max-height: calc(100vh - 110px) !important;
+    }
+
+    #assistant-view {
+        height: calc(100vh - 110px) !important;
+        max-height: calc(100vh - 110px) !important;
+    }
+}
+
+@media screen and (min-width: 769px) {
+    #chat-content {
+        height: calc(100% - 30px) !important;
+        max-height: calc(100vh - 30px) !important;
+    }
+
+    #mainView {
+        height: calc(100vh - 55px) !important;
+        max-height: calc(100vh - 55px) !important;
+    }
+
+    #chat-assistant {
+        height: calc(100vh - 55px) !important;
+        max-height: calc(100vh - 55px) !important;
+    }
+
+    #chat-assistant-sidebar {
+        height: calc(100vh - 55px) !important;
+        max-height: calc(100vh - 55px) !important;
+    }
+
+    #assistant-view {
+        height: calc(100vh - 55px) !important;
+        max-height: calc(100vh - 55px) !important;
+    }
+}
