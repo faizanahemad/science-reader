@@ -55,7 +55,7 @@ def round_robin(arr, randomize=True):
         for item in arr:
             yield item
             
-VERY_CHEAP_LLM = ["gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
+VERY_CHEAP_LLM = ["minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["gpt-4o", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", ]
 EXPENSIVE_LLM = ["anthropic/claude-3.5-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", "cohere/command-r-plus-08-2024"]
 VERY_EXPENSIVE_LLM = ["openai/o1-preview", "o1-preview"]

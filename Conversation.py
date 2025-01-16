@@ -466,8 +466,8 @@ Compact list of bullet points:
     def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
-        token_limit_very_short = 3000
-        token_limit_short = 4000
+        token_limit_very_short = 4000
+        token_limit_short = 5000
         token_limit_long = 15000
         token_limit_very_long = 48000
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
@@ -713,7 +713,7 @@ Your response will be in below xml style format:
         prev_msg_text = []
         for m in reversed(previous_messages):
             prev_msg_text.append(f"{m['sender']}:\n'''{m['text']}'''")
-            if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 20000:
+            if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 28000:
                 break
         previous_messages = "\n\n".join(reversed(prev_msg_text))
         running_summary = self.running_summary
@@ -727,7 +727,7 @@ Your response will be in below xml style format:
         summary_text = []
         for s in reversed(summary_nodes):
             summary_text.append(s)
-            if get_gpt3_word_count("\n\n".join(summary_text)) > 4_000:
+            if get_gpt3_word_count("\n\n".join(summary_text)) > 6_000:
                 break
         summary_nodes = "\n".join(reversed(summary_text))
         system = f"""You are given conversation details between a user and assistant. 
@@ -753,8 +753,8 @@ The summary of the conversation is as follows:
 '''{summary_nodes}'''
 
 Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
-Extract and copy relevant information verbatim from the above conversation messages and summary and paste it below.
-Write the extracted information briefly and concisely below:
+For certain type of information, like code, tables, equations, etc, extract them verbatim and paste it below if they are relevant to the user query.
+Write the useful information extracted from the above conversation messages and summary below:
 """
         final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
@@ -1355,6 +1355,10 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                                                links) <= 2)
 
 
+        prior_chat_summary_future = None
+        if enable_planner:
+            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
+            
         planner_text = ''
         for t in planner_text_gen:
             if len(planner_text.strip()) == 0:
@@ -1420,7 +1424,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
         message_config["perform_web_search"] = perform_web_search
         message_config["links"] = query['links']
-        prior_chat_summary_future = None
+        
         unchanged_message_lookback = message_lookback
 
         web_search_tmp_marker_name = None
@@ -1465,7 +1469,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             attached_docs_data_names.extend(prev_attached_docs_names_data)
             query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
-            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
+            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"]) if prior_chat_summary_future is None else prior_chat_summary_future
             message_lookback = min(4, message_lookback)
         if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) == 1 and len(
             searches) == 0):
