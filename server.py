@@ -362,6 +362,7 @@ import os
 def generate_remember_token(email: str) -> str:
     """
     Generate a secure remember-me token for the user.
+    If a valid token already exists for this email, return that instead.
     
     Args:
         email (str): User's email address
@@ -369,19 +370,87 @@ def generate_remember_token(email: str) -> str:
     Returns:
         str: A secure token string
     """
-    # Generate a random 32-byte token
-    random_token = secrets.token_hex(32)
+    tokens_file = os.path.join(users_dir, "remember_tokens.json")
     
-    # Combine email and random token
-    combined = f"{email}:{random_token}:{int(datetime.now().timestamp())}"
+    try:
+        # Load existing tokens
+        if os.path.exists(tokens_file):
+            with open(tokens_file, 'r') as f:
+                tokens = json.load(f)
+                
+        # Check if user has any valid existing tokens
+        current_time = datetime.now()
+        for token, data in tokens.items():
+            if (data['email'] == email and 
+                datetime.fromisoformat(data['expires_at']) > current_time):
+                # Return existing valid token
+                return token
+                
+        # If no valid token exists, generate a new one
+        random_token = secrets.token_hex(32)
+        combined = f"{email}:{random_token}:{int(current_time.timestamp())}"
+        token = sha256(combined.encode()).hexdigest()
+        
+        # Store the token mapping
+        if not tokens:
+            tokens = {}
+            
+        tokens[token] = {
+            'email': email,
+            'created_at': current_time.isoformat(),
+            'expires_at': (current_time + timedelta(days=30)).isoformat()
+        }
+        
+        # Save updated tokens
+        with open(tokens_file, 'w') as f:
+            json.dump(tokens, f)
+            
+        return token
+            
+    except Exception as e:
+        logger.error(f"Failed to generate/retrieve remember token: {e}")
+        raise
+
+def verify_remember_token(token: str) -> Optional[str]:
+    """
+    Verify a remember-me token and return the associated email if valid.
     
-    # Create a hash of the combined string
-    token = sha256(combined.encode()).hexdigest()
+    Args:
+        token (str): Token to verify
+        
+    Returns:
+        Optional[str]: Associated email if token is valid, None otherwise
+    """
+    tokens_file = os.path.join(users_dir, "remember_tokens.json")
     
-    # Store the token mapping
-    store_remember_token(email, token)
-    
-    return token
+    try:
+        # Load tokens
+        if not os.path.exists(tokens_file):
+            return None
+            
+        with open(tokens_file, 'r') as f:
+            tokens = json.load(f)
+        
+        # Check if token exists
+        if token not in tokens:
+            return None
+            
+        token_data = tokens[token]
+        
+        # Check if token has expired
+        expires_at = datetime.fromisoformat(token_data['expires_at'])
+        if datetime.now() > expires_at:
+            # Only remove this specific expired token
+            del tokens[token]
+            with open(tokens_file, 'w') as f:
+                json.dump(tokens, f)
+            return None
+            
+        return token_data['email']
+        
+    except Exception as e:
+        logger.error(f"Failed to verify remember token: {e}")
+        return None
 
 def store_remember_token(email: str, token: str) -> None:
     """
@@ -416,46 +485,38 @@ def store_remember_token(email: str, token: str) -> None:
         logger.error(f"Failed to store remember token: {e}")
         raise
 
-def verify_remember_token(token: str) -> Optional[str]:
-    """
-    Verify a remember-me token and return the associated email if valid.
-    
-    Args:
-        token (str): Token to verify
-        
-    Returns:
-        Optional[str]: Associated email if token is valid, None otherwise
-    """
+
+def cleanup_tokens() -> None:
+    """Clean up expired tokens and rotate tokens that are close to expiring."""
     tokens_file = os.path.join(users_dir, "remember_tokens.json")
     
     try:
-        # Load tokens
         if not os.path.exists(tokens_file):
-            return None
+            return
             
         with open(tokens_file, 'r') as f:
             tokens = json.load(f)
         
-        # Check if token exists
-        if token not in tokens:
-            return None
-            
-        token_data = tokens[token]
+        current_time = datetime.now()
+        tokens_to_delete = []
         
-        # Check if token has expired
-        expires_at = datetime.fromisoformat(token_data['expires_at'])
-        if datetime.now() > expires_at:
-            # Remove expired token
+        for token, data in tokens.items():
+            expires_at = datetime.fromisoformat(data['expires_at'])
+            
+            # Remove expired tokens
+            if current_time > expires_at:
+                tokens_to_delete.append(token)
+                
+        # Remove expired tokens
+        for token in tokens_to_delete:
             del tokens[token]
-            with open(tokens_file, 'w') as f:
-                json.dump(tokens, f)
-            return None
             
-        return token_data['email']
-        
+        # Save updated tokens
+        with open(tokens_file, 'w') as f:
+            json.dump(tokens, f)
+            
     except Exception as e:
-        logger.error(f"Failed to verify remember token: {e}")
-        return None
+        logger.error(f"Failed to cleanup tokens: {e}")
     
 @app.before_request
 def check_remember_token():
@@ -1180,6 +1241,7 @@ create_tables()
 #
 # removeAllUsersFromConversation()
 if __name__=="__main__":
+    cleanup_tokens()
     port = 443
    # app.run(host="0.0.0.0", port=port,threaded=True, ssl_context=('cert-ext.pem', 'key-ext.pem'))
     app.run(host="0.0.0.0", port=5000,threaded=True) # ssl_context="adhoc"
