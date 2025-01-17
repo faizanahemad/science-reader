@@ -1145,7 +1145,12 @@ def get_conversation_output_docs(conversation_id, document_file_name):
     if os.path.exists(os.path.join(conversation.documents_path, document_file_name)):
         response = send_from_directory(conversation.documents_path, document_file_name)
         # Add CORS headers
-        response.headers['Access-Control-Allow-Origin'] = 'https://laingsimon.github.io, https://app.diagrams.net/, https://draw.io/, https://www.draw.io/'
+        # Get the Origin header from the request
+        origin = request.headers.get('Origin')
+        # Check if origin matches any of our allowed domains
+        allowed_origins = ['https://laingsimon.github.io', 'https://app.diagrams.net', 'https://draw.io', 'https://www.draw.io']
+        if origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
         response.headers['Access-Control-Allow-Methods'] = 'GET'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response
