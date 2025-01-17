@@ -2134,11 +2134,11 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                     f.write(drawio_code)
                 # base64 encoded drawio_code
                 # drawio_code = "data:image/svg+xml;base64," + base64.b64encode(drawio_code.encode()).decode()
-                diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path_for_render}"></div>\n'
+                diagram_text = f'\n<div id="drawio-diagram-{str(mmh3.hash(drawio_code, signed=False))}" class="drawio-diagram" data-diagram-url="{file_path_for_render}"></div>\n'
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-data="{compress_and_encode_drawio_xml(drawio_code)}"></div>\n'
                 yield {"text": diagram_text, "status": "answering in progress"}
                 answer += diagram_text
-                editable_link = f"\n[Edit Diagram](https://www.draw.io/?url=https://sci-tldr.pro{file_path})\n" # https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
+                editable_link = f"\n[Edit Diagram](https://www.draw.io/?url=https://assist-chat.site{file_path})\n" # https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
                 yield {"text": editable_link, "status": "answering in progress"}
                 answer += editable_link
                 download_link = f"\n[Download XML File]({file_path})\n"
