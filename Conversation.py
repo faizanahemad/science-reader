@@ -703,7 +703,7 @@ Your response will be in below xml style format:
         return query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (attached_docs_data, attached_docs_data_names)
 
     def get_prior_messages_summary(self, query:str)->str:
-        summary_lookback = 8
+        summary_lookback = 12
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
         memory, messages = [f.result() for f in futures]
         previous_messages = messages[-16:]
@@ -713,7 +713,7 @@ Your response will be in below xml style format:
         prev_msg_text = []
         for m in reversed(previous_messages):
             prev_msg_text.append(f"{m['sender']}:\n'''{m['text']}'''")
-            if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 28000:
+            if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 96000:
                 break
         previous_messages = "\n\n".join(reversed(prev_msg_text))
         running_summary = self.running_summary
@@ -727,7 +727,7 @@ Your response will be in below xml style format:
         summary_text = []
         for s in reversed(summary_nodes):
             summary_text.append(s)
-            if get_gpt3_word_count("\n\n".join(summary_text)) > 6_000:
+            if get_gpt3_word_count("\n\n".join(summary_text)) > 12_000:
                 break
         summary_nodes = "\n".join(reversed(summary_text))
         system = f"""You are given conversation details between a user and assistant. 
@@ -756,10 +756,10 @@ Now lets extract relevant information for answering the current user query from 
 For certain type of information, like code, tables, equations, etc, extract them verbatim and paste it below if they are relevant to the user query.
 Write the useful information extracted from the above conversation messages and summary below in a concise and short manner:
 """
-        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_AND_FAST_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
-        final_information = " ".join(final_information.split()[:2000])
+        final_information = " ".join(final_information.split()[:4000])
         return final_information
     @property
     def max_time_to_wait_for_web_results(self):
@@ -1891,7 +1891,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         summary_text = summary_text_init
-        while time.time() - wt_prior_ctx < 45 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 25 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 summary_text = prior_chat_summary + "\n" + summary_text
