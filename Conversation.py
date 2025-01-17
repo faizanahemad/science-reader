@@ -1402,7 +1402,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 break
         et_planner = time.time()
         time_logger.info(
-            f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n")
+            f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n and message text is \n\n{query['messageText']}\n\n")
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         user_query = query['messageText']
         use_memory_pad = False
