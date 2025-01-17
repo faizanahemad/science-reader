@@ -1397,7 +1397,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 if planner_dict["read_uploaded_document"] == "yes":
                     document_ids = [d["document_id"] for d in planner_dict["documents_to_read"]]
                     query["messageText"] = query["messageText"] + "\n" + " ".join(document_ids)
-                    logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
+                    time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
 
                 break
         et_planner = time.time()
