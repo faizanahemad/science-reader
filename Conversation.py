@@ -2126,7 +2126,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
                 if "</mxfile>" in drawio_code:
                     drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
-                elif "</diagram>" in drawio_code:
+                if "</diagram>" in drawio_code:
                     drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
                 save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
                 file_path_for_render = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
@@ -2138,9 +2138,11 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-data="{compress_and_encode_drawio_xml(drawio_code)}"></div>\n'
                 yield {"text": diagram_text, "status": "answering in progress"}
                 answer += diagram_text
-                editable_link = f"\n[Edit Diagram](https://www.draw.io/?url=https://assist-chat.site{file_path})\n" # https://docs.python.org/3/library/urllib.parse.html#urllib.parse.urlencode
-                yield {"text": editable_link, "status": "answering in progress"}
-                answer += editable_link
+                
+                editable_links = f"\n[Edit Link 1](https://www.draw.io/?url=https://assist-chat.site{file_path}) | [Edit Link 2](https://app.diagrams.net/?url=https://assist-chat.site{file_path}) | [Edit Link 3](https://laingsimon.github.io/render-diagram/relay?chrome=0#https://assist-chat.site{file_path})\n"
+                yield {"text": editable_links, "status": "answering in progress"}
+                answer += editable_links
+                
                 download_link = f"\n[Download XML File]({file_path})\n"
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link

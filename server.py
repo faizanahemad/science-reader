@@ -3,6 +3,7 @@ from functools import wraps
 import ast
 import traceback
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
+from flask_cors import CORS, cross_origin
 
 import secrets
 from typing import Any, Optional
@@ -299,6 +300,11 @@ if __name__ == '__main__':
         )
         # app.config['PREFERRED_URL_SCHEME'] = 'http' if login_not_needed else 'https'
         Session(app)
+        CORS(app, resources={
+            r"/get_conversation_output_docs/*": {
+                "origins": ["https://laingsimon.github.io", "https://app.diagrams.net/", "https://draw.io/", "https://www.draw.io/"]
+            }
+        })
         log = logging.getLogger('werkzeug')
         log.setLevel(logging.INFO)
         log = logging.getLogger('__main__')
@@ -1144,7 +1150,12 @@ def get_conversation_output_docs(conversation_id, document_file_name):
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
     if os.path.exists(os.path.join(conversation.documents_path, document_file_name)):
-        return send_from_directory(conversation.documents_path, document_file_name)
+        response = send_from_directory(conversation.documents_path, document_file_name)
+        # Add CORS headers
+        response.headers['Access-Control-Allow-Origin'] = 'https://laingsimon.github.io'
+        response.headers['Access-Control-Allow-Methods'] = 'GET'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
     else:
         return jsonify({"message": "Document not found"}), 404
 
