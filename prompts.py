@@ -2234,6 +2234,7 @@ Previous User Messages:
 
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 Document Number can be derived from the document id as #doc_<number> . Docs uploaded later (most recent) in conversation are given higher doc numbers.
+Usually if we ask do something with a document (without the document id) then we need to read the most recent document.
 Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
 '''{{doc_details}}'''
 
