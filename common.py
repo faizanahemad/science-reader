@@ -66,6 +66,8 @@ VERY_EXPENSIVE_LLM = ["openai/o1-preview", "o1-preview"]
 CHEAP_LONG_CONTEXT_LLM = ["minimax/minimax-01", "google/gemini-flash-1.5", "google/gemini-flash-1.5-8b"]
 LONG_CONTEXT_LLM = ["google/gemini-pro-1.5"]
 
+COMMON_SALT_STRING = "31256greagy89"
+
 
 
 

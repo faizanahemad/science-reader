@@ -4,6 +4,7 @@ import ast
 import traceback
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
 from flask_cors import CORS, cross_origin
+from common import COMMON_SALT_STRING
 
 import secrets
 from typing import Any, Optional
@@ -1137,9 +1138,8 @@ def fetch_memory_pad(conversation_id):
     memory_pad = conversation.memory_pad
     return jsonify({'text': memory_pad})
 
-@app.route('/get_conversation_output_docs/<conversation_id>/<document_file_name>', methods=['GET'])
+@app.route(f'/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>', methods=['GET'])
 @limiter.limit("25 per minute")
-@login_required
 def get_conversation_output_docs(conversation_id, document_file_name):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)

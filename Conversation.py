@@ -1491,7 +1491,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                     source_file = ad.doc_source
                     filename = os.path.basename(source_file)
                     f = f"{plot_prefix}-{filename}"
-                    image_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                    image_path = f"get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/{f}"
                     # TODO: url_encode_image_path with urllib
                     image_path = image_path.replace(" ", "%20")
                     save_path_for_render = os.path.join(self.documents_path, f)
@@ -2122,14 +2122,14 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 save_path = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml")
                 with open(save_path, "w") as f:
                     f.write(drawio_code)
-                file_path = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml"
+                file_path = f"/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml"
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
                 if "</mxfile>" in drawio_code:
                     drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
                 if "</diagram>" in drawio_code:
                     drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
                 save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
-                file_path_for_render = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
+                file_path_for_render = f"/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
                 with open(save_path_for_render, "w") as f:
                     f.write(drawio_code)
                 # base64 encoded drawio_code
@@ -2176,7 +2176,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
                     files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(plot_prefix)]))
                     for f in files:
-                        image_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                        image_path = f"get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/{f}"
                         # TODO: url_encode_image_path with urllib
                         image_path = image_path.replace(" ", "%20")
                         image_md = f"![{f}]({image_path})"
@@ -2188,7 +2188,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
                     files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(file_prefix)]))
                     for f in files:
-                        file_path = f"get_conversation_output_docs/{self.conversation_id}/{f}"
+                        file_path = f"get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/{f}"
                         download_link = f"[Download {f}]({file_path})"
                         yield {"text": download_link, "status": "answering in progress"}
                         answer += download_link

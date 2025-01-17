@@ -9,6 +9,7 @@ diagram_instructions = """
 - You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
 - Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
 - Diagrams, charts, flow diagrams, sequence diagrams, Gantt diagrams, class diagrams, and other graphic representations are very effective in helping the user understand the problem and solution, as well as in helping the user learn the solution.
+- For Draw.io or Diagrams.net diagrams, draw only one diagram per answer. Tell the user that only one diagram is allowed per answer if they ask for more than one.
 """
 
 tts_friendly_format_instructions = """
