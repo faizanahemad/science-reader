@@ -8,7 +8,7 @@ from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, TTSAg
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
-from prompts import prompts, xml_to_dict
+from prompts import prompts, xml_to_dict, diagram_instructions
 
 
 from pathlib import Path
@@ -787,13 +787,17 @@ Write the useful information extracted from the above conversation messages and 
         ]
         return preamble_names
 
-    def get_preamble(self, preamble_options, field, web_search_or_document_read=False, **kwargs):
+    def get_preamble(self, preamble_options, field, web_search_or_document_read=False, prefix=None, **kwargs):
         preamble = ""
+        plot_prefix = f"plot-{prefix}-"
         agent = None
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options
             preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
+        if "Diagram" in preamble_options:
+            preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
+        
         if "TTS" in preamble_options:
             preamble += f"""We are using a TTS engine to read out to blind users. 
 {tts_friendly_format_instructions}
@@ -1192,8 +1196,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
 
         retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
-        retrieval_preamble, _ = self.get_preamble(retrieval_preambles,
-                          checkboxes["field"] if "field" in checkboxes else None,)
+        
         if science_sites_count > 1:
             preambles.append("Comparison")
 
@@ -1339,10 +1342,15 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
             query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
+        
+        message_ids = self.get_message_ids(query, "")
+        prefix = message_ids["user_message_id"]
+        plot_prefix = f"plot-{prefix}-"
+        
         preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name)
+                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix)
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
@@ -1359,6 +1367,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         if enable_planner:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
             
+        
+        
         planner_text = ''
         for t in planner_text_gen:
             if len(planner_text.strip()) == 0:
@@ -1377,10 +1387,11 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
 
                 if string_indicates_true(planner_dict["is_diagram_asked_explicitly"]):
                     checkboxes["need_diagram"] = True
-
+                    if planner_dict["diagram_type_asked"].strip().lower() == "drawio" or planner_dict["diagram_type_asked"].strip().lower() == "mermaid":
+                        preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
                 if string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
                     checkboxes["code_execution"] = True
-
+                    
                 if string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
                     checkboxes["perform_web_search"] = True
                     if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:

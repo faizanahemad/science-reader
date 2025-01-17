@@ -745,7 +745,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Engineering Excellence</option>
                 <option>Coding Interview</option>
                 <option>Coding Interview TTS Friendly</option>
-
+                <option>Diagram</option>
                 <option>Easy Copy</option>
                 
                 <option>CoT</option>
