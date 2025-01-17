@@ -1044,6 +1044,7 @@ function scrollToBottom() {
         }
     }
 
+    checkScroll();
     // Scroll event
     $chatView.on('scroll', function () {
         checkScroll();
