@@ -1532,7 +1532,7 @@ import requests
 from typing import List, Union
 
 
-def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str) -> Union[
+def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str, ctx_length: int = 10_000, ctx_chunk_size: int = 4000) -> Union[
     List[float], List[List[float]]]:
     """
     Fetches the embedding(s) for the given input text using Jina's embedding service.
@@ -1558,7 +1558,7 @@ def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_k
     if isinstance(input_text, list):
         # Handle list of strings
         processed_texts = [
-            " ".join(text[:20000].strip().split()[:4000]) if text else "<EMPTY STRING>"
+            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size]) if text else "<EMPTY STRING>"
             for text in input_text
         ]
         # Remove empty strings and replace with placeholder
@@ -1568,7 +1568,7 @@ def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_k
         ]
     else:
         # Handle single string
-        processed_texts = [" ".join(input_text[:20000].strip().split()[:4000])]
+        processed_texts = [" ".join(input_text[:ctx_length].strip().split()[:ctx_chunk_size])]
 
     # Prepare the data payload
     data = {
@@ -1604,6 +1604,9 @@ def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_k
     except Exception as e:
         # Handle request errors
         logger.error(f"Exception in get_jina_embedding: {str(e)}")
+        if ctx_length > 2000:
+            return get_jina_embedding(input_text, model_name, api_key, ctx_length=ctx_length//2, ctx_chunk_size=ctx_chunk_size//2)
+        
         raise Exception(f"Failed to fetch embedding(s): {str(e)}")
 
 
