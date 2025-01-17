@@ -1141,18 +1141,11 @@ def fetch_memory_pad(conversation_id):
 @app.route(f'/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>', methods=['GET'])
 @limiter.limit("25 per minute")
 def get_conversation_output_docs(conversation_id, document_file_name):
-    email, name, loggedin = check_login(session)
-    keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
-        return jsonify({"message": "Conversation not found"}), 404
-    else:
-        conversation = conversation_cache[conversation_id]
-        conversation = set_keys_on_docs(conversation, keys)
+    conversation = conversation_cache[conversation_id]  
     if os.path.exists(os.path.join(conversation.documents_path, document_file_name)):
         response = send_from_directory(conversation.documents_path, document_file_name)
         # Add CORS headers
-        response.headers['Access-Control-Allow-Origin'] = 'https://laingsimon.github.io'
+        response.headers['Access-Control-Allow-Origin'] = 'https://laingsimon.github.io, https://app.diagrams.net/, https://draw.io/, https://www.draw.io/'
         response.headers['Access-Control-Allow-Methods'] = 'GET'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
         return response
