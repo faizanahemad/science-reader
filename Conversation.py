@@ -1375,13 +1375,13 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 planner_text = "<planner>" + planner_text + "</planner>"
                 planner_dict = xml_to_dict(planner_text)
 
-                if planner_dict["is_diagram_asked_explicitly"].strip().lower() == "yes":
+                if string_indicates_true(planner_dict["is_diagram_asked_explicitly"]):
                     checkboxes["need_diagram"] = True
 
-                if planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"].strip().lower() == "yes":
+                if string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
                     checkboxes["code_execution"] = True
 
-                if planner_dict["web_search_asked_explicitly"].strip().lower() == "yes" and len(links) == 0:
+                if string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
                     checkboxes["perform_web_search"] = True
                     if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
                         if "search" in query and isinstance(query["search"], list):
@@ -1394,7 +1394,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                         if planner_dict['web_search_type'].strip().lower() == "academic":
                             checkboxes["googleScholar"] = True
 
-                if planner_dict["read_uploaded_document"].strip().lower() == "yes":
+                if string_indicates_true(planner_dict["read_uploaded_document"]):
                     document_ids = [d["document_id"] for d in planner_dict["documents_to_read"]]
                     query["messageText"] = query["messageText"] + "\n" + (" ".join(document_ids))
                     time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")

@@ -48,6 +48,9 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
+def string_indicates_true(s):
+    return str(s).strip().lower() == "yes" or str(s).strip().lower() == "true" or str(s).strip().lower() == "1" or str(s).strip().lower() == "y" or str(s).strip().lower() == "t" or int(s) >= 1
+
 def round_robin(arr, randomize=True):
     if randomize:
         random.shuffle(arr)
