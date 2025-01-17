@@ -2235,6 +2235,10 @@ Previous User Messages:
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
 Document Number can be derived from the document id as #doc_<number> . Docs uploaded later (most recent) in conversation are given higher doc numbers.
 Usually if we ask do something with a document (without the document id) then we need to read the most recent document.
+For example, if we ask something like "Summarize the document" and we have 3 documents uploaded as #doc_1, #doc_2, #doc_3 then we need to read #doc_3.
+Another example, if we ask something like "Tell me about their methods" and we have 3 scientific documents uploaded as #doc_2, #doc_3, #doc_4 then we need to read #doc_4.
+On the other hand, if we ask questions like "Compare their methods" and we have 3 scientific documents uploaded as #doc_1, #doc_2, #doc_3 then we need to read #doc_1, #doc_2, #doc_3 (all documents).
+
 Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
 '''{{doc_details}}'''
 
