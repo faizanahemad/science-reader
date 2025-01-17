@@ -2468,7 +2468,7 @@ def xml_to_dict(xml_string):
 
     result_dict = {}
     for child in root:
-        if child.tag in ["web_search_queries", "document_search_queries"]:
+        if child.tag in ["web_search_queries", "document_search_queries", "documents_to_read"]:
             result_dict[child.tag] = parse_list_elements(child)
         elif child.tag == "suggested_diagram_type":
             result_dict[child.tag] = parse_nested_elements(child)

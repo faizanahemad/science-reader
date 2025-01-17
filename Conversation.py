@@ -1395,7 +1395,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                             checkboxes["googleScholar"] = True
 
                 if string_indicates_true(planner_dict["read_uploaded_document"]):
-                    document_ids = [d["document_id"] for d in planner_dict["documents_to_read"]]
+                    document_ids = planner_dict["documents_to_read"]
                     query["messageText"] = query["messageText"] + "\n" + (" ".join(document_ids))
                     time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
                     print(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
