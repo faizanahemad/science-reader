@@ -2233,6 +2233,7 @@ Previous User Messages:
 '''{{previous_messages}}'''
 
 If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
+Document Number can be derived from the document id as #doc_<number> . Docs uploaded later (most recent) in conversation are given higher doc numbers.
 Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
 '''{{doc_details}}'''
 
