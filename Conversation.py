@@ -2126,7 +2126,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
                 if "</mxfile>" in drawio_code:
                     drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
-                if "</diagram>" in drawio_code:
+                elif "</diagram>" in drawio_code:
                     drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
                 save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
                 file_path_for_render = f"/get_conversation_output_docs/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
