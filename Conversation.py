@@ -1375,29 +1375,30 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
                 planner_text = "<planner>" + planner_text + "</planner>"
                 planner_dict = xml_to_dict(planner_text)
 
-                if planner_dict["is_diagram_asked_explicitly"] == "yes":
+                if planner_dict["is_diagram_asked_explicitly"].strip().lower() == "yes":
                     checkboxes["need_diagram"] = True
 
-                if planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"] == "yes":
+                if planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"].strip().lower() == "yes":
                     checkboxes["code_execution"] = True
 
-                if planner_dict["web_search_asked_explicitly"] == "yes" and len(links) == 0:
+                if planner_dict["web_search_asked_explicitly"].strip().lower() == "yes" and len(links) == 0:
                     checkboxes["perform_web_search"] = True
                     if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
                         if "search" in query and isinstance(query["search"], list):
                             query["search"].extend(planner_dict["web_search_queries"])
                         else:
                             query["search"] = planner_dict["web_search_queries"]
-                    if 'web_search_type' in planner_dict and planner_dict['web_search_type'] != "None" and planner_dict[
-                        'web_search_type'] != "" and planner_dict['web_search_type'] is not None and planner_dict[
-                        'web_search_type'] != "NA":
-                        if planner_dict['web_search_type'].lower() == "academic":
+                    if 'web_search_type' in planner_dict and planner_dict['web_search_type'].strip().lower() != "none" and planner_dict[
+                        'web_search_type'].strip().lower() != "" and planner_dict['web_search_type'] is not None and planner_dict[
+                        'web_search_type'].strip().lower() != "na":
+                        if planner_dict['web_search_type'].strip().lower() == "academic":
                             checkboxes["googleScholar"] = True
 
-                if planner_dict["read_uploaded_document"] == "yes":
+                if planner_dict["read_uploaded_document"].strip().lower() == "yes":
                     document_ids = [d["document_id"] for d in planner_dict["documents_to_read"]]
-                    query["messageText"] = query["messageText"] + "\n" + " ".join(document_ids)
+                    query["messageText"] = query["messageText"] + "\n" + (" ".join(document_ids))
                     time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
+                    print(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
 
                 break
         et_planner = time.time()
