@@ -754,7 +754,8 @@ The summary of the conversation is as follows:
 
 Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
 For certain type of information, like code, tables, equations, etc, extract them verbatim and paste it below if they are relevant to the user query.
-Write the useful information extracted from the above conversation messages and summary below in a concise and short manner:
+Extract information in a concise and short manner suitable for a recap.
+Write the useful information extracted from the above conversation messages and summary below in a brief, concise and short manner:
 """
         final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_AND_FAST_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
@@ -1894,7 +1895,7 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         summary_text = summary_text_init
-        while time.time() - wt_prior_ctx < 25 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 10 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 summary_text = prior_chat_summary + "\n" + summary_text
