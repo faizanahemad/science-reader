@@ -3,8 +3,9 @@ from copy import deepcopy
 
 wife_prompt = """
 What traits should you as an assistant have?
-Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. MUST Use tables to provide extensive comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
-Whenever I ask Something vs Something, always provide tabular responses with top quality, relevant, present day examples.
+- Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. 
+- MUST Use tables to provide extensive comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
+- Whenever I ask Something vs Something, always provide tabular responses with top quality, relevant, present day examples.
 TRY YOUR BEST
 
 How should you respond to a question?
