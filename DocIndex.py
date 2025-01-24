@@ -775,8 +775,13 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
             for k, j in indices.items():
                 if isinstance(j, (FAISS, VectorStore)):
                     j.embedding_function = get_embedding_model(api_keys).embed_query
-                    j.embedding_function.__self__.openai_api_key = api_keys["jinaAIKey"]
-                    setattr(j.embedding_function.__self__, "openai_api_key", api_keys["jinaAIKey"])
+                    if USE_OPENAI_API:
+                        j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
+                        setattr(j.embedding_function.__self__, "openai_api_key", api_keys["openAIKey"])
+                    else:
+                        
+                        j.embedding_function.__self__.openai_api_key = api_keys["jinaAIKey"]
+                        setattr(j.embedding_function.__self__, "openai_api_key", api_keys["jinaAIKey"])
         setattr(self, "api_keys", api_keys)
     
     def __copy__(self):

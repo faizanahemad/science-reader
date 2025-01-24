@@ -732,7 +732,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Is Coding Request</option>
                 <option>Paper Summary</option>
                 <option selected>Long</option>
-                <option selected>Explain Maths</option>
+                <option>Explain Maths</option>
+                <option selected>Wife Prompt</option>
                 <option>No Lazy</option>
                 <option>Argumentative</option>
                 <option>Blackmail</option>
@@ -777,7 +778,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.5</option>   
-                <!-- option>o1</option -->
+                <option>o1</option>
                 <option>openai/o1-preview</option>
                 
                 <option>gpt-4o</option>
@@ -785,16 +786,18 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <option>Filler</option>
                 <option>Claude Opus</option>
-                <!-- option>o1-hard</option -->
+                <option>o1-hard</option>
                 <option>Pixtral Large</option>
-                <!-- option>o1-easy</option -->
-                <!-- option>o1-preview</option -->
+                <option>o1-preview</option>
+                
                 <option>minimax/minimax-01</option>
                 <option>qwen/qvq-72b-preview</option>
                 <option>meta-llama/llama-3.2-90b-vision-instruct</option>
                 <!-- option>openai/o1</option -->
 
                 <!-- option>Mistral Large</option -->
+                <option>o1-easy</option>
+                
                 <option>gpt-4-turbo</option>
                 <!-- option>o1-mini</option -->
                 <!-- option>openai/o1-mini</option -->

@@ -12,7 +12,7 @@ from pydub import AudioSegment  # For merging audio files
 
 
 from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
-from common import CHEAP_LLM, get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
+from common import CHEAP_LLM, USE_OPENAI_API, get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
 from loggers import getLoggers
 import logging
 import re
@@ -37,10 +37,13 @@ class TTSAgent(Agent):
         super().__init__(keys)
         self.storage_path = storage_path
         self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
-        from elevenlabs.client import ElevenLabs
-        self.client = ElevenLabs(
-            api_key=os.environ.get("elevenLabsKey", keys["elevenLabsKey"])
-        )
+        if USE_OPENAI_API:
+            self.client = OpenAI(api_key=os.environ.get("openAIKey", keys["openAIKey"]))
+        else:
+            from elevenlabs.client import ElevenLabs
+            self.client = ElevenLabs(
+                api_key=os.environ.get("elevenLabsKey", keys["elevenLabsKey"])
+            )
         self.system = f"""
 You are an expert TTS (Text To Speech) agent. 
 You will be given a text and you need to convert it into a TTS friendly format. 
@@ -154,6 +157,25 @@ Write the original answer or text in a TTS friendly format using the above TTS G
         return output_path
 
     def _generate_audio_chunk(self, text, output_file, previous_text="", next_text=""):
+        if USE_OPENAI_API:
+            return self._generate_audio_chunk_openai(text, output_file, previous_text, next_text)
+        else:
+            return self._generate_audio_chunk_elevenlabs(text, output_file, previous_text, next_text)
+    
+    def _generate_audio_chunk_openai(self, text, output_file, previous_text="", next_text=""):
+        try:
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice="nova",  # Using nova as default, can be made configurable
+                input=text
+            )
+            response.stream_to_file(output_file)
+            return output_file
+        except Exception as e:
+            logger.error(f"Error generating audio for chunk: {e}")
+            return None
+    
+    def _generate_audio_chunk_elevenlabs(self, text, output_file, previous_text="", next_text=""):
         """Generate audio for a single chunk of text with context"""
         try:
             audio = self.client.generate(

@@ -25,6 +25,7 @@ from very_common import is_picklable, is_dillable, is_int, get_async_future, wra
 
 from tenacity import RetryError
 FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
+USE_OPENAI_API = True
 SMALL_CHUNK_LEN = 386
 LARGE_CHUNK_LEN = 6144
 TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
@@ -1616,57 +1617,114 @@ def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_k
         raise Exception(f"Failed to fetch embedding(s): {str(e)}")
 
 
-def get_openai_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str) -> Union[
-    List[float], List[List[float]]]:
+def get_openai_embedding(
+    input_text: Union[str, List[str]],
+    model_name: str,
+    api_key: str,
+    ctx_length: int = 10_000,
+    ctx_chunk_size: int = 4_000
+) -> Union[List[float], List[List[float]]]:
     """
-    Fetches the embedding(s) for the given input text using the specified model.
+    Fetches the embedding(s) for the given input text using the specified model,
+    similarly to the logic in `get_jina_embedding`. It accepts two parameters:
+    `ctx_length` and `ctx_chunk_size`. 
+    - We first reduce the text length to `ctx_length` 
+    - Then limit the number of tokens/words to `ctx_chunk_size`.
+    If the request fails and `ctx_length` is still above 2000, we retry with half 
+    of both parameters, providing a fallback for extremely large inputs or partial failures.
+
     Parameters:
-    - input_text: The text (or texts) for which to generate the embedding(s).
-    - model_name: The model to use for generating the embedding(s).
-    - api_key: The OpenAI API key for authorization.
+    -----------
+    input_text : str or List[str]
+        The text (or list of texts) for which to generate the embedding(s).
+    model_name : str
+        The OpenAI model name to use for generating the embeddings.
+    api_key : str
+        The OpenAI API key for authorization.
+    ctx_length : int, optional
+        Maximum length in characters to keep from the input text, defaults to 10,000.
+    ctx_chunk_size : int, optional
+        Maximum number of tokens/words to slice from the text, defaults to 4,000.
+
     Returns:
-    - A list of floats representing the embedding, or a list of lists of floats if the input was a list of strings.
+    --------
+    List[float] or List[List[float]]
+        If a single string is passed in, returns a single list of floats.
+        If a list of strings is passed in, returns a list of lists of floats.
+
+    Raises:
+    -------
+    Exception
+        If the API request to OpenAI fails or returns a non-200 response, and 
+        the fallback recursion fails once ctx_length <= 2000.
     """
-    # Define the URL for the OpenAI API embeddings endpoint
+
+    # Define the OpenAI embeddings endpoint
     url = "https://api.openai.com/v1/embeddings"
 
-    # Prepare the headers with the Content-Type and Authorization
+    # Prepare request headers
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    # Shorten input text to 2000 tokens for all cases
+
+    # Preprocess input text with ctx_length & ctx_chunk_size
     if isinstance(input_text, list):
-        input_text = [text[:20000] for text in input_text]
-        input_text = [" ".join(text.strip().split()[:4000]) for text in input_text]
-        input_text = [i.replace("'", " ") for i in input_text]
-        input_text = [i if len(i.strip()) > 0 else "<EMPTY STRING>" for i in input_text]
+        processed_texts = [
+            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size]) if text else "<EMPTY STRING>"
+            for text in input_text
+        ]
+        # Make sure we replace empty strings with a placeholder
+        processed_texts = [
+            text if len(text.strip()) > 0 else "<EMPTY STRING>"
+            for text in processed_texts
+        ]
     else:
-        input_text = input_text[:20000]
-        input_text = " ".join(input_text.strip().split()[:4000])
-    # Prepare the data payload with the input text and model name
+        processed_texts = [
+            " ".join(input_text[:ctx_length].strip().split()[:ctx_chunk_size])
+        ]
+
+    # Construct the JSON payload
     data = {
-        "input": input_text,
+        "input": processed_texts,
         "model": model_name
     }
 
-    # Send a POST request to the API
-    response = requests.post(url, headers=headers, json=data)
+    try:
+        # Send request
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()  # Will trigger exception if status is not 2xx
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Parse the JSON response
         response_json = response.json()
-        # Extract the embedding(s) from the response
+        # Extract embeddings
         embeddings = [item["embedding"] for item in response_json["data"]]
+
+        # If the original input was a single string, return the first embedding as a list
+        if not isinstance(input_text, list):
+            return embeddings[0]
         return embeddings
-    else:
-        # Handle errors (e.g., invalid API key, rate limits, etc.)
-        logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: {(len(input_text), len(input_text.split() if isinstance(input_text, str) else 0))}")
-        raise Exception(f"Failed to fetch embedding(s): {response.text}")
+
+    except Exception as e:
+        logger.error(f"Exception in get_openai_embedding: {str(e)}")
+        # If ctx_length > 2000, try again with smaller ctx_length & ctx_chunk_size
+        if ctx_length > 2000:
+            return get_openai_embedding(
+                input_text=input_text,
+                model_name=model_name,
+                api_key=api_key,
+                ctx_length=ctx_length // 2,
+                ctx_chunk_size=ctx_chunk_size // 2
+            )
+        # Otherwise, raise after final fallback
+        raise Exception(f"Failed to fetch embedding(s) from OpenAI: {str(e)}")
 
 
 embed_executor = ThreadPoolExecutor(max_workers=256)
+if USE_OPENAI_API:
+    embed_fn = get_openai_embedding
+else:
+    embed_fn = get_jina_embedding
+
 class OpenAIEmbeddingsParallel:
     def __init__(self, openai_api_key, model, chunk_size=8000):
         self.openai_api_key = openai_api_key
@@ -1695,11 +1753,11 @@ class OpenAIEmbeddingsParallel:
         if len(texts) >= 8:
             futures = []
             for i in range(0, len(texts), 8):
-                futures.append(embed_executor.submit(get_jina_embedding, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
+                futures.append(embed_executor.submit(embed_fn, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
             results = [sleep_and_get_future_result(future) for future in futures]
             return [item for sublist in results for item in sublist]
         else:
-            return get_jina_embedding(texts, model_name=self.model, api_key=self.openai_api_key)
+            return embed_fn(texts, model_name=self.model, api_key=self.openai_api_key)
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:
@@ -1709,7 +1767,7 @@ def get_embedding_model(keys):
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
         from embedding_client_server import EmbeddingClient
         return EmbeddingClient(keys["embeddingsUrl"])
-    openai_key = keys["jinaAIKey"]
+    openai_key = keys["openAIKey"] if USE_OPENAI_API else keys["jinaAIKey"]
     assert openai_key
     openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=2000)
     return openai_embed

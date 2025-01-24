@@ -4,7 +4,7 @@ import ast
 import traceback
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
 from flask_cors import CORS, cross_origin
-from common import COMMON_SALT_STRING
+from common import COMMON_SALT_STRING, USE_OPENAI_API
 
 import secrets
 from typing import Any, Optional
@@ -1182,7 +1182,6 @@ def is_tts_done(conversation_id, message_id):
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe_audio():
-    import assemblyai as aai
     from werkzeug.utils import secure_filename
 
     if 'audio' not in request.files:
@@ -1199,21 +1198,36 @@ def transcribe_audio():
             audio_file.save(temp_audio_file.name)
 
         try:
-            # Configure AssemblyAI
-            aai.settings.api_key = os.environ.get("ASSEMBLYAI_API_KEY")
-            
-            # Initialize transcriber
-            transcriber = aai.Transcriber()
-            
-            # Start transcription
-            transcript = transcriber.transcribe(temp_audio_file.name)
+            if USE_OPENAI_API:
+                from openai import OpenAI
+                client = OpenAI(api_key=os.environ.get("openAIKey"))
+                # Open the temporary file and send it to OpenAI for transcription
+                with open(temp_audio_file.name, "rb") as audio:
+                    transcription = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio,
+                        response_format="text",
+                        language='en'
+                    )
 
-            # Check status and return result
-            if transcript.status == aai.TranscriptStatus.error:
-                return jsonify({"error": f"Transcription failed: {transcript.error}"}), 500
+                return jsonify({"transcription": transcription.strip()})
+            else:
+                import assemblyai as aai
+                # Configure AssemblyAI
+                aai.settings.api_key = os.environ.get("ASSEMBLYAI_API_KEY")
+                
+                # Initialize transcriber
+                transcriber = aai.Transcriber()
+                
+                # Start transcription
+                transcript = transcriber.transcribe(temp_audio_file.name)
 
-            # Return the transcribed text
-            return jsonify({"transcription": transcript.text.strip()})
+                # Check status and return result
+                if transcript.status == aai.TranscriptStatus.error:
+                    return jsonify({"error": f"Transcription failed: {transcript.error}"}), 500
+
+                # Return the transcribed text
+                return jsonify({"transcription": transcript.text.strip()})
 
         except Exception as e:
             traceback.print_exc()

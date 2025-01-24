@@ -8,7 +8,7 @@ from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, TTSAg
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
-from prompts import prompts, xml_to_dict, diagram_instructions
+from prompts import prompts, xml_to_dict, diagram_instructions, wife_prompt
 
 
 from pathlib import Path
@@ -1012,6 +1012,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
         if "Explain Maths" in preamble_options:
             preamble += """\nExplain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding. Provide step by step reasoning and explanation. Provide detailed and in-depth explanation of the mathematical concepts and equations.\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.\n"""
+        if "Wife Prompt" in preamble_options:
+            preamble += wife_prompt
 
         if field == "None":
             pass
