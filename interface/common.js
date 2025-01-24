@@ -783,6 +783,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <option>gpt-4o</option>
                 <option>Gemini 1.5</option>
+                <option>openai/chatgpt-4o-latest</option>
 
                 <option>Filler</option>
                 <option>Claude Opus</option>

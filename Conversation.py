@@ -2529,6 +2529,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "qwen/qvq-72b-preview"
     elif model_name == "meta-llama/llama-3.2-90b-vision-instruct":
         model_name = "meta-llama/llama-3.2-90b-vision-instruct"
+    elif model_name == "openai/chatgpt-4o-latest":
+        model_name = "openai/chatgpt-4o-latest"
     elif model_name == FILLER_MODEL:
         model_name = FILLER_MODEL
     else:
@@ -2563,6 +2565,8 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "minimax/minimax-01"
     elif "o1-preview" in model_names:
         improve_model = "o1-preview"
+    elif "openai/chatgpt-4o-latest" in model_names:
+        improve_model = "openai/chatgpt-4o-latest"
     
     
     elif "openai/o1" in model_names:

@@ -181,7 +181,7 @@ Write the full response to the user's query.
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
-                                                                                                                                                 "liuhaotian/llava-yi-34b"], f"{self.model_name} is not supported for image input."
+                                                                                                                                                 "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest"], f"{self.model_name} is not supported for image input."
             encoded_images = []
             for img in images:
                 if os.path.exists(img):
