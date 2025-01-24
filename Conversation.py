@@ -1291,7 +1291,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             yield {"text": '', "status": "saving message ..."}
             get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+            yield {"text": "\n", # + str(time_dict)
+                   "status": "saving answer ...", "message_ids": message_ids}
             return
         
         
@@ -2237,7 +2238,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
         message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": "\n", # + str(time_dict)
+               "status": "saving answer ...", "message_ids": message_ids}
 
     
     def detect_previous_message_type(self):
