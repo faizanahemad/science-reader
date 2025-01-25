@@ -134,23 +134,53 @@ var ConversationManager = {
     },
 
     convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false) {
-        activeConversationId = this.activeConversationId
-        return $.ajax({
-            url: '/tts/' + activeConversationId + '/' + messageId,
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ 
+        activeConversationId = this.activeConversationId;
+        
+        // Create a new Audio element for streaming
+        const audio = new Audio();
+        let isPlaying = false;
+        
+        return new Promise((resolve, reject) => {
+            // Use XMLHttpRequest for streaming support
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/tts/' + activeConversationId + '/' + messageId, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.responseType = 'blob';  // Important for audio streaming
+            
+            // Setup progress handler for streaming
+            xhr.onprogress = function(event) {
+                if (!isPlaying && xhr.response.size > 32768) { // Start playing after ~32KB received
+                    const tempUrl = URL.createObjectURL(xhr.response);
+                    audio.src = tempUrl;
+                    audio.play().catch(e => console.log('Autoplay prevented:', e));
+                    isPlaying = true;
+                    resolve(tempUrl);  // Resolve with temporary URL for the audio element
+                }
+            };
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    if (!isPlaying) {
+                        const audioUrl = URL.createObjectURL(xhr.response);
+                        resolve(audioUrl);
+                    }
+                } else {
+                    reject(new Error('Failed to load audio'));
+                }
+            };
+            
+            xhr.onerror = function() {
+                reject(new Error('Network error occurred'));
+            };
+            
+            // Send the request
+            xhr.send(JSON.stringify({ 
                 'text': text, 
                 'message_id': messageId, 
                 'message_index': messageIndex,
-                'recompute': recompute 
-            }),
-            xhrFields: {
-                responseType: 'blob'
-            },
-            success: function (result) {
-                console.log("TTS done");
-            }
+                'recompute': recompute,
+                'streaming': true
+            }));
         });
     },
 

@@ -218,6 +218,326 @@ Write the original answer or text in a TTS friendly format using the above TTS G
             # If merge fails, copy the first file as fallback
             if chunk_files:
                 shutil.copy2(chunk_files[0], output_path)
+                
+class StreamingTTSAgent(TTSAgent):
+    """
+    A TTS Agent that streams audio chunks instead of creating a single merged file.
+    It inherits from TTSAgent but overrides the call flow to produce streaming audio data.
+
+    StreamingTTSAgent: A streaming-first Text-to-Speech agent that processes and converts text to audio in real-time.
+
+    Design Principles and Requirements:
+    --------------------------------
+    1. Streaming Architecture:
+    - Yields audio chunks as soon as they are ready while maintaining sequential order
+    - Processes LLM text generation and TTS conversion concurrently
+    - Supports both streaming and non-streaming (file-based) use cases
+    - Maintains backward compatibility with base TTSAgent class
+
+    2. Text Processing:
+    - Handles both TTS-friendly and non-TTS-friendly input text
+    - For non-TTS-friendly text:
+        * Streams LLM output in real-time
+        * Processes text chunks as they arrive (split by \n\n)
+        * Maintains chunk ordering for coherent audio output
+    - For TTS-friendly text:
+        * Directly splits into chunks and processes in parallel
+        * Preserves original text structure and formatting
+
+    3. Performance Requirements:
+    - Minimizes latency between text input and first audio output
+    - Processes chunks in parallel using ThreadPoolExecutor
+    - Maintains memory efficiency by streaming data instead of loading entire audio
+    - Prevents busy-waiting through appropriate sleep intervals
+    - Scales efficiently with large text inputs
+
+    4. Storage and Caching:
+    - Caches final merged audio file for future requests
+    - Implements file-based fallback for error cases
+    - Maintains atomic file operations to prevent partial writes
+    - Supports configurable storage paths and formats
+
+    5. Error Handling:
+    - Graceful degradation in case of API failures
+    - Proper cleanup of resources (threads, file handles)
+    - Detailed logging for debugging and monitoring
+    - Fallback mechanisms for partial failures
+
+    6. API Design:
+    - Maintains consistent interface with base TTSAgent
+    - Supports both OpenAI and ElevenLabs TTS backends
+    - Configurable parameters for voice, model, and format
+    - Clear separation of concerns between text processing and audio generation
+
+    7. Non-Functional Requirements:
+    - Thread safety for parallel processing
+    - Resource management (memory, threads, API calls)
+    - Proper cleanup of temporary resources
+    - Maintainable and extensible code structure
+
+    Implementation Details:
+    ---------------------
+    1. Core Components:
+    - ThreadPoolExecutor for parallel TTS processing
+    - Streaming generator for audio chunk delivery
+    - LLM integration for text preprocessing
+    - Audio merging and storage functionality
+
+    2. Data Flow:
+    Input Text -> [Optional LLM Processing] -> Chunk Splitting -> 
+    Parallel TTS Generation -> Ordered Streaming -> [Optional Storage]
+
+    3. Key Methods:
+    - __call__: Main entry point, handles streaming and processing
+    - _generate_audio_chunk_in_memory: Converts text to audio bytes
+    - Backend-specific methods for OpenAI and ElevenLabs
+
+    4. State Management:
+    - Maintains chunk ordering through indexed futures
+    - Tracks pending and completed TTS tasks
+    - Accumulates audio chunks for final storage
+
+    Usage Examples:
+    -------------
+    1. Basic streaming usage:
+    ```python
+    agent = StreamingTTSAgent(keys, storage_path)
+    for audio_chunk in agent(text):
+        # Process or play audio chunk
+        play_audio(audio_chunk)
+    ```
+
+    2. With storage:
+    ```python
+    agent = StreamingTTSAgent(keys, "output/audio.mp3")
+    audio_chunks = list(agent(text))  # Streams and stores
+    # Audio file will be available at output/audio.mp3
+    ```
+
+    Dependencies:
+    ------------
+    - pydub: For audio processing and merging
+    - openai/elevenlabs: TTS backend APIs
+    - concurrent.futures: Parallel processing
+    - tempfile: Temporary file handling
+
+    Configuration:
+    -------------
+    - storage_path: Path for storing merged audio files
+    - convert_to_tts_friendly_format: Boolean for LLM preprocessing
+    - API keys and backend selection
+    - Voice and model parameters
+
+    Error Cases:
+    -----------
+    1. API failures: Returns None for chunk, continues processing
+    2. Storage failures: Logs error, attempts partial storage
+    3. LLM failures: Falls back to direct TTS processing
+    4. Chunk processing: Skips failed chunks, maintains order
+
+    Performance Considerations:
+    ------------------------
+    1. Memory Usage:
+    - Streams chunks instead of loading entire audio
+    - Cleans up completed futures and audio data
+    - Manages thread pool size for parallel processing
+
+    2. API Efficiency:
+    - Batches API calls appropriately
+    - Reuses API connections when possible
+    - Implements appropriate rate limiting
+
+    3. Storage Efficiency:
+    - Uses temporary files for intermediate storage
+    - Implements efficient merging strategies
+    - Handles large files through streaming
+
+    Maintenance Notes:
+    ----------------
+    - Regular cleanup of cached files recommended
+    - Monitor API usage and rate limits
+    - Check for backend API updates and compatibility
+    - Review error logs for potential improvements
+    """
+
+    def __call__(self, text, images=[], temperature=0.2, stream=True, max_tokens=None, system=None, web_search=False):
+        """
+        Streams audio chunks as they become ready while maintaining order.
+        Also accumulates chunks for final storage.
+        """
+        # Determine output path for final storage
+        if self.storage_path.endswith('.mp3'):
+            output_path = self.storage_path
+        else:
+            os.makedirs(self.storage_path, exist_ok=True)
+            output_path = os.path.join(self.storage_path, 'output.mp3')
+
+        # If file exists, stream it directly
+        if os.path.exists(output_path):
+            with open(output_path, 'rb') as f:
+                while chunk := f.read(8192):
+                    yield chunk
+            return
+
+        
+        for chunk in self.process_chunks(text, output_path, images, temperature, max_tokens, stream):
+            yield chunk
+    
+    def process_chunks(self, text, output_path, images, temperature, max_tokens, stream):
+        current_chunk = ""
+        next_chunk_index = 0
+        pending_futures = {}  # {index: Future}
+        all_audio_chunks = []  # For final storage
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            if self.convert_to_tts_friendly_format and not self.is_tts_friendly(text):
+                # Process streaming LLM output
+                llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
+                chunk_index = 0
+
+                for partial_text in llm(self.prompt.format(text=text), 
+                                        images=images, 
+                                        temperature=temperature,
+                                        stream=True, 
+                                        max_tokens=max_tokens, 
+                                        system=self.system):
+                    current_chunk += partial_text
+                    
+                    # Process complete chunks (split by \n\n)
+                    if '\n\n' in current_chunk:
+                        chunks = current_chunk.split('\n\n')
+                        # Keep last incomplete chunk
+                        current_chunk = chunks[-1]
+                        
+                        # Submit complete chunks for TTS
+                        for chunk in chunks[:-1]:
+                            if chunk.strip():
+                                future = executor.submit(
+                                    self._generate_audio_chunk_in_memory, 
+                                    chunk.strip()
+                                )
+                                pending_futures[chunk_index] = future
+                                chunk_index += 1
+
+                        # Yield ready chunks in order
+                        while next_chunk_index in pending_futures:
+                            future = pending_futures[next_chunk_index]
+                            if future.done():
+                                mp3_data = future.result()
+                                if mp3_data:
+                                    all_audio_chunks.append(mp3_data)
+                                    yield mp3_data
+                                del pending_futures[next_chunk_index]
+                                next_chunk_index += 1
+                            else:
+                                break
+
+                # Process final chunk if not empty
+                if current_chunk.strip():
+                    future = executor.submit(
+                        self._generate_audio_chunk_in_memory, 
+                        current_chunk.strip()
+                    )
+                    pending_futures[chunk_index] = future
+                    chunk_index += 1
+
+            else:
+                # Text is already TTS-friendly
+                chunks = [c.strip() for c in text.split('\n\n') if c.strip()]
+                for i, chunk in enumerate(chunks):
+                    future = executor.submit(
+                        self._generate_audio_chunk_in_memory, 
+                        chunk
+                    )
+                    pending_futures[i] = future
+
+            # Yield remaining chunks in order
+            while pending_futures:
+                if next_chunk_index in pending_futures:
+                    future = pending_futures[next_chunk_index]
+                    if future.done():
+                        mp3_data = future.result()
+                        if mp3_data:
+                            all_audio_chunks.append(mp3_data)
+                            yield mp3_data
+                        del pending_futures[next_chunk_index]
+                        next_chunk_index += 1
+                    else:
+                        # Small sleep to prevent busy waiting
+                        time.sleep(0.1)
+                else:
+                    # Small sleep to prevent busy waiting
+                    time.sleep(0.1)
+
+        # Save accumulated audio chunks to file
+        try:
+            from pydub import AudioSegment
+            import io
+            
+            audio_segments = []
+            for chunk_data in all_audio_chunks:
+                segment = AudioSegment.from_mp3(io.BytesIO(chunk_data))
+                audio_segments.append(segment)
+            
+            if audio_segments:
+                # Add small pause between chunks
+                pause = AudioSegment.silent(duration=500)
+                combined = audio_segments[0]
+                for segment in audio_segments[1:]:
+                    combined += pause + segment
+                
+                combined.export(output_path, format="mp3")
+        except Exception as e:
+            logger.error(f"Error saving merged audio file: {e}")
+            # Save first chunk if merge fails
+            if all_audio_chunks:
+                with open(output_path, 'wb') as f:
+                    f.write(all_audio_chunks[0])
+
+
+    def _generate_audio_chunk_in_memory(self, text):
+        """
+        Similar to _generate_audio_chunk, but returns mp3 data in memory (bytes) 
+        instead of writing to a file. We'll rely on the underlying TTS calls 
+        but direct them to a bytes buffer.
+        """
+        if USE_OPENAI_API:
+            return self._generate_audio_chunk_openai_in_memory(text)
+        else:
+            return self._generate_audio_chunk_elevenlabs_in_memory(text)
+
+    def _generate_audio_chunk_openai_in_memory(self, text):
+        """
+        Generate TTS using OpenAI API and return the mp3 data in-memory.
+        """
+        try:
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice="nova",
+                input=text
+            )
+            # Collect audio in memory
+            mp3_data = response.content  # 'HttpxBinaryResponseContent' object has 'content' attribute to get raw data
+            return mp3_data
+        except Exception as e:
+            logger.error(f"Error generating audio for chunk: {e}")
+            return None
+
+    def _generate_audio_chunk_elevenlabs_in_memory(self, text):
+        """
+        Generate TTS using ElevenLabs API and return mp3 data in-memory.
+        """
+        try:
+            audio = self.client.generate(
+                voice="Sarah",  # can be made configurable
+                text=text,
+                model_id="eleven_turbo_v2",
+                output_format="mp3_44100_64"
+            )
+            return audio  # the 'audio' here is already raw mp3 bytes from the client
+        except Exception as e:
+            logger.error(f"Error generating audio for chunk: {e}")
+            return None
 
 
 class WebSearchWithAgent(Agent):

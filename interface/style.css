@@ -617,3 +617,11 @@ table, tr, thead, th, td {
         max-height: calc(100vh - 55px) !important;
     }
 }
+
+
+.loading-indicator {
+    display: inline-block;
+    padding: 5px 10px;
+    color: #666;
+    font-size: 0.9em;
+}

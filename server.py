@@ -380,18 +380,19 @@ def generate_remember_token(email: str) -> str:
     tokens_file = os.path.join(users_dir, "remember_tokens.json")
     
     try:
+        current_time = datetime.now()
         # Load existing tokens
+        tokens = None
         if os.path.exists(tokens_file):
             with open(tokens_file, 'r') as f:
                 tokens = json.load(f)
                 
-        # Check if user has any valid existing tokens
-        current_time = datetime.now()
-        for token, data in tokens.items():
-            if (data['email'] == email and 
-                datetime.fromisoformat(data['expires_at']) > current_time):
-                # Return existing valid token
-                return token
+            # Check if user has any valid existing tokens
+            for token, data in tokens.items():
+                if (data['email'] == email and 
+                    datetime.fromisoformat(data['expires_at']) > current_time):
+                    # Return existing valid token
+                    return token
                 
         # If no valid token exists, generate a new one
         random_token = secrets.token_hex(32)
@@ -1161,19 +1162,44 @@ def get_conversation_output_docs(conversation_id, document_file_name):
 @app.route('/tts/<conversation_id>/<message_id>', methods=['POST'])
 @login_required
 def tts(conversation_id, message_id):
+    """
+    Updated route to perform streaming TTS if requested.
+    Otherwise, we can keep the existing single-file logic 
+    or entirely switch to streaming. Here we'll assume 
+    streaming is the new desired behavior by default. 
+    """
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    text = request.json.get('text')
+    text = request.json.get('text', '')
     recompute = request.json.get('recompute', False)
-    message_index = request.json.get('message_index')
+    message_index = request.json.get('message_index', None)
+    streaming = request.json.get('streaming', True)
+    # Optional param to decide if we do the old single-file approach or new streaming approach:
+    # But let's assume we do streaming permanently now.
+    # stream_tts = request.json.get('streaming', True)
+
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
-    location = conversation.convert_to_tts(text, message_id, message_index, recompute)
-    return send_file(location, mimetype='audio/mpeg')
+
+    if streaming:
+        # For streaming approach, we get a generator
+        audio_generator = conversation.convert_to_tts_streaming(text, message_id, message_index, recompute)
+
+        # We define a function that yields the chunks of mp3 data to the client
+        def generate_audio():
+            for chunk in audio_generator:
+                # chunk is mp3 data; yield it as part of the response
+                yield chunk
+
+        # Return a streaming Response
+        return Response(generate_audio(), mimetype='audio/mpeg')
+    else:
+        location = conversation.convert_to_tts(text, message_id, message_index, recompute)
+        return send_file(location, mimetype='audio/mpeg')
 
 @app.route('/is_tts_done/<conversation_id>/<message_id>', methods=['POST'])
 def is_tts_done(conversation_id, message_id):

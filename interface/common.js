@@ -254,125 +254,118 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         });
         
         let audioPlayer = $('<audio controls>').addClass('tts-audio')
-            .attr('src', audioUrl)
             .css({
                 'height': '30px',
                 'width': Math.min(window.innerWidth * 0.4, 400) + 'px'
             });
         
-        // Add CSS for rotating animation
-        const styleSheet = document.createElement('style');
-        styleSheet.textContent = `
-            .refresh-tts-btn {
-                position: relative;
-                transition: all 0.3s ease;
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }
-
-            .refresh-tts-btn:hover:not(.loading) {
-                background: #e9ecef;
-                transform: translateY(-1px);
-                box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-            }
-
-            .refresh-tts-btn.loading {
-                background: #e9ecef;
-                color: transparent;
-            }
-
-            .refresh-tts-btn.loading::after {
-                content: "";
-                position: absolute;
-                width: 16px;
-                height: 16px;
-                top: 50%;
-                left: 50%;
-                margin: -8px 0 0 -8px;
-                border: 2px solid transparent;
-                border-top-color: #666;
-                border-right-color: #666;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-            }
-
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-
-            .refresh-tts-btn.loading:hover {
-                cursor: not-allowed;
-            }
-
-            /* Optional: Add a subtle pulse effect while loading */
-            @keyframes pulse {
-                0% { box-shadow: 0 0 0 0 rgba(0,0,0,0.2); }
-                70% { box-shadow: 0 0 0 4px rgba(0,0,0,0); }
-                100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
-            }
-
-            .refresh-tts-btn.loading {
-                animation: pulse 2s infinite;
-            }
-        `;
-        document.head.appendChild(styleSheet);
+        if (audioUrl) {
+            audioPlayer.attr('src', audioUrl);
+        }
+        
+        let loadingIndicator = $('<div>')
+            .addClass('loading-indicator')
+            .text('Generating audio...')
+            .css({
+                'color': '#666',
+                'font-size': '0.9em',
+                'margin-right': '10px'
+            });
         
         let refreshBtn = $('<button>')
             .addClass('vote-btn')
             .addClass('refresh-tts-btn')
-            .html('<i class="fas fa-sync-alt"></i>') // Using FontAwesome icon instead of emoji
-            .click(function() {
-                if (refreshBtn.hasClass('loading')) return;
-                
-                // Add loading state
-                refreshBtn.addClass('loading');
-                refreshBtn.prop('disabled', true);
-                
-                // Store the original icon
-                const originalContent = refreshBtn.html();
-                
-                ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, true)
-                    .then(response => {
-                        const newAudioUrl = URL.createObjectURL(response);
-                        audioPlayer.attr('src', newAudioUrl);
-                        URL.revokeObjectURL(audioUrl);
-                        
-                        audioPlayer.on('ended', function() {
-                            URL.revokeObjectURL(newAudioUrl);
-                        });
-                    })
-                    .catch(error => {
-                        console.error('TTS Refresh Error:', error);
-                        alert('Failed to refresh text to speech: ' + error);
-                    })
-                    .always(function() {
-                        refreshBtn.removeClass('loading');
-                        refreshBtn.prop('disabled', false);
-                        refreshBtn.html(originalContent);
-                    });
-            });
+            .html('<i class="fas fa-sync-alt"></i>')
+            .attr('title', 'Regenerate audio')
+            .css('display', 'none');  // Hide initially
         
-        audioContainer.append(audioPlayer).append(refreshBtn);
+        refreshBtn.click(function() {
+            if (refreshBtn.hasClass('loading')) return;
+            
+            refreshBtn.addClass('loading');
+            loadingIndicator.text('Regenerating audio...');
+            loadingIndicator.show();
+            audioPlayer.hide();
+            refreshBtn.hide();
+            
+            ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, true)
+                .then(newAudioUrl => {
+                    if (audioPlayer.attr('src')) {
+                        URL.revokeObjectURL(audioPlayer.attr('src'));
+                    }
+                    audioPlayer.attr('src', newAudioUrl);
+                    audioPlayer.show();
+                    refreshBtn.show();
+                    
+                    // Start playing
+                    audioPlayer[0].play().catch(e => console.log('Autoplay prevented:', e));
+                })
+                .catch(error => {
+                    console.error('TTS Refresh Error:', error);
+                    alert('Failed to refresh audio: ' + error.message);
+                })
+                .finally(() => {
+                    refreshBtn.removeClass('loading');
+                    loadingIndicator.hide();
+                });
+        });
+        
+        // Add event listeners for audio player
+        audioPlayer.on('play', () => {
+            loadingIndicator.hide();
+            refreshBtn.show();
+        });
+        
+        audioPlayer.on('error', (e) => {
+            console.error('Audio playback error:', e);
+            loadingIndicator.text('Error playing audio');
+            refreshBtn.show();
+        });
+        
+        audioContainer.append(loadingIndicator).append(audioPlayer).append(refreshBtn);
         return audioContainer;
     }
-
+    
+    // Update the ttsBtn click handler
     ttsBtn.click(function () {
         messageId = cardElem.find('.card-header').last().attr('message-id');
         messageIndex = cardElem.find('.card-header').last().attr('message-index');
         
+        // Create audio container with loading state
+        let audioContainer = createAudioPlayer(null);
+        ttsBtn.replaceWith(audioContainer);
+        
+        const loadingIndicator = audioContainer.find('.loading-indicator');
+        const audioPlayer = audioContainer.find('.tts-audio');
+        const refreshBtn = audioContainer.find('.refresh-tts-btn');
+        
+        audioPlayer.hide();
+        refreshBtn.hide();
+        
         ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false)
-            .then(response => {
-                const audioUrl = URL.createObjectURL(response);
-                let audioContainer = createAudioPlayer(audioUrl);
+            .then(audioUrl => {
+                audioPlayer.attr('src', audioUrl);
+                audioPlayer.show();
                 
-                // Replace TTS button with audio container
-                ttsBtn.replaceWith(audioContainer);
+                // Cleanup on audio end
+                audioPlayer.on('ended', function() {
+                    if (audioUrl) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                });
+                
+                // Start playing
+                audioPlayer[0].play().catch(e => {
+                    console.log('Autoplay prevented:', e);
+                    loadingIndicator.hide();
+                    refreshBtn.show();
+                });
             })
             .catch(error => {
                 console.error('TTS Error:', error);
-                alert('Failed to convert text to speech: ' + error);
+                loadingIndicator.text('Failed to generate audio');
+                alert('Failed to convert text to speech: ' + error.message);
+                refreshBtn.show();
             });
     });
 
