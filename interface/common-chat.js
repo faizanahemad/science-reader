@@ -133,37 +133,116 @@ var ConversationManager = {
         });
     },
 
-    convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false) {
+    convertToTTSAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false) {
         activeConversationId = this.activeConversationId;
         
-        // Create a new Audio element for streaming
+        // UPDATED: Keep existing Audio object creation
         const audio = new Audio();
         let isPlaying = false;
-        
+        let objectUrl = null; // track current object URL
+        let never_paused = true;
+
+        audio.addEventListener('pause', () => {
+            isPlaying = false;
+            never_paused = false;
+        });
+    
         return new Promise((resolve, reject) => {
-            // Use XMLHttpRequest for streaming support
+            // UPDATED: show in the UI that we are loading (optional if you want more explicit feedback)
+            // Possibly manipulate cardElem or pass a callback to show “loading…” before XHR.
+    
             const xhr = new XMLHttpRequest();
             xhr.open('POST', '/tts/' + activeConversationId + '/' + messageId, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.responseType = 'blob';  // Important for audio streaming
-            
-            // Setup progress handler for streaming
+            xhr.responseType = 'blob';  // we rely on progressive mp3 download
+    
+            // xhr.setRequestHeader('Content-Type', 'application/json');
+    
             xhr.onprogress = function(event) {
-                if (!isPlaying && xhr.response.size > 32768) { // Start playing after ~32KB received
-                    const tempUrl = URL.createObjectURL(xhr.response);
-                    audio.src = tempUrl;
-                    audio.play().catch(e => console.log('Autoplay prevented:', e));
-                    isPlaying = true;
-                    resolve(tempUrl);  // Resolve with temporary URL for the audio element
+                // If not playing yet and we have enough data, create a blob and begin playing
+                if (!isPlaying && xhr.response && xhr.response.size > 8192 && never_paused) {
+                    // Revoke old URL if it exists
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    
+                    objectUrl = URL.createObjectURL(xhr.response);
+                    audio.src = objectUrl;
+                    
+                    audio.play().then(() => {
+                        isPlaying = true;
+                        resolve(objectUrl);  // We can resolve once it starts playing
+                    }).catch(e => {
+                        console.log('Autoplay prevented:', e);
+                        // Even if autoplay is prevented, we can resolve so that the caller can show the audio widget
+                        resolve(objectUrl);
+                    });
                 }
             };
-            
+    
             xhr.onload = function() {
                 if (xhr.status === 200) {
-                    if (!isPlaying) {
-                        const audioUrl = URL.createObjectURL(xhr.response);
-                        resolve(audioUrl);
+                    // If we never started playing in onprogress, do it now
+                    if (!isPlaying && never_paused) {
+                        if (objectUrl) {
+                            URL.revokeObjectURL(objectUrl);
+                        }
+                        const finalUrl = URL.createObjectURL(xhr.response);
+                        audio.src = finalUrl;
+                        // audio.play().catch(e => console.log('Autoplay prevented on load:', e));
+                        resolve(finalUrl);
                     }
+                } else {
+                    reject(new Error('Failed to load audio (status ' + xhr.status + ')'));
+                }
+            };
+    
+            xhr.onerror = function() {
+                reject(new Error('Network error occurred during TTS request'));
+            };
+    
+            xhr.send(JSON.stringify({
+                'text': text,
+                'message_id': messageId,
+                'message_index': messageIndex,
+                'recompute': recompute,
+                'streaming': true
+            }));
+        });
+    },
+
+    // APPROACH B: Fully user-initiated. We set audio.src but let the user press play.
+    convertToTTSNoAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false) {
+        const activeConversationId = this.activeConversationId;
+        const audio = new Audio();
+        let objectUrl = null;
+        let enoughDataLoaded = false; // optional to track if there's enough data to play
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/tts/' + activeConversationId + '/' + messageId, true);
+            xhr.responseType = 'blob';
+            xhr.setRequestHeader('Content-Type', 'application/json');
+
+            xhr.onprogress = function(event) {
+                // We can set src as soon as it has some minimal threshold to ensure audio is recognized
+                if (!enoughDataLoaded && xhr.response && xhr.response.size > 32768) {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                    objectUrl = URL.createObjectURL(xhr.response);
+                    audio.src = objectUrl;
+                    // We do NOT call audio.play() here
+                    enoughDataLoaded = true;
+                    // Resolve so that the UI can display an audio element
+                    resolve(objectUrl);
+                }
+            };
+
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    if (!enoughDataLoaded) {
+                        if (objectUrl) URL.revokeObjectURL(objectUrl);
+                        objectUrl = URL.createObjectURL(xhr.response);
+                        audio.src = objectUrl;
+                    }
+                    // No forced playback
+                    resolve(objectUrl);
                 } else {
                     reject(new Error('Failed to load audio'));
                 }
@@ -172,16 +251,23 @@ var ConversationManager = {
             xhr.onerror = function() {
                 reject(new Error('Network error occurred'));
             };
-            
-            // Send the request
-            xhr.send(JSON.stringify({ 
-                'text': text, 
-                'message_id': messageId, 
-                'message_index': messageIndex,
-                'recompute': recompute,
-                'streaming': true
+
+            xhr.send(JSON.stringify({
+                text,
+                message_id: messageId,
+                message_index: messageIndex,
+                recompute,
+                streaming: true
             }));
         });
+    },
+
+    convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false, autoPlay = false) {
+        if (autoPlay) {
+            return this.convertToTTSAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+        } else {
+            return this.convertToTTSNoAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+        }
     },
 
     fetchMemoryPad: function () {

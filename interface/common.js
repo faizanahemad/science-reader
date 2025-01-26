@@ -221,13 +221,19 @@ function enableMainFunctionality() {
 }
 
 function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null, disable_voting = false) {
-    let copyBtn = $('<button>').addClass('vote-btn').addClass('copy-btn').text('📋');
-    let editBtn = $('<button>').addClass('vote-btn').addClass('edit-btn').text('✏️');
+    let copyBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('copy-btn')
+        .text('📋');
+    let editBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('edit-btn')
+        .text('✏️');
+    
     copyBtn.click(function () {
-        // Here we get the card text and copy it to the clipboard
-        // let cardText = cardElem.text().replace(/\[show\]|\[hide\]/g, '');
         copyToClipboard(cardElem, text.replace('<answer>', '').replace('</answer>', '').trim());
     });
+    
     editBtn.off();
     editBtn.click(function () {
         $('#message-edit-text').val(text);
@@ -237,28 +243,36 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         messageIndex = cardElem.find('.card-header').last().attr('message-index');
 
         $('#message-edit-text-save-button').click(function () {
-            
             var newtext = $('#message-edit-text').val();
             ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
             $('#message-edit-modal').modal('hide');
         });
     });
 
-    let ttsBtn = $('<button>').addClass('vote-btn').addClass('tts-btn').text('🔊');
+    // The TTS button
+    let ttsBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('tts-btn')
+        .text('🔊');
     
     function createAudioPlayer(audioUrl) {
-        let audioContainer = $('<div>').addClass('audio-container').css({
-            'display': 'flex',
-            'align-items': 'center',
-            'gap': '5px'
-        });
+        // UPDATED: Show more explicit loading indicator
+        let audioContainer = $('<div>')
+            .addClass('audio-container')
+            .css({
+                'display': 'flex',
+                'align-items': 'center',
+                'gap': '5px'
+            });
         
-        let audioPlayer = $('<audio controls>').addClass('tts-audio')
+        let audioPlayer = $('<audio controls>')
+            .addClass('tts-audio')
             .css({
                 'height': '30px',
                 'width': Math.min(window.innerWidth * 0.4, 400) + 'px'
             });
         
+        // If we already have an audioUrl, set it up
         if (audioUrl) {
             audioPlayer.attr('src', audioUrl);
         }
@@ -288,8 +302,10 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             audioPlayer.hide();
             refreshBtn.hide();
             
+            // Force recompute = true
             ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, true)
                 .then(newAudioUrl => {
+                    // Release the old URL if needed
                     if (audioPlayer.attr('src')) {
                         URL.revokeObjectURL(audioPlayer.attr('src'));
                     }
@@ -297,7 +313,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                     audioPlayer.show();
                     refreshBtn.show();
                     
-                    // Start playing
+                    // Try autoplay
                     audioPlayer[0].play().catch(e => console.log('Autoplay prevented:', e));
                 })
                 .catch(error => {
@@ -310,28 +326,31 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                 });
         });
         
-        // Add event listeners for audio player
+        // Once audio starts playing, hide loading, show refresh
         audioPlayer.on('play', () => {
             loadingIndicator.hide();
             refreshBtn.show();
         });
         
+        // If there's an error playing the audio, display error message
         audioPlayer.on('error', (e) => {
             console.error('Audio playback error:', e);
             loadingIndicator.text('Error playing audio');
             refreshBtn.show();
         });
         
-        audioContainer.append(loadingIndicator).append(audioPlayer).append(refreshBtn);
+        audioContainer.append(loadingIndicator)
+            .append(audioPlayer)
+            .append(refreshBtn);
         return audioContainer;
     }
     
-    // Update the ttsBtn click handler
+    // When TTS is clicked
     ttsBtn.click(function () {
         messageId = cardElem.find('.card-header').last().attr('message-id');
         messageIndex = cardElem.find('.card-header').last().attr('message-index');
         
-        // Create audio container with loading state
+        // Create container with initial loading state
         let audioContainer = createAudioPlayer(null);
         ttsBtn.replaceWith(audioContainer);
         
@@ -339,27 +358,37 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         const audioPlayer = audioContainer.find('.tts-audio');
         const refreshBtn = audioContainer.find('.refresh-tts-btn');
         
+        // Hide the audio before data is ready
         audioPlayer.hide();
         refreshBtn.hide();
+
+        autoPlay = false;
         
-        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false)
+        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false, autoPlay)
             .then(audioUrl => {
+                // Set the audio source and show it
                 audioPlayer.attr('src', audioUrl);
                 audioPlayer.show();
                 
-                // Cleanup on audio end
                 audioPlayer.on('ended', function() {
                     if (audioUrl) {
+                        // Release resources
                         URL.revokeObjectURL(audioUrl);
                     }
                 });
-                
-                // Start playing
-                audioPlayer[0].play().catch(e => {
-                    console.log('Autoplay prevented:', e);
-                    loadingIndicator.hide();
-                    refreshBtn.show();
+                loadingIndicator.hide();
+                refreshBtn.show();
+
+                audioPlayer.on('pause', () => {
+                    // do nothing
                 });
+                
+                if (autoPlay && audioPlayer[0].paused && audioPlayer[0].currentTime === 0) {
+                    // Attempt to play immediately
+                    audioPlayer[0].play().catch(e => {
+                        console.log('Autoplay prevented:', e);
+                    });
+                }
             })
             .catch(error => {
                 console.error('TTS Error:', error);
@@ -369,19 +398,25 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             });
     });
 
-    let voteBox = $('<div>').addClass('vote-box').css({
-        'position': 'absolute',
-        'top': '5px',
-        'right': '30px'
-    });
+    // The voteBox with TTS, edit, copy, etc.
+    let voteBox = $('<div>')
+        .addClass('vote-box')
+        .css({
+            'position': 'absolute',
+            'top': '5px',
+            'right': '30px'
+        });
     
+    // Append the TTS button and the others
     voteBox.append(ttsBtn);
     voteBox.append(editBtn);
     voteBox.append(copyBtn);
-    // delete any previous votebox and add the new one
+    
+    // Remove old vote-box if any, and add the new one
     cardElem.find('.vote-box').remove();
     cardElem.append(voteBox);
-    return
+
+    return;
 }
 
 const markdownParser = new marked.Renderer();

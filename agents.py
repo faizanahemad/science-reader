@@ -481,7 +481,7 @@ class StreamingTTSAgent(TTSAgent):
             
             if audio_segments:
                 # Add small pause between chunks
-                pause = AudioSegment.silent(duration=500)
+                pause = AudioSegment.silent(duration=250)
                 combined = audio_segments[0]
                 for segment in audio_segments[1:]:
                     combined += pause + segment
