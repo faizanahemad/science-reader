@@ -753,14 +753,16 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Is Coding Request</option>
                 <option>Short</option>
                 <!-- option>Paper Summary</option -->
-                <option selected>Long</option>
-                <option>Explain Maths</option>
+                <option>Long</option>
+                
+                <option>No Links</option>
                 <option selected>Wife Prompt</option>
+                <option>Explain Maths</option>
                 <option>No Lazy</option>
                 <option>Argumentative</option>
                 <option>Blackmail</option>
                 <option>ML System Design Roleplay</option>
-                <option>No Links</option>
+                
                 
                 <option>ML System Design Answer</option>
                 <option>ML System Design Answer Short</option>
@@ -809,13 +811,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Filler</option>
                 <option>Claude Opus</option>
                 <option>Gemini 1.5</option>
-                <option>openai/o1-preview</option>
+                
                 <option>o1-hard</option>
                 <option>gpt-4o</option>
-                <option>Pixtral Large</option>
+                <!-- option>Pixtral Large</option -->
                 
                 
                 <option>minimax/minimax-01</option>
+                <option>openai/o1-preview</option>
                 <!-- option>qwen/qvq-72b-preview</option -->
                 <!-- option>meta-llama/llama-3.2-90b-vision-instruct</option -->
                 <!-- option>openai/o1</option -->
@@ -827,9 +830,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>o1-mini</option -->
                 <!-- option>openai/o1-mini</option -->
                 <!-- option>Command-r+</option -->
-                <option>DeepSeek-V2.5 Chat</option>
+                <!-- option>DeepSeek-V2.5 Chat</option -->
                 <!-- option>Jamba</option -->
-                <option>llama-3.1-405b</option>
+                <!-- option>llama-3.1-405b</option -->
                 <!-- option>Qwen 2</option -->
                 
                 
