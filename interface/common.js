@@ -874,20 +874,20 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Agent_WhatIf</option>
                 <option>Agent_LiteratureReview</option>
                 
-                <option>Prompt_IdeaNovelty</option>
+                <!-- option>Prompt_IdeaNovelty</option -->
                 <option>Prompt_IdeaComparison</option>
                 <option>Prompt_IdeaFleshOut</option>
                 <option>Prompt_IdeaDatasetsAndExperiments</option>
                 <option>Prompt_IdeaAblationsAndResearchQuestions</option>
-                <option>Prompt_ResearchPreventRejections</option>
+                <!-- option>Prompt_ResearchPreventRejections</option -->
                 
-                <option>Agent_IdeaNovelty</option>
+                <!-- option>Agent_IdeaNovelty</option -->
                 
-                <option>Agent_CodeExecution</option>
-                <option>Agent_VerifyAndImprove</option>
-                <option>Agent_ElaborateDiveDeepExpand</option>
-                <option>Agent_Finance</option>
-                <option>Agent_DocQnA</option>
+                <!-- option>Agent_CodeExecution</option -->
+                <!-- option>Agent_VerifyAndImprove</option -->
+                <!-- option>Agent_ElaborateDiveDeepExpand</option -->
+                <!-- option>Agent_Finance</option -->
+                <!-- option>Agent_DocQnA</option -->
             </select>
         </div>
         <div class="form-check form-check-inline mt-1">
