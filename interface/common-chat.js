@@ -134,82 +134,116 @@ var ConversationManager = {
     },
 
     convertToTTSAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false) {
-        activeConversationId = this.activeConversationId;
+        const conversationId = this.activeConversationId;
+        // Check if the browser supports MediaSource
+        if (!window.MediaSource) {
+            console.warn('MediaSource not supported in this browser. Fallback to non-streaming approach.');
+            // Fallback: just call the non-streaming approach
+            return this.convertToTTSNoAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+        }
         
-        // UPDATED: Keep existing Audio object creation
-        const audio = new Audio();
-        let isPlaying = false;
-        let objectUrl = null; // track current object URL
-        let never_paused = true;
-
-        audio.addEventListener('pause', () => {
-            isPlaying = false;
-            never_paused = false;
-        });
-    
+        // We'll stream TTS using fetch and ReadableStream, appending to a MediaSource.
         return new Promise((resolve, reject) => {
-            // UPDATED: show in the UI that we are loading (optional if you want more explicit feedback)
-            // Possibly manipulate cardElem or pass a callback to show “loading…” before XHR.
-    
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/tts/' + activeConversationId + '/' + messageId, true);
-            xhr.responseType = 'blob';  // we rely on progressive mp3 download
-    
-            // xhr.setRequestHeader('Content-Type', 'application/json');
-    
-            xhr.onprogress = function(event) {
-                // If not playing yet and we have enough data, create a blob and begin playing
-                if (!isPlaying && xhr.response && xhr.response.size > 8192 && never_paused) {
-                    // Revoke old URL if it exists
-                    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    
-                    objectUrl = URL.createObjectURL(xhr.response);
-                    audio.src = objectUrl;
-                    
-                    audio.play().then(() => {
-                        isPlaying = true;
-                        resolve(objectUrl);  // We can resolve once it starts playing
-                    }).catch(e => {
-                        console.log('Autoplay prevented:', e);
-                        // Even if autoplay is prevented, we can resolve so that the caller can show the audio widget
-                        resolve(objectUrl);
-                    });
+            // 1) Create MediaSource + URL
+            const mediaSource = new MediaSource();
+            const objectUrl = URL.createObjectURL(mediaSource);
+
+            // 2) We set up a handler for when the MediaSource is "open"
+            mediaSource.addEventListener('sourceopen', () => {
+                let sourceBuffer;
+                try {
+                    // We'll parse an audio/mpeg SourceBuffer
+                    sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+                } catch (e) {
+                    console.error('Error adding source buffer:', e);
+                    reject(e);
+                    return;
                 }
-            };
-    
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    // If we never started playing in onprogress, do it now
-                    if (!isPlaying && never_paused) {
-                        if (objectUrl) {
-                            URL.revokeObjectURL(objectUrl);
-                        }
-                        const finalUrl = URL.createObjectURL(xhr.response);
-                        audio.src = finalUrl;
-                        // audio.play().catch(e => console.log('Autoplay prevented on load:', e));
-                        resolve(finalUrl);
+
+                // Keep a queue of chunks so we only append one at a time
+                const chunkQueue = [];
+                let appending = false;
+
+                // We append the chunk at the front of chunkQueue
+                function appendNextChunk() {
+                    if (appending || !chunkQueue.length) return;
+                    appending = true;
+                    const chunk = chunkQueue.shift();
+                    sourceBuffer.appendBuffer(chunk);
+                }
+
+                // Called when the update (appendBuffer) ends
+                sourceBuffer.addEventListener('updateend', () => {
+                    appending = false;
+                    // Attempt to append the next chunk if available
+                    if (chunkQueue.length) {
+                        appendNextChunk();
                     }
-                } else {
-                    reject(new Error('Failed to load audio (status ' + xhr.status + ')'));
-                }
-            };
-    
-            xhr.onerror = function() {
-                reject(new Error('Network error occurred during TTS request'));
-            };
-    
-            xhr.send(JSON.stringify({
-                'text': text,
-                'message_id': messageId,
-                'message_index': messageIndex,
-                'recompute': recompute,
-                'streaming': true
-            }));
+                });
+
+                // 3) fetch in streaming mode
+                fetch(`/tts/${conversationId}/${messageId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        message_id: messageId,
+                        message_index: messageIndex,
+                        recompute: recompute,
+                        streaming: true
+                    })
+                }).then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Network response was not ok (status ${response.status})`);
+                    }
+                    return response.body; // get ReadableStream
+                }).then(stream => {
+                    // 4) Read from the stream in chunks
+                    const reader = stream.getReader();
+
+                    function readNext() {
+                        reader.read().then(({done, value}) => {
+                            if (done) {
+                                // End of stream
+                                try {
+                                    // Indicate the entire stream is done
+                                    mediaSource.endOfStream();
+                                } catch (e) {
+                                    console.warn('endOfStream error:', e);
+                                }
+                                return;
+                            }
+
+                            // queue chunk
+                            chunkQueue.push(value);
+                            appendNextChunk(); // attempt to append if buffer is free
+
+                            // keep reading
+                            readNext();
+                        }).catch(err => {
+                            console.error('Stream read error:', err);
+                            reject(err);
+                        });
+                    }
+
+                    readNext();
+                }).catch(err => {
+                    console.error('fetch error for streaming audio:', err);
+                    reject(err);
+                });
+            });
+
+            // 5) Resolve the final URL for the caller to set up <audio src=...>
+            //    Usually we can resolve right away, as the audio can begin playing
+            //    as soon as the MediaSource is open. Attaching the URL is enough.
+            resolve(objectUrl);
         });
     },
 
     // APPROACH B: Fully user-initiated. We set audio.src but let the user press play.
-    convertToTTSNoAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false) {
+    convertToTTSProgressiveDownload: function (text, messageId, messageIndex, cardElem, recompute = false) {
         const activeConversationId = this.activeConversationId;
         const audio = new Audio();
         let objectUrl = null;
@@ -266,7 +300,7 @@ var ConversationManager = {
         if (autoPlay) {
             return this.convertToTTSAutoPlay(text, messageId, messageIndex, cardElem, recompute);
         } else {
-            return this.convertToTTSNoAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+            return this.convertToTTSProgressiveDownload(text, messageId, messageIndex, cardElem, recompute);
         }
     },
 
