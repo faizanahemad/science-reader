@@ -133,13 +133,13 @@ var ConversationManager = {
         });
     },
 
-    convertToTTSAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false) {
+    convertToTTSAutoPlay: function (text, messageId, messageIndex, cardElem, recompute = false, shortTTS = false) {
         const conversationId = this.activeConversationId;
         // Check if the browser supports MediaSource
         if (!window.MediaSource) {
             console.warn('MediaSource not supported in this browser. Fallback to non-streaming approach.');
             // Fallback: just call the non-streaming approach
-            return this.convertToTTSNoAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+            return this.convertToTTSNoAutoPlay(text, messageId, messageIndex, cardElem, recompute, shortTTS);
         }
         
         // We'll stream TTS using fetch and ReadableStream, appending to a MediaSource.
@@ -192,7 +192,8 @@ var ConversationManager = {
                         message_id: messageId,
                         message_index: messageIndex,
                         recompute: recompute,
-                        streaming: true
+                        streaming: true,
+                        shortTTS: shortTTS
                     })
                 }).then(response => {
                     if (!response.ok) {
@@ -243,7 +244,7 @@ var ConversationManager = {
     },
 
     // APPROACH B: Fully user-initiated. We set audio.src but let the user press play.
-    convertToTTSProgressiveDownload: function (text, messageId, messageIndex, cardElem, recompute = false) {
+    convertToTTSProgressiveDownload: function (text, messageId, messageIndex, cardElem, recompute = false, shortTTS = false) {
         const activeConversationId = this.activeConversationId;
         const audio = new Audio();
         let objectUrl = null;
@@ -291,16 +292,17 @@ var ConversationManager = {
                 message_id: messageId,
                 message_index: messageIndex,
                 recompute,
-                streaming: true
+                streaming: true,
+                shortTTS: shortTTS
             }));
         });
     },
 
-    convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false, autoPlay = false) {
+    convertToTTS: function (text, messageId, messageIndex, cardElem, recompute = false, autoPlay = false, shortTTS = false) {
         if (autoPlay) {
-            return this.convertToTTSAutoPlay(text, messageId, messageIndex, cardElem, recompute);
+            return this.convertToTTSAutoPlay(text, messageId, messageIndex, cardElem, recompute, shortTTS);
         } else {
-            return this.convertToTTSProgressiveDownload(text, messageId, messageIndex, cardElem, recompute);
+            return this.convertToTTSProgressiveDownload(text, messageId, messageIndex, cardElem, recompute, shortTTS);
         }
     },
 

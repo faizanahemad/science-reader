@@ -244,7 +244,22 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     let ttsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('tts-btn')
-        .text('🔊');
+        .text('🔊')
+        .css({
+            'border-radius': '8px', // Adding rounded corners
+            'border': '1px solid',   // Adding solid line border
+            'margin-right': '5px'
+        });
+
+    let shortTtsBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('short-tts-btn')
+        .text('Short 🔉')
+        .css({
+            'border-radius': '8px', // Adding rounded corners
+            'border': '1px solid',   // Adding solid line border
+            'margin-right': '5px'
+        });
 
     // We'll create a container for the audio or player
     function createAudioPlayer(audioUrl, autoPlay) {
@@ -323,7 +338,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
 
     // TTS click
 
-    let ttsBtnCallback = function () {
+    function handleTTSBtnClick(isShort) {
         const messageId = cardElem.find('.card-header').last().attr('message-id');
         const messageIndex = cardElem.find('.card-header').last().attr('message-index');
         
@@ -332,7 +347,19 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         let autoPlay = true;  // We'll do streaming auto-play
         
         let audioContainer = createAudioPlayer('', autoPlay);
-        ttsBtn.replaceWith(audioContainer);
+        
+
+        if (isShort) {
+            ttsBtn.hide();
+        } else {
+            shortTtsBtn.hide();
+        }
+
+        if (isShort) {
+            shortTtsBtn.replaceWith(audioContainer);
+        } else {
+            ttsBtn.replaceWith(audioContainer);
+        }
 
         let loadingIndicator = audioContainer.find('.loading-indicator');
         let audioPlayer = audioContainer.find('audio');
@@ -340,8 +367,11 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
 
         loadingIndicator.show();
         audioPlayer.hide();
+        
 
-        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false, autoPlay)
+        shortTTS = isShort;
+
+        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false, autoPlay, shortTTS)
             .then(audioUrl => {
                 audioPlayer.attr('src', audioUrl);
                 audioPlayer.show();
@@ -357,7 +387,14 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                 console.error('TTS Error:', err);
             });
     }
-    ttsBtn.click(ttsBtnCallback);
+    ttsBtn.click(function() {
+        handleTTSBtnClick(false);  // normal TTS
+    });
+
+    shortTtsBtn.click(function() {
+        handleTTSBtnClick(true);   // short TTS
+    });
+
 
     // Add the buttons to the vote box
     let voteBox = $('<div>')
@@ -368,7 +405,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             'right': '30px'
         });
 
-    voteBox.append(ttsBtn, editBtn, copyBtn);
+    voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
     cardElem.find('.vote-box').remove();
     cardElem.append(voteBox);
 

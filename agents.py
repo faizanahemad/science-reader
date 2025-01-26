@@ -33,10 +33,11 @@ class Agent:
 
 
 class TTSAgent(Agent):
-    def __init__(self, keys, storage_path, convert_to_tts_friendly_format=True):
+    def __init__(self, keys, storage_path, convert_to_tts_friendly_format=True, shortTTS=False):
         super().__init__(keys)
         self.storage_path = storage_path
         self.convert_to_tts_friendly_format = convert_to_tts_friendly_format
+        self.shortTTS = shortTTS
         if USE_OPENAI_API:
             self.client = OpenAI(api_key=os.environ.get("openAIKey", keys["openAIKey"]))
         else:
@@ -44,6 +45,18 @@ class TTSAgent(Agent):
             self.client = ElevenLabs(
                 api_key=os.environ.get("elevenLabsKey", keys["elevenLabsKey"])
             )
+        shortTTS_prompt = """
+Further TTS Formatting Instructions (shortTTS = True or shortTTS instructions are enabled):
+- Our reader is a busy person and has limited time to read. We need to shorten the text and give a concise response.
+- Summarize the text to keep it concise, use TTS friendly format.
+- Omit extraneous details while maintaining coherence and continuity in the flow.
+- Keep sentences short for easier spoken delivery.
+- Give a very short response while adhering to the TTS friendly format.
+- Preserve essential context so the meaning remains clear.    
+- Make it fucking shorter, brief and concise. 
+    
+""" if self.shortTTS else ""
+
         self.system = f"""
 You are an expert TTS (Text To Speech) agent. 
 You will be given a text and you need to convert it into a TTS friendly format. 
@@ -51,17 +64,21 @@ You need to convert the given text into a TTS friendly format using the followin
 
 {tts_friendly_format_instructions}
 
+{shortTTS_prompt}
+
 Ensure that you only convert the text and do not add any new content or information.
 
 """
 
-        self.prompt = self.system + """
+        self.prompt = self.system + f"""
 Original answer or text to convert to TTS friendly format:
 <|context|>
-{text}
+{{text}}
 </|context|>\n\n
 
-Write the original answer or text in a TTS friendly format using the above TTS Guidelines and the original answer below:
+{shortTTS_prompt}
+
+Write the original answer or text in a TTS friendly format using the above TTS Guidelines:
 """
 
 

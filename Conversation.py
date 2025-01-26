@@ -564,166 +564,184 @@ Your response will be in below xml style format:
         msg_set.result()
         memory_pad.result()
         
-    def convert_to_tts(self, text, message_id, message_index, recompute=False):
+    def convert_to_tts(self, text, message_id, message_index, recompute=False, shortTTS=False):
         """
-        Convert text to speech using TTSAgent.
+        Convert text to speech using TTSAgent, with support for both short and normal TTS versions.
         
+        This method:
+        1. Creates an audio messages directory if it doesn't exist.
+        2. Resolves the message_id if it is missing or invalid by falling back to the last message in the conversation.
+        3. Determines the correct filename based on whether shortTTS is True or False:
+            - If shortTTS=True, uses "{message_id}_short.mp3"
+            - Otherwise, uses "{message_id}.mp3"
+        4. Checks if the mp3 file already exists (and recompute=False). If so, returns its path (cached). 
+        5. Otherwise, initializes the TTSAgent (passing shortTTS as a named parameter) and generates the audio file.
+        6. Returns the path to the generated audio file.
+
         Args:
-            text (str): Text to convert to speech
-            message_id (str|None): Message ID for the text
-            message_index (int): Index of the message
-            
+            text (str): Text to convert to speech.
+            message_id (str|None): Message ID for the text.
+            message_index (int): Index of the message.
+            recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
+            shortTTS (bool, optional): Whether to generate a shorter TTS variant. 
+                                    Affects naming and agent configuration. Defaults to False.
+        
         Returns:
-            str: Path to the audio file
+            str: Path to the generated (or cached) audio file, or None if an error occurred.
         """
         # Create audio messages directory
         audio_dir = os.path.join(self._storage, "audio_messages")
         os.makedirs(audio_dir, exist_ok=True)
         
-        # If message_id is None or undefined, try to get it from the last message
-        if not message_id or str(message_id) == "None" or str(message_id) == "" or str(message_id).lower() == "nan" or str(message_id).lower() == "undefined":
-            messages = self.get_field("messages")
-            if messages:
-                message_id = messages[-1].get("message_id")
-                text = messages[-1].get("text")
-            
-        if not message_id:
-            logger.error(f"Could not determine message_id for index {message_index}")
-            return None
-        
-        if message_id:
-            messages = self.get_field("messages")
-            message = next((m for m in messages if m["message_id"] == message_id), None)
-            if message:
-                text = message["text"]
-        
-        # Use consistent filename format
-        filename = f"{message_id}.mp3"
-        audio_path = os.path.join(audio_dir, filename)
-        
-        # If audio file already exists, return its path
-        if os.path.exists(audio_path) and not recompute:
-            # if it is an mp3 file, return its path
-            if audio_path.endswith(".mp3"):
-                logger.info(f"Found existing audio file for message_id {message_id}")
-                return audio_path
-            else:
-                logger.info(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
-                raise Exception(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
-            
-        try:
-            # Initialize TTSAgent with the specific output path
-            tts_agent = TTSAgent(
-                keys=self.get_api_keys(),
-                storage_path=audio_path,
-                convert_to_tts_friendly_format=True
-            )
-            
-            # Convert text to audio and get the output path
-            output_path = tts_agent(text)
-            
-            return output_path
-            
-        except Exception as e:
-            logger.error(f"Error converting text to speech: {e}")
-            return None
-
-    def convert_to_tts_streaming(self, text, message_id, message_index, recompute=False):
-        """
-        Convert text to speech using StreamingTTSAgent with both streaming and file storage capabilities.
-        
-        This method extends the functionality of convert_to_tts() by enabling streaming while maintaining
-        file storage benefits. Key differences from convert_to_tts():
-        
-        1. Return Value:
-        - convert_to_tts(): Returns a file path
-        - convert_to_tts_streaming(): Returns a generator that streams audio chunks
-        
-        2. Processing Approach:
-        - convert_to_tts(): Processes entire text, saves file, then returns path
-        - convert_to_tts_streaming(): 
-            * Streams chunks as they're generated
-            * Saves complete file in background
-            * Reuses saved file for subsequent requests
-        
-        3. Caching Behavior:
-        - Both methods cache the final audio file
-        - Both support recompute flag to force regeneration
-        - Streaming starts immediately from cached file if it exists
-        
-        Args:
-            text (str): Text to convert to speech
-            message_id (str|None): Message ID for the text
-            message_index (int): Index of the message
-            recompute (bool): If True, regenerate audio even if cached file exists
-        
-        Returns:
-            generator: A generator that yields mp3 data chunks (bytes)
-        
-        File Storage:
-            - Audio files are saved in {self._storage}/audio_messages/{message_id}.mp3
-            - Files are reused for subsequent requests unless recompute=True
-        """
-        # Create audio messages directory (same as convert_to_tts)
-        audio_dir = os.path.join(self._storage, "audio_messages")
-        os.makedirs(audio_dir, exist_ok=True)
-        
-        # Handle message_id resolution (same logic as convert_to_tts)
+        # If message_id is None or invalid, attempt fallback
         if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
             messages = self.get_field("messages")
             if messages:
                 message_id = messages[-1].get("message_id")
                 text = messages[-1].get("text")
-                
+        
+        # If still no message_id, log and return
+        if not message_id:
+            logger.error(f"Could not determine message_id for index {message_index}")
+            return None
+        
+        # Attempt to retrieve matching message text
+        messages = self.get_field("messages")
+        if messages:
+            message = next((m for m in messages if m["message_id"] == message_id), None)
+            if message:
+                text = message.get("text", text)
+        
+        # Use distinct filename depending on shortTTS
+        if shortTTS:
+            filename = f"{message_id}_short.mp3"
+        else:
+            filename = f"{message_id}.mp3"
+        
+        audio_path = os.path.join(audio_dir, filename)
+        
+        # If audio file already exists and recompute=False, return its path
+        if os.path.exists(audio_path) and not recompute:
+            if audio_path.endswith(".mp3"):
+                logger.info(f"Found existing audio file for message_id={message_id}, shortTTS={shortTTS}")
+                return audio_path
+            else:
+                logger.info(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
+                raise Exception(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
+        
+        # Attempt to generate TTS
+        try:
+            # Initialize TTSAgent with the specific output path and shortTTS flag
+            tts_agent = TTSAgent(
+                keys=self.get_api_keys(),
+                storage_path=audio_path,
+                convert_to_tts_friendly_format=True,
+                shortTTS=shortTTS
+            )
+            
+            # Convert text to audio and get the output path
+            output_path = tts_agent(text)
+            return output_path
+        except Exception as e:
+            logger.error(f"Error converting text to speech for message_id={message_id}, shortTTS={shortTTS}: {e}")
+            return None
+
+
+    def convert_to_tts_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False):
+        """
+        Convert text to speech using StreamingTTSAgent with both streaming and file storage capabilities, 
+        supporting distinct short/normal TTS versions.
+
+        This method:
+        1. Creates an audio messages directory if it doesn't exist (same as convert_to_tts).
+        2. Resolves the message_id if it is missing or invalid by falling back to the last message.
+        3. Determines the correct filename based on whether shortTTS is True or False:
+            - If shortTTS=True, uses "{message_id}_short.mp3"
+            - Otherwise, uses "{message_id}.mp3"
+        4. If the file exists and recompute=False, streams it from the local file instead of regenerating audio.
+        5. Otherwise, initializes the StreamingTTSAgent (passing shortTTS as a named parameter) to:
+            - Stream audio chunks to the client.
+            - Save the entire file as it streams for subsequent caching.
+        6. Returns a generator that yields mp3 data chunks (bytes).
+
+        Args:
+            text (str): Text to convert to speech.
+            message_id (str|None): Message ID for the text.
+            message_index (int): Index of the message.
+            recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
+            shortTTS (bool, optional): Whether to generate a shorter TTS variant. 
+                                    Affects naming and agent configuration. Defaults to False.
+
+        Returns:
+            generator: A generator that yields mp3 data chunks (bytes). An empty generator is returned if an error occurs.
+
+        Note:
+            - File caching logic is similar to convert_to_tts(), but audio is streamed in chunks.
+        """
+        # Create audio messages directory
+        audio_dir = os.path.join(self._storage, "audio_messages")
+        os.makedirs(audio_dir, exist_ok=True)
+
+        # Resolve message_id if missing
+        if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
+            messages = self.get_field("messages")
+            if messages:
+                message_id = messages[-1].get("message_id")
+                text = messages[-1].get("text")
+
+        # If still no message_id, log and return empty generator
         if not message_id:
             logger.error(f"Could not determine message_id for index {message_index}")
             return (b"" for _ in range(0))  # empty generator
-        
-        if message_id:
-            messages = self.get_field("messages")
+
+        # Retrieve relevant message text if available
+        messages = self.get_field("messages")
+        if messages:
             message = next((m for m in messages if m["message_id"] == message_id), None)
             if message:
-                text = message["text"]
+                text = message.get("text", text)
 
-            # Use consistent filename format (same as convert_to_tts)
+        # Use distinct filename depending on shortTTS
+        if shortTTS:
+            filename = f"{message_id}_short.mp3"
+        else:
             filename = f"{message_id}.mp3"
-            audio_path = os.path.join(audio_dir, filename)
+
+        audio_path = os.path.join(audio_dir, filename)
+
+        try:
+            # If file exists and recompute=False, stream it from local file
+            if os.path.exists(audio_path) and not recompute:
+                if audio_path.endswith(".mp3"):
+                    logger.info(f"Streaming existing audio file for message_id={message_id}, shortTTS={shortTTS}")
+                    with open(audio_path, 'rb') as f:
+                        while chunk := f.read(8192):  # Stream in 8KB chunks
+                            yield chunk
+                    return
+                else:
+                    logger.info(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
+                    raise Exception(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
             
-            try:
-                # If file exists and recompute=False, stream from file
-                if os.path.exists(audio_path) and not recompute:
-                    if audio_path.endswith(".mp3"):
-                        logger.info(f"Streaming existing audio file for message_id {message_id}")
-                        with open(audio_path, 'rb') as f:
-                            while chunk := f.read(8192):  # Stream in 8KB chunks
-                                yield chunk
-                        return
-                    else:
-                        logger.info(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
-                        raise Exception(f"Found existing audio file for message_id {message_id} but it is not an mp3 file")
-                
-                # Initialize StreamingTTSAgent with the storage path
-                tts_agent = StreamingTTSAgent(
-                    keys=self.get_api_keys(),
-                    storage_path=audio_path,  # Now we pass the actual storage path
-                    convert_to_tts_friendly_format=True
-                )
-                
-                # Get the streaming generator from the agent
-                # The agent will handle both streaming and file storage
-                audio_generator = tts_agent(text)
-                
-                # Stream the chunks to the client
-                for chunk in audio_generator:
-                    yield chunk
-                    
-            except Exception as e:
-                traceback.print_exc()
-                logger.error(f"Error in streaming TTS conversion: {e}")
-                # Return empty generator on failure
-                def empty_gen():
-                    yield
-                return empty_gen()
+            # Initialize StreamingTTSAgent with path and shortTTS
+            tts_agent = StreamingTTSAgent(
+                keys=self.get_api_keys(),
+                storage_path=audio_path,
+                convert_to_tts_friendly_format=True,
+                shortTTS=shortTTS
+            )
+            
+            # Stream the chunks to the client while saving to file
+            audio_generator = tts_agent(text)
+            for chunk in audio_generator:
+                yield chunk
+
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(f"Error in streaming TTS conversion for message_id={message_id}, shortTTS={shortTTS}: {e}")
+            # Return empty generator on failure
+            def empty_gen():
+                yield
+            return empty_gen()
     
     def delete_message(self, message_id, index):
         index = int(index)

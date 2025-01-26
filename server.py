@@ -1174,6 +1174,7 @@ def tts(conversation_id, message_id):
     recompute = request.json.get('recompute', False)
     message_index = request.json.get('message_index', None)
     streaming = request.json.get('streaming', True)
+    shortTTS = request.json.get('shortTTS', False)
     # Optional param to decide if we do the old single-file approach or new streaming approach:
     # But let's assume we do streaming permanently now.
     # stream_tts = request.json.get('streaming', True)
@@ -1187,7 +1188,7 @@ def tts(conversation_id, message_id):
 
     if streaming:
         # For streaming approach, we get a generator
-        audio_generator = conversation.convert_to_tts_streaming(text, message_id, message_index, recompute)
+        audio_generator = conversation.convert_to_tts_streaming(text, message_id, message_index, recompute, shortTTS)
 
         # We define a function that yields the chunks of mp3 data to the client
         def generate_audio():
@@ -1198,7 +1199,7 @@ def tts(conversation_id, message_id):
         # Return a streaming Response
         return Response(generate_audio(), mimetype='audio/mpeg')
     else:
-        location = conversation.convert_to_tts(text, message_id, message_index, recompute)
+        location = conversation.convert_to_tts(text, message_id, message_index, recompute, shortTTS)
         return send_file(location, mimetype='audio/mpeg')
 
 @app.route('/is_tts_done/<conversation_id>/<message_id>', methods=['POST'])
