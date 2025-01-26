@@ -662,6 +662,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
             additional_info = get_async_future(llm, prompt, temperature=0.8)
 
         answer = sleep_and_get_future_result(answer) if sleep_and_get_future_exception(answer) is None else ""
+        answer, _ = answer
         if additional_info is not None:
             additional_info = sleep_and_get_future_result(additional_info) if additional_info.exception() is None else ""
             additional_info = remove_bad_whitespaces(additional_info)
