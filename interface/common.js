@@ -751,7 +751,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 <option>Is Coding Request</option>
-                <option>Paper Summary</option>
+                <option>Short</option>
+                <!-- option>Paper Summary</option -->
                 <option selected>Long</option>
                 <option>Explain Maths</option>
                 <option selected>Wife Prompt</option>
@@ -771,14 +772,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Easy Copy</option>
                 
                 <option>CoT</option>
-                <option>Short</option>
+                
                 
                 
                 <option>no ai</option>
                 
                 <option>md format</option>
-                <option>TTS</option>
-                <option>better formatting</option>
+                <!-- option>TTS</option -->
+                <!-- option>better formatting</option -->
                 <option>no format</option>
                 
                 <option>No Code Exec</option>
@@ -786,12 +787,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <option>Short references</option>
                 <option>Latex Eqn</option>
-                <option>Comparison</option>
-                <option>Explore</option>
+                <!-- option>Comparison</option -->
+                <!-- option>Explore</option -->
                 <option>Creative</option>
                 
                 
-                <option>Web Search</option>
+                <!-- option>Web Search</option -->
             </select>
         </div>
         
@@ -801,28 +802,28 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Claude Sonnet 3.5</option>   
                 <option>o1</option>
                 <option selected>openai/chatgpt-4o-latest</option>
-                <option>Claude Opus</option>
+                
                 <option>o1-preview</option>
                 
 
                 <option>Filler</option>
+                <option>Claude Opus</option>
                 <option>Gemini 1.5</option>
                 <option>openai/o1-preview</option>
-                <option>gpt-4o</option>
-                
                 <option>o1-hard</option>
+                <option>gpt-4o</option>
                 <option>Pixtral Large</option>
                 
                 
                 <option>minimax/minimax-01</option>
-                <option>qwen/qvq-72b-preview</option>
-                <option>meta-llama/llama-3.2-90b-vision-instruct</option>
+                <!-- option>qwen/qvq-72b-preview</option -->
+                <!-- option>meta-llama/llama-3.2-90b-vision-instruct</option -->
                 <!-- option>openai/o1</option -->
 
                 <!-- option>Mistral Large</option -->
-                <option>o1-easy</option>
+                <!-- option>o1-easy</option -->
                 
-                <option>gpt-4-turbo</option>
+                <!-- option>gpt-4-turbo</option -->
                 <!-- option>o1-mini</option -->
                 <!-- option>openai/o1-mini</option -->
                 <!-- option>Command-r+</option -->
@@ -832,7 +833,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>Qwen 2</option -->
                 
                 
-                <option>Hermes llama-3.1-405b</option>
+                <!-- option>Hermes llama-3.1-405b</option -->
                 <!-- option>gpt-4-32k</option -->
                  
                 
