@@ -164,7 +164,7 @@ Write the full response to the user's query.
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         # self.model_name = substitute_llm_name(self.model_name, len(images) > 0)
-        self.model_type = "openrouter"
+        # self.model_type = "openrouter"
         if len(images) > 0:
             assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["minimax/minimax-01", 
                                                                                                                                                                              "anthropic/claude-3-haiku:beta",
@@ -564,21 +564,24 @@ Only provide answer from the document given above.
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
         initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[0], 200_000),
                                                    get_async_future(self.get_one, context_user_query, text_document, preferred_model, 200_000), join_method)
-        if self.provide_short_responses:
-            result = sleep_and_get_future_result(initial_reading)
-            return result, initial_reading
-
         global_reading = None
+        try:
+            if self.provide_short_responses:
+                result = sleep_and_get_future_result(initial_reading)
+                return result, initial_reading
+            
+            if doc_word_count < 2048:
+                return sleep_and_get_future_result(initial_reading) + "\n\nFull Text:\n" + text_document, global_reading
+            elif doc_word_count < 6144:
+                return sleep_and_get_future_result(initial_reading), initial_reading
+        except Exception as e:
+            traceback.print_exc()
+        
         join_method = lambda x, y: "Details from both experts:\n<|experts|>\n" + str(
             x) + "\n<|/experts|>\n\n\nDetails from using an LLM to summarise and get information:\n<|LLM based summary|>\n" + str(
             y) + "\n<|/LLM based summary|>"
 
-        if doc_word_count < 2048:
-            return sleep_and_get_future_result(initial_reading) + "\n\nFull Text:\n" + text_document, global_reading
-        elif doc_word_count < 6144:
-            return sleep_and_get_future_result(initial_reading), initial_reading
-
-        elif doc_word_count > 32_000:
+        if doc_word_count > 32_000:
             chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document,CHEAP_LLM[0], 100_000, 32_000, 2_000)
             global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
         main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
