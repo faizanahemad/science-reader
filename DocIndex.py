@@ -340,8 +340,11 @@ Analyze the following document and:
 
 Allowed document types:
 ```
-["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
+["scientific paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
 ```
+
+Scientific Papers can include research papers, technical papers, arxiv papers, aclanthology papers, aclweb papers as well.
+For scientific paper document type, just leave detailed_summary_prompt blank. We already have a detailed summary prompt for scientific papers.
 
 Document text:
 {text}
@@ -365,7 +368,12 @@ Respond in the following xml like format:
 
 
 <detailed_summary_prompt>
-[Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.]
+[
+    For Scientific Papers just leave this blank. We already have a detailed summary prompt for scientific papers.
+    Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. 
+    The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. 
+    The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.
+]
 </detailed_summary_prompt>
 
 </response>
@@ -389,7 +397,10 @@ Your response should be in the xml format given above. Write the response below.
             long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
             yield f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
             
-            detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower().strip()
+            if document_type == "scientific paper":
+                detailed_summary_prompt = prompts.paper_summary_prompt
+            else:
+                detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower().strip()
             logger.info(f"Document Type: {document_type}, ")
             if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
@@ -414,7 +425,11 @@ Follow the Summary Plan and ensure all Key Aspects are addressed.
 The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
 Use the Detailed Summary Prompt to guide the LLM to generate the summary. Cover the key aspects in depth in your long and comprehensive report.
 All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
-Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.
+
+Formatting Mathematical Equations:
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
+- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+
 
 Full document text:
 {text}
