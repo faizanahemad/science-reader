@@ -389,13 +389,13 @@ Your response should be in the xml format given above. Write the response below.
             key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower().strip()
             key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower().strip()
             
-            long_summary += f"\n\n<b> Document Type: {document_type} \n</b> \n"
-            yield f"\n\n<b> Document Type: {document_type} \n</b> \n"
+            long_summary += f"\n\n<b> Document Type: {document_type} </b> \n </br>"
+            yield f"\n\n<b> Document Type: {document_type} </b> \n </br>"
             
             
             
-            long_summary += f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
-            yield f"\n\n<b> Key Takeaways: \n{key_takeaways} \n</b> \n"
+            long_summary += f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
+            yield f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
             
             if document_type == "scientific paper":
                 detailed_summary_prompt = prompts.paper_summary_prompt
@@ -426,9 +426,10 @@ The summary should provide a thorough understanding of the document's contents, 
 Use the Detailed Summary Prompt to guide the LLM to generate the summary. Cover the key aspects in depth in your long and comprehensive report.
 All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 Full document text:

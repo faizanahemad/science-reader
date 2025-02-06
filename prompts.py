@@ -313,9 +313,10 @@ For each piece of code:
 - Include practical tips and patterns
 - Point out common pitfalls and how to avoid them
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 End your response with:
@@ -345,9 +346,10 @@ How should you respond to a question?
 
 Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 I have a wrist disability and I am unable to type, please provide full and complete answers.
@@ -979,9 +981,10 @@ Help prepare us for technical interviews at the senior or staff level.
 - Reinforce important strategies and lessons learned.
 - Provide a **positive outlook** on our continued progress.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 """ + diagram_instructions + """
@@ -1057,9 +1060,10 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Discuss monitoring and maintenance
 - Improvement Plan and planned iterations. Discuss how to improve the system over time.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 """ + diagram_instructions + """
 
@@ -1103,8 +1107,9 @@ You are an expert in machine learning, system design, and problem-solving. Your 
 - Incorporate relevant algorithms, models, and techniques.  
 - Present important equations in LaTeX format for clarity.  
 - Formatting Mathematical Equations:
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
   - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
   
 **7. Discuss Design Choices at Various Points:**  
@@ -1334,10 +1339,10 @@ Stay in character and maintain the tone and demeanor of the role you are playing
       - Exhibit confidence, curiosity, and a methodical approach.  
       - Communicate clearly and professionally.  
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
-
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths. 
       
 """ + diagram_instructions + """
   
@@ -1464,9 +1469,10 @@ Other instructions:
 5. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'.
 6. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 Remember the '2) Proposed Solution' section must be detailed, comprehensive and in-depth covering all details. Section 2 must cover all about the methodology and the approach used in the paper, and why it is important and needed and how it improves over previous work.\n""".lstrip()
 
@@ -1480,9 +1486,10 @@ Other instructions:
 3. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
 For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 """.lstrip()
 
@@ -1526,9 +1533,10 @@ chain_of_density_system_prompt = """You are an expert summarizer using the Chain
    - Be detail oriented and provide all necessary information.
    - Focus on readability, clarity and informativeness.
    
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 Remember: Each new summary must be a more comprehensive and detailed version of the previous summary. New Summary must be more informative, readable, clearer, understandable and detailed than the previous summary.""".lstrip()
@@ -1556,6 +1564,11 @@ Instructions for this iteration:
 2. Add new layers of information, details, examples, data, evidence, technical details, mathematical formulations, equations, relationships, cause-and-effect connections, technical dependencies, performance considerations, error handling and edge cases, integration points and interfaces, etc.
 3. Make each section of the summary follow the instructions for writing a good paper or research summary and be more detailed, elaborate, longer, comprehensive and in-depth.
 4. Write the full new summary at once. Do not break this into parts.
+
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 Write your denser scientific summary below:
 """.lstrip()
@@ -1615,9 +1628,10 @@ Instructions for this iteration:
    - Error handling and edge cases
    - Integration points and interfaces
    
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'.
 
@@ -1650,9 +1664,10 @@ Instructions for this iteration:
    - Comparative analysis
    - Practical applications
    
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 Write your denser summary below:
@@ -1670,9 +1685,10 @@ class CustomPrompts:
 2. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'.
 3. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 """
@@ -1681,9 +1697,10 @@ Formatting Mathematical Equations:
 1. Use markdown lists and paragraphs for formatting.
 2. Provide references within the answer inline itself immediately closest to the point of mention or use. Provide references in a very compact format.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 """
         self.gpt4_prompts = dict(
@@ -2244,10 +2261,11 @@ Writing Instructions:
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
-- Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
+  - Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
 
 """,
             "previous_literature_and_differentiation": """
@@ -2264,9 +2282,10 @@ Writing Instructions:
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 """,
             "experiments_and_evaluation":"""
@@ -2286,9 +2305,10 @@ Writing Instructions:
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 """,
             "results_and_comparison": """
@@ -2305,9 +2325,10 @@ Writing Instructions:
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 """,
@@ -2326,9 +2347,10 @@ Writing Instructions:
 - Be detail oriented and provide all necessary information.
 - Focus on readability, clarity and informativeness.
 
-Formatting Mathematical Equations:
-- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+- Formatting Mathematical Equations:
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
 
 
 """,
