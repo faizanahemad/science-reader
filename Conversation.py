@@ -1135,8 +1135,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
 
 Formatting Mathematical Equations:
 - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-- For inline maths and notations use "\\\( ... \\\)" instead of '$$'. 
-- That means for inline maths and inline notations use a backslash and a parenthesis opening and closing (so for opening you will use a backslash and a opening parenthesis and for closing you will use a backslash and a closing parenthesis) instead of dollar sign.
+- For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. 
+- That means for inline maths and inline notations use a double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
 """
         if "Wife Prompt" in preamble_options:
             preamble += wife_prompt
