@@ -322,7 +322,7 @@ class DocIndex:
             yield self._long_summary
             return
 
-        elif "arxiv" in self.doc_source:
+        elif "arxiv" in self.doc_source or "aclanthology" in self.doc_source or "aclweb" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])

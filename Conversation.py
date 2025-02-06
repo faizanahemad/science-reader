@@ -1,6 +1,6 @@
 import secrets
 import shutil
-from prompts import tts_friendly_format_instructions
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
@@ -742,7 +742,7 @@ Your response will be in below xml style format:
             def empty_gen():
                 yield
             return empty_gen()
-    
+
     def delete_message(self, message_id, index):
         index = int(index)
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
@@ -1127,9 +1127,24 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
         if "Web Search" in preamble_options or web_search_or_document_read:
             preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
         if "Explain Maths" in preamble_options:
-            preamble += """\nExplain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding. Provide step by step reasoning and explanation. Provide detailed and in-depth explanation of the mathematical concepts and equations.\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment. For inline maths and notations use "\\\( ... \\\)" instead of '$$'.\n"""
+            preamble += """\n
+Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. 
+Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding. 
+Provide step by step reasoning and explanation. 
+Provide detailed and in-depth explanation of the mathematical concepts and equations.
+
+Formatting Mathematical Equations:
+- Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
+- For inline maths and notations use "\\\( ... \\\)" instead of '$$'. 
+- That means for inline maths and inline notations use a backslash and a parenthesis opening and closing (so for opening you will use a backslash and a opening parenthesis and for closing you will use a backslash and a closing parenthesis) instead of dollar sign.
+"""
         if "Wife Prompt" in preamble_options:
             preamble += wife_prompt
+        
+        if "Improve Code" in preamble_options:
+            preamble += improve_code_prompt
+        if "Improve Code Interviews" in preamble_options:
+            preamble += improve_code_prompt_interviews
 
         if field == "None":
             pass

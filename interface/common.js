@@ -236,8 +236,17 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     
     editBtn.off();
     editBtn.click(function () {
-        // same code as you have to open edit modal ...
-        // ...
+        $('#message-edit-text').val(text);
+        $('#message-edit-modal').modal('show');
+        $('#message-edit-text-save-button').off();
+        messageId = cardElem.find('.card-header').last().attr('message-id');
+        messageIndex = cardElem.find('.card-header').last().attr('message-index');
+
+        $('#message-edit-text-save-button').click(function () {
+            var newtext = $('#message-edit-text').val();
+            ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+            $('#message-edit-modal').modal('hide');
+        });
     });
 
     // TTS button
@@ -750,18 +759,25 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
-                <option>Is Coding Request</option>
+                
                 <option>Short</option>
                 <!-- option>Paper Summary</option -->
                 <option>Long</option>
                 
                 <option>No Links</option>
                 <option selected>Wife Prompt</option>
-                <option>Explain Maths</option>
                 <option>No Lazy</option>
+                
+                
+                
                 <option>Argumentative</option>
                 <option>Blackmail</option>
                 <option>ML System Design Roleplay</option>
+                <option>Is Coding Request</option>
+                <option>Explain Maths</option>
+
+                <option>Improve Code</option>
+                <option>Improve Code Interviews</option>
                 
                 
                 <option>ML System Design Answer</option>
@@ -773,13 +789,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Diagram</option>
                 <option>Easy Copy</option>
                 
-                <option>CoT</option>
+                <!-- option>CoT</option -->
                 
                 
                 
                 <option>no ai</option>
                 
-                <option>md format</option>
+                <!-- option>md format</option -->
                 <!-- option>TTS</option -->
                 <!-- option>better formatting</option -->
                 <option>no format</option>
