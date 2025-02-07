@@ -455,9 +455,6 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 }, continuous = false, html = answer);
                 initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
             }
-            if (!/Mobi|Android/i.test(navigator.userAgent) && !/iPhone/i.test(navigator.userAgent) && window.innerWidth > 768) {
-                $('#messageText').focus();
-            }
             return;
         }
         // Recursive call to read next message part
@@ -1152,7 +1149,9 @@ function sendMessageCallback() {
         renderStreamingResponse(response, ConversationManager.activeConversationId, messageText);
         $('#linkInput').val('')
         $('#searchInput').val('')
-        $('#messageText').focus();
+        if (!/Mobi|Android/i.test(navigator.userAgent) && !/iPhone/i.test(navigator.userAgent) && window.innerWidth > 768) {
+            $('#messageText').focus();
+        }
         ConversationManager.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
         });

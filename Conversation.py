@@ -1519,14 +1519,14 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 planner_text = "<planner>" + planner_text + "</planner>"
                 planner_dict = xml_to_dict(planner_text)
 
-                if string_indicates_true(planner_dict["is_diagram_asked_explicitly"]):
+                if "is_diagram_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["is_diagram_asked_explicitly"]):
                     checkboxes["need_diagram"] = True
-                    if planner_dict["diagram_type_asked"].strip().lower() == "drawio" or planner_dict["diagram_type_asked"].strip().lower() == "mermaid":
+                    if "diagram_type_asked" in planner_dict and (planner_dict["diagram_type_asked"].strip().lower() == "drawio" or planner_dict["diagram_type_asked"].strip().lower() == "mermaid"):
                         preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
-                if string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
+                if "python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
                     checkboxes["code_execution"] = True
                     
-                if string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
+                if "web_search_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
                     checkboxes["perform_web_search"] = True
                     if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
                         if "search" in query and isinstance(query["search"], list):
@@ -1539,7 +1539,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                         if planner_dict['web_search_type'].strip().lower() == "academic":
                             checkboxes["googleScholar"] = True
 
-                if string_indicates_true(planner_dict["read_uploaded_document"]):
+                if "read_uploaded_document" in planner_dict and string_indicates_true(planner_dict["read_uploaded_document"]):
                     document_ids = planner_dict["documents_to_read"]
                     query["messageText"] = query["messageText"] + "\n" + (" ".join(document_ids))
                     time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
