@@ -796,7 +796,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>no ai</option>
                 
                 <!-- option>md format</option -->
-                <!-- option>TTS</option -->
+                <option>TTS</option>
                 <!-- option>better formatting</option -->
                 <option>no format</option>
                 

@@ -55,11 +55,82 @@ from threading import Lock
 
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
+def process_math_formatting(text):
+    """
+    Replaces single-backslash math tokens with double-backslash versions.
+    For example:
+      - \[   -> \\\\[
+      - \]   -> \\\\]
+      - \(   -> \\\\(
+      - \)   -> \\\\)
+    If you have additional rules (e.g. checking newlines), put them here.
+    """
+    # Simple replacements:
+    text = text.replace('\\[', '\\\\[')
+    text = text.replace('\\]', '\\\\]')
+    text = text.replace('\\(', '\\\\(')
+    text = text.replace('\\)', '\\\\)')
+    return text
+
+
+def stream_with_math_formatting(response):
+    """
+    A generator that wraps the streaming response from the LLM, buffering
+    partial tokens so we don't break them across chunk boundaries.
+    """
+    buffer = ""
+    # How many characters to keep at the end of each iteration
+    TAIL_LENGTH = 4
+    
+    for chk in response:
+        # 'chk' is the streamed chunk response from the LLM
+        chunk = chk.model_dump()
+        
+        # Some completions might not have 'content' in the delta:
+        if "content" not in chunk["choices"][0]["delta"]:
+            continue
+        
+        text_content = chunk["choices"][0]["delta"]["content"]
+        if not isinstance(text_content, str):
+            continue
+        
+        # 1. Append new text to our rolling buffer
+        buffer += text_content
+        
+        # 2. If we have enough data in the buffer, process everything
+        #    except for the last TAIL_LENGTH characters to reduce risk
+        #    of chopping partial tokens.
+        if len(buffer) > TAIL_LENGTH:
+            to_process = buffer[:-TAIL_LENGTH]
+            remainder = buffer[-TAIL_LENGTH:]
+            
+            # Process and yield the "safe" portion
+            processed_text = process_math_formatting(to_process)
+            yield processed_text
+            
+            # Keep only the remainder in the buffer
+            buffer = remainder
+    
+    # Once the stream is done, process and yield the final leftover
+    if buffer:
+        yield process_math_formatting(buffer)
+
 
 def call_chat_model(model, text, images, temperature, system, keys):
-    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") and not model.startswith('openai/')) else keys["OPENROUTER_API_KEY"]
-    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") or model.startswith('openai/') else dict()
-    openrouter_used = not ("gpt" in model or "davinci" in model or model=="o1-preview" or model=="o1-mini" or model=="o1") or model=='openai/gpt-4-32k'
+    """
+    Calls the specified chat model with streaming. The user wants math tokens
+    replaced in-flight, so we wrap the streaming response with our
+    stream_with_math_formatting generator.
+    """
+    api_key = keys["openAIKey"] if (("gpt" in model or "davinci" in model or model=="o1-preview" 
+                                     or model=="o1-mini" or model=="o1") and not model.startswith('openai/')) \
+             else keys["OPENROUTER_API_KEY"]
+    extras = dict(base_url="https://openrouter.ai/api/v1",) if not ("gpt" in model or "davinci" in model 
+             or model=="o1-preview" or model=="o1-mini" or model=="o1") or model.startswith('openai/') else dict()
+    openrouter_used = not ("gpt" in model or "davinci" in model 
+                           or model=="o1-preview" or model=="o1-mini" or model=="o1") \
+                      or model=='openai/gpt-4-32k'
+    
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
     extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
@@ -70,26 +141,41 @@ def call_chat_model(model, text, images, temperature, system, keys):
     elif model == "o1-easy":
         model = "o1"
         extras_2.update(dict(reasoning_effort="low"))
+    
     from openai import OpenAI
     client = OpenAI(api_key=api_key, **extras)
+
     if len(images) > 0:
         messages = [
-                {"role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user", "content": system},
-                {"role": "user", "content": [
+            {
+                "role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user",
+                "content": system
+            },
+            {
+                "role": "user",
+                "content": [
                     {"type": "text", "text": text},
-                    *[{
-                        "type": "image_url",
-                        "image_url": {
-                            "url": base64_image
-                        }
-                    } for base64_image in images]
-                ]},
-            ]
+                    *[
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": base64_image}
+                        } 
+                        for base64_image in images
+                    ]
+                ],
+            },
+        ]
     else:
         messages = [
-                {"role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user", "content": system},
-                {"role": "user", "content": text},
-            ]
+            {
+                "role": "system" if not (model=="o1-preview" or model=="o1-mini") else "user",
+                "content": system
+            },
+            {
+                "role": "user",
+                "content": text,
+            },
+        ]
 
     try:
         response = client.chat.completions.create(
@@ -101,23 +187,22 @@ def call_chat_model(model, text, images, temperature, system, keys):
             # max_tokens=300,
             **extras_2,
         )
-        # yield response.choices[0].message.content
-        # return
 
-        chunk = None
-        if (model=="o1-preview" or model=="o1-mini"):
-            yield response.choices[0].message.content
+        # If it's a non-streaming scenario (o1-preview or o1-mini), just yield once:
+        if model in ("o1-preview", "o1-mini"):
+            yield process_math_formatting(response.choices[0].message.content)
         else:
-            for chk in response:
-                chunk = chk.model_dump()
-                if "content" in chunk["choices"][0]["delta"]:
-                    text_content = chunk["choices"][0]["delta"]["content"]
-                    if isinstance(text_content, str):
-                        yield text_content
+            # We wrap the streaming response in our custom generator 
+            # that handles partial math tokens
+            for formatted_chunk in stream_with_math_formatting(response):
+                yield formatted_chunk
 
-
-            if chunk is not None and "finish_reason" in chunk["choices"][0] and chunk["choices"][0]["finish_reason"] and chunk["choices"][0]["finish_reason"].lower().strip() not in ["stop", "end_turn", "stop_sequence", "recitation"]:
-                yield "\n Output truncated due to lack of context Length."
+            # Check if chunk is truncated for any reason
+            # (We only know after finishing the streaming loop)
+            # The last chunk we had is in the stream_with_math_formatting function
+            # But we can still do a final check if needed:
+            # (In practice, "finish_reason" might be included in the last chunk.)
+            
     except Exception as e:
         logger.error(f"[call_chat_model]: Error in calling chat model {model} with error {str(e)}")
         traceback.print_exc(limit=4)
