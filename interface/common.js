@@ -771,7 +771,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
                 <option>Argumentative</option>
-                <option>Blackmail</option>
+                <option selected>Blackmail</option>
                 <option>ML System Design Roleplay</option>
                 <option>Is Coding Request</option>
                 <option>Explain Maths</option>
@@ -818,8 +818,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
                 <option>Claude Sonnet 3.5</option>   
+                <option selected>Claude Sonnet 3.7</option>
                 <option>o1</option>
-                <option selected>openai/chatgpt-4o-latest</option>
+                <option>openai/chatgpt-4o-latest</option>
                 
                 <option>o1-preview</option>
                 

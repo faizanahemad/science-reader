@@ -1326,7 +1326,9 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             preambles.append("Long")
             preambles.append("Latex Eqn")
             preambles.append("Explain Maths")
-
+        if "code_execution" in checkboxes and checkboxes["code_execution"]:
+            preambles.append("Long")
+            preambles.append("Is Coding Request")
 
         retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
         
@@ -1525,6 +1527,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                         preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
                 if "python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
                     checkboxes["code_execution"] = True
+                    
                     
                 if "web_search_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
                     checkboxes["perform_web_search"] = True
@@ -2138,7 +2141,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                         model_names = model_name
                         improve_model = model_hierarchies(model_names)
                     else:
-                        model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                        model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",
                                     "openai/o1-mini",
                                     "cohere/command-r-plus-08-2024",
                                     "google/gemini-pro-1.5",
@@ -2179,7 +2182,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                             model_names = model_name
                             improve_model = model_hierarchies(model_names)
                         else:
-                            model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta",
+                            model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",
                                             "openai/o1-mini",
                                             "cohere/command-r-plus-08-2024",
                                             "google/gemini-pro-1.5",
@@ -2621,6 +2624,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-3-opus:beta"
     elif model_name == "Claude Sonnet 3.5":
         model_name = "anthropic/claude-3.5-sonnet:beta"
+    elif model_name == "Claude Sonnet 3.7":
+        model_name = "anthropic/claude-3.7-sonnet"
     elif model_name == "Mistral Large":
         model_name = "mistralai/mistral-large"
     elif model_name == "Pixtral Large":
@@ -2688,8 +2693,12 @@ def extract_user_answer(text):
     
     
 def model_hierarchies(model_names: List[str]):
-    if "gpt-4o" in model_names:
+    if "openai/chatgpt-4o-latest":
+        improve_model = "openai/chatgpt-4o-latest"
+    elif "gpt-4o" in model_names:
         improve_model = "gpt-4o"
+    elif "anthropic/claude-3.7-sonnet" in model_names:
+        improve_model = "anthropic/claude-3.7-sonnet"
     elif "anthropic/claude-3.5-sonnet:beta" in model_names:
         improve_model = "anthropic/claude-3.5-sonnet:beta"
     elif "openai/o1-preview" in model_names:

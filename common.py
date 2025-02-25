@@ -21,10 +21,11 @@ import threading
 from multiprocessing import Process, Queue
 from functools import partial
 
-from very_common import is_picklable, is_dillable, is_int, get_async_future, wrap_in_future, executor, make_async
+from very_common import is_picklable, is_dillable, is_int, get_async_future, wrap_in_future, executor, make_async, FINISHED_TASK, TERMINATION_SIGNAL, string_indicates_true, round_robin, checkNoneOrEmpty
+from very_common import sleep_and_get_future_result, sleep_and_get_future_exception
 
 from tenacity import RetryError
-FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
+
 USE_OPENAI_API = True
 SMALL_CHUNK_LEN = 386
 LARGE_CHUNK_LEN = 6144
@@ -49,20 +50,12 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
-def string_indicates_true(s):
-    return str(s).strip().lower() == "yes" or str(s).strip().lower() == "true" or str(s).strip().lower() == "1" or str(s).strip().lower() == "y" or str(s).strip().lower() == "t" or int(s) >= 1
 
-def round_robin(arr, randomize=True):
-    if randomize:
-        random.shuffle(arr)
-    while True:
-        for item in arr:
-            yield item
             
 CHEAP_AND_FAST_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "mistralai/mistral-nemo", "ai21/jamba-instruct", "openai/chatgpt-4o-latest"]
 VERY_CHEAP_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["gpt-4o", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
-EXPENSIVE_LLM = ["anthropic/claude-3.5-sonnet:beta", "openai/chatgpt-4o-latest", "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", "cohere/command-r-plus-08-2024"]
+EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "anthropic/claude-3.7-sonnet", "anthropic/claude-3.5-sonnet:beta", "openai/chatgpt-4o-latest", "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", "cohere/command-r-plus-08-2024"]
 VERY_EXPENSIVE_LLM = ["openai/o1-preview", "o1-preview", "o1"]
 
 CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
@@ -249,21 +242,7 @@ def join_two_futures(future1, future2, join_method=lambda x, y: str(x) + "\n\n" 
         return join_method(f1, f2)
     return get_async_future(fn, future1, future2, join_method)
 
-def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
-    start_time = time.time()
-    while not future.done():
-        time.sleep(sleep_time)
-        if time.time() - start_time > timeout:
-            raise TimeoutError(f"Timeout waiting for future for {timeout} sec")
-    return future.result()
 
-def sleep_and_get_future_exception(future, sleep_time=0.2, timeout=1000):
-    start_time = time.time()
-    while not future.done():
-        time.sleep(sleep_time)
-        if time.time() - start_time > timeout:
-            return TimeoutError(f"Timeout waiting for future for {timeout} sec")
-    return future.exception()
 
 
 def execute_in_new_process(function, *args, **kwargs):
@@ -656,15 +635,7 @@ def NoneToDefault(x, default=[]):
     else:
         return x
     
-def checkNoneOrEmpty(x):
-    if x is None:
-        return True
-    elif isinstance(x, str):
-        return len(x.strip())==0
-    elif isinstance(x, str) and x.strip().lower() in ['null', 'none']:
-        return x.strip().lower() in ['null', 'none']
-    else:
-        return len(x) == 0
+
     
 def combine_array_two_at_a_time(array, sep=' '):
     result = []
