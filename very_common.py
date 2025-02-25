@@ -22,6 +22,17 @@ from functools import partial
 import requests
 import os
 
+FINISHED_TASK = TERMINATION_SIGNAL = "TERMINATION_SIGNAL"
+
+def string_indicates_true(s):
+    return str(s).strip().lower() == "yes" or str(s).strip().lower() == "true" or str(s).strip().lower() == "1" or str(s).strip().lower() == "y" or str(s).strip().lower() == "t" or int(s) >= 1
+
+def round_robin(arr, randomize=True):
+    if randomize:
+        random.shuffle(arr)
+    while True:
+        for item in arr:
+            yield item
 
 def is_int(s):
     try:
@@ -69,3 +80,29 @@ def wrap_in_future(s):
     future = Future()
     future.set_result(s)
     return future
+
+def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
+    start_time = time.time()
+    while not future.done():
+        time.sleep(sleep_time)
+        if time.time() - start_time > timeout:
+            raise TimeoutError(f"Timeout waiting for future for {timeout} sec")
+    return future.result()
+
+def sleep_and_get_future_exception(future, sleep_time=0.2, timeout=1000):
+    start_time = time.time()
+    while not future.done():
+        time.sleep(sleep_time)
+        if time.time() - start_time > timeout:
+            return TimeoutError(f"Timeout waiting for future for {timeout} sec")
+    return future.exception()
+
+def checkNoneOrEmpty(x):
+    if x is None:
+        return True
+    elif isinstance(x, str):
+        return len(x.strip())==0
+    elif isinstance(x, str) and x.strip().lower() in ['null', 'none']:
+        return x.strip().lower() in ['null', 'none']
+    else:
+        return len(x) == 0
