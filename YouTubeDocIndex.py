@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import glob
 import json
 import os
 import re
@@ -328,27 +329,31 @@ def extract_frames(video_path, folder, fps=2):
     }
     
     success, image = vidcap.read()  
-    count = 0  
-    saved_count = 0  
-    while success:  
-        if count % frame_interval == 0:  
-            frame_name = f"frame{count}.jpg"
-            frame_path = os.path.join(frames_folder, frame_name)  
-            cv2.imwrite(frame_path, image)  
-            
-            # Calculate percentage position in video
-            percentage = (count / total_frames) * 100
-            frames_info["frames"][frame_name] = {
-                "frame_number": count,
-                "percentage": round(percentage, 1),
-                "time": round(count / video_fps, 2),
-                "filename": frame_name,
-                "full_path": frame_path
-            }
-            
-            saved_count += 1  
-        success, image = vidcap.read()  
-        count += 1  
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = []
+        count = 0  
+        saved_count = 0  
+        while success:  
+            if count % frame_interval == 0:  
+                frame_name = f"frame{count}.jpg"
+                frame_path = os.path.join(frames_folder, frame_name)  
+                futures.append(executor.submit(cv2.imwrite, frame_path, image))
+                
+                # Calculate percentage position in video
+                percentage = (count / total_frames) * 100
+                frames_info["frames"][frame_name] = {
+                    "frame_number": count,
+                    "percentage": round(percentage, 1),
+                    "time": round(count / video_fps, 2),
+                    "filename": frame_name,
+                    "full_path": frame_path
+                }
+                
+                saved_count += 1  
+            success, image = vidcap.read()  
+            count += 1  
+        for future in as_completed(futures):
+            _ = future.result()
     
     vidcap.release()  
     
@@ -653,6 +658,7 @@ Given the video summary below, please:
    - OCR or text in frame for context to help with accessibility
 3. Briefly explain the ranking rationale for other frames
 4. We value frames that are relevant to the video summary and convey important information in any form, including charts, graphs, and other visual elements.
+5. We want frames that are clear and readable.
 
 Video Summary:
 {summary}
@@ -750,6 +756,159 @@ OCR or text in frame: [OCR or text in frame for context to help with accessibili
             f.write(f"\nGroup {analysis['group']} - {analysis['frame']}:\n")
             f.write(analysis['details'])
             f.write("\n" + "="*50 + "\n")
+    
+    return important_frames_folder
+
+
+def process_frame_group(args):
+    """Process a single group of frames and return analysis results."""
+    filtered_frames_folder, frame_group, group_idx, video_summary, output_folder, api_keys, frames_info, important_frames_folder = args
+   
+    try:
+        # Load images for this group
+        images = []
+        for frame in frame_group:
+            img_path = os.path.join(filtered_frames_folder, frame)
+            img = cv2.imread(img_path)
+            images.append(img)
+            
+        # Pad with blank images if less than 9 frames
+        while len(images) < 9:
+            blank_img = np.ones((315, 315, 3), dtype=np.uint8) * 255
+            images.append(blank_img)
+        
+        # Create grid for this group
+        grid_image = create_image_grid(images)
+        os.makedirs(os.path.join(output_folder, "frame_grids"), exist_ok=True)
+        grid_path = os.path.join(output_folder, "frame_grids", f'frame_grid_group_{group_idx}.jpg')
+        cv2.imwrite(grid_path, grid_image)
+        
+        prompt = """Analyze these 9 frames from a video and provide a structured response regarding importance of each frame for understanding the video.
+Given the video summary below, please:
+1. Rank the frames in order of importance (1 being most important)
+2. For the most important frame, provide:
+   - A detailed description suitable for visually impaired individuals
+   - What key information it conveys about the video
+   - Why it's the most significant frame
+   - OCR or text in frame for context to help with accessibility
+3. Briefly explain the ranking rationale for other frames
+4. We value frames that are relevant to the video summary and convey important information in any form, including charts, graphs, and other visual elements.
+5. We want frames that are clear and readable.
+
+Video Summary:
+{summary}
+
+Please format your response as follows:
+<ranking>
+1. Frame X: [Brief explanation]
+2. Frame Y: [Brief explanation]
+...
+</ranking>
+
+<most_important_frame>
+Frame number: X
+Detailed description: [Accessibility-focused description]
+Key information: [What this frame tells us about the video]
+Significance: [Why this is the most important frame in this group]
+OCR or text in frame: [OCR or text in frame for context to help with accessibility]
+<is_this_frame_relevant>
+{{yes or no, if this frame is relevant to the overall video summary and understanding of the video}}
+</is_this_frame_relevant>
+</most_important_frame>
+"""
+        
+        llm = CallLLm(api_keys, model_name="openai/gpt-4o")
+        response = llm(
+            prompt.format(summary=video_summary),
+            images=[grid_path],
+            temperature=0.7,
+            stream=False,
+            max_tokens=None,
+            system=None
+        )
+        
+        # Save group analysis
+        analysis_path = os.path.join(output_folder, f'frame_analysis_group_{group_idx}.txt')
+        with open(analysis_path, 'w', encoding='utf-8') as f:
+            f.write(response)
+        
+        # Extract frame number and process important frame
+        frame_num_match = re.search(r'Frame number: (\d+)', response)
+        is_this_frame_relevant_match = re.search(r'<is_this_frame_relevant>(.*?)</is_this_frame_relevant>', response, re.DOTALL)
+        is_this_frame_relevant = is_this_frame_relevant_match.group(1).lower().strip().startswith("yes")
+        
+        if frame_num_match and is_this_frame_relevant:
+            frame_num = int(frame_num_match.group(1))
+            if frame_num <= len(frame_group):
+                important_frame = frame_group[frame_num - 1]
+                original_frame_num = re.search(r'frame(\d+)\.jpg', important_frame)
+                if original_frame_num:
+                    most_important_match = re.search(r'<most_important_frame>(.*?)</most_important_frame>', response, re.DOTALL)
+                    if most_important_match:
+                        # Copy important frame to output folder
+                        src_path = os.path.join(filtered_frames_folder, important_frame)
+                        dst_filename = f"frame{original_frame_num.group(1)}.jpg"
+                        dst_path = os.path.join(important_frames_folder, dst_filename)
+                        shutil.copy2(src_path, dst_path)
+                        frame_details = most_important_match.group(1)
+                        frame_info = frames_info['frames'][important_frame]
+                        frame_details += f"\nFrame number: {frame_info['frame_number']}, time: {frame_info['time']}, filename: {frame_info['filename']}\n"
+                        details_path = os.path.join(important_frames_folder, f"frame{original_frame_num.group(1)}_details.txt")
+                        with open(details_path, 'w', encoding='utf-8') as f:
+                            f.write(frame_details)
+                        
+                        return {
+                            'group': group_idx,
+                            'frame': important_frame,
+                            'details': frame_details,
+                            'frame_num': original_frame_num.group(1)
+                        }
+        
+        return None
+        
+    except Exception as e:
+        traceback.print_exc()
+        logger.error(f"Error processing group {group_idx}: {str(e)}")
+        return None
+
+def analyze_key_frames(filtered_frames_folder, video_summary, api_keys, output_folder):
+    """Analyze frames using LLM and select most important ones from each group of 9."""
+    logger.info("Analyzing key frames...")
+    important_frames_folder = os.path.join(output_folder, 'important_frames')
+    if os.path.exists(important_frames_folder):
+        logger.info(f"Important frames folder already exists at {important_frames_folder}")
+        return important_frames_folder
+    
+    os.makedirs(important_frames_folder, exist_ok=True)
+    
+    frames_info_path = os.path.join(output_folder, 'frames_info.json')
+    with open(frames_info_path, 'r', encoding='utf-8') as f:
+        frames_info = json.load(f)
+    
+    # Get all frames and sort them
+    frame_files = sorted([f for f in os.listdir(filtered_frames_folder) if f.endswith('.jpg')])
+    
+    # Split frames into groups of 9
+    frame_groups = [frame_files[i:i+9] for i in range(0, len(frame_files), 9)]
+    logger.info(f"Processing {len(frame_groups)} groups of frames")
+    
+    # Process groups in parallel
+    all_analyses = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        args_list = [(filtered_frames_folder, frame_group, idx, video_summary, output_folder, api_keys, frames_info, important_frames_folder) 
+                    for idx, frame_group in enumerate(frame_groups)]
+        
+        for result in tqdm(executor.map(process_frame_group, args_list), total=len(args_list)):
+            if result:
+                all_analyses.append(result)
+    
+    # Save combined analysis
+    combined_analysis_path = os.path.join(output_folder, 'combined_frame_analysis.txt')
+    with open(combined_analysis_path, 'w', encoding='utf-8') as f:
+        for analysis in all_analyses:
+            f.write(f"\nGroup {analysis['group']} - {analysis['frame']}:\n")
+            f.write(analysis['details'])
+            f.write("\n" + "="*10 + "\n")
     
     return important_frames_folder
 
@@ -1059,8 +1218,37 @@ Your report should be comprehensive, in-depth, detailed, nuanced, and well-struc
         f.write('\n'.join(final_report_lines))  
   
     print(f"Report generated and saved at {output_report_path}")  
+    
+    
+def audio_extract_transcript_summary(video_path, output_folder, assemblyai_api_key, openrouter_api_key, url_hash):
+    # Step 2: Extract audio  
+    audio_path = extract_audio(video_path, output_folder)  
+    
+    # Step 3: Get transcript  
+    transcript_future = get_async_future(get_transcript, audio_path, assemblyai_api_key)
+    
+    # Step 4: Create video summary
+    transcript, sentences_with_timing = sleep_and_get_future_result(transcript_future, timeout=1800)
+    
+    title, summary = create_video_summary(transcript, {'OPENROUTER_API_KEY': openrouter_api_key})
+    
+    # Save summary
+    summary_path = os.path.join(output_folder, f'{url_hash}_summary.txt')
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        f.write(f"{title}\n\n{summary}")
+    
+    return title, summary, transcript, sentences_with_timing, summary_path
+    
 
-
+def overall_frame_analysis(video_path, output_folder, fps):
+    # Step 4: Extract frames (can be parallel to transcript processing)  
+    frames_folder = extract_frames(video_path, output_folder, fps)
+  
+    # Step 5: Filter frames (depends on frame extraction)  
+    filtered_frames_folder = filter_frames(frames_folder)
+    
+    return filtered_frames_folder, frames_folder
+    
 
 def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_folder='output'):  
     """Full pipeline to process YouTube video.
@@ -1080,25 +1268,20 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
   
     if not video_path:  
         logger.error("Video download failed.")  
-        return  
-  
-    # Step 2: Extract audio  
-    audio_path = extract_audio(video_path, output_folder)  
-  
-    # Step 3: Get transcript  
-    transcript_future = get_async_future(get_transcript, audio_path, assemblyai_api_key)
-  
-    # Step 4: Extract frames (can be parallel to transcript processing)  
-    frames_folder = extract_frames(video_path, output_folder, 2)
-  
-    # Step 5: Filter frames (depends on frame extraction)  
-    filtered_frames_folder = filter_frames(frames_folder)
-  
-    # Wait for transcript  
-    transcript, sentences_with_timing = sleep_and_get_future_result(transcript_future, timeout=1800)  
+        return 
     
-    # Generate and save summary
-    title, summary = create_video_summary(transcript, {'OPENROUTER_API_KEY': openrouter_api_key})
+    with ThreadPoolExecutor(max_workers=2) as executor: 
+
+        
+        
+        frames_future = executor.submit(overall_frame_analysis, video_path, output_folder, fps=2)
+        
+        
+        summary_future = executor.submit(audio_extract_transcript_summary, video_path, output_folder, assemblyai_api_key, openrouter_api_key, url_hash)
+        
+        # Get results from both futures
+        filtered_frames_folder, frames_folder = frames_future.result()
+        title, summary, transcript, sentences_with_timing, summary_path = summary_future.result()
     
     # Analyze and select key frames
     important_frames_folder = analyze_key_frames(
@@ -1112,12 +1295,6 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
     
     # We want to create a markdown file using these. 
     
-    
-    
-    # Save summary
-    summary_path = os.path.join(output_folder, f'{url_hash}_summary.txt')
-    with open(summary_path, 'w', encoding='utf-8') as f:
-        f.write(f"{title}\n\n{summary}")
         
     sentences_with_timing_path = os.path.join(output_folder, f'{url_hash}_sentences_with_timing.json')
     frames_info_path = os.path.join(output_folder, f'frames_info.json')
@@ -1161,6 +1338,19 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
         additional_guidance=additional_guidance,  
         api_keys={'OPENROUTER_API_KEY': openrouter_api_key}  
     )  
+    
+    # once we have the report, we want to delete frames_folder, filtered_frames_folder, and important_frames_folder, and the video file and audio file and the frame_grids folder
+    frame_grids_folder = os.path.join(output_folder, 'frame_grids')
+    for folder in [frames_folder, filtered_frames_folder, important_frames_folder, video_path, audio_path, frame_grids_folder]:
+        if os.path.exists(folder):
+            shutil.rmtree(folder)
+            logger.info(f"Deleted folder: {folder}")
+            
+    # we also want to delete the frame_analysis_group_*.txt files
+    frame_analysis_files = glob.glob(os.path.join(output_folder, 'frame_analysis_group_*.txt'))
+    for file in frame_analysis_files:
+        os.remove(file)
+        logger.info(f"Deleted file: {file}")
 
     
   

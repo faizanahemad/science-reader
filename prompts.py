@@ -373,7 +373,7 @@ tts_friendly_format_instructions = """
   - For converting given text to TTS format you only need to reformat the text as given below (if we are using shortTTS, then follow the shortTTS instructions below and provide a modified shorter response), do not add any new content or information.
   - You can remove content or information and reduce or shorten the response if we are using shortTTS.
   - Insert **two newlines** between major content sections to create natural pauses in speech.  
-  - **Avoid code snippets and complex tables** that are not conducive to audio understanding.  
+  - **Avoid code snippets and complex tables** that are not conducive to audio understanding. Code snippets should be summarized in text form in a simple and concise manner in spoken form. Comparisons and tables should be summarized in text form.
   - If you need to write math or equations, then write very simple math or equations using text which can be read out by TTS.
   - Write the answer in a way that it is TTS friendly without missing any details, has pauses, utilises emotions, sounds natural, uses enumerated counted points and repetitions to help understanding while listening. 
   - Provide visual cues and imagination cues to help the listener understand the text better.

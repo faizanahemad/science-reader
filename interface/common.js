@@ -270,6 +270,26 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             'margin-right': '5px'
         });
 
+    let podcastTtsBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('podcast-tts-btn')
+        .text('Podcast 🔉')
+        .css({
+            'border-radius': '8px', // Adding rounded corners
+            'border': '1px solid',   // Adding solid line border
+            'margin-right': '5px'
+        });
+
+    let shortPodcastTtsBtn = $('<button>')
+        .addClass('vote-btn')
+        .addClass('short-podcast-tts-btn')
+        .text('Short Podcast 🔉')
+        .css({
+            'border-radius': '8px', // Adding rounded corners
+            'border': '1px solid',   // Adding solid line border
+            'margin-right': '5px'
+        });
+
     // We'll create a container for the audio or player
     function createAudioPlayer(audioUrl, autoPlay) {
         let audioContainer = $('<div>')
@@ -347,7 +367,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
 
     // TTS click
 
-    function handleTTSBtnClick(isShort) {
+    function handleTTSBtnClick(isShort, isPodcast = false) {
         const messageId = cardElem.find('.card-header').last().attr('message-id');
         const messageIndex = cardElem.find('.card-header').last().attr('message-index');
         
@@ -358,16 +378,40 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         let audioContainer = createAudioPlayer('', autoPlay);
         
 
-        if (isShort) {
-            ttsBtn.hide();
+        if (isPodcast) {
+            if (isShort) {
+                ttsBtn.hide();
+                shortTtsBtn.hide();
+                podcastTtsBtn.hide();
+            } else {
+                ttsBtn.hide();
+                shortTtsBtn.hide();
+                shortPodcastTtsBtn.hide();
+            }
         } else {
-            shortTtsBtn.hide();
+            if (isShort) {
+                ttsBtn.hide();
+                podcastTtsBtn.hide();
+                shortPodcastTtsBtn.hide();
+            } else {
+                shortTtsBtn.hide();
+                podcastTtsBtn.hide();
+                shortPodcastTtsBtn.hide();
+            }
         }
-
-        if (isShort) {
-            shortTtsBtn.replaceWith(audioContainer);
-        } else {
-            ttsBtn.replaceWith(audioContainer);
+        if (isPodcast) {
+            if (isShort) {
+                shortPodcastTtsBtn.replaceWith(audioContainer);
+            } else {
+                podcastTtsBtn.replaceWith(audioContainer);
+            }
+        }
+        else {
+            if (isShort) {
+                shortTtsBtn.replaceWith(audioContainer);
+            } else {
+                ttsBtn.replaceWith(audioContainer);
+            }
         }
 
         let loadingIndicator = audioContainer.find('.loading-indicator');
@@ -379,8 +423,9 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         
 
         shortTTS = isShort;
+        podcastTTS = isPodcast;
 
-        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false, autoPlay, shortTTS)
+        ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, false, autoPlay, shortTTS, podcastTTS)
             .then(audioUrl => {
                 audioPlayer.attr('src', audioUrl);
                 audioPlayer.show();
@@ -404,6 +449,14 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         handleTTSBtnClick(true);   // short TTS
     });
 
+    podcastTtsBtn.click(function() {
+        handleTTSBtnClick(false, true);  // podcast TTS
+    });
+
+    shortPodcastTtsBtn.click(function() {
+        handleTTSBtnClick(true, true);   // short podcast TTS
+    });
+
 
     // Add the buttons to the vote box
     let voteBox = $('<div>')
@@ -414,7 +467,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             'right': '30px'
         });
 
-    voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
+    voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
     cardElem.find('.vote-box').remove();
     cardElem.append(voteBox);
 
@@ -893,6 +946,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Agent_NResponseAgent</option>
                 <option>Agent_WhatIf</option>
                 <option>Agent_LiteratureReview</option>
+                <option>Agent_ToCGenerationAgent</option>
+                <option>Agent_BookCreatorAgent</option>
                 
                 <!-- option>Prompt_IdeaNovelty</option -->
                 <option>Prompt_IdeaComparison</option>
@@ -920,7 +975,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
 
         <div class="form-check form-check-inline mt-1">
-            <input class="form-check-input" id="enable_planner" type="checkbox" checked>
+            <input class="form-check-input" id="enable_planner" type="checkbox">
             <label class="form-check-label" for="enable_planner">Planner</label>
         </div>
         

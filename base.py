@@ -253,7 +253,10 @@ Include references inline in wikipedia style as your write the answer.
         self.use_16k = use_16k
         self.gpt4_enc = gpt4_enc
         self.model_name = model_name
-        self.model_type = "openai" if model_name is None or model_name.startswith("gpt") or model_name.startswith("o1") else "openrouter"
+        
+    @property
+    def model_type(self):
+        return "openai" if self.model_name is None or self.model_name.startswith("gpt") or self.model_name.startswith("o1") else "openrouter"
 
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):

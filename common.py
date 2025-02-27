@@ -2407,6 +2407,45 @@ def _getpass(env_var: str):
     return os.environ.get(env_var)
 
 
+def convert_markdown_to_pdf(markdown_text: str, output_path: str):
+    """
+    Convert markdown text to PDF using Markdown-it and WeasyPrint.
+
+    Args:
+        markdown_text (str): The markdown text to convert.
+        output_path (str): The path to save the PDF file.
+    """
+    # Initialize Markdown-it parser
+    # from md2pdf.core import md2pdf
+
+    # md2pdf(output_path,
+    #     md=None,
+    #     raw=markdown_text,
+    #     css=None,
+    #     base_url=None,
+    #     extras=[],
+    # )
+    
+    
+    from markdown_pdf import MarkdownPdf
+    from markdown_pdf import Section
+
+    pdf = MarkdownPdf(toc_level=2)
+    pdf.add_section(Section(markdown_text, paper_size="A4-L"))
+    pdf.save(output_path)
+    
+    # from mistletoe import markdown
+    # html = markdown(markdown_text)
+    # from fpdf import FPDF
+    # pdf = FPDF()
+    # pdf.add_page()
+    # pdf.write_html(html)
+    # pdf.output(output_path)
+    
+
+    
+
+
 
 
 

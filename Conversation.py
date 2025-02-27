@@ -4,7 +4,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
-
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -647,6 +647,18 @@ Your response will be in below xml style format:
             return None
 
 
+    def convert_to_audio_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False, podcastTTS=False):
+        if podcastTTS:
+            return self.convert_to_podcast_streaming(text, message_id, message_index, recompute, shortTTS)
+        else:
+            return self.convert_to_tts_streaming(text, message_id, message_index, recompute, shortTTS)
+    
+    def convert_to_audio(self, text, message_id, message_index, recompute=False, shortTTS=False, podcastTTS=False):
+        if podcastTTS:
+            raise Exception("Podcast TTS is not supported yet")
+        else:
+            return self.convert_to_tts(text, message_id, message_index, recompute, shortTTS)
+    
     def convert_to_tts_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False):
         """
         Convert text to speech using StreamingTTSAgent with both streaming and file storage capabilities, 
@@ -742,6 +754,112 @@ Your response will be in below xml style format:
             def empty_gen():
                 yield
             return empty_gen()
+        
+    
+    def convert_to_podcast_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False,
+                                previous_message=None, conversation_summary=None):
+        """
+        Convert text to podcast-style audio using StreamingPodcastAgent with streaming capabilities.
+        
+        This method:
+        1. Creates an audio messages directory if it doesn't exist
+        2. Resolves the message_id if missing or invalid
+        3. Formats the input to include brief context from previous message and conversation summary
+        4. Uses a distinct filename format: "{message_id}_podcast.mp3"
+        5. If the file exists and recompute=False, streams it from the local file
+        6. Otherwise, initializes the StreamingPodcastAgent to:
+        - Stream audio chunks to the client
+        - Save the entire file as it streams for subsequent caching
+        
+        Args:
+            text (str): Current message text to convert to podcast audio
+            message_id (str|None): Message ID for the text
+            message_index (int): Index of the message
+            recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
+            previous_message (str|None, optional): Text of the previous message for context. Defaults to None.
+            conversation_summary (str|None, optional): Summary of the conversation for context. Defaults to None.
+        
+        Returns:
+            generator: A generator that yields mp3 data chunks (bytes). An empty generator is returned if an error occurs.
+        """
+        # Create audio messages directory
+        audio_dir = os.path.join(self._storage, "audio_messages")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        # Resolve message_id if missing
+        if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
+            messages = self.get_field("messages")
+            if messages:
+                message_id = messages[-1].get("message_id")
+                text = messages[-1].get("text")
+        
+        # If still no message_id, log and return empty generator
+        if not message_id:
+            logger.error(f"Could not determine message_id for index {message_index}")
+            return (b"" for _ in range(0))  # empty generator
+        
+        # Retrieve relevant message text if available
+        messages = self.get_field("messages")
+        if messages:
+            message = next((m for m in messages if m["message_id"] == message_id), None)
+            if message:
+                text = message.get("text", text)
+        
+        # If previous_message is not provided, try to get it from messages
+        if previous_message is None and len(messages) > 1:
+            prev_msg = messages[-2] if message_id == messages[-1].get("message_id") else None
+            if prev_msg:
+                previous_message = prev_msg.get("text", "")
+        
+        # If conversation_summary is not provided, use running_summary
+        if conversation_summary is None:
+            conversation_summary = self.running_summary
+        
+        # Format the input text to include context
+        formatted_text = text # self._format_podcast_input(text, previous_message, conversation_summary)
+        
+        # Use distinct filename for podcast
+        if shortTTS:
+            filename = f"{message_id}_podcast_short.mp3"
+        else:
+            filename = f"{message_id}_podcast.mp3"
+        audio_path = os.path.join(audio_dir, filename)
+        
+        try:
+            # If file exists and recompute=False, stream it from local file
+            if os.path.exists(audio_path) and not recompute:
+                if audio_path.endswith(".mp3"):
+                    logger.info(f"Streaming existing podcast audio file for message_id={message_id}")
+                    with open(audio_path, 'rb') as f:
+                        while chunk := f.read(8192):  # Stream in 8KB chunks
+                            yield chunk
+                    return
+                else:
+                    logger.info(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
+                    raise Exception(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
+            
+            # Initialize StreamingPodcastAgent
+            podcast_agent = StreamingPodcastAgent(
+                keys=self.get_api_keys(),
+                storage_path=audio_path,
+                convert_to_tts_friendly_format=True,
+                shortTTS=shortTTS
+            )
+            
+            # Stream the chunks to the client while saving to file
+            audio_generator = podcast_agent(formatted_text, stream=True)
+            for chunk in audio_generator:
+                yield chunk
+                
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(f"Error in streaming podcast conversion for message_id={message_id}: {e}")
+            # Return empty generator on failure
+            def empty_gen():
+                yield
+            return empty_gen()
+
+    
 
     def delete_message(self, message_id, index):
         index = int(index)
@@ -906,6 +1024,8 @@ Write the useful information extracted from the above conversation messages and 
     def get_preamble(self, preamble_options, field, web_search_or_document_read=False, prefix=None, **kwargs):
         preamble = ""
         plot_prefix = f"plot-{prefix}-"
+        from flask import request as flask_request
+        render_prefix=f"{flask_request.url_root.rstrip('/')}/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
         agent = None
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options
@@ -1166,6 +1286,12 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
         if field == "Agent_NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
+        if field == "Agent_ToCGenerationAgent":
+            agent = ToCGenerationAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), run_phase_2=kwargs.get("detail_level", 1)>2, run_phase_3=kwargs.get("detail_level", 1)>3, storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
+            
+        if field == "Agent_BookCreatorAgent":
+            agent = BookCreatorAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), depth=kwargs.get("detail_level", 1), storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
+        
         if field == "Agent_WhatIf":
             agent = WhatIfAgent(self.get_api_keys(), writer_models=model_name, n_scenarios=kwargs.get("n_scenarios", 3))
         if field == "Agent_CodeExecution":
@@ -2125,6 +2251,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                     agent.model_name = model_name
             else:
                 agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
+                
+                    
             if hasattr(agent, "detail_level"):
                 agent.detail_level = provide_detailed_answers
             if hasattr(agent, "timeout"):
@@ -2132,6 +2260,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
             if isinstance(main_ans_gen, dict):
                 main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
+            elif not isinstance(main_ans_gen, str):
+                main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
         else:
             
             
