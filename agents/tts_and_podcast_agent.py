@@ -2595,7 +2595,7 @@ class StreamingPodcastAgent(PodcastAgent):
   
 if __name__ == "__main__":  
     keys = {  
-        "openAIKey": "woop",  
+        "openAIKey": "",  
             }  
     # put keys in os.environ  
     import os  

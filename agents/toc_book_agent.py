@@ -1,4 +1,5 @@
 import random
+import subprocess
 from typing import Union, List
 import uuid
 from prompts import tts_friendly_format_instructions
@@ -805,7 +806,8 @@ class ToCGenerationAgent:
                 "section_enhancements": result.section_enhancements,  
                 "final_toc": result.final_toc or result.enhanced_toc or result.initial_toc,  
                 "processing_time": result.processing_time,
-                "answer": f"<a href='{dl_link}' target='_blank'>{topic}</a>" + "\n\n" + result.final_toc
+                "answer": f"<a href='{dl_link}' target='_blank'>{topic}</a>" + "\n\n" + result.final_toc,
+                "toc_link": f"<a href='{dl_link}' target='_blank'>{topic}</a>"
             }  
         except Exception as e:  
             logger.error(f"ToC generation failed: {e}", exc_info=True)  
@@ -816,6 +818,7 @@ class ToCGenerationAgent:
 class BookResult:  
     """Container for book generation results."""  
     toc: str = ""  
+    toc_pdf: str = ""
     chapters: List[str] = field(default_factory=list)  
     chapters_tts: List[str] = field(default_factory=list)  
     chapters_tts_audio: List[str] = field(default_factory=list)
@@ -870,21 +873,29 @@ class BookResult:
             return rel_path
     
     def __str__(self) -> str:
-        """Format the result as a markdown string with links to all assets."""
+        """Format the result as a markdown string with links to all assets that open in new tabs."""
         result = "# Book Generation Results\n\n"
+        
+        # Show the toc pdf
+        if self.toc_pdf:
+            result += f"## Table of Contents\n\n"
+            result += f"{self.toc_pdf}\n\n"
         
         # Add full book PDF link
         if self.full_book_pdf_path:
             result += f"## Complete Book\n\n"
-            result += f"- [Full Book PDF]({self._format_path(self.full_book_pdf_path)})\n"
+            formatted_path = self._format_path(self.full_book_pdf_path)
+            result += f"- <a href='{formatted_path}' target='_blank'>Full Book PDF</a>\n"
         
         # Add full audio link
         if self.full_audio_path:
-            result += f"- [Full Audio]({self._format_path(self.full_audio_path)})\n"
+            formatted_path = self._format_path(self.full_audio_path)
+            result += f"- <a href='{formatted_path}' target='_blank'>Full Audio</a>\n"
         
         # Add full podcast link
         if self.full_podcast_path:
-            result += f"- [Full Podcast]({self._format_path(self.full_podcast_path)})\n\n"
+            formatted_path = self._format_path(self.full_podcast_path)
+            result += f"- <a href='{formatted_path}' target='_blank'>Full Podcast</a>\n\n"
         
         # Add chapter links
         if self.chapter_pdf_paths:
@@ -892,15 +903,18 @@ class BookResult:
             for i, path in enumerate(self.chapter_pdf_paths):
                 chapter_title = f"Chapter {i+1}"
                 result += f"### {chapter_title}\n\n"
-                result += f"- [PDF]({self._format_path(path)})\n"
+                formatted_path = self._format_path(path)
+                result += f"- <a href='{formatted_path}' target='_blank'>PDF</a>\n"
                 
                 # Add chapter audio link if available
                 if i < len(self.chapters_tts_audio) and self.chapters_tts_audio[i]:
-                    result += f"- [Audio]({self._format_path(self.chapters_tts_audio[i])})\n"
+                    formatted_path = self._format_path(self.chapters_tts_audio[i])
+                    result += f"- <a href='{formatted_path}' target='_blank'>Audio</a>\n"
                 
                 # Add chapter podcast link if available
                 if i < len(self.chapters_podcast_audio) and self.chapters_podcast_audio[i]:
-                    result += f"- [Podcast]({self._format_path(self.chapters_podcast_audio[i])})\n"
+                    formatted_path = self._format_path(self.chapters_podcast_audio[i])
+                    result += f"- <a href='{formatted_path}' target='_blank'>Podcast</a>\n"
                 
                 result += "\n"
         
@@ -909,7 +923,7 @@ class BookResult:
         result += f"- Processing time: {self.processing_time:.2f} seconds\n"
         result += f"- Number of chapters: {len(self.chapters)}\n"
         
-        return result 
+        return result
     
 import asyncio  
 import logging  
@@ -938,7 +952,7 @@ class BookCreatorAgent:
         storage_path: str = ".",
         create_audio: bool = False,
         create_podcast: bool = False,
-        create_diagrams: bool = False,
+        create_diagrams: bool = True,
         render_prefix: str = ""
     ):  
         """  
@@ -971,7 +985,9 @@ class BookCreatorAgent:
             keys=keys,  
             run_phase_1=True,  
             run_phase_2=depth > 2,  
-            run_phase_3=depth > 3  
+            run_phase_3=depth > 3,
+            storage_path=storage_path,
+            render_prefix=render_prefix  
         )  
         if not os.path.exists(storage_path):
             os.makedirs(storage_path)
@@ -998,32 +1014,26 @@ Generate comprehensive content for this chapter following the outline provided.
 1. Follow the chapter outline strictly  
 2. Include detailed explanations for each concept  
 3. Provide mathematical formulations where relevant  
-4. Include code examples if applicable  
+4. Include code examples (single line python code preferred) if applicable  
 5. Maintain academic rigor while ensuring readability  
 6. Use proper markdown formatting  
-7. Include equations in LaTeX format  
+7. Include simple equations in a simple one-liner formats like $x^2$. Use simple symbols and no LaTeX (avoid LaTeX).
 8. Add tables where comparisons are needed  
 9. Include diagram suggestions using <figure> tags at appropriate places
+10. 
 
 ## Diagram Instructions
 When a diagram would enhance understanding, include a <figure> tag with the following format:
 <figure>
-type: [python or mermaid]
+type: [mermaid]
 title: Brief title for the diagram
 description: Detailed description of what the diagram should show
-content: [For python: describe the plot in detail | For mermaid: describe the diagram structure]
+content: [describe the diagram structure and content in detail along with any data that should be included]
 </figure>
 
 Examples:
-1. For a Python matplotlib/seaborn diagram:
-<figure>
-type: python
-title: Normal Distribution Comparison
-description: Comparison of normal distributions with different parameters
-content: Create a plot showing three normal distributions: standard normal, μ=2 σ=1, and μ=0 σ=2
-</figure>
 
-2. For a MermaidJS diagram:
+1. For a MermaidJS diagram:
 <figure>
 type: mermaid
 title: Option Pricing Process
@@ -1232,6 +1242,9 @@ Write the glossary and FAQ now.
                         figure_content_text,
                         chapter_text,
                     )
+                    # if diagram_code is inside triple backticks then extract the code
+                    if re.search(r'```(?:\w+)?\s*(.*?)```', diagram_code, re.DOTALL):
+                        diagram_code = re.search(r'```(?:\w+)?\s*(.*?)```', diagram_code, re.DOTALL).group(1)
                     diagram_path = await self.create_python_diagram(
                         diagram_code, 
                         os.path.join(diagrams_dir, f"{filename}.png")
@@ -1243,6 +1256,9 @@ Write the glossary and FAQ now.
                         figure_content_text,
                         chapter_text,
                     )
+                    # if diagram_code is inside triple backticks then extract the code
+                    if re.search(r'```(?:\w+)?\s*(.*?)```', diagram_code, re.DOTALL):
+                        diagram_code = re.search(r'```(?:\w+)?\s*(.*?)```', diagram_code, re.DOTALL).group(1)
                     diagram_path = await self.create_mermaidjs_diagram(
                         diagram_code, 
                         os.path.join(diagrams_dir, f"{filename}.png")
@@ -1278,12 +1294,20 @@ Content: {content}
 
 Requirements:
 1. Use matplotlib or seaborn to create a high-quality visualization
-2. Include appropriate labels, title, and legend
+2. Include appropriate labels, descriptive title, and legend
 3. Use a professional color scheme
 4. Set figure size appropriately (e.g., plt.figure(figsize=(10, 6)))
 5. Include code to save the figure with plt.savefig('output.png', dpi=300, bbox_inches='tight')
 6. Do not include code to display the plot (no plt.show())
 7. Add helpful comments to explain the code
+8. Save the figure with plt.savefig('output.png', dpi=300, bbox_inches='tight') and use the filename output.png and don't use plt.show()
+9. Write your code inside triple backticks in a single code block as 
+```python
+# python code
+```
+
+10. Use only python standard library, numpy, pandas, matplotlib or seaborn libraries. 
+11. Ensure your code is fast and simple.
 
 Return only the Python code without any additional text or explanations.
 """
@@ -1305,6 +1329,10 @@ Requirements:
 2. Include clear labels and descriptions
 3. Use a professional and readable layout
 4. Add appropriate styling for clarity
+5. Write your code inside triple backticks in a single code block as 
+```mermaid
+# mermaid code
+```
 
 Return only the MermaidJS code without any additional text or explanations.
 """
@@ -1368,7 +1396,7 @@ Return only the MermaidJS code without any additional text or explanations.
 
     async def create_mermaidjs_diagram(self, mermaid_code: str, save_path: str) -> str:
         """
-        Create a diagram from MermaidJS code and save it.
+        Create a diagram from MermaidJS code and save it using mermaid-cli.
         
         Args:
             mermaid_code: MermaidJS code for the diagram
@@ -1378,24 +1406,45 @@ Return only the MermaidJS code without any additional text or explanations.
             Path to the saved diagram
         """
         try:
-            # This is a placeholder - in a real implementation, you would use a MermaidJS
-            # renderer like puppeteer-mermaid or a mermaid CLI tool
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
             
-            # For now, we'll create a text file with the mermaid code
-            # and return a message about the limitation
-            mermaid_path = save_path.replace(".png", ".mermaid")
-            with open(mermaid_path, "w") as f:
+            # Save mermaid code to a temporary file
+            temp_mmd_file = save_path.replace(".png", ".mmd")
+            with open(temp_mmd_file, "w") as f:
                 f.write(mermaid_code)
             
-            logger.info(f"MermaidJS code saved to: {mermaid_path}")
-            logger.warning("Actual MermaidJS rendering not implemented - would require external tools")
+            logger.info(f"MermaidJS code saved to: {temp_mmd_file}")
             
-            # In a real implementation, you would render the diagram here
-            # For example, using a command like:
-            # mmdc -i input.mermaid -o output.png
+            # Use mmdc to render the diagram
+            async def _call():
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    self.executor,
+                    lambda: subprocess.run(
+                        ["mmdc", "-i", temp_mmd_file, "-o", save_path, "-b", "transparent"],
+                        capture_output=True,
+                        text=True,
+                        check=False  # Don't raise exception on non-zero exit
+                    )
+                )
             
-            # For now, return the path to the mermaid code file
-            return mermaid_path
+            result = await _call()
+            
+            # Check if the command was successful
+            if result.returncode != 0:
+                logger.error(f"Error rendering MermaidJS diagram: {result.stderr}")
+                return temp_mmd_file  # Return the .mmd file path as fallback
+            
+            # Check if the PNG file was created
+            if os.path.exists(save_path):
+                logger.info(f"MermaidJS diagram created: {save_path}")
+                # Optionally remove the temporary .mmd file
+                # os.remove(temp_mmd_file)
+                return save_path
+            else:
+                logger.error(f"MermaidJS diagram file not created at {save_path}")
+                return temp_mmd_file  # Return the .mmd file path as fallback
         
         except Exception as e:
             logger.error(f"Error creating MermaidJS diagram: {e}")
@@ -1471,6 +1520,7 @@ Return only the MermaidJS code without any additional text or explanations.
             if not toc:  
                 logger.info("Generating new ToC")  
                 toc_result = self.toc_agent(topic)  
+                result.toc_pdf = toc_result["toc_link"]
                 toc = toc_result["final_toc"]  
                 if len(topic) > 140:
                     topic = toc_result["topic"]
@@ -1744,7 +1794,7 @@ Return only the MermaidJS code without any additional text or explanations.
     
 if __name__ == "__main__":
     keys = {
-        "openAIKey": "woop",
+        "openAIKey": "",
             }
     # put keys in os.environ
     import os
