@@ -935,6 +935,76 @@ from dataclasses import dataclass, field
 import os  
 from datetime import datetime  
   
+html_math_guide = """
+In our env we can't use latex for equations. As a result we need to use simple html elements and markdown formatting to make equations look like math etc like fractions etc.
+\"\"\"
+# HTML and Markdown Alternatives for Mathematical Notation  
+  
+When LaTeX isn't available, use these HTML and markdown techniques to format mathematical expressions:  
+  
+## Basic Arithmetic  
+- Addition: `x + y`  
+- Subtraction: `x - y`  
+- Multiplication: `x × y` or `x * y`  
+- Division: `x ÷ y` or `x / y`  
+  
+## Fractions  
+- Simple fractions: `<sup>1</sup>/<sub>2</sub>` renders as <sup>1</sup>/<sub>2</sub>  
+- Complex fractions:   
+  ```html  
+  <table style="display:inline-block;border-collapse:collapse">  
+    <tr><td style="border-bottom:1px solid">numerator</td></tr>  
+    <tr><td>denominator</td></tr>  
+  </table>  
+  ```  
+  
+## Exponents and Subscripts  
+- Exponents: `x<sup>2</sup>` renders as x<sup>2</sup>  
+- Subscripts: `x<sub>i</sub>` renders as x<sub>i</sub>  
+  
+## Roots  
+- Square root: `√x` or `sqrt(x)`  
+- nth Root: `∛x` (cube root), `∜x` (fourth root)  
+- General form: `<sup>n</sup>√x`  
+  
+## Common Equations  
+- Quadratic Formula: `x = (-b ± √(b² - 4ac))/(2a)`  
+  ```html  
+  x = <table style="display:inline-block;border-collapse:collapse">  
+    <tr><td style="border-bottom:1px solid">-b ± √(b<sup>2</sup> - 4ac)</td></tr>  
+    <tr><td>2a</td></tr>  
+  </table>  
+  ```  
+- Pythagorean Theorem: `a<sup>2</sup> + b<sup>2</sup> = c<sup>2</sup>`  
+  
+## Matrices  
+```html  
+<table style="display:inline-block;border:1px solid;border-collapse:collapse">  
+  <tr><td>a</td><td>b</td><td>c</td></tr>  
+  <tr><td>d</td><td>e</td><td>f</td></tr>  
+  <tr><td>g</td><td>h</td><td>i</td></tr>  
+</table>  
+```  
+  
+## Calculus Notation  
+- Derivatives: `<sup>dy</sup>/<sub>dx</sub>`  
+- Integrals: `∫f(x)dx`  
+- Definite integrals: `∫<sub>a</sub><sup>b</sup> f(x)dx`  
+  
+## Greek Letters  
+Use Unicode: `α` (alpha), `β` (beta), `γ` (gamma), `δ` (delta), `π` (pi), `θ` (theta)  
+  
+## Special Symbols  
+- `∞` (infinity)  
+- `≈` (approximately equal)  
+- `≠` (not equal)  
+- `≤` (less than or equal)  
+- `≥` (greater than or equal)  
+- `∈` (element of)  
+- `∑` (summation)  
+- `∏` (product)  
+\"\"\"
+"""
   
   
 class BookCreatorAgent:  
@@ -952,7 +1022,7 @@ class BookCreatorAgent:
         storage_path: str = ".",
         create_audio: bool = False,
         create_podcast: bool = False,
-        create_diagrams: bool = True,
+        create_diagrams: bool = False,
         render_prefix: str = ""
     ):  
         """  
@@ -971,6 +1041,7 @@ class BookCreatorAgent:
             create_podcast: Whether to create podcast versions
             create_diagrams: Whether to create diagrams for chapters
         """  
+        
         self.llm_caller = CallLLm(keys, llm_name)  
         self.max_retries = max_retries  
         self.executor = ThreadPoolExecutor(max_workers=max_workers)  
@@ -996,19 +1067,26 @@ class BookCreatorAgent:
         
           
         # Chapter content generation prompts  
+        self.system_prompt = f"""You are a book writer. Generate comprehensive content for this chapter following the outline provided.  
+{html_math_guide}
+Remember that you are book writer. Follow the topic and chapter outline strictly.
+"""
         self.chapter_content_prompt = """  
 # Chapter Content Generation  
 
 ## Context  
 Topic: {topic}  
-Chapter Outline:  
-{chapter_outline}  
 
 Full ToC Context:  
 {toc_context}  
 
+Chapter Outline:  
+{chapter_outline}  
+
+
+
 ## Task  
-Generate comprehensive content for this chapter following the outline provided.  
+You are a book writer. Generate comprehensive content for this chapter following the outline provided.  
 
 ## Requirements  
 1. Follow the chapter outline strictly  
@@ -1017,37 +1095,18 @@ Generate comprehensive content for this chapter following the outline provided.
 4. Include code examples (single line python code preferred) if applicable  
 5. Maintain academic rigor while ensuring readability  
 6. Use proper markdown formatting  
-7. Include simple equations in a simple one-liner formats like $x^2$. Use simple symbols and no LaTeX (avoid LaTeX).
-8. Add tables where comparisons are needed  
-9. Include diagram suggestions using <figure> tags at appropriate places
-10. 
+7. Include simple equations in a simple one-liner formats. Use html and markdown formatting to make equations look like math etc like fractions etc. 
+8. Add markdown tables where comparisons are needed  
+9. Use text and text formatting to make illustrations like simple flowcharts, etc.
+10. In our env we can't use latex for equations. As a result we need to use simple html elements and markdown formatting to make equations look like math etc like fractions etc. 
 
-## Diagram Instructions
-When a diagram would enhance understanding, include a <figure> tag with the following format:
-<figure>
-type: [mermaid]
-title: Brief title for the diagram
-description: Detailed description of what the diagram should show
-content: [describe the diagram structure and content in detail along with any data that should be included]
-</figure>
-
-Examples:
-
-1. For a MermaidJS diagram:
-<figure>
-type: mermaid
-title: Option Pricing Process
-description: Flowchart showing the Black-Scholes option pricing model process
-content: Create a flowchart showing inputs (stock price, strike price, volatility, time to expiration, risk-free rate) flowing into the Black-Scholes model and outputting call and put option prices
-</figure>
 
 ## Output Format  
 - Use markdown headings (# for chapter title, ## for sections)  
-- Include equations in LaTeX format using $$ delimiters  
 - Use tables for comparisons  
-- Include code blocks where needed  
+- Include code blocks (single line python code preferred) where needed  
+- Use text and text formatting to make illustrations like simple flowcharts, etc.
 - Maintain consistent formatting  
-- Place <figure> tags at appropriate locations where diagrams would enhance understanding
   
 Generate the chapter content now.  
 """
@@ -1465,7 +1524,7 @@ Return only the MermaidJS code without any additional text or explanations.
                 chapter_outline=chapter_info['content'],  
                 toc_context=toc_context  
             )  
-            chapter_content = await self.call_llm(prompt)  
+            chapter_content = await self.call_llm(prompt, system=self.system_prompt)  
             # print(f"Chapter title: {chapter_info['title']},  created content.")
               
             result = {  
