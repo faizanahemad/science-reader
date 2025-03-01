@@ -250,53 +250,67 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     });
 
     // TTS button
+    // ... existing code ...
     let ttsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('tts-btn')
-        .text('🔊')
+        .html('<span style="font-size:1rem;">🔊</span>')  // Larger icon
         .css({
-            'border-radius': '6px',    // Smaller border radius
+            'border-radius': '6px',
             'border': '1px solid',
-            'margin-right': '3px',     // Reduced margin
-            'padding': '2px 5px',      // Smaller padding
-            'font-size': '0.8rem'      // Smaller font size
+            'margin-right': '3px',
+            'padding': '2px 5px',
+            'font-size': '0.85rem',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center'
         });
 
     let shortTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-tts-btn')
-        .text('S 🔉')                  // Shortened text
+        .html('<span style="font-size:0.7rem;">S</span><span style="font-size:0.75rem;margin-left:2px;">🔉 S</span>')  // Smaller text and icon
         .css({
-            'border-radius': '6px',    // Smaller border radius
+            'border-radius': '6px',
             'border': '1px solid',
-            'margin-right': '3px',     // Reduced margin
-            'padding': '2px 5px',      // Smaller padding
-            'font-size': '0.8rem'      // Smaller font size
+            'margin-right': '3px',
+            'padding': '1px 4px',  // Even smaller padding
+            'font-size': '0.7rem',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center'
         });
 
     let podcastTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('podcast-tts-btn')
-        .text('P 🔉')                  // Shortened text
+        .html('<span style="font-size:0.8rem;">P</span><span style="font-size:0.9rem;margin-left:2px;">🔉 P</span>')
         .css({
-            'border-radius': '6px',    // Smaller border radius
+            'border-radius': '6px',
             'border': '1px solid',
-            'margin-right': '3px',     // Reduced margin
-            'padding': '2px 5px',      // Smaller padding
-            'font-size': '0.8rem'      // Smaller font size
+            'margin-right': '3px',
+            'padding': '2px 4px',
+            'font-size': '0.8rem',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center'
         });
 
     let shortPodcastTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-podcast-tts-btn')
-        .text('SP 🔉')                 // Shortened text
+        .html('<span style="font-size:0.7rem;">SP</span><span style="font-size:0.75rem;margin-left:2px;">🔉 PS</span>')  // Smaller text and icon
         .css({
-            'border-radius': '6px',    // Smaller border radius
+            'border-radius': '6px',
             'border': '1px solid',
-            'margin-right': '3px',     // Reduced margin
-            'padding': '2px 5px',      // Smaller padding
-            'font-size': '0.8rem'      // Smaller font size
+            'margin-right': '3px',
+            'padding': '1px 4px',  // Even smaller padding
+            'font-size': '0.7rem',
+            'display': 'flex',
+            'align-items': 'center',
+            'justify-content': 'center'
         });
+// ... existing code ...
 
     // We'll create a container for the audio or player
     function createAudioPlayer(audioUrl, autoPlay) {
