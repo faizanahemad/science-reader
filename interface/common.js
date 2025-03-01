@@ -255,39 +255,47 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         .addClass('tts-btn')
         .text('🔊')
         .css({
-            'border-radius': '8px', // Adding rounded corners
-            'border': '1px solid',   // Adding solid line border
-            'margin-right': '5px'
+            'border-radius': '6px',    // Smaller border radius
+            'border': '1px solid',
+            'margin-right': '3px',     // Reduced margin
+            'padding': '2px 5px',      // Smaller padding
+            'font-size': '0.8rem'      // Smaller font size
         });
 
     let shortTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-tts-btn')
-        .text('Short 🔉')
+        .text('S 🔉')                  // Shortened text
         .css({
-            'border-radius': '8px', // Adding rounded corners
-            'border': '1px solid',   // Adding solid line border
-            'margin-right': '5px'
+            'border-radius': '6px',    // Smaller border radius
+            'border': '1px solid',
+            'margin-right': '3px',     // Reduced margin
+            'padding': '2px 5px',      // Smaller padding
+            'font-size': '0.8rem'      // Smaller font size
         });
 
     let podcastTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('podcast-tts-btn')
-        .text('Podcast 🔉')
+        .text('P 🔉')                  // Shortened text
         .css({
-            'border-radius': '8px', // Adding rounded corners
-            'border': '1px solid',   // Adding solid line border
-            'margin-right': '5px'
+            'border-radius': '6px',    // Smaller border radius
+            'border': '1px solid',
+            'margin-right': '3px',     // Reduced margin
+            'padding': '2px 5px',      // Smaller padding
+            'font-size': '0.8rem'      // Smaller font size
         });
 
     let shortPodcastTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-podcast-tts-btn')
-        .text('Short Podcast 🔉')
+        .text('SP 🔉')                 // Shortened text
         .css({
-            'border-radius': '8px', // Adding rounded corners
-            'border': '1px solid',   // Adding solid line border
-            'margin-right': '5px'
+            'border-radius': '6px',    // Smaller border radius
+            'border': '1px solid',
+            'margin-right': '3px',     // Reduced margin
+            'padding': '2px 5px',      // Smaller padding
+            'font-size': '0.8rem'      // Smaller font size
         });
 
     // We'll create a container for the audio or player
