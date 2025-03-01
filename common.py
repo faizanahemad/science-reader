@@ -51,7 +51,7 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
-
+OPENROUTER_LLM = ["openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta", "google/gemini-pro-1.5"]
             
 CHEAP_AND_FAST_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "mistralai/mistral-nemo", "ai21/jamba-instruct", "openai/chatgpt-4o-latest"]
 VERY_CHEAP_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]

@@ -10,6 +10,7 @@ try:
     import ujson as json
 except ImportError:
     import json
+from YouTubeDocIndex import answer_youtube_question
 from prompts import prompts
 from collections import defaultdict, Counter
 
@@ -2588,6 +2589,33 @@ def convert_pdf_link_to_html(link):
         link = link.replace("pdf", "html")
     return link
 
+def is_youtube_link(link):
+    """
+    Determines if a given URL is a YouTube link.
+    
+    Args:
+        link (str): The URL to check
+        
+    Returns:
+        bool: True if the URL is a YouTube link, False otherwise
+    """
+    if not isinstance(link, str):
+        return False
+    
+    link = link.lower()
+    
+    # Check for common YouTube URL patterns
+    youtube_patterns = [
+        "youtube.com/watch",
+        "youtu.be/",
+        "youtube.com/embed/",
+        "youtube.com/v/",
+        "youtube.com/shorts/"
+    ]
+    
+    return any(pattern in link for pattern in youtube_patterns)
+
+
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
             enabled=False)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
@@ -2626,8 +2654,14 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
 
         result["is_pdf"] = True
         result["is_image"] = False
-
-
+        
+    elif is_youtube_link(link):
+        temp_folder = os.path.join(os.getcwd(), "temp")
+        if not os.path.exists(temp_folder):
+            os.makedirs(temp_folder)
+        result = answer_youtube_question(context, link, api_keys["ASSEMBLYAI_API_KEY"], api_keys["OPENROUTER_API_KEY"], temp_folder)
+        result["is_pdf"] = False
+        result["is_image"] = False
     else:
         result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
