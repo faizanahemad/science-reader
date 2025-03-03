@@ -2284,7 +2284,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                                     ] + [model_name])
                         improve_model = model_name
                     if provide_detailed_answers >= 3:
-                        model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large", "qwen/qwen-2.5-72b-instruct"
+                        model_names.extend(["google/gemini-pro-1.5", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large", "qwen/qwen-2.5-72b-instruct"
                                                         # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
                                                         ])
                         if provide_detailed_answers >= 4:
@@ -2325,7 +2325,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                                             ] + [model_name])
                             improve_model = model_name
                         if provide_detailed_answers >= 3:
-                            model_names.extend(["google/gemini-pro-1.5-exp", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
+                            model_names.extend(["google/gemini-pro-1.5", "anthropic/claude-3-opus:beta", "ai21/jamba-1-5-large",
                                                 # "deepseek/deepseek-chat", "mistralai/mistral-large", "meta-llama/llama-3.1-405b-instruct",
                                                 ])
                             if provide_detailed_answers >= 4:
