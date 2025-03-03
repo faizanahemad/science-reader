@@ -11,8 +11,6 @@ try:
 except ImportError:
     import json
 
-from prompts import prompts
-from collections import defaultdict, Counter
 
 import openai
 from typing import Callable, Any, List, Dict, Tuple, Optional, Union
@@ -264,7 +262,7 @@ Include references inline in wikipedia style as your write the answer.
         # self.model_name = substitute_llm_name(self.model_name, len(images) > 0)
         # self.model_type = "openrouter"
         if len(images) > 0:
-            assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview"]) or self.model_name in ["minimax/minimax-01", 
+            assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview", "gpt-4.5-preview"]) or self.model_name in ["minimax/minimax-01", 
                                                                                                                                                                              "anthropic/claude-3-haiku:beta",
                                                                                                                                                                              "qwen/qvq-72b-preview",
                                                                                                                                                                              "meta-llama/llama-3.2-90b-vision-instruct",
@@ -349,7 +347,7 @@ Include references inline in wikipedia style as your write the answer.
         else:
             assert self.keys["openAIKey"] is not None
 
-        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini", "o1-preview", "o1-mini"]) else "gpt-4o-mini"
+        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini", "o1-preview", "o1-mini", "gpt-4.5-preview", "o1", "o1-hard", "o1-easy"]) else "gpt-4o-mini"
 
         if model_name == "o1-mini":
             pass
@@ -358,6 +356,8 @@ Include references inline in wikipedia style as your write the answer.
         elif model_name == "gpt-4-turbo":
             pass
         elif model_name == "o1" or model_name == "o1-hard" or model_name == "o1-easy":
+            pass
+        elif model_name == "gpt-4.5-preview":
             pass
         elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"

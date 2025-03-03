@@ -31,11 +31,10 @@ try:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from prompts import tts_friendly_format_instructions
-    from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
+    
+    from call_llm import CallLLm
     from common import (
-        CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf,
-        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
+        CHEAP_LLM, USE_OPENAI_API
     )
     from loggers import getLoggers
 except ImportError as e:
@@ -95,76 +94,7 @@ class PodcastTemplate:
     transition_phrases: List[str] = field(default_factory=list)  
     sound_effect_points: List[str] = field(default_factory=list)  
   
-# Define standard podcast templates  
-PODCAST_TEMPLATES = {  
-    "interview": PodcastTemplate(  
-        name="Interview",  
-        description="Classic interview format with host asking questions and expert providing answers",  
-        structure=[  
-            "Introduction and welcome",  
-            "Main topic discussion",  
-            "Audience questions and potential FAQs",  
-            "Conclusion and takeaways"  
-        ],  
-        host_role="Curious interviewer who guides the conversation",  
-        expert_role="Knowledgeable specialist who provides detailed insights",  
-        intro_template="Welcome to the show! Today we're discussing {topic} with our expert {expert_name}.",  
-        outro_template="That's all for today's episode on {topic}. Thanks to {expert_name} for sharing these valuable insights.",  
-        transition_phrases=[  
-            "Let's move on to discuss...",  
-            "That's fascinating. Now I'd like to ask about...",  
-            "Shifting gears a bit...",  
-            "Let's explore another aspect of this topic..."  
-        ],  
-        sound_effect_points=["intro", "transition", "outro"]  
-    ),  
-    "educational": PodcastTemplate(  
-        name="Educational",  
-        description="Educational format focused on explaining concepts clearly",  
-        structure=[  
-            "Topic introduction",  
-            "Key concept explanation",  
-            "Real-world applications",  
-            "Common misconceptions",  
-            "Summary and further resources"  
-        ],  
-        host_role="Teacher who asks clarifying questions and summarizes key points",  
-        expert_role="Professor who explains concepts in depth with examples",  
-        intro_template="Welcome to our learning session on {topic}. I'm joined by {expert_name} who will help us understand this subject.",  
-        outro_template="I hope you've learned something valuable about {topic} today. Remember to check our resources for more information.",  
-        transition_phrases=[  
-            "Now let's break down...",  
-            "Could you explain that concept in more detail?",  
-            "What's a practical example of this?",  
-            "Many people misunderstand this next point..."  
-        ],  
-        sound_effect_points=["intro", "key_concept", "misconception", "outro"]  
-    ),  
-  
-    "storytelling": PodcastTemplate(  
-        name="Storytelling",  
-        description="Narrative-driven format that presents information as a story",  
-        structure=[  
-            "Setting the scene",  
-            "Introducing the challenge",  
-            "Key developments",  
-            "Resolution and outcome",  
-            "Lessons and implications"  
-        ],  
-        host_role="Narrator who guides the story and asks for details",  
-        expert_role="Storyteller who provides rich narrative and analysis",  
-        intro_template="Today we have a fascinating story about {topic}. {expert_name} will take us through this journey.",  
-        outro_template="And that concludes our story about {topic}. Thank you {expert_name} for this compelling narrative.",  
-        transition_phrases=[  
-            "What happened next?",  
-            "That's a crucial turning point...",  
-            "How did people respond to this?",  
-            "Let's talk about the aftermath..."  
-        ],  
-        sound_effect_points=["intro", "challenge", "turning_point", "resolution", "outro"]  
-    )  
-}  
-  
+
 # Sound effects library  
 SOUND_EFFECTS = {  
     "intro": "intro_jingle.mp3",  
@@ -1312,7 +1242,78 @@ class StreamingTTSAgent(TTSAgent):
                     error_logger.error(f"Error writing fallback audio file: {write_error}")  
 
 
-
+# Define standard podcast templates  
+PODCAST_TEMPLATES = {  
+    "interview": PodcastTemplate(  
+        name="Interview",  
+        description="Classic interview format with host asking questions and expert providing answers",  
+        structure=[  
+            "Introduction and welcome",  
+            "Main topic discussion",  
+            "Audience questions and potential FAQs",  
+            "Conclusion and takeaways"  
+        ],  
+        host_role="Curious interviewer who guides the conversation",  
+        expert_role="Knowledgeable specialist who provides detailed insights",  
+        intro_template="Welcome to the show! Today we're discussing {topic} with our expert {expert_name}.",  
+        outro_template="That's all for today's episode on {topic}. Thanks to {expert_name} for sharing these valuable insights.",  
+        transition_phrases=[  
+            "Let's move on to discuss...",  
+            "That's fascinating. Now I'd like to ask about...",  
+            "Shifting gears a bit...",  
+            "Let's explore another aspect of this topic..."  
+        ],  
+        sound_effect_points=["intro", "transition", "outro"]  
+    ),  
+    "educational": PodcastTemplate(  
+        name="Educational",  
+        description="Educational format focused on explaining concepts clearly",  
+        structure=[  
+            "Topic introduction",  
+            "Key concept explanation",  
+            "Real-world applications",  
+            "Common misconceptions",  
+            "Summary and further resources"  
+        ],  
+        host_role="Teacher who asks clarifying questions and summarizes key points",  
+        expert_role="Professor who explains concepts in depth with examples",  
+        intro_template="Welcome to our learning session on {topic}. I'm joined by {expert_name} who will help us understand this subject.",  
+        outro_template="I hope you've learned something valuable about {topic} today. Remember to check our resources for more information.",  
+        transition_phrases=[  
+            "Now let's break down...",  
+            "Could you explain that concept in more detail?",  
+            "What's a practical example of this?",  
+            "Many people misunderstand this next point..."  
+        ],  
+        sound_effect_points=["intro", "key_concept", "misconception", "outro"]  
+    ),  
+  
+    "storytelling": PodcastTemplate(  
+        name="Storytelling",  
+        description="Narrative-driven format that presents information as a story",  
+        structure=[  
+            "Setting the scene",  
+            "Introducing the challenge",  
+            "Key developments",  
+            "Resolution and outcome",  
+            "Lessons and implications"  
+        ],  
+        host_role="Narrator who guides the story and asks for details",  
+        expert_role="Storyteller who provides rich narrative and analysis",  
+        intro_template="Today we have a fascinating story about {topic}. {expert_name} will take us through this journey.",  
+        outro_template="And that concludes our story about {topic}. Thank you {expert_name} for this compelling narrative.",  
+        transition_phrases=[  
+            "What happened next?",  
+            "That's a crucial turning point...",  
+            "How did people respond to this?",  
+            "Let's talk about the aftermath..."  
+        ],  
+        sound_effect_points=["intro", "challenge", "turning_point", "resolution", "outro"]  
+    )  
+}  
+  
+  
+  
 class PodcastAgent(TTSAgent):  
     """  
     A TTS Agent that converts text into a podcast format with different voices for host and expert.  
