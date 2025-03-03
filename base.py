@@ -10,7 +10,6 @@ try:
     import ujson as json
 except ImportError:
     import json
-from YouTubeDocIndex import answer_youtube_question
 from prompts import prompts
 from collections import defaultdict, Counter
 
@@ -2255,6 +2254,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         temp_folder = os.path.join(os.getcwd(), "temp")
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
+        from YouTubeDocIndex import answer_youtube_question
         result = answer_youtube_question(context, link, api_keys["ASSEMBLYAI_API_KEY"], api_keys["OPENROUTER_API_KEY"], temp_folder)
         result["is_pdf"] = False
         result["is_image"] = False

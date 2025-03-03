@@ -5,8 +5,12 @@ import os
 import re
 import shutil
 import traceback  
-import cv2  
-import numpy as np  
+try:
+    import cv2  
+    import numpy as np  
+except Exception as e:
+    logger.error(f"Error importing cv2 or numpy: {e}")
+    logger.error(traceback.format_exc())
 
 from ffmpeg import input as ffmpeg_input
 
@@ -15,13 +19,14 @@ from yt_dlp import YoutubeDL
 from PIL import Image  
 import imagehash  
 
-from common import get_async_future, sleep_and_get_future_result
-from base import CallLLm
+from common import CHEAP_LLM, OPENROUTER_LLM, CacheResults, get_async_future, sleep_and_get_future_result
+from call_llm import CallLLm, CallMultipleLLM
 from loggers import getLoggers
 import logging
 from skimage import measure  
 import logging  
 from scipy.stats import entropy  
+
 
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
@@ -257,6 +262,8 @@ def get_transcript(audio_path, api_key):
 
     # Configure API key
     aai.settings.api_key = api_key
+    assert api_key is not None, "API key is not set"
+    os.environ["ASSEMBLYAI_API_KEY"] = api_key
 
     try:
         logger.info("Initializing transcription...")
@@ -531,7 +538,7 @@ Your output should follow the following format:
 """
     
     try:
-        llm = CallLLm(api_keys, model_name="openai/gpt-4o")
+        llm = CallLLm(api_keys, model_name=OPENROUTER_LLM[0])
         response = llm(
             prompt.format(text=transcript), 
             images=[], 
@@ -683,7 +690,7 @@ OCR or text in frame: [OCR or text in frame for context to help with accessibili
 """
         
         # Create future for this group
-        llm = CallLLm(api_keys, model_name="openai/gpt-4o")
+        llm = CallLLm(api_keys, model_name=OPENROUTER_LLM[0])
         future = get_async_future(
             llm,
             prompt.format(summary=video_summary),
@@ -807,7 +814,7 @@ Please format your response as follows:
 
 <most_important_frame>
 Frame number: X
-Detailed description: [Accessibility-focused description]
+Detailed description: [Accessibility-focused description along with entities and entities relationships and activities and other information in detail]
 Key information: [What this frame tells us about the video]
 Significance: [Why this is the most important frame in this group]
 OCR or text in frame: [OCR or text in frame for context to help with accessibility]
@@ -817,7 +824,7 @@ OCR or text in frame: [OCR or text in frame for context to help with accessibili
 </most_important_frame>
 """
         
-        llm = CallLLm(api_keys, model_name="openai/gpt-4o")
+        llm = CallLLm(api_keys, model_name=OPENROUTER_LLM[0])
         response = llm(
             prompt.format(summary=video_summary),
             images=[grid_path],
@@ -1179,7 +1186,7 @@ Your report should be comprehensive, in-depth, detailed, nuanced, and well-struc
     # Step 6: Call the LLM to generate the report  
     llm = CallLLm(  
         keys=api_keys,  
-        model_name="openai/gpt-4o"  # Replace with the appropriate model name  
+        model_name=CHEAP_LLM[0]  # Replace with the appropriate model name  
     )  
     try:  
         response = llm(  
@@ -1237,7 +1244,7 @@ def audio_extract_transcript_summary(video_path, output_folder, assemblyai_api_k
     with open(summary_path, 'w', encoding='utf-8') as f:
         f.write(f"{title}\n\n{summary}")
     
-    return title, summary, transcript, sentences_with_timing, summary_path
+    return title, summary, transcript, sentences_with_timing, summary_path, audio_path
     
 
 def overall_frame_analysis(video_path, output_folder, fps):
@@ -1250,7 +1257,103 @@ def overall_frame_analysis(video_path, output_folder, fps):
     return filtered_frames_folder, frames_folder
     
 
-def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_folder='output'):  
+def get_video_duration(video_path):
+    """
+    Get the duration of a video file in milliseconds.
+    
+    Args:
+        video_path (str): Path to the video file
+        
+    Returns:
+        float: Duration in milliseconds
+    """
+    try:
+        # Try using ffmpeg/ffprobe first (more accurate)
+        import subprocess
+        cmd = [
+            'ffprobe', 
+            '-v', 'error', 
+            '-show_entries', 'format=duration', 
+            '-of', 'default=noprint_wrappers=1:nokey=1', 
+            video_path
+        ]
+        output = subprocess.check_output(cmd).decode('utf-8').strip()
+        duration_seconds = float(output)
+        return duration_seconds * 1000  # Convert to milliseconds
+    except Exception as e:
+        logger.warning(f"Failed to get duration using ffprobe: {str(e)}")
+        
+        # Fallback to OpenCV
+        try:
+            cap = cv2.VideoCapture(video_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            duration_seconds = frame_count / fps if fps > 0 else 0
+            cap.release()
+            return duration_seconds * 1000  # Convert to milliseconds
+        except Exception as e2:
+            logger.error(f"Failed to get duration using OpenCV: {str(e2)}")
+            return None
+
+def create_percentage_subtitles(sentences_with_timing_path, video_path, output_path):
+    """
+    Convert sentences with timing to a subtitle-like format with percentage timestamps
+    based on actual video duration.
+    
+    Args:
+        sentences_with_timing_path (str): Path to the JSON file containing sentences with timing
+        video_path (str): Path to the video file
+        output_path (str): Path where the percentage-based subtitle file will be saved
+        
+    Returns:
+        str: Path to the created subtitle file
+    """
+    logger.info("Creating percentage-based subtitles...")
+    
+    # Load sentences with timing
+    with open(sentences_with_timing_path, 'r', encoding='utf-8') as f:
+        sentences_with_timing = json.load(f)
+    
+    if not sentences_with_timing:
+        logger.error("No sentences found in timing file")
+        return None
+    
+    # Get actual video duration in milliseconds
+    total_duration_ms = get_video_duration(video_path)
+    
+    if not total_duration_ms:
+        logger.warning("Could not determine video duration, using last sentence end time instead")
+        total_duration_ms = max(sentence['end'] for sentence in sentences_with_timing)
+    
+    logger.info(f"Video duration: {total_duration_ms/1000:.2f} seconds")
+    
+    # Create subtitle content
+    subtitle_lines = []
+    for i, sentence in enumerate(sentences_with_timing, 1):
+        # Calculate percentages and round to integers
+        start_percent = round((sentence['start'] / total_duration_ms) * 100)
+        end_percent = round((sentence['end'] / total_duration_ms) * 100)
+        
+        # Format like a subtitle file but with percentages
+        subtitle_lines.append(f"{i}")
+        subtitle_lines.append(f"{start_percent}% --> {end_percent}%")
+        subtitle_lines.append(f"{sentence['text']}")
+        subtitle_lines.append("")  # Empty line between entries
+    
+    # Write to file
+    subtitle_lines = "\n".join(subtitle_lines)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(subtitle_lines)
+    
+    
+    logger.info(f"Created percentage-based subtitles at {output_path}")
+    return subtitle_lines
+
+import mmh3
+from common import DefaultDictQueue
+@CacheResults(cache=DefaultDictQueue(1000), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
+            enabled=True)
+def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, only_transcript=False, output_folder='output'):  
     """Full pipeline to process YouTube video.
     
     Args:
@@ -1271,17 +1374,37 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
         return 
     
     with ThreadPoolExecutor(max_workers=2) as executor: 
-
-        
-        
-        frames_future = executor.submit(overall_frame_analysis, video_path, output_folder, fps=2)
-        
-        
+        if not only_transcript:
+            frames_future = executor.submit(overall_frame_analysis, video_path, output_folder, fps=2)
         summary_future = executor.submit(audio_extract_transcript_summary, video_path, output_folder, assemblyai_api_key, openrouter_api_key, url_hash)
         
         # Get results from both futures
-        filtered_frames_folder, frames_folder = frames_future.result()
-        title, summary, transcript, sentences_with_timing, summary_path = summary_future.result()
+        if not only_transcript:
+            filtered_frames_folder, frames_folder = frames_future.result()
+        title, summary, transcript, sentences_with_timing, summary_path, audio_path = summary_future.result()
+        
+        sentences_with_timing_path = os.path.join(output_folder, f'{url_hash}_sentences_with_timing.json')
+        percentage_subtitles_path = os.path.join(output_folder, f'{url_hash}_percentage_subtitles.srt')
+        subtitles = create_percentage_subtitles(sentences_with_timing_path, video_path, percentage_subtitles_path)
+        
+        if only_transcript:
+            # delete the video_path, audio_path
+            
+            
+            for path in [video_path, audio_path]:
+                if os.path.exists(path):
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
+                    logger.info(f"Deleted file: {path}")
+            return {
+                'title': title,
+                'summary': summary,
+                'transcript': transcript,
+                'subtitles': subtitles
+            }
+        
     
     # Analyze and select key frames
     important_frames_folder = analyze_key_frames(
@@ -1343,8 +1466,12 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
     frame_grids_folder = os.path.join(output_folder, 'frame_grids')
     for folder in [frames_folder, filtered_frames_folder, important_frames_folder, video_path, audio_path, frame_grids_folder]:
         if os.path.exists(folder):
-            shutil.rmtree(folder)
-            logger.info(f"Deleted folder: {folder}")
+            if os.path.isdir(folder):
+                shutil.rmtree(folder)
+                logger.info(f"Deleted folder: {folder}")
+            else:
+                os.remove(folder)
+                logger.info(f"Deleted file: {folder}")
             
     # we also want to delete the frame_analysis_group_*.txt files
     frame_analysis_files = glob.glob(os.path.join(output_folder, 'frame_analysis_group_*.txt'))
@@ -1354,10 +1481,133 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, output_fo
 
     
   
-    logger.info("Processing complete.")  
+    logger.info("Processing complete.") 
+    
+    # return the various paths as output in a dictionary  
+    return {
+        'markdown_path': markdown_path,
+        'summary_path': summary_path,
+        'output_report_path': output_report_path,
+        'percentage_subtitles_path': percentage_subtitles_path,
+        'title': title,
+        'subtitles': subtitles,
+        'summary': summary,
+        'transcript': transcript,
+        
+    }
+    
+
+def answer_youtube_question(question, youtube_url, assemblyai_api_key, openrouter_api_key, output_folder):
+    """
+    Answer a question about a YouTube video.
+    
+    Args:
+        question (str): The question to answer
+        youtube_url (str): The URL of the YouTube video
+        assemblyai_api_key (str): The API key for AssemblyAI
+        openrouter_api_key (str): The API key for OpenRouter
+        output_folder (str): The folder to save the output
+    """
+    
+    detail_dict = process_youtube_video(youtube_url, assemblyai_api_key, openrouter_api_key, only_transcript=True, output_folder=output_folder)
+    summary, transcript, subtitles = detail_dict['summary'], detail_dict['transcript'], detail_dict['subtitles']
+    llm = CallLLm(model_name=OPENROUTER_LLM[0], keys={'OPENROUTER_API_KEY': openrouter_api_key}  )
+    
+    # agentic prompt - do we need transcript or subtitles?
+    agentic_prompt = f"""
+You are a helpful assistant that can answer questions about a YouTube video. Answer concisely and briefly.
+
+The video summary is:
+{summary}
+
+The user question is:
+{question}
+
+Now decide if you need the transcript or the subtitles to answer the question. Usually we prefer only one of them.
+
+Your response should be in the following format:
+{{
+    
+    "transcript_needed": "yes" or "no",
+    "subtitles_needed": "yes" or "no"
+}}
+
+Just write your response in the above format inside a json code block in triple backticks.
+
+"""
+    
+    response = llm(agentic_prompt).lower().strip()
+    import re
+    import json
+    
+    # Extract code block content regardless of language specification
+    code_match = re.search(r'```(?:\w*\n|\w*\s)?([\s\S]*?)```', response, re.DOTALL)
+    if code_match:
+        extracted_code = code_match.group(1).strip()
+        try:
+            extracted_json = json.loads(extracted_code)
+        except json.JSONDecodeError:
+            # Fallback: try to extract JSON-like structure if JSON parsing fails
+            json_pattern = re.search(r'{\s*"transcript_needed"\s*:\s*"(yes|no)"\s*,\s*"subtitles_needed"\s*:\s*"(yes|no)"\s*}', extracted_code)
+            if json_pattern:
+                extracted_json = {
+                    "transcript_needed": json_pattern.group(1),
+                    "subtitles_needed": json_pattern.group(2)
+                }
+            else:
+                raise ValueError("Could not parse JSON from the extracted code block")
+    else:
+        # If no code block, try to find JSON directly in the response
+        json_pattern = re.search(r'{\s*"transcript_needed"\s*:\s*"(yes|no)"\s*,\s*"subtitles_needed"\s*:\s*"(yes|no)"\s*}', response)
+        if json_pattern:
+            extracted_json = {
+                "transcript_needed": json_pattern.group(1),
+                "subtitles_needed": json_pattern.group(2)
+            }
+        else:
+            raise ValueError("No code block or JSON structure found in the response")
+    transcript_needed = extracted_json['transcript_needed']
+    subtitles_needed = extracted_json['subtitles_needed']
+    
+    transcript = transcript if transcript_needed == "yes" else ''
+    subtitles = subtitles if subtitles_needed == "yes" else ''
+    
+    prompt = f"""
+You are a helpful assistant that can answer questions about a YouTube video.
+
+The video summary is:
+{summary}
+
+The transcript is:
+{transcript}
+
+The subtitles are:
+{subtitles}
+
+The user question is:
+{question}
+
+Now answer the question based on the video summary, and transcript.
+"""
+
+    response = llm(prompt)
+    return {
+        'answer': response,
+        'summary': summary,
+        'transcript': transcript,
+        'subtitles': subtitles,
+        
+    }
+    
+    
   
 # Usage example  
-if __name__ == "__main__":  
+if __name__ == "__main__": 
+    # Markdown with embedded images
+    # Transcript link
+    # Video summary
+    # Shortened and long link.
+    
     youtube_url = input("Enter YouTube URL: ")  
     assemblyai_api_key = input("Enter AssemblyAI API Key: ").strip()
     openrouter_api_key = input("Enter OpenRouter API Key: ").strip()
