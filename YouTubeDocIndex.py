@@ -5,12 +5,7 @@ import os
 import re
 import shutil
 import traceback  
-try:
-    import cv2  
-    import numpy as np  
-except Exception as e:
-    logger.error(f"Error importing cv2 or numpy: {e}")
-    logger.error(traceback.format_exc())
+
 
 from ffmpeg import input as ffmpeg_input
 
@@ -30,7 +25,12 @@ from scipy.stats import entropy
 
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
-  
+try:
+    import cv2  
+    import numpy as np  
+except Exception as e:
+    logger.error(f"Error importing cv2 or numpy: {e}")
+    logger.error(traceback.format_exc())
   
 MAX_WORKERS = 8
 

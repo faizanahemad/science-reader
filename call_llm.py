@@ -273,13 +273,14 @@ Include references inline in wikipedia style as your write the answer.
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
+                                                                                                                                                 "gpt-4.5-preview",
                                                                                                                                                  "openai/gpt-4o-mini",
                                                                                                                                                  "openai/o1",
                                                                                                                                                  "openai/gpt-4o",
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
-                                                                                                                                                 "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest"], f"{self.model_name} is not supported for image input."
+                                                                                                                                                 "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet", "anthropic/claude-3.7-sonnet:beta"], f"{self.model_name} is not supported for image input."
             encoded_images = []
             for img in images:
                 if os.path.exists(img):
