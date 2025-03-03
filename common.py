@@ -786,24 +786,40 @@ def convert_to_pdf_link_if_needed(link):
         link = (link[:-1] + ".pdf") if link[-1] == "/" else (link + ".pdf")
         # convert aclweb link to pdf
     return link
+
 def extract_array_string(s):
+    # Try to find content inside markdown code blocks
+    code_block_match = re.search(r'```(?:\w+)?\s*([\s\S]*?)\s*```', s)
+    if code_block_match:
+        # Extract content from the code block and recursively process it
+        code_content = code_block_match.group(1).strip()
+        # If the code block content looks like an array, process it
+        if code_content.startswith('[') and code_content.endswith(']'):
+            return code_content
+        # Otherwise, try other patterns on the code content
+        inner_result = extract_array_string(code_content)
+        if inner_result:
+            return inner_result
+
     # Try to find text inside square brackets
     match = re.search(r'\[.*?\]', s)
     if match:
         return match.group(0)
 
     # Check for queries separated by one or two newlines
+    # ... existing code ...
     newline_separated = re.split(r'\n\n|\n', s.strip())
     if newline_separated and all(len(query.strip().split()) >= 3 for query in newline_separated) and len(newline_separated) >= 3:
         return newline_separated
+    
     # Try to find markdown list
+    # ... existing code ...
     markdown_list = re.findall(r'^[-*] (.+)$', s, flags=re.M)
     if markdown_list:
         return markdown_list
 
-
-
     # If a single string, return it in an array
+    # ... existing code ...
     if s.strip() and ' ' in s.strip() and len(s.strip().split()) <=10:
         return [s.strip()]
 

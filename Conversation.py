@@ -2843,10 +2843,11 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "o1-preview"
     elif "openai/chatgpt-4o-latest" in model_names:
         improve_model = "openai/chatgpt-4o-latest"
-    elif "gpt-4.5-preview" in model_names:
-        improve_model = "gpt-4.5-preview"
     elif "anthropic/claude-3.7-sonnet:thinking" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
+    elif "gpt-4.5-preview" in model_names:
+        improve_model = "gpt-4.5-preview"
+    
     
     
     elif "openai/o1" in model_names:

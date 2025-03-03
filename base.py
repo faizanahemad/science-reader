@@ -1490,8 +1490,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     provide_detailed_answers = int(provide_detailed_answers)
     if extra_queries is None:
         extra_queries = []
-    n_query = "two" if previous_search_results or len(extra_queries) > 0 else "four"
-    n_query = n_query if provide_detailed_answers >= 3 else "four"
+    n_query = "four"
     n_query_num = 4
     pqs = []
     if previous_search_results:
