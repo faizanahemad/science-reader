@@ -2734,6 +2734,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-4-turbo"
     elif model_name == "gpt-4o":
         model_name = "gpt-4o"
+    elif model_name == "openai/gpt-4.5-preview":
+        model_name = "openai/gpt-4.5-preview"
     elif model_name == "Command-r+":
         model_name = "cohere/command-r-plus-08-2024"
     elif model_name == "gpt-4-32k":

@@ -132,7 +132,7 @@ def call_chat_model(model, text, images, temperature, system, keys):
     
     if not openrouter_used and model.startswith("openai/"):
         model = model.replace("openai/", "")
-    extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>"]) if "claude" in model or openrouter_used else dict()
+    extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>", "<|/assistant_response|>"]) if "claude" in model or openrouter_used else dict()
     
     if model == "o1-hard":
         model = "o1"
@@ -347,7 +347,6 @@ Include references inline in wikipedia style as your write the answer.
         else:
             assert self.keys["openAIKey"] is not None
 
-        model_name = "gpt-4o" if (self.use_gpt4 or self.model_name not in ["gpt-4-turbo", "gpt-4", "gpt-4-32k", "gpt-4o-mini", "o1-preview", "o1-mini", "gpt-4.5-preview", "o1", "o1-hard", "o1-easy"]) else "gpt-4o-mini"
 
         if model_name == "o1-mini":
             pass
@@ -358,6 +357,10 @@ Include references inline in wikipedia style as your write the answer.
         elif model_name == "o1" or model_name == "o1-hard" or model_name == "o1-easy":
             pass
         elif model_name == "gpt-4.5-preview":
+            pass
+        elif model_name == "gpt-4o":
+            pass
+        elif model_name == "gpt-4o-mini":
             pass
         elif (model_name != "gpt-4-turbo" and model_name != "gpt-4o" and model_name != "gpt-4o-mini") and text_len > 12000:
             model_name = "gpt-4o"

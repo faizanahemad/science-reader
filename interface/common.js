@@ -896,6 +896,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Claude Sonnet 3.5</option>   
                 <option>Claude Sonnet 3.7 Thinking</option>
                 
+                <option>openai/gpt-4.5-preview</option>
                 <option>gpt-4.5-preview</option>
                 <option>o1</option>
                 <option>openai/chatgpt-4o-latest</option>
