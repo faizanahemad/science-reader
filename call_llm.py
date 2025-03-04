@@ -347,7 +347,7 @@ Include references inline in wikipedia style as your write the answer.
         else:
             assert self.keys["openAIKey"] is not None
 
-
+        model_name = self.model_name
         if model_name == "o1-mini":
             pass
         elif model_name == "o1-preview":
