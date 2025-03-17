@@ -1,4 +1,7 @@
 import secrets
+import inspect
+import types
+import collections.abc  
 import shutil
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews
 from filelock import FileLock
@@ -2260,6 +2263,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
             if isinstance(main_ans_gen, dict):
                 main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
+            elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
+                pass
             elif not isinstance(main_ans_gen, str):
                 main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
         else:
