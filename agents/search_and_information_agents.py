@@ -80,9 +80,9 @@ Each query should be focused and specific, while the context should provide back
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('query1', 'detailed context1'), 
-    ('query2', 'detailed context2'), 
-    ('query3', 'detailed context3'), 
+    ('query1', 'detailed context1 including conversational context on what user is looking for'), 
+    ('query2', 'detailed context2 including conversational context on what user is looking for'), 
+    ('query3', 'detailed context3 including conversational context on what user is looking for'), 
     ...
 ]
 ```
@@ -256,9 +256,9 @@ Each query should be focused and specific, while the context should provide back
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('query1 arxiv', 'detailed context1'), 
-    ('query2 research papers', 'detailed context2'), 
-    ('query3 research in {year}', 'detailed context3'), 
+    ('query1 arxiv', 'detailed context1 including conversational context on what user is looking for'), 
+    ('query2 research papers', 'detailed context2 including conversational context on what user is looking for'), 
+    ('query3 research in {year}', 'detailed context3 including conversational context on what user is looking for'), 
     ...
 ]
 ```
@@ -302,9 +302,9 @@ Each query should be focused and specific, while the context should provide back
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('query1 word1_for_localisation', 'detailed context1'), 
-    ('query2 maybe_word2_for_site_specific_searches', 'detailed context2'), 
-    ('query3', 'detailed context3'), 
+    ('query1 word1_for_localisation', 'detailed context1 including conversational context on what user is looking for'), 
+    ('query2 maybe_word2_for_site_specific_searches', 'detailed context2 with conversational context on what we are looking for'), 
+    ('query3', 'detailed context3 with conversational context on what we are looking for'), 
     ...
 ]
 ```
@@ -907,16 +907,19 @@ Please provide an answer for this modified scenario."""
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=10):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
         super().__init__(keys, model_name, detail_level, timeout)
         self.num_queries = num_queries
         self.perplexity_models = [
             "perplexity/llama-3.1-sonar-small-128k-online",
+            "openai/gpt-4o-mini-search-preview",
+            "openai/gpt-4o-search-preview",
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
         if detail_level >= 3:
             self.perplexity_models.append("perplexity/llama-3.1-sonar-large-128k-online")
+            self.perplexity_models.append("perplexity/sonar-pro")
         
         year = time.localtime().tm_year
         self.get_references = f"""
@@ -938,17 +941,17 @@ generate diverse queries that:
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('main topic exact query', 'short context about main topic'), 
+    ('main topic exact query', 'short context about main topic with conversational context on what user is looking for'), 
     ('main topic research papers [if query is about research]', 'short context focusing on academic research'),
-    ('related subtopic with year {year}', 'short context about temporal aspects'),
+    ('related subtopic with year {year}', 'short context about temporal aspects with conversational context on what user is looking for'),
     ('specific aspect in domain/location', 'very short context about domain-specific elements'),
     ('main topic with location [if query is about location]', 'short and brief context about location'),
-    ('main topic with year', 'short and brief context about temporal aspects'),
-    ('side aspect topic with location', 'short and brief context about location'),
-    ('another side aspect topic', 'short and brief context about side aspect'),
-    ('more related subtopics', 'very short and brief context about more related subtopics'),
-    ('more related side aspect topics', 'very short and brief context about more related side aspect topics'),
-    ('wider coverage topics with year', 'very short and brief context about wider coverage topics with year'),
+    ('main topic with year', 'short and brief context about temporal aspects with conversational context on what user is looking for'),
+    ('side aspect topic with location', 'short and brief context about location with conversational context on what user is looking for'),
+    ('another side aspect topic', 'short and brief context about side aspect with conversational context on what user is looking for'),
+    ('more related subtopics', 'very short and brief context about more related subtopics with conversational context on what user is looking for'),
+    ('more related side aspect topics', 'very short and brief context about more related side aspect topics with conversational context on what user is looking for'),
+    ('wider coverage topics with year', 'very short and brief context about wider coverage topics with year with conversational context on what user is looking for'),
     ...
 ]
 ```
@@ -997,6 +1000,7 @@ Please use the given search results to answer the user's query while combining i
                 raise ValueError("Invalid format: expected list of tuples")
             
             futures = []
+            year = time.localtime().tm_year
             # For each query, create futures for both perplexity models
             for query, context in text_queries_contexts:
                 for model in self.perplexity_models:
@@ -1004,7 +1008,7 @@ Please use the given search results to answer the user's query while combining i
                     future = get_async_future(
                         llm,
                         # text + "\n\n" + context + "\n\nQuery: " + query,
-                        "Query: " + query + "\n" + self.get_references,
+                        "Context: " + context + "\n\nQuery: " + query + "\n" + self.get_references + ("\n\n" + f"Get most recent information and data for the query for year = {year}. If this is a research or scientific query or news query then append current year = {year} and previous year = {year - 1} to your search queries alternatively." if "gpt-4o" in model else ""),
                         timeout=self.timeout
                     )
                     futures.append((query, context, model, future))

@@ -312,7 +312,7 @@ Include references inline in wikipedia style as your write the answer.
         if self.model_name in CHEAP_LONG_CONTEXT_LLM:
             assert tok_count < 600_000, assertion_error_message
         elif self.model_name in LONG_CONTEXT_LLM:
-            assert tok_count < 600_000, assertion_error_message
+            assert tok_count < 900_000, assertion_error_message
         elif "google/gemini-flash-1.5" in self.model_name or "google/gemini-flash-1.5-8b" in self.model_name or "google/gemini-pro-1.5" in self.model_name:
             assert tok_count < 400_000, assertion_error_message
         elif "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
@@ -328,7 +328,7 @@ Include references inline in wikipedia style as your write the answer.
             assert tok_count < 100_000, assertion_error_message
         elif "openai" in self.model_name:
             assert tok_count < 120_000, assertion_error_message
-        elif self.model_name in VERY_CHEAP_LLM or self.model_name in CHEAP_LLM or self.model_name in EXPENSIVE_LLM or self.model_name in VERY_EXPENSIVE_LLM:
+        elif self.model_name in VERY_CHEAP_LLM or self.model_name in CHEAP_LLM or self.model_name in EXPENSIVE_LLM:
             assert tok_count < 100_000, assertion_error_message
         else:
             assert tok_count < 48000, assertion_error_message

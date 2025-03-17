@@ -990,7 +990,7 @@ For certain type of information, like code, tables, equations, etc, extract them
 Extract information in a concise and short manner suitable for a recap.
 Write the useful information extracted from the above conversation messages and summary below in a brief, concise and short manner:
 """
-        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_AND_FAST_LLM[0], use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:4000])
@@ -2718,7 +2718,18 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
 
 def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
-    if model_name == "o1":
+    if model_name == "perplexity/sonar-deep-research":
+        model_name = "perplexity/sonar-deep-research"
+    elif model_name == "perplexity/sonar-pro":
+        model_name = "perplexity/sonar-pro"
+    elif model_name == "perplexity/sonar-reasoning-pro":
+        model_name = "perplexity/sonar-reasoning-pro"
+    elif model_name == "openai/gpt-4o-search-preview":
+        model_name = "openai/gpt-4o-search-preview"
+    elif model_name == "openai/gpt-4o-mini-search-preview":
+        model_name = "openai/gpt-4o-mini-search-preview"
+
+    elif model_name == "o1":
         model_name = "o1"
     elif model_name == "gpt-4.5-preview":
         model_name = "gpt-4.5-preview"

@@ -896,7 +896,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Claude Sonnet 3.5</option>   
                 <option>Claude Sonnet 3.7 Thinking</option>
                 
-                <option>openai/gpt-4.5-preview</option>
+                <!-- option>openai/gpt-4.5-preview</option -->
+                <option>openai/gpt-4o-search-preview</option>
+                <option>perplexity/sonar-deep-research</option>
+                <option>perplexity/sonar-pro</option>
+                
+                
                 <option>gpt-4.5-preview</option>
                 <option>o1</option>
                 <option>openai/chatgpt-4o-latest</option>
@@ -906,14 +911,16 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <option>Filler</option>
                 <option>Claude Opus</option>
-                <option>Gemini 1.5</option>
+                <!-- option>Gemini 1.5</option -->
                 
                 <option>o1-hard</option>
                 <option>gpt-4o</option>
+                <option>openai/gpt-4o-mini-search-preview</option>
+                <option>perplexity/sonar-reasoning-pro</option>
                 <!-- option>Pixtral Large</option -->
                 
                 
-                <option>minimax/minimax-01</option>
+                <!-- option>minimax/minimax-01</option -->
                 <option>openai/o1-preview</option>
                 <!-- option>qwen/qvq-72b-preview</option -->
                 <!-- option>meta-llama/llama-3.2-90b-vision-instruct</option -->
