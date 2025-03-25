@@ -346,7 +346,7 @@ Compact list of bullet points:
                 new_conversation.set_field(field, value)
                     
         new_conversation.save_local()
-        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id} at location {new_storage}")
+        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id} at location {new_storage} from old location {self._storage}")
         # list contents of new_storage
         def print_tree(path, prefix=""):
             contents = []
@@ -361,6 +361,7 @@ Compact list of bullet points:
             
         tree = print_tree(new_storage)
         logger.info(f"Contents of {new_storage}:\n" + "\n".join(tree))
+        logger.info(f"Contents of Old Storage {self._storage}:\n" + "\n".join(print_tree(self._storage)))
 
         return new_conversation
     
