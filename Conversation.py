@@ -348,7 +348,19 @@ Compact list of bullet points:
         new_conversation.save_local()
         logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id} at location {new_storage}")
         # list contents of new_storage
-        logger.info(f"Contents of {new_storage}: {os.listdir(new_storage)}")
+        def print_tree(path, prefix=""):
+            contents = []
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                if os.path.isdir(item_path):
+                    contents.append(f"{prefix}├── {item}/")
+                    contents.extend(print_tree(item_path, prefix + "│   "))
+                else:
+                    contents.append(f"{prefix}├── {item}")
+            return contents
+            
+        tree = print_tree(new_storage)
+        logger.info(f"Contents of {new_storage}:\n" + "\n".join(tree))
 
         return new_conversation
     
