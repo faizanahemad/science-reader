@@ -309,7 +309,7 @@ Compact list of bullet points:
         new_conversation = Conversation(
             user_id=self.user_id,
             openai_embed=None,  # Will be set via set_api_keys
-            storage=new_storage,
+            storage=parent_dir,
             conversation_id=new_conversation_id,
             domain=self.domain
         )
