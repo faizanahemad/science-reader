@@ -894,11 +894,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.7</option>    
-                <option>Claude Sonnet 3.5</option>   
+                
                 <option>Claude Sonnet 3.7 Thinking</option>
                 
                 <!-- option>openai/gpt-4.5-preview</option -->
                 <option>openai/gpt-4o-search-preview</option>
+                <option>openai/o1-pro</option>
+                <option>cohere/command-a</option>
                 <option>perplexity/sonar-deep-research</option>
                 <option>perplexity/sonar-pro</option>
                 
@@ -911,6 +913,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
 
                 <option>Filler</option>
+                <option>Claude Sonnet 3.5</option>   
                 <option>Claude Opus</option>
                 <!-- option>Gemini 1.5</option -->
                 
@@ -922,7 +925,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
                 <!-- option>minimax/minimax-01</option -->
-                <option>openai/o1-preview</option>
+                <!-- option>openai/o1-preview</option -->
                 <!-- option>qwen/qvq-72b-preview</option -->
                 <!-- option>meta-llama/llama-3.2-90b-vision-instruct</option -->
                 <!-- option>openai/o1</option -->

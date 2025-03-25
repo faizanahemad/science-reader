@@ -23,7 +23,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 import time
 import traceback
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
@@ -2754,6 +2754,10 @@ def model_name_to_canonical_name(model_name):
 
     elif model_name == "o1":
         model_name = "o1"
+    elif model_name == "openai/o1-pro":
+        model_name = "openai/o1-pro"
+    elif model_name == "cohere/command-a":
+        model_name = "cohere/command-a"
     elif model_name == "gpt-4.5-preview":
         model_name = "gpt-4.5-preview"
     elif model_name == "Claude Sonnet 3.7 Thinking":

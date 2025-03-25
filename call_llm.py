@@ -274,6 +274,7 @@ Include references inline in wikipedia style as your write the answer.
                                                                                                                                                  "gpt-4.5-preview",
                                                                                                                                                  "openai/gpt-4o-mini",
                                                                                                                                                  "openai/o1",
+                                                                                                                                                 "openai/o1-pro",
                                                                                                                                                  "openai/gpt-4o",
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
