@@ -300,7 +300,9 @@ Compact list of bullet points:
         # Create new storage path for clone
         uuid = ''.join(secrets.choice(alphabet) for i in range(6))
         new_conversation_id = f"{self.conversation_id}_clone_{uuid}"
-        new_storage = os.path.join(os.path.dirname(self._storage), new_conversation_id)
+        # get parent directory of self._storage
+        parent_dir = os.path.dirname(self._storage)
+        new_storage = os.path.join(parent_dir, new_conversation_id)
         os.makedirs(new_storage, exist_ok=True)
         
         # Create new conversation with correct parameters
@@ -324,10 +326,10 @@ Compact list of bullet points:
         
         # Clone uploaded documents
         uploaded_docs = self.get_field("uploaded_documents_list") or []
+        new_docs_path = os.path.join(new_storage, "uploaded_documents")
+        os.makedirs(new_docs_path, exist_ok=True)
         if uploaded_docs:
             # Copy document files to new storage
-            new_docs_path = os.path.join(new_storage, "uploaded_documents")
-            os.makedirs(new_docs_path, exist_ok=True)
             for doc_id, doc_storage, pdf_url in uploaded_docs:
                 if os.path.exists(doc_storage):
                     new_doc_storage = os.path.join(new_docs_path, os.path.basename(doc_storage))
@@ -346,7 +348,7 @@ Compact list of bullet points:
                 new_conversation.set_field(field, value)
                     
         new_conversation.save_local()
-        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id} at location {new_storage} from old location {self._storage}")
+        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}, Parent directory = {parent_dir}, new location = {new_storage} from old location {self._storage}")
         # list contents of new_storage
         def print_tree(path, prefix=""):
             contents = []
