@@ -337,9 +337,6 @@ Compact list of bullet points:
         fields_to_clone = [
             "memory",
             "messages",
-            "indices",
-            "raw_documents",
-            "raw_documents_index"
         ]
         
         for field in fields_to_clone:
@@ -347,6 +344,7 @@ Compact list of bullet points:
             if value is not None:
                 new_conversation.set_field(field, value)
                     
+        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}")
         return new_conversation
     
     
