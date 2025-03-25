@@ -23,7 +23,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
 import time
 
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
@@ -344,7 +344,9 @@ Compact list of bullet points:
             if value is not None:
                 new_conversation.set_field(field, value)
                     
+        new_conversation.save_local()
         logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}")
+
         return new_conversation
     
     
