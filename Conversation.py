@@ -346,7 +346,9 @@ Compact list of bullet points:
                 new_conversation.set_field(field, value)
                     
         new_conversation.save_local()
-        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}")
+        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id} at location {new_storage}")
+        # list contents of new_storage
+        logger.info(f"Contents of {new_storage}: {os.listdir(new_storage)}")
 
         return new_conversation
     
