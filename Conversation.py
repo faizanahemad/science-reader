@@ -25,7 +25,7 @@ pd.set_option('display.max_columns', 100)
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
 import time
-
+import traceback
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
 
 
@@ -288,6 +288,7 @@ Compact list of bullet points:
         except Exception as e:
             logger.error(
                 f"Error loading from local storage {folder} with error {e}")
+            traceback.print_exc()
             try:
                 shutil.rmtree(original_folder)
             except Exception as e:

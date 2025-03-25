@@ -864,6 +864,14 @@ def list_conversation_by_user(domain:str):
     #     del conversation_cache[conversation.conversation_id]
     #     deleteConversationForUser(email, conversation.conversation_id)
     #     conversation.delete_conversation()
+
+    for conversation_id, conversation in zip(conversation_ids, conversations):
+        if conversation is None:
+            removeUserFromConversation(email, conversation_id)
+            del conversation_cache[conversation_id]
+            deleteConversationForUser(email, conversation_id)
+            
+
     conversations = [conversation for conversation in conversations if conversation is not None and conversation.domain==domain] #  and not conversation.stateless
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]
