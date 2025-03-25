@@ -842,6 +842,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>No Links</option>
                 <option selected>Wife Prompt</option>
                 <option>No Lazy</option>
+                <option>CoT</option>
                 
                 
                 
@@ -864,7 +865,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Diagram</option>
                 <option>Easy Copy</option>
                 
-                <!-- option>CoT</option -->
+                
                 
                 
                 
