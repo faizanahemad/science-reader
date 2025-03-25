@@ -11,7 +11,7 @@ from typing import Any, Optional
 from flask_session import Session
 from DocIndex import DocIndex, create_immediate_document_index, ImmediateDocIndex, ImageDocIndex
 
-from Conversation import Conversation
+from Conversation import Conversation, TemporaryConversation
 
 import os
 import time
@@ -615,8 +615,12 @@ def set_keys_on_docs(docs, keys):
         for d in docs:
             d.set_api_keys(keys)
     else:
-        assert isinstance(docs, (DocIndex, ImmediateDocIndex, ImageDocIndex, Conversation))
-        docs.set_api_keys(keys)
+        try:
+            assert isinstance(docs, (DocIndex, ImmediateDocIndex, ImageDocIndex, Conversation, TemporaryConversation)) or hasattr(docs, "set_api_keys")
+            docs.set_api_keys(keys)
+        except Exception as e:
+            logger.error(f"Failed to set keys on docs: {e}, type = {type(docs)}")
+            raise
     return docs
     
 
