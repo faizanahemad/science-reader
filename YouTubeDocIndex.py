@@ -1513,6 +1513,13 @@ def answer_youtube_question(question, youtube_url, assemblyai_api_key, openroute
     summary, transcript, subtitles = detail_dict['summary'], detail_dict['transcript'], detail_dict['subtitles']
     llm = CallLLm(model_name=OPENROUTER_LLM[0], keys={'OPENROUTER_API_KEY': openrouter_api_key}  )
     
+    if question.strip() == "":
+        return {
+            'answer': '',
+            'summary': summary,
+            'transcript': transcript,
+            'subtitles': subtitles
+        }
     # agentic prompt - do we need transcript or subtitles?
     agentic_prompt = f"""
 You are a helpful assistant that can answer questions about a YouTube video. Answer concisely and briefly.
