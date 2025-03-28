@@ -985,7 +985,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
         convert_doc_to_pdf(pdf_url, pdf_url.replace(".docx", ".pdf"))
         pdf_url = pdf_url.replace(".docx", ".pdf")
-    elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url or is_youtube_link(pdf_url)):
+    elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url or is_youtube_link(pdf_url)) and False:
         doc_text = YoutubeLoader.from_youtube_url(
             pdf_url, add_video_info=False
         ).load()

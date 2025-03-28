@@ -2249,7 +2249,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_pdf"] = True
         result["is_image"] = False
         
-    elif is_youtube_link(link):
+    elif False:
         from langchain_community.document_loaders import YoutubeLoader
         doc_text = YoutubeLoader.from_youtube_url(
             link, add_video_info=False
@@ -2259,7 +2259,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_pdf"] = False
         result["is_image"] = False
 
-    elif False:
+    elif is_youtube_link(link):
         temp_folder = os.path.join(os.getcwd(), "temp")
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
