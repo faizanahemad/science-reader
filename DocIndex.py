@@ -985,6 +985,12 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
         convert_doc_to_pdf(pdf_url, pdf_url.replace(".docx", ".pdf"))
         pdf_url = pdf_url.replace(".docx", ".pdf")
+    elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url or is_youtube_link(pdf_url)):
+        doc_text = YoutubeLoader.from_youtube_url(
+            pdf_url, add_video_info=False
+        ).load()
+        doc_text = "\n".join([d.page_content for d in doc_text])
+
     elif is_remote and is_youtube_link(pdf_url):
         temp_folder = os.path.join(os.getcwd(), "temp")
         if not os.path.exists(temp_folder):
@@ -993,11 +999,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         result = answer_youtube_question("", pdf_url, keys["ASSEMBLYAI_API_KEY"], keys["OPENROUTER_API_KEY"], temp_folder)
         doc_text = result["transcript"] + "\n" + result["summary"] + "\n" + result["subtitles"]
         
-    elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url):
-        doc_text = YoutubeLoader.from_youtube_url(
-            pdf_url, add_video_info=False
-        ).load()
-        doc_text = "\n".join([d.page_content for d in doc_text])
+    
     elif is_remote and not (pdf_url.endswith(".md") or pdf_url.endswith(".json") or pdf_url.endswith(".csv") or pdf_url.endswith(".txt")):
         html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
         # save this html to a file and then use the html loader.
