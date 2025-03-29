@@ -658,10 +658,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
                     if (!block.querySelector('svg')) {
                         code = cleanMermaidCode(code);
+                        // Update the content directly  
+                        block.textContent = code;  
                     }
                   
-                    // Update the content directly  
-                    block.textContent = code;  
+                    
                 });  
             }
             mermaid.run({
