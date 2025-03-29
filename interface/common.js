@@ -655,9 +655,12 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                 mermaidBlocks.forEach(block => {  
                     // Get and clean the mermaid code  
                     let code = block.textContent || block.innerText;  
-                code = cleanMermaidCode(code);  
+                    // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
+                    if (!block.querySelector('svg')) {
+                        code = cleanMermaidCode(code);
+                    }
                   
-                // Update the content directly  
+                    // Update the content directly  
                     block.textContent = code;  
                 });  
             }
