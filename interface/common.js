@@ -645,7 +645,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             mermaid.run({
                 querySelector: 'pre.mermaid',
                 useMaxWidth: false,
-                suppressErrors: true,
+                suppressErrors: false,
 
             }).then(() => {
                 // find all svg inside .mermaid class pre elements.
@@ -654,6 +654,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                 svgs.each(function (index, svg) {
                     $(svg).attr('height', null);
                 });
+            }).catch(err => {
+                console.error('Mermaid Error:', err);
             });
         }
         
