@@ -2831,6 +2831,16 @@ def model_name_to_canonical_name(model_name):
         model_name = "meta-llama/llama-3.2-90b-vision-instruct"
     elif model_name == "openai/chatgpt-4o-latest":
         model_name = "openai/chatgpt-4o-latest"
+    elif model_name == "sao10k/l3.3-euryale-70b":
+        model_name = "sao10k/l3.3-euryale-70b"
+    elif model_name == "latitudegames/wayfarer-large-70b-llama-3.3":
+        model_name = "latitudegames/wayfarer-large-70b-llama-3.3"
+    elif model_name == "thedrummer/anubis-pro-105b-v1":
+        model_name = "thedrummer/anubis-pro-105b-v1"
+    elif model_name == "steelskull/l3.3-electra-r1-70b":
+        model_name = "steelskull/l3.3-electra-r1-70b"
+    
+        
     elif model_name == FILLER_MODEL:
         model_name = FILLER_MODEL
     else:

@@ -920,7 +920,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="main-model-selector" multiple>
                 <option selected>Claude Sonnet 3.7</option>    
                 
-                <option>Claude Sonnet 3.7 Thinking</option>
+                
                 
                 <!-- option>openai/gpt-4.5-preview</option -->
                 <option>openai/gpt-4o-search-preview</option>
@@ -930,62 +930,30 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>perplexity/sonar-pro</option>
                 
                 
-                <option>gpt-4.5-preview</option>
                 <option>o1</option>
+                <option>gpt-4.5-preview</option>
+                <option>Claude Sonnet 3.7 Thinking</option>
+                
                 <option>openai/chatgpt-4o-latest</option>
                 
-                <option>o1-preview</option>
+                <!-- option>o1-preview</option -->
                 
 
                 <option>Filler</option>
                 <option>Claude Sonnet 3.5</option>   
                 <option>Claude Opus</option>
-                <!-- option>Gemini 1.5</option -->
                 
                 <option>o1-hard</option>
-                <option>gpt-4o</option>
+                <!-- option>gpt-4o</option -->
                 <option>openai/gpt-4o-mini-search-preview</option>
                 <option>perplexity/sonar-reasoning-pro</option>
-                <!-- option>Pixtral Large</option -->
-                
-                
-                <!-- option>minimax/minimax-01</option -->
-                <!-- option>openai/o1-preview</option -->
-                <!-- option>qwen/qvq-72b-preview</option -->
-                <!-- option>meta-llama/llama-3.2-90b-vision-instruct</option -->
-                <!-- option>openai/o1</option -->
 
-                <!-- option>Mistral Large</option -->
-                <!-- option>o1-easy</option -->
-                
-                <!-- option>gpt-4-turbo</option -->
-                <!-- option>o1-mini</option -->
-                <!-- option>openai/o1-mini</option -->
-                <!-- option>Command-r+</option -->
-                <!-- option>DeepSeek-V2.5 Chat</option -->
-                <!-- option>Jamba</option -->
-                <!-- option>llama-3.1-405b</option -->
-                <!-- option>Qwen 2</option -->
-                
-                
-                <!-- option>Hermes llama-3.1-405b</option -->
-                <!-- option>gpt-4-32k</option -->
-                 
-                
-                
-                
-                
-                 
-                
-                <!-- option>gpt-4-0314</option -->
-                <!-- option>gpt-4-32k-0314</option -->
-                
-                
-                <!-- option>deepseek/deepseek-coder</option -->
-                <!-- option>PPX 405B Online</option -->
-                <!-- option>Yi Large</option -->
-                
-                <!-- option>llama-3.1-70b</option -->
+                <option>sao10k/l3.3-euryale-70b</option>
+                <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
+                <option>thedrummer/anubis-pro-105b-v1</option>
+                <option>steelskull/l3.3-electra-r1-70b</option>
+
+                <!-- option>Pixtral Large</option -->
                 
                 
                 
