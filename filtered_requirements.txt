@@ -65,3 +65,6 @@ vllm>=0.2.0
 lru-dict==1.2.0
 numpy==1.25.1
 youtube-transcript-api==1.0.3
+yt-dlp==2025.3.27
+imagehash==4.3.2
+ffmpeg-python==0.2.0
