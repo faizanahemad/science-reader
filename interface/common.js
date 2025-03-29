@@ -649,15 +649,18 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                   .map(line => line.trim())  
                   .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
                   .join('\n');  
-              }  
-            mermaidBlocks.forEach(block => {  
-                // Get and clean the mermaid code  
-                let code = block.textContent || block.innerText;  
+            }
+            
+            if (elem_to_render_in.find(".mermaid").length > 0) {
+                mermaidBlocks.forEach(block => {  
+                    // Get and clean the mermaid code  
+                    let code = block.textContent || block.innerText;  
                 code = cleanMermaidCode(code);  
                   
                 // Update the content directly  
-                block.textContent = code;  
-              });  
+                    block.textContent = code;  
+                });  
+            }
             mermaid.run({
                 querySelector: 'pre.mermaid',
                 useMaxWidth: false,
