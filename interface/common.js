@@ -642,6 +642,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                 // append as sibling to the possible_mermaid_elem
                 possible_mermaid_elem.after(mermaid_elem)
             }
+            const mermaidBlocks = document.querySelectorAll('pre.mermaid');  
+            function cleanMermaidCode(mermaidCode) {  
+                return mermaidCode  
+                  .split('\n')  
+                  .map(line => line.trim())  
+                  .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
+                  .join('\n');  
+              }  
+            mermaidBlocks.forEach(block => {  
+                // Get and clean the mermaid code  
+                let code = block.textContent || block.innerText;  
+                code = cleanMermaidCode(code);  
+                  
+                // Update the content directly  
+                block.textContent = code;  
+              });  
             mermaid.run({
                 querySelector: 'pre.mermaid',
                 useMaxWidth: false,

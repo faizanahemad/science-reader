@@ -17,7 +17,17 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.5.0/mermaid.min.js" integrity="sha512-3EZqKCkk3nMLmbrI7mfry81KH7dkzy/BoDfQrodwLQnS/RbsVlERdYP6J0oiJegRUxSOmx7Y35WNbVKSw7mipw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script type="text/javascript">
-        mermaid.initialize({startOnLoad:true});
+        mermaid.initialize({  
+          startOnLoad: true,  
+          theme: 'default',  
+          securityLevel: 'loose',  
+          flowchart: {  
+            useMaxWidth: true,  
+            htmlLabels: true  
+          },  
+          // This can help with some parsing issues  
+          logLevel: 1  
+        }); 
     </script>
     
     <!-- mermaid.initialize({ startOnLoad: true }); -->
