@@ -3,6 +3,7 @@ from typing import Union, List
 import uuid
 from prompts import tts_friendly_format_instructions
 
+
 import os
 import tempfile
 import shutil
@@ -20,7 +21,7 @@ try:
     from prompts import tts_friendly_format_instructions
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
-        CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf,
+        CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
         get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
     )
     from loggers import getLoggers
@@ -973,7 +974,7 @@ Instructions:
 2. Write a detailed, in-depth, wide coverage and comprehensive response to the user's query using all the information from the search results. Write full answers with all details well formatted.
 3. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
 4. Provide side information from the search results to provide more context and broader perspective.
-5. [Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at references and information exhaustively and dive deep before answering. Think carefully before answering and provide an comprehensive, extensive answer using the references deeply. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.]
+5. Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at references and information exhaustively and dive deep before answering. Think carefully before answering and provide an comprehensive, extensive answer using all the references deeply. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
 
 Web search results (from multiple sources):
 <|results|>
@@ -985,7 +986,7 @@ User's query and conversation history:
 {{text}}
 </|context|>
 
-Please use the given search results to answer the user's query while combining information from all provided search results. Use all the information from the search results to write a detailed and comprehensive answer. Include the full list of references at the end in markdown as bullet points.
+Please use the given search results to answer the user's query while combining information from all provided search results. Use all the information from the search results to write a detailed and comprehensive answer. Include the full list of useful references at the end in markdown as bullet points.
 """
 
     def get_results_from_web_search(self, text, text_queries_contexts):
@@ -1035,4 +1036,210 @@ Please use the given search results to answer the user's query while combining i
             text_queries_contexts = None
             
         return "\n".join(web_search_results)
+    
 
+class JinaSearchAgent(PerplexitySearchAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, ):
+        super().__init__(keys, model_name, detail_level, timeout, num_queries)
+        self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
+        assert self.jina_api_key, "No Jina API key found. Please set JINA_API_KEY environment variable."
+
+
+    def fetch_jina_search_results(self, query: str, num_results: int = 20):
+        """Fetch search results from Jina API"""
+        import requests
+        import urllib.parse
+        
+        encoded_query = urllib.parse.quote(query)
+        url = f"https://s.jina.ai/?q={encoded_query}&num={num_results}"
+        
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.jina_api_key}",
+            "X-Engine": "cf-browser-rendering"
+        }
+        
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching search results from Jina: {e}")
+            return {"data": []}
+
+    def fetch_jina_content(self, url: str):
+        """Fetch content from a URL using Jina reader API"""
+        import requests
+        
+        reader_url = f"https://r.jina.ai/{url}"
+        
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.jina_api_key}"
+        }
+        
+        try:
+            response = requests.get(reader_url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching content from Jina reader: {e}")
+            return {"data": {"content": f"Error fetching content: {e}"}}
+
+    def process_search_result(self, result, query, context, user_text):
+        """Process a single search result from Jina API"""
+        if not result.get("url"):
+            return None
+            
+        # Skip YouTube links
+        if "youtube.com" in result["url"] or "youtu.be" in result["url"]:
+            return None
+            
+        # Check if we need to convert to PDF link
+        original_url = result["url"]
+        pdf_url = convert_to_pdf_link_if_needed(original_url)
+        
+        title = result.get("title", "")
+        description = result.get("description", "")
+        date = result.get("date", "")
+        
+        # If link was converted to PDF, fetch the content
+        content = ""
+        if pdf_url != original_url:
+            content_response = self.fetch_jina_content(pdf_url)
+            content = content_response.get("data", {}).get("content", "")
+        else:
+            content = result.get("content", "")
+
+        # if content is too long, truncate it to 5000 characters
+        if len(content) > 5000:
+            llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0])
+            content = llm(f"User's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease summarize the following content to 5000 characters to extract only the most relevant information as per the user's query: {content}", temperature=0.7, stream=False)
+        
+        processed_result = {
+            "title": title,
+            "url": original_url,
+            "pdf_url": pdf_url if pdf_url != original_url else None,
+            "description": description,
+            "date": date,
+            "content": content
+        }
+        
+        return processed_result
+
+    def get_results_from_web_search(self, text, text_queries_contexts):
+        array_string = text_queries_contexts
+        web_search_results = []
+        
+        try:
+            # Parse the query contexts
+            import ast
+            text_queries_contexts = ast.literal_eval(array_string)
+            
+            # Validate format
+            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+                raise ValueError("Invalid format: expected list of tuples")
+            
+            futures = []
+            
+            # For each query, create a future to search and process results
+            for query, context in text_queries_contexts:
+                # Create a future for the search and processing
+                future = get_async_future(
+                    self.process_query,
+                    query, 
+                    context,
+                    text,
+                    timeout=self.timeout
+                )
+                futures.append((query, context, future))
+            
+            # Collect and format results
+            for query, context, future in futures:
+                try:
+                    result = sleep_and_get_future_result(future)
+                    random_identifier = str(uuid.uuid4())
+                    web_search_results.append(
+                        f"**Single Query Web Search with query '{query}' :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
+                        f"<b>Query:</b> {query}\n"
+                        f"<b>Context:</b> {context}\n"
+                        f"{result}\n"
+                        f"---\n"
+                        f"</div>"
+                    )
+                except Exception as e:
+                    logger.error(f"Error getting response for query '{query}': {e}")
+                    
+        except (SyntaxError, ValueError) as e:
+            logger.error(f"Error parsing text_queries_contexts: {e}")
+            text_queries_contexts = None
+            
+        return "\n".join(web_search_results)
+    
+    def process_query(self, query, context, user_text):
+        """Process a single query and return formatted results with LLM summary"""
+        # Search using Jina API
+        search_response = self.fetch_jina_search_results(query)
+        results = search_response.get("data", [])
+        
+        # Process each result
+        processed_results = []
+        # Process results in parallel
+        futures = []
+        for result in results:
+            future = get_async_future(
+                self.process_search_result,
+                result,
+                query,
+                context, 
+                user_text,
+                timeout=self.timeout
+            )
+            futures.append(future)
+        
+        # Collect results
+        for future in futures:
+            try:
+                processed = sleep_and_get_future_result(future)
+                if processed:
+                    processed_results.append(processed)
+            except Exception as e:
+                logger.error(f"Error processing search result: {e}")
+        
+        # Format results for display and LLM summarization
+        formatted_results = []
+        for idx, result in enumerate(processed_results[:20], 1):  # Limit to top 10 for readability
+            formatted_result = (
+                f"### {idx}. [{result['title']}]({result['url']})\n"
+                f"**Date**: {result.get('date', 'N/A')}\n"
+                f"**Description**: {result.get('description', 'N/A')}\n"
+            )
+            
+            # Add content if available
+            if result.get('content'):
+                content_preview = result['content'][:5000] + "..." if len(result['content']) > 5000 else result['content']
+                formatted_result += f"**Content Preview**: {content_preview}\n"
+            
+            formatted_results.append(formatted_result)
+        
+        # Join the formatted results
+        all_results = "\n\n".join(formatted_results)
+        
+        # If we have results, summarize them with LLM
+        if formatted_results:
+            try:
+                llm = CallLLm(self.keys, model_name=self.model_name)
+                
+                # Create a mini version of the combiner prompt specific to this query result
+                mini_combiner_prompt = f"""User Query: {user_text}\n\nSearch Query: {query}\n\nSearch Context: {context}\n\n"""
+                
+                # Generate summary
+                summary = llm(self.combiner_prompt.format(web_search_results=all_results, text=mini_combiner_prompt), temperature=0.7, stream=False)
+                
+                # Return the full package
+                return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Summary:</b>\n\n{summary}"
+            except Exception as e:
+                logger.error(f"Error summarizing results with LLM: {e}")
+                return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Error summarizing results:</b> {str(e)}"
+        else:
+            return f"<b>No relevant search results found for query:</b> {query}"

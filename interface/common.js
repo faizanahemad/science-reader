@@ -971,6 +971,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
                 <option>Agent_PerplexitySearch</option>
+                <option>Agent_JinaSearchAgent</option>
                 <option>Agent_WebSearch</option>
                 <option>Agent_BroadSearch</option>
                 <option>Agent_BestOfN</option>
@@ -981,10 +982,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>Agent_BookCreatorAgent</option>
                 
                 <!-- option>Prompt_IdeaNovelty</option -->
-                <option>Prompt_IdeaComparison</option>
-                <option>Prompt_IdeaFleshOut</option>
-                <option>Prompt_IdeaDatasetsAndExperiments</option>
-                <option>Prompt_IdeaAblationsAndResearchQuestions</option>
+                <!-- option>Prompt_IdeaComparison</option -->
+                <!-- option>Prompt_IdeaFleshOut</option -->
+                <!-- option>Prompt_IdeaDatasetsAndExperiments</option -->
+                <!-- option>Prompt_IdeaAblationsAndResearchQuestions</option -->
                 <!-- option>Prompt_ResearchPreventRejections</option -->
                 
                 <!-- option>Agent_IdeaNovelty</option -->

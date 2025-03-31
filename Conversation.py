@@ -3,6 +3,7 @@ import inspect
 import types
 import collections.abc  
 import shutil
+from agents.search_and_information_agents import JinaSearchAgent
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews
 from filelock import FileLock
 
@@ -1295,6 +1296,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         model_name = kwargs.get("model_name", EXPENSIVE_LLM[0])
         if field == "Agent_IdeaNovelty":
             pass
+        if field == "Agent_JinaSearchAgent":
+            agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
         if field == "Agent_PerplexitySearch":
             agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "Agent_WebSearch":
