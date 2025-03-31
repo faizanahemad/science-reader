@@ -952,7 +952,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                     else:
                         new_results[key] += (value + "\n\n")
 
-            time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} and sources = {', '.join([result_from for result_from in results])} with time spent = {time.time() - st} for link {link}")
+            time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} and sources = {', '.join([r['result_from'] for r in results])} with time spent = {time.time() - st} for link {link}")
             return new_results
         else:
             logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
