@@ -925,6 +925,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>openai/gpt-4.5-preview</option -->
                 <option>openai/gpt-4o-search-preview</option>
                 <option>openai/o1-pro</option>
+                <option>o1-pro</option>
                 <option>cohere/command-a</option>
                 <option>perplexity/sonar-deep-research</option>
                 <option>perplexity/sonar-pro</option>

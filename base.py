@@ -1718,7 +1718,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 if result_context not in result_context_emb_map:
                     result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
                 result_text = title + "\n" + description + "\nLink Url: " + link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
-                assert len(description.split()) > 0, "Link Description is empty"
+                assert len(description.split()) > 0 or len(title.split()) > 0, "Link Description is empty"
                 result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
                 try:
                     if result_context not in result_context_emb_map:

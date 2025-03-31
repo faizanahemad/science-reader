@@ -2754,6 +2754,8 @@ def model_name_to_canonical_name(model_name):
 
     elif model_name == "o1":
         model_name = "o1"
+    elif model_name == "o1-pro":
+        model_name = "o1-pro"
     elif model_name == "openai/o1-pro":
         model_name = "openai/o1-pro"
     elif model_name == "cohere/command-a":
@@ -2865,47 +2867,20 @@ def extract_user_answer(text):
     
     
 def model_hierarchies(model_names: List[str]):
-    if "openai/chatgpt-4o-latest":
+    if "openai/chatgpt-4o-latest" in model_names:
         improve_model = "openai/chatgpt-4o-latest"
-    elif "gpt-4o" in model_names:
-        improve_model = "gpt-4o"
     elif "anthropic/claude-3.7-sonnet" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
     elif "anthropic/claude-3.5-sonnet:beta" in model_names:
         improve_model = "anthropic/claude-3.5-sonnet:beta"
-    elif "openai/o1-preview" in model_names:
-        improve_model = "openai/o1-preview"
-    elif "minimax/minimax-01" in model_names:
-        improve_model = "minimax/minimax-01"
-    elif "o1-preview" in model_names:
-        improve_model = "o1-preview"
-    elif "openai/chatgpt-4o-latest" in model_names:
-        improve_model = "openai/chatgpt-4o-latest"
+    elif "gpt-4o" in model_names:
+        improve_model = "gpt-4o"
     elif "anthropic/claude-3.7-sonnet:thinking" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
-    elif "gpt-4.5-preview" in model_names:
-        improve_model = "gpt-4.5-preview"
+
+    elif any(c.startswith("openai") for c in model_names):
+        improve_model = "openai/chatgpt-4o-latest"
     
-    
-    
-    elif "openai/o1" in model_names:
-        improve_model = "openai/o1"
-    elif "o1" in model_names:
-        improve_model = "o1"
-    
-    elif "o1-mini" in model_names:
-        improve_model = "o1-mini"
-    elif "o1-hard" in model_names:
-        improve_model = "o1-hard"
-    elif "o1-easy" in model_names:
-        improve_model = "o1-easy"
-    elif "qwen/qvq-72b-preview" in model_names:
-        improve_model = "qwen/qvq-72b-preview"
-    elif "meta-llama/llama-3.2-90b-vision-instruct" in model_names:
-        improve_model = "meta-llama/llama-3.2-90b-vision-instruct"
-        
-    elif "anthropic/claude-3-opus:beta" in model_names:
-        improve_model = "anthropic/claude-3-opus:beta"
     else:
-        improve_model = model_names[0]
+        improve_model = EXPENSIVE_LLM[0]
     return improve_model
