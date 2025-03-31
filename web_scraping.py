@@ -273,6 +273,61 @@ def send_request_ant_html(url, apikey, readability=True):
     return html
 
 
+def send_request_jina_html(url, apikey):
+    """
+    Fetch content from a URL using Jina reader API.
+    
+    Args:
+        url (str): The URL to fetch content from
+        apikey (str): Jina API key for authorization
+        
+    Returns:
+        dict: A dictionary containing 'title' and 'text' from the response
+    """
+    import requests
+    
+    reader_url = f"https://r.jina.ai/{url}"
+    
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {apikey}"
+    }
+    
+    try:
+        response = requests.get(reader_url, headers=headers)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        # Extract title and content from the JSON response
+        title = json_data.get("data", {}).get("title", "")
+        content = json_data.get("data", {}).get("content", "")
+        
+        return {
+            'title': title,
+            'text': content
+        }
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error making request to Jina reader API: {e}")
+        return {
+            'title': "",
+            'text': f"Error fetching content: {e}"
+        }
+    except ValueError as e:
+        logger.error(f"Error parsing JSON response from Jina reader API: {e}")
+        return {
+            'title': "",
+            'text': f"Error parsing response: {e}"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error with Jina reader API: {e}")
+        return {
+            'title': "",
+            'text': f"Unexpected error: {e}"
+        }
+
+
 user_agents = [
     # Chrome
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
@@ -669,6 +724,8 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         html = send_request_ant_html(url, apikey, readability)
     elif zenrows_or_ant == 'brightdata':
         html = fetch_content_brightdata_html(url, apikey)
+    elif zenrows_or_ant == 'jina':
+        html = send_request_jina_html(url, apikey)
     else:
         raise GenericShortException(f"[send_request_for_webpage] Unknown service {zenrows_or_ant}")
 
@@ -829,13 +886,14 @@ failed_links = SetQueueWithCount(maxsize=10000)
 
 @CacheResults(cache=DefaultDictQueue(100), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
             enabled=True)
-def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
+def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, detailed=False):
     st = time.time()
     logger.debug(f"[web_scrape_page] Invoke for {link}.")
     scraping_futures_list = []
     zenrows_service_result = None
     ant_service_result = None
     bright_data_result = None
+    jina_service_result = None
     if failed_links.count(link) > 2:
         raise GenericShortException(f"[send_request_for_webpage] Detected Previously Failed link: {link}")
     page_stat = check_page_status(link)
@@ -854,17 +912,45 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None):
         bright_data_result = get_async_future(send_request_for_webpage, link, apikeys['brightdataUrl'], zenrows_or_ant='brightdata', readability=False)
         scraping_futures_list.append(bright_data_result)
 
+    if "jinaAIKey" in apikeys:
+        jina_service_result = get_async_future(send_request_for_webpage, link, apikeys['jinaAIKey'], zenrows_or_ant='jina', readability=False)
+        scraping_futures_list.append(jina_service_result)
+
     while not any([future.done() for future in scraping_futures_list]):
         time.sleep(0.2)
-    for future in as_completed(scraping_futures_list):
-        if future.done() and future.exception() is None:
-            result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
-            result = future.result()
-            result_validity = validate_web_page_scrape(result)
-            time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
-            if result_validity and result is not None:
-                time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
-                return post_process_web_page_scrape(link, result_from, result, st)
+    if int(detailed) <= 1:
+        for future in as_completed(scraping_futures_list):
+            if future.done() and future.exception() is None:
+                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+                result = future.result()
+                result_validity = validate_web_page_scrape(result)
+                time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                if result_validity and result is not None:
+                    time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                    return post_process_web_page_scrape(link, result_from, result, st)
+    else:
+        results = []
+        for i, future in enumerate(as_completed(scraping_futures_list)):
+            if future.done() and future.exception() is None:
+                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+                result = future.result()
+                result_validity = validate_web_page_scrape(result)
+                time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                if result_validity and result is not None:
+                    time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
+                    results.append(post_process_web_page_scrape(link, result_from, result, st))
+                if i > 2:
+                    break
+        new_results = {key: (value + "\n\n") for key, value in results[0].items()}
+        for result in results[1:]:
+            for key, value in result.items():
+                if key not in new_results:
+                    new_results[key] = value
+                else:
+                    new_results[key] += (value + "\n\n")
+
+        return new_results
+
     logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
     failed_links.add(link)
     raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")

@@ -2584,7 +2584,7 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
-    pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+    pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name, detailed=detailed)
     title = pgc["title"]
     text = pgc["text"]
     assert len(text.strip().split()) > 100, f"Extracted Web text is too short for link: {link}"
@@ -2690,7 +2690,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a, provide_detailed_answers and len(links) <= 4) for l_t_c_a in link_title_context_apikeys]
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a, 2 if (provide_detailed_answers and len(links) <= 4) else 1) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [sleep_and_get_future_result(future) for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
