@@ -47,6 +47,7 @@ class WebSearchWithAgent(Agent):
         self.concurrent_searches = True
         self.timeout = timeout
         self.no_intermediate_llm = no_intermediate_llm
+        self.post_process_answer_needed = False
         self.combiner_prompt = f"""
 You are tasked with synthesizing information from multiple web search results to provide a comprehensive and accurate response to the user's query. Your goal is to combine these results into a coherent and informative answer.
 
@@ -209,9 +210,12 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         # After response is generated for all queries (within a timeout) then use a combiner LLM to combine all responses into a single response.
         llm = CallLLm(self.keys, model_name=self.model_name)
         
-        combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
-        yield {"text": '\n'+combined_response+'\n', "status": "Completed web search with agent"}
-        answer += f"{combined_response}\n\n"
+        
+        yield {"text": '\n\n', "status": "Completed web search with agent"}
+        combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+        for text in combined_response:
+            yield {"text": text, "status": "Completed web search with agent"}
+            answer += text
         yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
 
     def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
@@ -224,6 +228,7 @@ class LiteratureReviewAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
         super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
         self.concurrent_searches = False
+        self.post_process_answer_needed = True
         self.combiner_prompt = f"""
 You are tasked with creating a comprehensive literature survey based on multiple web search results. Your goal is to synthesize this information into a cohesive, academically rigorous review that addresses the user's query.
 
@@ -292,7 +297,7 @@ Write your response with two items (Literature review in LaTeX enclosed in code 
         combined_response = llm(self.write_in_latex_prompt.format(answer=answer),
                                 temperature=temperature, stream=False, max_tokens=max_tokens,
                                 system=system)
-        return "\n\n<hr></br>" + combined_response
+        return "\n\n<hr></br>" + combined_response + "\n\n<hr></br>"
 
 
 class BroadSearchAgent(WebSearchWithAgent):
