@@ -1193,7 +1193,6 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 query,
                 context, 
                 user_text,
-                timeout=self.timeout
             )
             futures.append(future)
         
