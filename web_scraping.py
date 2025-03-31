@@ -921,9 +921,10 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
     if int(detailed) <= 1:
         for future in as_completed(scraping_futures_list):
             if future.done() and future.exception() is None:
-                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata" if future == bright_data_result else "jina" if future == jina_service_result else "None"
                 result = future.result()
                 result_validity = validate_web_page_scrape(result)
+                result["result_from"] = result_from
                 time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
                 if result_validity and result is not None:
                     time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
@@ -932,9 +933,10 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
         results = []
         for i, future in enumerate(as_completed(scraping_futures_list)):
             if future.done() and future.exception() is None:
-                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata"
+                result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata" if future == bright_data_result else "jina" if future == jina_service_result else "None"
                 result = future.result()
                 result_validity = validate_web_page_scrape(result)
+                result["result_from"] = result_from
                 time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
                 if result_validity and result is not None:
                     time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
@@ -950,7 +952,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                     else:
                         new_results[key] += (value + "\n\n")
 
-            time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} with time spent = {time.time() - st} for link {link}")
+            time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} and sources = {', '.join([result_from for result_from in results])} with time spent = {time.time() - st} for link {link}")
             return new_results
         else:
             logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
