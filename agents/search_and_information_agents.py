@@ -1,4 +1,5 @@
 import random
+import traceback
 from typing import Union, List
 import uuid
 from prompts import tts_friendly_format_instructions
@@ -141,7 +142,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
                     result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 or self.no_intermediate_llm, timeout=self.timeout)
                     web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
         except (SyntaxError, ValueError) as e:
-            logger.error(f"Error parsing text_queries_contexts: {e}")
+            logger.error(f"Error parsing text_queries_contexts: {e}, \n\n{traceback.format_exc()}")
             text_queries_contexts = None
         return "\n".join(web_search_results)
     
@@ -195,7 +196,7 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
                 yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
                 answer += f"{web_search_results}\n\n"
             except (SyntaxError, ValueError) as e:
-                logger.error(f"Error parsing LLM-generated queries and contexts: {e}")
+                logger.error(f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}")
                 web_search_results = []
                 
         if len(web_search_results) == 0:
@@ -576,7 +577,7 @@ Please evaluate each response and provide your analysis in the following XML for
                 response = sleep_and_get_future_result(future)
                 responses.append((i, response))
             except Exception as e:
-                logger.error(f"Error getting response {i}: {e}")
+                logger.error(f"Error getting response {i}: {e}, \n\n{traceback.format_exc()}")
 
         time_logger.info(f"Time taken to get {len(responses)} responses: {time.time() - st}")
 
@@ -763,7 +764,7 @@ Write your response as a code block containing only the Python list of tuples.
             return scenarios
             
         except Exception as e:
-            logger.error(f"Error parsing what-if scenarios: {e}")
+            logger.error(f"Error parsing what-if scenarios: {e}, \n\n{traceback.format_exc()}")
             return []
 
     def format_what_if_query(self, original_text: str, what_if: tuple) -> str:
@@ -891,7 +892,7 @@ Please provide an answer for this modified scenario."""
                 yield {"text": "\n\n" + response_html, "status": f"Generated response for scenario {i} using {model}"}
                 
             except Exception as e:
-                logger.error(f"Error getting response for scenario {i} with model {model}: {e}")
+                logger.error(f"Error getting response for scenario {i} with model {model}: {e}, \n\n{traceback.format_exc()}")
 
         # Final yield with metadata
         yield {
@@ -1029,7 +1030,7 @@ Please use the given search results to answer the user's query while combining i
                         f"</div>"
                     )
                 except Exception as e:
-                    logger.error(f"Error getting response for query '{query}' from model {model}: {e}")
+                    logger.error(f"Error getting response for query '{query}' from model {model}: {e}, \n\n{traceback.format_exc()}")
                     
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
@@ -1064,7 +1065,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.error(f"Error fetching search results from Jina: {e}")
+            logger.error(f"Error fetching search results from Jina: {e}, \n\n{traceback.format_exc()}")
             return {"data": []}
 
     def fetch_jina_content(self, url: str):
@@ -1083,7 +1084,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.error(f"Error fetching content from Jina reader: {e}")
+            logger.error(f"Error fetching content from Jina reader: {e}, \n\n{traceback.format_exc()}")
             return {"data": {"content": f"Error fetching content: {e}"}}
 
     def process_search_result(self, result, query, context, user_text):
@@ -1150,7 +1151,6 @@ class JinaSearchAgent(PerplexitySearchAgent):
                     query, 
                     context,
                     text,
-                    timeout=self.timeout
                 )
                 futures.append((query, context, future))
             
@@ -1168,7 +1168,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
                         f"</div>"
                     )
                 except Exception as e:
-                    logger.error(f"Error getting response for query '{query}': {e}")
+                    logger.error(f"Error getting response for query '{query}': {e}, \n\n{traceback.format_exc()}")
                     
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
@@ -1204,7 +1204,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 if processed:
                     processed_results.append(processed)
             except Exception as e:
-                logger.error(f"Error processing search result: {e}")
+                logger.error(f"Error processing search result: {e}, \n\n{traceback.format_exc()}")
         
         # Format results for display and LLM summarization
         formatted_results = []
@@ -1239,7 +1239,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 # Return the full package
                 return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Summary:</b>\n\n{summary}"
             except Exception as e:
-                logger.error(f"Error summarizing results with LLM: {e}")
+                logger.error(f"Error summarizing results with LLM: {e}, \n\n{traceback.format_exc()}")
                 return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Error summarizing results:</b> {str(e)}"
         else:
             return f"<b>No relevant search results found for query:</b> {query}"
