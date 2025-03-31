@@ -941,15 +941,21 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                     results.append(post_process_web_page_scrape(link, result_from, result, st))
                 if i > 2:
                     break
-        new_results = {key: (value + "\n\n") for key, value in results[0].items()}
-        for result in results[1:]:
-            for key, value in result.items():
-                if key not in new_results:
-                    new_results[key] = value
-                else:
-                    new_results[key] += (value + "\n\n")
+        if len(results) > 0:
+            new_results = {key: (value + "\n\n") for key, value in results[0].items()}
+            for result in results[1:]:
+                for key, value in result.items():
+                    if key not in new_results:
+                        new_results[key] = value
+                    else:
+                        new_results[key] += (value + "\n\n")
 
-        return new_results
+            time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} with time spent = {time.time() - st} for link {link}")
+            return new_results
+        else:
+            logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
+            failed_links.add(link)
+            raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")
 
     logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
     failed_links.add(link)
