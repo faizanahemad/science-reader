@@ -106,7 +106,7 @@ def get_url_hash(url):
     return md5(url.encode()).hexdigest()[:10]  # Using first 10 chars for readability
 
 
-def download_video(url, folder):
+def download_video(url, folder, proxy=None):
     """Download video using yt_dlp with URL-based naming."""
     url_hash = get_url_hash(url)
     
@@ -121,6 +121,8 @@ def download_video(url, folder):
         'outtmpl': f'{folder}/{url_hash}_video.%(ext)s',
         'noplaylist': True,
     }
+    if proxy:
+        ydl_opts['proxy'] = proxy
     with YoutubeDL(ydl_opts) as ydl:
         logger.info(f"Downloading video with hash: {url_hash}...")
         ydl.download([url])
@@ -1353,7 +1355,7 @@ import mmh3
 from common import DefaultDictQueue
 @CacheResults(cache=DefaultDictQueue(1000), key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
             enabled=True)
-def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, only_transcript=False, output_folder='output'):  
+def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, only_transcript=False, output_folder='output', proxy=None):  
     """Full pipeline to process YouTube video.
     
     Args:
@@ -1367,7 +1369,7 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, only_tran
     output_folder = os.path.join(output_folder, url_hash)
     os.makedirs(output_folder, exist_ok=True)  
     
-    video_path = download_video(url, output_folder)  
+    video_path = download_video(url, output_folder, proxy=proxy)  
   
     if not video_path:  
         logger.error("Video download failed.")  
@@ -1497,7 +1499,7 @@ def process_youtube_video(url, assemblyai_api_key, openrouter_api_key, only_tran
     }
     
 
-def answer_youtube_question(question, youtube_url, assemblyai_api_key, openrouter_api_key, output_folder):
+def answer_youtube_question(question, youtube_url, assemblyai_api_key, openrouter_api_key, output_folder, proxy=None):
     """
     Answer a question about a YouTube video.
     
@@ -1509,7 +1511,7 @@ def answer_youtube_question(question, youtube_url, assemblyai_api_key, openroute
         output_folder (str): The folder to save the output
     """
     
-    detail_dict = process_youtube_video(youtube_url, assemblyai_api_key, openrouter_api_key, only_transcript=True, output_folder=output_folder)
+    detail_dict = process_youtube_video(youtube_url, assemblyai_api_key, openrouter_api_key, only_transcript=True, output_folder=output_folder, proxy=proxy)
     summary, transcript, subtitles = detail_dict['summary'], detail_dict['transcript'], detail_dict['subtitles']
     llm = CallLLm(model_name=OPENROUTER_LLM[0], keys={'OPENROUTER_API_KEY': openrouter_api_key}  )
     
@@ -1618,4 +1620,4 @@ if __name__ == "__main__":
     youtube_url = input("Enter YouTube URL: ")  
     assemblyai_api_key = input("Enter AssemblyAI API Key: ").strip()
     openrouter_api_key = input("Enter OpenRouter API Key: ").strip()
-    process_youtube_video(youtube_url, assemblyai_api_key, openrouter_api_key)
+    process_youtube_video(youtube_url, assemblyai_api_key, openrouter_api_key, proxy=None)

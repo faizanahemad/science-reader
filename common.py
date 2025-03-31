@@ -2185,34 +2185,6 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
     return chunks
 
 
-import gevent
-from gevent import Greenlet
-from gevent.event import AsyncResult
-
-
-def run_in_greenlet(fn, args, kwargs, async_result):
-    try:
-        result = fn(*args, **kwargs)
-        async_result.set_of_items(result)
-    except Exception as e:
-        print(f"Greenlet failed with exception: {e}")
-
-
-def as_completed_one_of_many_greenlets(tasks):
-    async_result = AsyncResult()
-    greenlets = []
-
-    for fn, args, kwargs in tasks:
-        g = Greenlet(run_in_greenlet, fn, args, kwargs, async_result)
-        greenlets.append(g)
-        g.start()
-
-    result = async_result.get()  # Wait for the first successful completion
-    for g in greenlets:
-        g.kill()  # Kill remaining greenlets to stop execution
-
-    return result
-
 def sort_two_lists(list1, list2, key=None, reverse=False):
     """
     Sorts two lists based on the sorting of the first list using an optional sorting key.

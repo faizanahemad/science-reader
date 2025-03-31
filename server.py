@@ -202,6 +202,7 @@ def keyParser(session):
         "zenrows": os.getenv("zenrows", ''),
         "scrapingant": os.getenv("scrapingant", ''),
         "brightdataUrl": os.getenv("brightdataUrl", ''),
+        "brightdataProxy": os.getenv("brightdataProxy", ''),
         "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", ''),
         "LOGIN_BEARER_AUTH": os.getenv("LOGIN_BEARER_AUTH", ''),
     }
@@ -1278,6 +1279,9 @@ def transcribe_audio():
             os.unlink(temp_audio_file.name)
 
     return jsonify({"error": "Failed to process audio file"}), 500
+
+
+
 
 
 # Next we build - create_session,

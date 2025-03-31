@@ -45,3 +45,33 @@ class Agent:
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         pass
 
+
+class AgentWorkflow(Agent):
+    def __init__(self, agents):
+        self.agents = agents
+
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        pass
+
+    def done(self):
+        pass
+
+    def status(self):
+        pass
+
+    def exception(self):
+        pass
+
+    def result(self, timeout=10):
+        pass
+
+    def __str__(self):
+        return f"AgentWorkflow(agents={self.agents})"
+
+    def __repr__(self):
+        return self.__str__()
+    
+    
+    
+    
+

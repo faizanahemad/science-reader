@@ -2129,9 +2129,11 @@ from multiprocessing import Pool
 
 @CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
               should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
-def process_link(link_title_context_apikeys, use_large_context=False):
+def process_link(link_title_context_apikeys, use_large_context=False, get_link_summary=True):
     # TODO: process links which are images as well.
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
+    detailed = 2 if use_large_context else detailed
+    link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     st = time.time()
     link_data = download_link_data(link_title_context_apikeys)
     title = link_data["title"]
@@ -2142,7 +2144,7 @@ def process_link(link_title_context_apikeys, use_large_context=False):
     try:
         if is_image:
             summary = link_data["full_text"]
-        else:
+        elif get_link_summary:
             if detailed >= 2:
                 more_summary = get_async_future(get_downloaded_data_summary, (link, title, query, api_keys, text, detailed), use_large_context=False)
             if is_science_site(link):
@@ -2159,6 +2161,8 @@ def process_link(link_title_context_apikeys, use_large_context=False):
                 science_answers = [f"<|{key}|>" + "\n" + sleep_and_get_future_result(sa)["text"] + f"\n<|/{key}|>" for key, sa in zip(keys, science_answers)]
                 science_answers = "\n".join(science_answers)
                 summary = f"{summary}\n\n{science_answers}"
+        else:
+            summary = text
 
 
     except AssertionError as e:
@@ -2250,6 +2254,36 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_image"] = False
         
     elif False:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        from youtube_transcript_api.proxies import GenericProxyConfig
+        ytt_api = YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(
+                http_url=api_keys["brightdataProxy"],
+                https_url=api_keys["brightdataProxy"],
+            )
+        )
+        fetched_transcript = ytt_api.fetch(link).to_raw_data()
+        # Convert transcript data to SRT format
+        result = []
+        for i, entry in enumerate(fetched_transcript, 1):
+            # Calculate end time by adding duration to start time
+            start_time = entry['start']
+            end_time = start_time + entry['duration']
+            
+            # Convert times to SRT format (HH:MM:SS,mmm)
+            start_str = f"{int(start_time//3600):02d}:{int((start_time%3600)//60):02d}:{int(start_time%60):02d},{int((start_time*1000)%1000):03d}"
+            end_str = f"{int(end_time//3600):02d}:{int((end_time%3600)//60):02d}:{int(end_time%60):02d},{int((end_time*1000)%1000):03d}"
+            
+            # Format subtitle entry
+            result.append(str(i))  # Subtitle number
+            result.append(f"{start_str} --> {end_str}")  # Timestamp
+            result.append(entry['text'])  # Text
+            result.append("")  # Blank line between entries
+        result = "\n".join([d["text"] for d in result])
+        result = {"link": link, "title": title, "text": result, "exception": False, "full_text": result, "is_pdf": False, "is_image": False}
+        result["is_pdf"] = False
+        result["is_image"] = False
+    elif False:
         from langchain_community.document_loaders import YoutubeLoader
         doc_text = YoutubeLoader.from_youtube_url(
             link, add_video_info=False
@@ -2264,7 +2298,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
         from YouTubeDocIndex import answer_youtube_question
-        result = answer_youtube_question(context, link, api_keys["ASSEMBLYAI_API_KEY"], api_keys["OPENROUTER_API_KEY"], temp_folder)
+        result = answer_youtube_question(context, link, api_keys["ASSEMBLYAI_API_KEY"], api_keys["OPENROUTER_API_KEY"], temp_folder, proxy=api_keys["brightdataProxy"])
         result["is_pdf"] = False
         result["is_image"] = False
     else:
@@ -2690,7 +2724,7 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     # Combine links, titles, contexts and api_keys into tuples for processing
     link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a, 2 if (provide_detailed_answers and len(links) <= 4) else 1) for l_t_c_a in link_title_context_apikeys]
+    futures = [pdf_process_executor.submit(process_link, l_t_c_a, 2 if (provide_detailed_answers and len(links) <= 4) else 1, get_link_summary=len(links) >= 3) for l_t_c_a in link_title_context_apikeys]
     # Collect the results as they become available
     processed_texts = [sleep_and_get_future_result(future) for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
@@ -2713,13 +2747,13 @@ def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, prov
     if len(links) == 1:
         raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
         raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                              TOKEN_LIMIT_FOR_SHORT*2 - get_gpt4_word_count(p), 0)[0] if len(p) > 0 else "" for p in raw_texts]
+                              TOKEN_LIMIT_FOR_DETAILED*2 - get_gpt4_word_count(p), 0)[0] if len(p) > 0 else "" for p in raw_texts]
         result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])
     elif len(links) == 2 and provide_detailed_answers:
         raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
         raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                               TOKEN_LIMIT_FOR_SHORT - get_gpt4_word_count(p),
+                               TOKEN_LIMIT_FOR_NORMAL - get_gpt4_word_count(p),
                                0)[0] if len(p) > 0 else "" for p in raw_texts]
         result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
                               zip(raw_texts, processed_texts)])

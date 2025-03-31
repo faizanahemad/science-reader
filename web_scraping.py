@@ -726,6 +726,7 @@ def send_request_for_webpage(url, apikey, zenrows_or_ant='zenrows', readability=
         html = fetch_content_brightdata_html(url, apikey)
     elif zenrows_or_ant == 'jina':
         html = send_request_jina_html(url, apikey)
+        return html
     else:
         raise GenericShortException(f"[send_request_for_webpage] Unknown service {zenrows_or_ant}")
 
@@ -900,9 +901,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
     if not page_stat:
         failed_links.add(link)
         raise GenericShortException(f"[send_request_for_webpage] Page not found {link}")
-    if "zenrows" in apikeys:
-        zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
-        scraping_futures_list.append(zenrows_service_result)
+    # if "zenrows" in apikeys:
+    #     zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
+    #     scraping_futures_list.append(zenrows_service_result)
 
     if "scrapingant" in apikeys:
         ant_service_result = get_async_future(send_request_for_webpage, link, apikeys['scrapingant'], zenrows_or_ant='ant', readability=False)
@@ -941,7 +942,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                 if result_validity and result is not None:
                     time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
                     results.append(post_process_web_page_scrape(link, result_from, result, st))
-                if i > 2:
+                if i > 2 or len(results) > 1:
                     break
         if len(results) > 0:
             new_results = {key: (value + "\n\n") for key, value in results[0].items()}
