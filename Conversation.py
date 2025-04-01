@@ -8,7 +8,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -1308,6 +1308,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
         if field == "Agent_NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
+        if field == "Agent_NStepAgent":
+            agent = NStepAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 2))
         if field == "Agent_ToCGenerationAgent":
             agent = ToCGenerationAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), run_phase_2=kwargs.get("detail_level", 1)>2, run_phase_3=kwargs.get("detail_level", 1)>3, storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
             

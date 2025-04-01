@@ -684,6 +684,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Suggest improvements in:
   - **Algorithmic Efficiency**: Optimizing runtime and memory usage.
   - **Code Style**: Enhancing readability and maintainability.
+- Compare the solutions and discuss the pros and cons of each solution (if there are multiple solutions).
 
 ### 9. Testing and Edge Cases
 - Provide comprehensive **test cases** to verify correctness:
