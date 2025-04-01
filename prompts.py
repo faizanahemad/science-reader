@@ -644,7 +644,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - To help understand the solution, make diagrams, flow charts, system architectures etc as needed using mermaid js library or draw.io library or ASCII text art diagrams.
-- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution.
+- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 
 ### 6. Data Access Patterns and Performance
 - Discuss how **data access patterns** impact performance.
@@ -769,7 +769,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - **When a Solution is Provided**:
   - Use our solution to **optimize the learning experience**.
   - Focus on analyzing and improving upon our approach.
-  - Before writing code, write a verbal step by step simple description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution.
+  - Before writing code, write a verbal step by step simple description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
   - If there are multiple solutions, then compare the solutions and discuss the pros and cons of each solution.
   - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
   - We program in python, so write the code in python.
