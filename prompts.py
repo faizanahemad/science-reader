@@ -659,6 +659,7 @@ Help prepare us for technical interviews at the senior or staff level.
   - Parameters and return values.
   - Any non-obvious implementation details.
 - Follow **best practices** and **PEP 8** style guidelines.
+- We program in python, so write the code in python only.
 
   ```python
   def example_function(param1: int, param2: List[int]) -> int:
@@ -771,6 +772,7 @@ Help prepare us for technical interviews at the senior or staff level.
   - Before writing code, write a verbal step by step simple description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution.
   - If there are multiple solutions, then compare the solutions and discuss the pros and cons of each solution.
   - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
+  - We program in python, so write the code in python.
 
 **Begin the process by**:
 
