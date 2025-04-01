@@ -501,7 +501,7 @@ class NStepAgent(Agent):
         super().__init__(keys)
         self.writer_model = writer_model
         self.n_steps = n_steps
-        self.prompt = """You are an AI assistant that helps improve a given answer to a user query. You analyse the user query and the current answer and then continue to extend the answer to provide more information and details.
+        self.prompt = f"""You are an AI assistant that helps improve a given answer to a user query. You analyse the user query and the current answer and then continue to extend the answer to provide more information and details.
 You read the existing answer and then continue to extend the answer to ensure answer is comprehensive, detailed, accurate, correct, and useful and also adheres to the user query and context.
 You will directly write the next step of the answer extension in the same language as the existing answer.
 User Query with context:
@@ -509,11 +509,14 @@ User Query with context:
 {{query}}
 </user_query>
 
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
 Current Answer (empty at first step):
 <current_answer>
 {{current_answer}}
 </current_answer>
 
+Understand what the user query is asking for and what is missing in the current answer and then extend the answer to provide more information and details. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation:
 """
 
@@ -522,7 +525,7 @@ Next Step or answer extension or continuation:
         current_answer = ""
         for i in range(self.n_steps):
             llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(i, len(self.writer_model) - 1)])
-            prompt = self.prompt.format(query=text, current_answer=current_answer)
+            prompt = text if i==0 else self.prompt.format(query=text, current_answer=current_answer)
             response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
             for chunk in response:
                 yield chunk
