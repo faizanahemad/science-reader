@@ -870,6 +870,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>CoT</option>
                 
                 
+                <option>Coding Interview</option>
                 
                 <option>Argumentative</option>
                 <option selected>Blackmail</option>
@@ -885,8 +886,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>ML System Design Answer Short</option>
 
                 <option>Engineering Excellence</option>
-                <option>Coding Interview</option>
-                <option>Coding Interview TTS Friendly</option>
+                
+                <!-- option>Coding Interview TTS Friendly</option -->
                 <option>Diagram</option>
                 <option>Easy Copy</option>
                 

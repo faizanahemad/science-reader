@@ -1068,9 +1068,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "Coding Interview" in preamble_options:
             preamble += prompts.coding_interview_prompt
             
-        if "Coding Interview TTS Friendly" in preamble_options:
-            preamble += prompts.coding_interview_tts_friendly_prompt
-        
+
         if "Paper Summary" in preamble_options:
             preamble += prompts.paper_summary_prompt
         if "ML System Design Roleplay" in preamble_options:
