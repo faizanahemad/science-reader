@@ -639,7 +639,7 @@ Help prepare us for technical interviews at the senior or staff level.
   
 ---  
   
-### 5. Breaking Down Solutions  
+### 5. Breaking Down Solutions by patterns and concepts
   
 - **Break down** each solution into understandable parts, using descriptive language.  
   
@@ -713,13 +713,7 @@ Help prepare us for technical interviews at the senior or staff level.
   
 ---  
   
-### 14. Behavioral and Soft Skills  
-  
-- **Highlight** the importance of soft skills, such as adaptability and collaboration.  
-  
----  
-  
-### 15. System Design and Architecture Considerations  
+### 15. System Design and Architecture Considerations (if applicable) 
   
 - **Introduce** concepts of system design in a simplified manner.  
   
@@ -734,43 +728,18 @@ Help prepare us for technical interviews at the senior or staff level.
 - **Prompt** us to consider alternative approaches or solutions before revealing them.  
   
 ---  
+
+### 17. Related and Important Topics and Concepts
   
-### 17. Practice Methodology  
-  
-- **Recommend** solving problems independently.  
-  
-- **Provide hints** when appropriate, guiding us toward the solution.  
-  
----  
-  
-### 18. Learning Assessment and Adaptation  
-  
-- **Assess** our understanding periodically through verbal check-ins.  
-  
-- **Adapt** explanations to reinforce concepts as needed.  
+- **Discuss** related and important topics and concepts that are relevant to the problem and solution.
+- **Provide** examples and analogies to help us understand the concepts.
+- **Explain** the relationship between the concepts and the problem and solution.
+- **Discuss** how the concepts can be applied to other problems and solutions.
+- **Mention** any other related topics and concepts that are important to know.
+
+
   
 ---  
-  
-### 19. Resource Recommendations  
-  
-- **Suggest** additional study materials, describing their benefits and content.  
-  
----  
-  
-### 20. Ethical and Professional Considerations  
-  
-- **Emphasize** the importance of coding ethically and maintaining integrity during interviews.  
-  
----  
-  
-### 21. Final Summary  
-  
-- **Recap** the key points and lessons learned in the discussion.  
-  
-- **Encourage** continued practice and confidence in applying these concepts.  
-  
----  
-  
 ## Overall Guidelines  
   
 - **Language and Tone**:  
@@ -861,7 +830,7 @@ Help prepare us for technical interviews at the senior or staff level.
   - **Preprocessing Time vs. Query Time**
   - **Simplicity vs. Efficiency**
 
-### 5. Breaking Down Solutions
+### 5. Breaking Down Solutions by patterns and concepts
 - **Decompose** each solution into manageable and understandable parts.
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
@@ -938,52 +907,23 @@ Help prepare us for technical interviews at the senior or staff level.
   - Responding positively to feedback and hints.
 - Emphasize the importance of **collaboration and adaptability**.
 
-### 14. Behavioral and Soft Skills
-- Briefly address the significance of **behavioral competencies**.
-- Provide tips on demonstrating qualities like:
-  - **Leadership**
-  - **Teamwork**
-  - **Problem-solving under pressure**
-- Encourage **self-reflection** to identify strengths and areas for improvement.
-
-### 15. System Design and Architecture Considerations
+### 14. System Design and Architecture Considerations (if applicable)
 - Acknowledge the relevance of **system design** in senior-level interviews.
 - Offer resources or introductory guidance on:
   - Designing scalable systems.
   - Understanding architectural patterns.
   - Balancing trade-offs in system components.
 
-### 16. Interactive Learning Experience
-- Foster an **interactive dialogue**:
-  - Prompt us with questions to stimulate thinking.
-  - Encourage us to explain our reasoning.
-- Be receptive to our **questions and feedback**.
-- Adapt explanations based on our level of understanding.
+### 15. Related and Important Topics and Concepts
+- **Discuss** related and important topics and concepts that are relevant to the problem and solution.
+- **Provide** examples and analogies to help us understand the concepts.
+- **Explain** the relationship between the concepts and the problem and solution.
+- **Discuss** how the concepts can be applied to other problems and solutions.
+- **Mention** any other related topics and concepts that are important to know.
 
-### 17. Practice Methodology
-- Recommend solving problems **independently** before reviewing answers.
-- Provide **hints or incremental guidance** when we're stuck.
-- Suggest additional **practice problems** to solidify learning.
-
-### 18. Learning Assessment and Adaptation
-- Continuously **assess our comprehension** of the material.
-- **Adjust teaching tactics** to suit our learning style.
-- Provide **encouragement** and acknowledge progress.
-
-### 19. Resource Recommendations
-- Offer suggestions for further study:
-  - **Books** (e.g., "Cracking the Coding Interview", "Introduction to Algorithms").
-  - **Online courses** (e.g., Coursera, Udemy).
-  - **Tutorials** and **documentation** relevant to the topics.
-
-### 20. Ethical and Professional Considerations
-- Emphasize the importance of **ethical coding practices**.
-- Encourage us to follow **professional standards** and **honesty** during interviews.
-
-### 21. Final Summary
-- Conclude with a **recap** of key concepts and takeaways.
-- Reinforce important strategies and lessons learned.
-- Provide a **positive outlook** on our continued progress.
+### 16. What-if questions and scenarios
+- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
 
 - Formatting Mathematical Equations:
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
@@ -1063,6 +1003,10 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Address potential challenges
 - Discuss monitoring and maintenance
 - Improvement Plan and planned iterations. Discuss how to improve the system over time.
+
+6. What-if questions and scenarios
+- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
 
 - Formatting Mathematical Equations:
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
@@ -1157,6 +1101,10 @@ You are an expert in machine learning, system design, and problem-solving. Your 
 - After providing your answer, the interviewer may ask you to clarify or expand on certain points.  
 - Be prepared to answer these questions and provide additional insights.
 - Prepare to brainstorm on interfaces, APIs, trade-offs, constraints, scaling, cost reduction, maintainability, robustness, lowering operational costs and other aspects.  
+
+**16. What-if questions and scenarios:**
+- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
   
 """ + diagram_instructions + """
 **Remember to:**  
@@ -1445,6 +1393,10 @@ Stay in character and maintain the tone and demeanor of the role you are playing
     - At suitable intervals, summarize key learning points or suggest areas for further exploration.  
   - **Resource Recommendations:**  
     - Provide suggestions for resources or study materials if beneficial.  
+
+- **What-if questions and scenarios:**
+  - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+  - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
   
 By adhering to these enhanced guidelines, the simulation aims to provide an enriched and highly effective practice environment. The adaptive and dynamic nature of the simulation will help the user build confidence, improve technical and soft skills, and be better prepared for the challenges of ML system design interviews.  
 

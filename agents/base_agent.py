@@ -49,8 +49,20 @@ class Agent:
 class AgentWorkflow(Agent):
     def __init__(self, agents):
         self.agents = agents
+        self.workflows = dict()
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        pass
+
+    @classmethod
+    def create_workflow(cls, agents):
+        pass
+
+    @classmethod
+    def get_workflow(cls, workflow_name):
+        pass
+
+    def stop(self):
         pass
 
     def done(self):
