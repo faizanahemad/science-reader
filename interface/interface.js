@@ -97,7 +97,9 @@ $(document).ready(function() {
         $("#field-selector").parent().show();
         $("#chat-options-assistant-use-google-scholar").parent().show();
         $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
-        $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
+        // $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
+        $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
+        $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
     });
 
     $('#finchat-tab').on('shown.bs.tab', function (e) {
@@ -106,8 +108,13 @@ $(document).ready(function() {
         $('#linkInput').hide();
         $('#searchInput').hide();
         $('#permanentText').hide();
-        $("#field-selector").val("Finance");
-        $("#field-selector").parent().hide();
+        // $("#field-selector").val("Finance");
+        $("#field-selector").val("Agent_NStepCodeAgent");
+        $("#preamble-selector").val("").val("Blackmail");
+        $("#field-selector").parent().show();
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", false);
+
         $("#chat-options-assistant-use-google-scholar").parent().hide();
         $("#chat-options-assistant-use-google-scholar").prop('checked', false);
         $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
