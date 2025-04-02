@@ -2,6 +2,7 @@ import random
 import traceback
 from typing import Union, List
 import uuid
+from common import collapsible_wrapper
 from prompts import tts_friendly_format_instructions
 
 
@@ -23,7 +24,7 @@ try:
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
         CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
-        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable
+        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable, EXPENSIVE_LLM
     )
     from loggers import getLoggers
 except ImportError as e:
@@ -560,6 +561,7 @@ You are given a query about a coding problem, please help us learn and understan
 If multiple solutions are provided, please help us understand the pros and cons of each solution and then solve the problem step by step.
 
 ### 1. Breaking Down Solutions by patterns and concepts
+- If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
 - **Decompose** each solution into manageable and understandable parts.
 - Use **clear examples**, **analogies** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
@@ -663,8 +665,11 @@ Help prepare us for technical interviews at the senior or staff level.
 
 You will expand upon the current answer and provide more information and details based  on the below framework and guidelines.
 Don't repeat the same information or details that are already provided in the current answer.
-Write code only if it is not provided already and if you have any new insights or optimizations to share.
+{mathematical_notation}
+Code is not needed. Do not write code. Focus only on the below guidelines.
 
+
+Guidelines:
 ### 1. Testing for Edge Cases
 - Provide comprehensive **test cases** to verify correctness of edge cases, invalid or unexpected inputs and corner cases:
   - **Edge cases**
@@ -696,7 +701,7 @@ Write code only if it is not provided already and if you have any new insights o
 - **Discuss** follow-up extensions and variations of the problem and solution.
 
 
-{mathematical_notation}
+
 
 Query:
 <user_query>
@@ -712,7 +717,7 @@ Current Answer:
 </current_answer>
 
 Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
-Next Step or answer extension or continuation:
+Next Step or answer extension or continuation following the above guidelines:
 """
 
         self.prompt_4 = f"""
@@ -720,13 +725,14 @@ Next Step or answer extension or continuation:
 
 **Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
 Help prepare us for technical interviews at the senior or staff level.
-Write code only if it is not provided already and if you have any new insights or optimizations to share.
+{mathematical_notation}
+Code is not needed. Do not write code. Focus only on the below guidelines.
 
 You will expand upon the current answer and provide more information and details based on the below framework and guidelines. 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
 Don't repeat the same information or details that are already provided in the current answer.
 
-{mathematical_notation}
+
 Guidelines:
 
 1. **Examples and Analogies**:
@@ -811,31 +817,131 @@ Next Step or answer extension or continuation following the above guidelines:
         # Initialize empty current answer
         current_answer = ""
         
-        # Iterate through the steps using different prompts for each step
-        prompts = [self.prompt_1, self.prompt_2, self.prompt_3, self.prompt_4]
+        # Execute prompt_1 first as it's the foundation
+        llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[0])
+        prompt = self.prompt_1.replace("{query}", text)
+        response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+        for chunk in collapsible_wrapper(response, header="Solution", show_initially=True):
+            yield chunk
+            current_answer += chunk
         
-        # Use minimum of n_steps and available prompts
-        steps = min(self.n_steps, len(prompts))
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        if self.n_steps == 1:
+            return
         
-        for i in range(steps):
-            # Get the appropriate model for this step
-            llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(i, len(self.writer_model) - 1)])
-            
-            # For first step, use the original text; for subsequent steps, use the formatted prompt
-            prompt = prompts[i].replace("{query}", text) if i == 0 else prompts[i].replace("{query}", text).replace("{current_answer}", current_answer)
-            
-            # Get response from LLM
-            response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
-            
-            # Stream the response chunks
-            for chunk in response:
-                yield chunk
-                current_answer += chunk
+        # Create a queue for communication between threads
+        from queue import Queue
+        response_queue = Queue()
+        
+        # Flag to track completion status
+        completed = {"prompt3": False, "prompt4": False, "what_if": False}
+        
+        # Background function to execute prompts 3 and 4 sequentially while streaming results
+        def execute_prompts_3_and_4():
+            try:
+                p3_answer = current_answer
+                # Execute prompt_3
+                llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(2, len(self.writer_model) - 1)])
+                prompt3 = self.prompt_3.replace("{query}", text).replace("{current_answer}", p3_answer)
+                response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
-            # Add spacing between steps
+                # Stream prompt_3 response through the queue
+                for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=True):
+                    response_queue.put(("prompt3", chunk))
+                    p3_answer += chunk
+                
+                # Mark prompt3 as completed
+                completed["prompt3"] = True
+                response_queue.put(("prompt3", "\n\n---\n\n"))
+                p3_answer += "\n\n---\n\n"
+                response_queue.put(("prompt3_complete", ""))
+                
+                multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", "anthropic/claude-3.5-sonnet:beta", "cohere/command-a"]
+                multiple_llm = CallMultipleLLM(self.keys, self.writer_model if isinstance(self.writer_model, list) else (multiple_llm_models + ([self.writer_model] if self.writer_model not in multiple_llm_models else [])), merge=True, merge_model=multiple_llm_models[0])
+                what_if_response = multiple_llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+        
+                
+                # Execute prompt_4 with updated answer including prompt_3's output
+                llm4 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(3, len(self.writer_model) - 1)])
+                prompt4 = self.prompt_4.replace("{query}", text).replace("{current_answer}", p3_answer)
+                response4 = llm4(prompt4, images, temperature, stream=True, max_tokens=max_tokens, system=system)
+                
+                # Stream prompt_4 response through the queue
+                for chunk in collapsible_wrapper(response4, header="Examples and Diagrams", show_initially=True):
+                    response_queue.put(("prompt4", chunk))
+                
+                # Mark prompt4 as completed
+                completed["prompt4"] = True
+                response_queue.put(("prompt4", "\n\n---\n\n"))
+                response_queue.put(("prompt4_complete", ""))
+
+                for chunk in collapsible_wrapper(what_if_response, header="What-if questions and scenarios", show_initially=True):
+                    response_queue.put(("what_if", chunk))
+                
+                completed["what_if"] = True
+                response_queue.put(("what_if", "\n\n---\n\n"))
+                response_queue.put(("what_if_complete", ""))
+                
+            except Exception as e:
+                error_msg = f"Error in background task: {e}\n{traceback.format_exc()}"
+                logger.error(error_msg)
+                response_queue.put(("error", error_msg))
             
-            yield "\n\n---\n\n"
-            current_answer += "\n\n---\n\n"
+            # Signal completion
+            response_queue.put(("done", None))
+        
+        # Start background task
+        background_future = get_async_future(execute_prompts_3_and_4)
+        
+        # Execute prompt_2 while prompts 3 and 4 are running in background
+        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(1, len(self.writer_model) - 1)])
+        prompt2 = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
+        response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+        
+        # Stream prompt_2 results while checking for any available results from prompts 3 and 4
+        for chunk in collapsible_wrapper(response2, header="Analysis of the solution", show_initially=True):
+            yield chunk
+            current_answer += chunk
+            
+            
+        
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+        
+        # After prompt_2 is done, process any remaining results from prompts 3 and 4
+        # and continue streaming as they become available
+        background_complete = False
+        current_prompt = "prompt3"
+        
+        while not background_complete:
+            try:
+                # Get next item, waiting if necessary
+                source, content = response_queue.get(timeout=0.1)
+                
+                if source == "done":
+                    background_complete = True
+                elif source == "error":
+                    yield f"\n\nError in background processing: {content}\n\n"
+                    background_complete = True
+                elif source == "prompt3_complete":
+                    # Just change phase without yielding the separator (it's already in the content)
+                    current_prompt = "prompt4"
+                elif source == "prompt4_complete":
+                    current_prompt = "what_if"
+                elif source == "what_if_complete":
+                    current_prompt = None
+                elif source == current_prompt:
+                    yield content
+                    current_answer += content
+            except Exception as e:
+                # Check if background task is done
+                if background_future.done():
+                    if background_future.exception():
+                        yield f"\n\nError in background processing: {background_future.exception()}\n\n"
+                    background_complete = True
 
 
 class BestOfNAgent(Agent):

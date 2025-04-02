@@ -444,13 +444,13 @@ class CallMultipleLLM:
 <|/original_context|>
 Given below are the responses we obtained by asking multiple models with the above context.
 Consider each response and pick the best parts from each response to create a single comprehensive response.
-Merge the following responses, ensuring to include all details from all the expert model answers and following instructions given in the context:\n
+Merge the following responses, ensuring to include all details from each of the expert model answers and following instructions given in the originalcontext:\n
 """
             for model_name, response in responses:
                 merged_prompt += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
 
                 # Add a system prompt for the merge model
-            system_prompt = "You are a language model tasked with merging responses from multiple other models. Please ensure clarity and completeness."
+            system_prompt = "You are a language model tasked with merging responses from multiple other models without losing any information and including all details from each of the expert model answers. Please ensure clarity, coverage and completeness. Provide a comprehensive and detailed answer."
             logger.warning(f"[CallMultipleLLM] merging responses from all models with prompt length {len(merged_prompt.split())} with elapsed time as {(time.time() - start_time):.2f} seconds")
             merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=True)
             logger.warning(f"[CallMultipleLLM] merged response from all models with merged response length {len(merged_response.split()) if isinstance(merged_response, str) else -1} with elapsed time as {(time.time() - start_time):.2f} seconds")

@@ -2,6 +2,7 @@ import random
 import tempfile
 import asyncio
 import traceback
+import uuid
 
 import more_itertools
 from playwright.async_api import async_playwright
@@ -51,11 +52,11 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
-OPENROUTER_LLM = ["google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta", "google/gemini-pro-1.5"]
+OPENROUTER_LLM = ["google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta",]
             
 VERY_CHEAP_LLM = ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["gpt-4o", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
-EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "anthropic/claude-3.7-sonnet", "anthropic/claude-3.5-sonnet:beta", "openai/chatgpt-4o-latest", "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
+EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
                  "cohere/command-a", "ai21/jamba-1.6-large"]
 
@@ -66,6 +67,34 @@ LONG_CONTEXT_LLM = ["google/gemini-pro-1.5"]
 COMMON_SALT_STRING = "31256greagy89"
 
 
+def collapsible_wrapper(response, header="Solution", show_initially=True):
+    """
+    Wraps the response in a collapsible div with a header.
+    If the response is a generator, it will yield the chunks.
+    @param response: The response to wrap.
+    @param header: The header of the collapsible div.
+    @param show_initially: Whether the collapsible div should be shown initially.
+    @return: A generator of the wrapped response.
+    """
+    is_generator = inspect.isgenerator(response)
+    random_identifier = str(uuid.uuid4())
+    response_class = 'collapse show' if show_initially else 'collapse'
+    aria_expanded = 'true' if show_initially else 'false'
+    if isinstance(response, str):
+        yield f"**{header}**: <div data-toggle='collapse' href='#response-solution-{random_identifier}' role='button' aria-expanded='{aria_expanded}'></div><div class='{response_class}' id='response-solution-{random_identifier}'>\n{response}\n</div>"
+        return
+    
+    if not is_generator:
+        if isinstance(response, (str, list, tuple)) or isinstance(response, more_itertools.more.peekable) or isinstance(response, peekable) or hasattr(response, '__iter__') or hasattr(res, '__next__'):
+            response = convert_iterable_to_stream(response)
+    
+        else:
+            raise ValueError(f"Invalid response type: {type(response)}")
+    
+    yield f"**{header}**: <div data-toggle='collapse' href='#response-solution-{random_identifier}' role='button' aria-expanded='{aria_expanded}'></div><div class='{response_class}' id='response-solution-{random_identifier}'>\n"
+    for chunk in response:
+        yield chunk
+    yield "\n</div>"
 
 
 
