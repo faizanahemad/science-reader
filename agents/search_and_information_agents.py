@@ -565,6 +565,12 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 
+### 2. Diagrams
+    - Create diagrams to help us understand the solution and the problem.
+    - Use ASCII art to help us understand each solution by running them step by step.
+    - Use ASCII art diagrams mainly to help illustrate the solution (or multiple solutions) and the problem. 
+    - Step by step running example of the solutions can be written in a plaintext code block.
+
 - We program in python, so write the code in python only.
 {mathematical_notation}
 - **When No Solution is Provided**:
@@ -659,14 +665,12 @@ You will expand upon the current answer and provide more information and details
 Don't repeat the same information or details that are already provided in the current answer.
 Write code only if it is not provided already and if you have any new insights or optimizations to share.
 
-### 1. Testing and Edge Cases
-- Provide comprehensive **test cases** to verify correctness:
-  - **Standard cases**
+### 1. Testing for Edge Cases
+- Provide comprehensive **test cases** to verify correctness of edge cases, invalid or unexpected inputs and corner cases:
   - **Edge cases**
   - **Invalid or unexpected inputs**
   - **Corner cases** which might be tricky and requires careful handling.
-- Demonstrate how to **test** the code and interpret the results.
-- Explain how to handle exceptions and errors gracefully.
+- Explain how to handle exceptions and errors gracefully. What and how to check for input validation, output validation, edge cases handling, assertions or state check at each step of the solution.
 
 ### 2. Trade-Offs and Decision Making
 - Discuss factors influencing the choice of solution:
@@ -691,10 +695,6 @@ Write code only if it is not provided already and if you have any new insights o
 - **Mention** any other related topics and concepts that are important to know.
 - **Discuss** follow-up extensions and variations of the problem and solution.
 
-### 5. What-if questions and scenarios
-- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
-- Verbalize the solutions first and then also mention their time and space complexities. 
 
 {mathematical_notation}
 
@@ -733,24 +733,12 @@ Guidelines:
   - Incorporate practical examples to illustrate abstract concepts.
   - Use analogies to relate complex ideas to familiar scenarios.
   - Connect this to real world scenarios and problems where this concept or algorithm or solution can be used.
+  - Suggesting more real world examples and scenarios where this solution can be used.
 
-2. **More What-if questions and scenarios**:
-  - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-  - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
-  - Verbalize the solutions first and then also mention their time and space complexities. 
-
-3. **Mind Bending Questions**:
-  - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
-  - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
-  - Provide verbal hints and clues to solve or approach the mind bending questions.
-
-4. Diagrams
-    - Create diagrams to help us understand the solution and the problem.
-    - Use ASCII art diagrams mainly to help illustrate the solution (or multiple solutions) and the problem. 
-    - You can use diagrams to compare multiple solutions and discuss the pros and cons of each solution.
+2. Diagrams
+    - You can use diagrams (ASCII art diagram or text-based diagram) to compare multiple solutions and discuss the pros and cons of each solution.
     - You can use diagrams to help us understand various nuances and corner cases of the solution.
-    - ASCII art diagram or text-based diagram can be made using text-based diagram syntax written in a plaintext code block. These diagrams are faster to make and more preferred unless the user asks for a mermaid diagram or a draw.io diagram or a matplotlib or seaborn plot.
-    - Step by step running example of the solution can be written in a plaintext code block.
+    
 
 
 Query:
@@ -770,6 +758,55 @@ Extend the answer to provide more information and details ensuring we cover the 
 Next Step or answer extension or continuation:
 """
         
+
+        self.what_if_prompt = f"""
+**Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+
+**Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
+Help prepare us for technical interviews at the senior or staff level.
+
+{mathematical_notation}
+
+Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
+
+Guidelines:
+### 1. What-if questions and scenarios
+- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+- Verbalize the solutions first and then also mention their time and space complexities. 
+
+
+### 2. **More What-if questions and scenarios**:
+  - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+  - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+  - Verbalize the solutions first and then also mention their time and space complexities. 
+
+### 3. **Mind Bending Questions**:
+  - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
+  - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
+  - Provide verbal hints and clues to solve or approach the mind bending questions.
+
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+
+Current Answer:
+<current_answer>
+{{current_answer}}
+</current_answer>
+
+Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Next Step or answer extension or continuation following the above guidelines:
+"""
+        
+    
+    
     def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
         # Initialize empty current answer
         current_answer = ""
