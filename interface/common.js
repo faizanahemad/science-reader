@@ -646,7 +646,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             function cleanMermaidCode(mermaidCode) {  
                 return mermaidCode  
                   .split('\n')  
-                  .map(line => line.trim())  
+                  .map(line => line.trimRight())  
                   .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
                   .join('\n');  
             }

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS_HTML"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
+<!--     <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script> -->
+    <script src="https://mozilla.github.io/pdf.js/build/pdf.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.5.0/mermaid.min.js" integrity="sha512-3EZqKCkk3nMLmbrI7mfry81KH7dkzy/BoDfQrodwLQnS/RbsVlERdYP6J0oiJegRUxSOmx7Y35WNbVKSw7mipw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script type="text/javascript">
+        mermaid.initialize({  
+          startOnLoad: true,  
+        }); 
+    </script>
+    
+    <!-- mermaid.initialize({ startOnLoad: true }); -->
+    <script src="https://laingsimon.github.io/render-diagram/drawio-renderer.js"></script>
+
+
+
+
+    
+</head>
+<body>
+
+    
+<pre class="mermaid">
+flowchart TD
+    %% Nodes and connections
+    A["User Query"] --> B["Query Analyzer and Decomposer<br>(Split into sub-queries)"]
+    B --> C["Iterative Research Controller"]
+
+    %% Iterative Loop
+    C --> D["Web Search and Query Formulation"]
+    D --> E["Document Fetcher and Chunk Processor"]
+    E --> F["Embedding and Similarity Ranking"]
+    F --> G["LLM Summarizer Reader<br>(Extractive + Abstractive)"]
+    G --> H["Knowledge Integrator and Reasoner<br>(Synthesize, resolve conflicts)"]
+    H --> I["Termination Evaluator<br>Check: Info Gain < ε, Redundancy, Time limit"]
+
+    %% Loop continuation
+    I -->|Continue Loop| C
+
+    %% Exit loop
+    I -->|Exit Loop| J["Report Composer<br>(Section-wise Report Generation)"]
+    J --> K["Cache and Feedback Monitor<br>(Store summaries, log feedback)"]
+    K --> L["User UI"]
+
+    %% Optional re-planning
+    H -->|Needs Re-planning| B
+
+    %% Consistent styling for all nodes
+    style A fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style B fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style C fill:#f9f,stroke:#333,stroke-width:2px
+    style D fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style E fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style F fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style G fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style H fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style I fill:#ff9,stroke:#333,stroke-width:2px
+    style J fill:#bbf,stroke:#333,stroke-width:2px
+    style K fill:#e6f3ff,stroke:#333,stroke-width:2px
+    style L fill:#bfb,stroke:#333,stroke-width:2px
+</pre>
+    <script type="text/javascript">
+        $(document).ready(function mf() {
+            function cleanMermaidCode(mermaidCode) {  
+                return mermaidCode  
+                  .split('\n')  
+                  .map(line => line.trimRight())  
+                  .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
+                  .join('\n');  
+            }
+
+            mermaidBlocks = document.querySelectorAll('pre.mermaid');
+            function cleaner(block) {
+                let code = block.textContent || block.innerText;  
+                // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
+                if (!block.querySelector('svg')) {
+                    code = cleanMermaidCode(code);
+                    // Update the content directly  
+                    block.textContent = code;  
+                }
+            }
+            mermaidBlocks.forEach(cleaner);
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'default',
+                fontFamily: 'Arial, sans-serif',
+                backgroundColor: '#ffffff',
+                fontSize: 14,
+            });
+
+            mermaid.run({
+                querySelector: 'pre.mermaid',
+                useMaxWidth: true,
+                suppressErrors: false,
+
+            }).then(() => {
+                // find all svg inside .mermaid class pre elements.
+                var svgs = $(document).find('pre.mermaid svg');
+                // iterate over each svg element and unset its height attribute
+                svgs.each(function (index, svg) {
+                    $(svg).attr('height', null);
+                });
+            }).catch(err => {
+                console.error('Mermaid Error:', err);
+            });
+        });
+    </script>
+
+    <!-- Add this button after your mermaid pre tag -->
+<button onclick="downloadSVGAsPNG()">Download as PNG</button>
+
+<!-- Add this script to your JavaScript section -->
+
+<script>
+    function downloadSVGAsPNG() {
+        // Get the SVG element
+        const svg = document.querySelector('pre.mermaid svg');
+        
+        // Set white background
+        svg.style.backgroundColor = 'white';
+        
+        // Get SVG data
+        const svgData = new XMLSerializer().serializeToString(svg);
+        
+        // Add XML declaration and encode the SVG data as base64
+        const svgBase64 = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        
+        // Create image
+        const img = new Image();
+        img.crossOrigin = 'anonymous'; // Add this line
+        
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = svg.viewBox.baseVal.width || svg.width.baseVal.value;
+            canvas.height = svg.viewBox.baseVal.height || svg.height.baseVal.value;
+            const ctx = canvas.getContext('2d');
+            
+            // Fill white background
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.drawImage(img, 0, 0);
+            
+            // Create download link
+            const a = document.createElement('a');
+            a.download = 'mermaid-diagram.png';
+            a.href = canvas.toDataURL('image/png');
+            a.click();
+        };
+        
+        // Set image source to base64 SVG
+        img.src = svgBase64;
+    }
+</script>
+</body>
+</html>

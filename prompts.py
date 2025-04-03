@@ -362,6 +362,14 @@ diagram_instructions = """
 **Diagramming and Plotting Instructions**
 - First Decide if you need to make a diagram or not. If you need to make a diagram, then decide if you need to make a mermaid diagram or a draw.io diagram or ASCII art diagram / text-based diagram or a matplotlib or seaborn plot.
 - Mermaid diagrams can be made using mermaid js library syntax. Write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
+- Mermaid Formatting:
+  - Text containing special characters ([], (), <>, etc.) must be wrapped in double quotes
+  - Example: A["Node with (brackets)"] not A[Node with (brackets)]
+  - Use HTML <br> tag for line breaks. `\\n` is not supported. Example: A["First line<br>Second line"]
+  - Avoid using `/`. Forward slashes (/) can cause parsing issues. Better to use "and", "or" or "+" instead. Example: Use "Web Search or Query Formulation" not "Web Search / Query Formulation"
+  - Use `\\` for escaping special characters. Example: A["Node with \\"quotes\\""]
+  - Style syntax: style NodeId fill:#color,stroke:#color,stroke-width:Npx . Example: style A fill:#e6f3ff,stroke:#333,stroke-width:2px . Note styling is optional and can be used to make the diagram more readable and informative.
+  - Use %% for comments.
 - ASCII art diagram or text-based diagram can be made using text-based diagram syntax written in a plaintext code block. These diagrams are faster to make and more preferred unless the user asks for a mermaid diagram or a draw.io diagram or a matplotlib or seaborn plot.
 - You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
 - You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
