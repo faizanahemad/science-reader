@@ -633,7 +633,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     MathJax.Hub.Queue(function() {
         // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
         if (!hasUnclosedMermaidTag(html) && has_end_answer_tag) {
-            possible_mermaid_elem = elem_to_render_in.find(".hljs.mermaid")
+            possible_mermaid_elem = elem_to_render_in.find(".mermaid")
             // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
             if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')) {
                 mermaid_text = possible_mermaid_elem[0].textContent
