@@ -373,7 +373,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     currently_streaming = None  # Which model is currently being streamed
     
     # Process the queue until all models complete
-    while len(completed_models) < len(model_instances):
+    while len(completed_models) < len(model_instances) or not response_queue.empty():
         try:
             # Get next item from queue with timeout
             item = response_queue.get(timeout=0.1)
@@ -445,6 +445,8 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 
                 display_name = model_id_to_name[model_id]
                 yield f'\nError with {display_name}: \n\n```\n{error_msg}\n```\n\n'
+            else:
+                raise Exception(f"Unknown item type: {item[0]}")
         
         except Exception:
             # Check if all futures are done to prevent infinite loops
