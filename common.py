@@ -174,10 +174,10 @@ document.addEventListener('click', function(event) {
     
     # Handle string responses directly
     if isinstance(response, str):
-        yield f"<details{open_attr}>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
+        yield f"\n<details {open_attr}>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
         if add_close_button:
             yield "\n<button class='details-close-btn'>Close</button>\n"
-        yield "</details>"
+        yield "</details>\n\n"
         return
     
     # Handle other types of iterables
@@ -188,7 +188,7 @@ document.addEventListener('click', function(event) {
             raise ValueError(f"Invalid response type: {type(response)}")
     
     # Start the details section
-    yield f"<details{open_attr}>\n<summary><strong>{header}</strong></summary>\n\n"
+    yield f"\n<details {open_attr}>\n<summary><strong>{header}</strong></summary>\n\n"
     
     # Stream the content
     for chunk in response:
@@ -199,7 +199,7 @@ document.addEventListener('click', function(event) {
         yield "\n<button class='details-close-btn'>Close</button>\n"
     
     # Close the details section
-    yield "</details>"
+    yield "</details>\n\n"
 
 
 def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.7, max_tokens=None, system=None, 
@@ -345,7 +345,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
             
             # Collect the response chunks without additional wrapping
             model_response = ""
-            for chunk in response:
+            for chunk in collapsible_wrapper(response, header=header_template.format(model=model_name), show_initially=collapsible_headers):
                 model_response += chunk
                 response_queue.put(("model", model_id, chunk))
             
@@ -388,10 +388,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 if currently_streaming is None:
                     currently_streaming = model_id
                     # Set up the collapsible section if needed
-                    if collapsible_headers:
-                        # Use original model name for display
-                        display_name = model_id_to_name[model_id]
-                        yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
+                    
                     yield chunk
                 # If this is the currently streaming model, stream it directly
                 elif model_id == currently_streaming:
@@ -407,8 +404,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 # If this was the currently streaming model, close it and start the next one
                 if currently_streaming == model_id:
                     # Close the current model's collapsible section if needed
-                    if collapsible_headers:
-                        yield "\n</details>\n\n"
+                    
                     currently_streaming = None
                     
                     # Find the next model to stream
@@ -416,9 +412,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                         if next_model_id not in completed_models and next_model_id != model_id:
                             currently_streaming = next_model_id
                             # Set up collapsible for the next model if needed
-                            if collapsible_headers:
-                                display_name = model_id_to_name[next_model_id]
-                                yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
+                            
                             # Stream all buffered chunks for this model
                             for buffered_chunk in model_buffers[next_model_id]:
                                 yield buffered_chunk
@@ -432,38 +426,31 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 
                 # If this was the currently streaming model, close it
                 if currently_streaming == model_id:
-                    if collapsible_headers:
-                        yield "\n</details>\n\n"
+                    
                     currently_streaming = None
                     
                     # Find the next model to stream (same logic as above)
                     for next_model_id in streaming_order:
                         if next_model_id not in completed_models and next_model_id != model_id:
                             currently_streaming = next_model_id
-                            if collapsible_headers:
-                                display_name = model_id_to_name[next_model_id]
-                                yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
+                            
                             for buffered_chunk in model_buffers[next_model_id]:
                                 yield buffered_chunk
                             model_buffers[next_model_id] = []
                             break
                 
                 # Show error in its own collapsible if headers are enabled
-                if collapsible_headers:
-                    display_name = model_id_to_name[model_id]
-                    yield f'<details>\n<summary>Error with {display_name}</summary>\n\n```\n{error_msg}\n```\n</details>\n\n'
-                else:
-                    display_name = model_id_to_name[model_id]
-                    yield f'\nError with {display_name}: {error_msg}\n\n'
+                
+                
+                display_name = model_id_to_name[model_id]
+                yield f'\nError with {display_name}: \n\n```\n{error_msg}\n```\n\n'
         
         except Exception:
             # Check if all futures are done to prevent infinite loops
             if all(future.done() for future in futures):
                 break
     
-    # Make sure we've closed any open collapsible
-    if currently_streaming is not None and collapsible_headers:
-        yield "\n</details>\n\n"
+    
     
     # Return the complete model responses dictionary for potential further processing
     return model_responses

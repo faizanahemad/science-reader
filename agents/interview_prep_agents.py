@@ -1527,7 +1527,7 @@ Now focus on the following areas and provide a more details and a continuation o
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=False,
+            collapsible_headers=True,
             header_template="Response from {model}"
         )
         
