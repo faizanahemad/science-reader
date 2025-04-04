@@ -919,47 +919,68 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
-                <option selected>Claude Sonnet 3.7</option>   
-                <option>openai/chatgpt-4o-latest</option> 
+
+                <optgroup label="Newer Models">
+                    <option selected>Claude Sonnet 3.7</option>   
+                    <option>openai/chatgpt-4o-latest</option> 
+                    <option>cohere/command-a</option>
+                    <option>gpt-4.5-preview</option>
+                    <option>Filler</option>
+                </optgroup>
+                
+                <optgroup label="Reasoning Models">
+                    <option>o1</option>
+                    <option>openai/o1-pro</option>
+                    <option>Claude Sonnet 3.7 Thinking</option>
+                    <option>o1-pro</option>
+                    <option>o1-hard</option>
+                    <!-- option>o1-preview</option -->
+                </optgroup>
                 
                 
                 
+                
+                
+                
+                <optgroup label="Older Models">
+                    <option>Claude Sonnet 3.5</option>  
+                    <option>Pixtral Large</option> 
+                    <option>gpt-4o</option>
+                    <option>Claude Opus</option>
+                    <option>google/gemini-pro-1.5</option>
+                </optgroup>
+
+
                 <!-- option>openai/gpt-4.5-preview</option -->
+
                 
-                <option>openai/o1-pro</option>
-                
-                <option>cohere/command-a</option>
-                
-                <option>perplexity/sonar-pro</option>
-                
-                
-                <option>o1</option>
-                <option>gpt-4.5-preview</option>
-                <option>Claude Sonnet 3.7 Thinking</option>
-                <option>openai/gpt-4o-search-preview</option>
-                
-                
-                
-                <!-- option>o1-preview</option -->
                 
 
-                <option>Filler</option>
-                <option>o1-pro</option>
-                <option>perplexity/sonar-deep-research</option>
-                <option>Claude Sonnet 3.5</option>   
-                <option>Claude Opus</option>
+                <optgroup label="Creative Models">
+                    
+                    <option>sao10k/l3.3-euryale-70b</option>
+                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
+                    <option>thedrummer/anubis-pro-105b-v1</option>
+                    <option>steelskull/l3.3-electra-r1-70b</option>
+                </optgroup>
+
+                <optgroup label="Fast Models">
+                    <option>google/gemini-2.0-flash-001</option>
+                    <option>google/gemini-flash-1.5</option>
+                    <option>google/gemini-2.0-flash-lite-001</option>
+                    <option>qwen/qwen-turbo</option>
+
+                </optgroup>
+
+                <optgroup label="Web Search Models">
+                    <option>perplexity/sonar-pro</option>
+                    <option>perplexity/sonar-reasoning-pro</option>
+                    <option>openai/gpt-4o-mini-search-preview</option>
+                    <option>openai/gpt-4o-search-preview</option>
+                    <option>perplexity/sonar-deep-research</option>
+                </optgroup>
+
                 
-                <option>o1-hard</option>
-                <!-- option>gpt-4o</option -->
-                <option>openai/gpt-4o-mini-search-preview</option>
-                <option>perplexity/sonar-reasoning-pro</option>
-
-                <option>sao10k/l3.3-euryale-70b</option>
-                <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
-                <option>thedrummer/anubis-pro-105b-v1</option>
-                <option>steelskull/l3.3-electra-r1-70b</option>
-
-                <!-- option>Pixtral Large</option -->
                 
                 
                 

@@ -2214,7 +2214,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 except Exception as e:
                     traceback.print_exc()
                     perplexity_results = {"text": f"We had an exception in perplexity search. Please try again later. {traceback.format_exc()}"}
-                perplexity_text = "\n" + perplexity_results["text"] + "\n"
+                perplexity_text = "\n" + perplexity_results + "\n"
                 perplexity_text = f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
                 yield {"text": perplexity_text, "status": "Perplexity search completed"}
                 web_text = web_text + perplexity_text
@@ -2854,6 +2854,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "thedrummer/anubis-pro-105b-v1"
     elif model_name == "steelskull/l3.3-electra-r1-70b":
         model_name = "steelskull/l3.3-electra-r1-70b"
+    elif model_name in CHEAP_LONG_CONTEXT_LLM:
+        pass
     
         
     elif model_name == FILLER_MODEL:

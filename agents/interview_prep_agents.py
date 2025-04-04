@@ -1599,7 +1599,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
         if self.n_steps <= 1:
             return
         other_prompts = [
-            self.other_areas_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response) ,
+            self.other_areas_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
             self.other_areas_prompt_2.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
             self.other_areas_prompt_3.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
         ]
@@ -1616,10 +1616,11 @@ Now provide structured and detailed tips for the candidate to impress the interv
             max_tokens, 
             system,
             collapsible_headers=True,
-            header_template="More Insights from {model}"
+            header_template="First Phase of Insights from {model}"
         ):
             yield chunk
             other_insights += chunk
+        yield "\n\n"
 
         if self.n_steps <= 2:
             return
@@ -1649,10 +1650,11 @@ Now provide structured and detailed tips for the candidate to impress the interv
         ):
             yield chunk
             phase_2_insights += chunk
+        yield "\n\n"
 
         if self.n_steps >= 4:
             web_search_response = web_search_response_future.result()
-            yield collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
+            yield from collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
             
 
 

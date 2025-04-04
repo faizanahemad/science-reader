@@ -61,7 +61,7 @@ EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest",
                  "cohere/command-a", "ai21/jamba-1.6-large"]
 
 
-CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
+CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
 LONG_CONTEXT_LLM = ["google/gemini-pro-1.5"]
 
 COMMON_SALT_STRING = "31256greagy89"
@@ -348,6 +348,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
             for chunk in collapsible_wrapper(response, header=header_template.format(model=model_name), show_initially=collapsible_headers):
                 model_response += chunk
                 response_queue.put(("model", model_id, chunk))
+            response_queue.put(("model", model_id, "\n\n"))
             
             # Store complete response and signal completion
             model_responses[model_id] = model_response

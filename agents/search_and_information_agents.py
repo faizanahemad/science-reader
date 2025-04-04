@@ -183,8 +183,14 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             import ast
             try:
                 # Use ast.literal_eval to safely evaluate the string as a Python expression
-                response = self.extract_queries_contexts(response)
-                text_queries_contexts = ast.literal_eval(response)
+                try:
+                    response = self.extract_queries_contexts(response)
+                    text_queries_contexts = ast.literal_eval(response)
+                except Exception as e:
+                    logger.error(f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}")
+                    response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+                    response = self.extract_queries_contexts(response)
+                    text_queries_contexts = ast.literal_eval(response)
                 text = self.remove_code_blocks(text)
                 yield {"text": '\n```\n'+response+'\n```\n', "status": "Created/Obtained search queries and contexts"}
                 answer += f"Generated Queries and Contexts: ```\n{response}\n```\n\n"
