@@ -973,6 +973,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option selected>None</option>
                 <option>Agent_NStepAgent</option>
                 <option>Agent_NStepCodeAgent</option>
+                <option>Agent_MLSystemDesignAgent</option>
                 <option>Agent_PerplexitySearch</option>
                 <option>Agent_JinaSearchAgent</option>
                 <option>Agent_WebSearch</option>

@@ -1124,6 +1124,7 @@ Help prepare us for technical ML system design interviews at the senior or staff
 - Security testing
 - Compliance testing
 - Acceptance criteria
+- ML metrics and KPIs
 
 **33. Development and Deployment:**
 - CI/CD pipelines
