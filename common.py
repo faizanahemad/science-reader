@@ -67,7 +67,7 @@ LONG_CONTEXT_LLM = ["google/gemini-pro-1.5"]
 COMMON_SALT_STRING = "31256greagy89"
 
 
-def collapsible_wrapper(response, header="Solution", show_initially=True):
+def collapsible_wrapper_old(response, header="Solution", show_initially=True):
     """
     Wraps the response in a collapsible div with a header.
     If the response is a generator, it will yield the chunks.
@@ -95,6 +95,111 @@ def collapsible_wrapper(response, header="Solution", show_initially=True):
     for chunk in response:
         yield chunk
     yield "\n</div>"
+
+
+def collapsible_wrapper(response, header="Solution", show_initially=True, add_close_button=True):
+    """
+    Wraps the response in a collapsible section using HTML <details> tag with a header.
+    If the response is a generator, it will yield the chunks.
+    
+    Parameters:
+    -----------
+    response : str or generator
+        The response content to wrap in a collapsible section
+    header : str, optional
+        The header text to display in the collapsible section (default: "Solution")
+    show_initially : bool, optional
+        Whether the collapsible section should be shown initially (default: True)
+    add_close_button : bool, optional
+        Whether to add a close button at the end of the collapsible section (default: True)
+    
+    Returns:
+    --------
+    generator
+        A generator yielding the wrapped response chunks
+    
+    Examples:
+    ---------
+    # Using with a string
+    result = collapsible_wrapper("This is my content", header="My Header")
+    
+    # Using with a generator
+    def my_generator():
+        yield "Chunk 1"
+        yield "Chunk 2"
+    result = collapsible_wrapper(my_generator(), header="Streaming Content")
+    """
+    import inspect
+    import uuid
+    import more_itertools
+    from more_itertools import peekable
+    
+    is_generator = inspect.isgenerator(response)
+    
+    # Add the open attribute if the section should be shown initially
+    open_attr = " open" if show_initially else ""
+    
+    # Add CSS for the close button if requested
+    if add_close_button:
+        yield """<style>
+.details-close-btn {
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-top: 10px;
+    display: inline-block;
+}
+.details-close-btn:hover {
+    background-color: #e0e0e0;
+}
+</style>
+<script>
+document.addEventListener('click', function(event) {
+    if (event.target.classList.contains('details-close-btn')) {
+        // Find the parent details element
+        let details = event.target.closest('details');
+        if (details) {
+            // Close the details element
+            details.removeAttribute('open');
+            // Scroll to the summary
+            details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
+        }
+    }
+});
+</script>
+"""
+    
+    # Handle string responses directly
+    if isinstance(response, str):
+        yield f"<details{open_attr}>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
+        if add_close_button:
+            yield "\n<button class='details-close-btn'>Close</button>\n"
+        yield "</details>"
+        return
+    
+    # Handle other types of iterables
+    if not is_generator:
+        if isinstance(response, (list, tuple)) or isinstance(response, more_itertools.more.peekable) or isinstance(response, peekable) or hasattr(response, '__iter__') or hasattr(response, '__next__'):
+            response = convert_iterable_to_stream(response)
+        else:
+            raise ValueError(f"Invalid response type: {type(response)}")
+    
+    # Start the details section
+    yield f"<details{open_attr}>\n<summary><strong>{header}</strong></summary>\n\n"
+    
+    # Stream the content
+    for chunk in response:
+        yield chunk
+    
+    # Add the close button if requested
+    if add_close_button:
+        yield "\n<button class='details-close-btn'>Close</button>\n"
+    
+    # Close the details section
+    yield "</details>"
 
 
 def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.7, max_tokens=None, system=None, 
@@ -191,19 +296,22 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     Returns:
     --------
     dict
-        Dictionary mapping model names to their complete responses
+        Dictionary mapping model instance IDs to their complete responses, 
+        where model instance IDs follow the format "model_name_index"
     
     Notes:
     ------
     - If len(prompts) > len(model_names), model_names will be extended by repeating elements
+    - When model names are repeated, unique identifiers are created internally (model_name_index)
+      to avoid conflicts, but the original model name is used for display purposes
     - If a model completes before others start, the next model to respond will begin streaming immediately
     - Models are presented in order of first response, not in the order they were provided
     - The function returns a dictionary containing the complete responses, useful for further processing
     """
 
     from call_llm import CallLLm
-    # Validate inputs
-
+    import traceback
+    
     # Handle mismatch between prompts and model_names
     if len(prompts) > len(model_names):
         model_names = model_names * (len(prompts) // len(model_names)) + model_names[:len(prompts) % len(model_names)]
@@ -213,6 +321,15 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
     
+    # Create model instance data with unique identifiers
+    model_instances = []
+    model_id_to_name = {}  # Mapping from unique ID to display name
+    
+    for i, (model, prompt) in enumerate(zip(model_names, prompts)):
+        model_id = f"{model}_{i}"  # Create unique identifier
+        model_instances.append((model_id, model, prompt))
+        model_id_to_name[model_id] = model  # Store mapping for display purposes
+    
     # Create a queue for communication between threads
     from queue import Queue
     response_queue = Queue()
@@ -221,117 +338,123 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     model_responses = {}
     
     # Function to run a single LLM and collect its response
-    def run_llm(model_name, prompt):
+    def run_llm(model_id, model_name, prompt):
         try:
-            llm = CallLLm(keys, model_name)
+            llm = CallLLm(keys, model_name)  # Use original model name for API call
             response = llm(prompt, images, temperature, stream=True, max_tokens=max_tokens, system=system)
             
             # Collect the response chunks without additional wrapping
             model_response = ""
             for chunk in response:
                 model_response += chunk
-                response_queue.put(("model", model_name, chunk))
+                response_queue.put(("model", model_id, chunk))
             
             # Store complete response and signal completion
-            model_responses[model_name] = model_response
-            response_queue.put(("complete", model_name))
+            model_responses[model_id] = model_response
+            response_queue.put(("complete", model_id))
         except Exception as e:
             error_msg = f"Error with model {model_name}: {str(e)}\n{traceback.format_exc()}"
             logger.error(error_msg)
-            response_queue.put(("error", model_name, error_msg))
+            response_queue.put(("error", model_id, error_msg))
     
-    # Start a thread for each model
+    # Start a thread for each model instance
     futures = []
-    for model, prompt in zip(model_names, prompts):
-        future = get_async_future(lambda m=model, p=prompt: run_llm(m, p))
+    for model_id, model_name, prompt in model_instances:
+        future = get_async_future(lambda id=model_id, name=model_name, p=prompt: run_llm(id, name, p))
         futures.append(future)
     
-    # Track which models have completed
+    # Track which models have completed using model_id
     completed_models = set()
     
-    # Create buffers to store chunks from each model
-    model_buffers = {model: [] for model in model_names}
+    # Create buffers to store chunks from each model using model_id
+    model_buffers = {model_id: [] for model_id, _, _ in model_instances}
     streaming_order = []  # List to track the order in which models started streaming
     currently_streaming = None  # Which model is currently being streamed
     
     # Process the queue until all models complete
-    while len(completed_models) < len(model_names):
+    while len(completed_models) < len(model_instances):
         try:
             # Get next item from queue with timeout
             item = response_queue.get(timeout=0.1)
             
             if item[0] == "model":
-                model_name, chunk = item[1], item[2]
+                model_id, chunk = item[1], item[2]
                 
                 # Add model to streaming order if it's not there yet
-                if model_name not in streaming_order:
-                    streaming_order.append(model_name)
+                if model_id not in streaming_order:
+                    streaming_order.append(model_id)
                 
                 # If no model is currently streaming, start streaming this one
                 if currently_streaming is None:
-                    currently_streaming = model_name
+                    currently_streaming = model_id
                     # Set up the collapsible section if needed
                     if collapsible_headers:
-                        yield f'<details>\n<summary>{header_template.format(model=model_name)}</summary>\n\n'
+                        # Use original model name for display
+                        display_name = model_id_to_name[model_id]
+                        yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
                     yield chunk
                 # If this is the currently streaming model, stream it directly
-                elif model_name == currently_streaming:
+                elif model_id == currently_streaming:
                     yield chunk
                 # Otherwise, buffer the chunks
                 else:
-                    model_buffers[model_name].append(chunk)
+                    model_buffers[model_id].append(chunk)
             
             elif item[0] == "complete":
-                model_name = item[1]
-                completed_models.add(model_name)
+                model_id = item[1]
+                completed_models.add(model_id)
                 
                 # If this was the currently streaming model, close it and start the next one
-                if currently_streaming == model_name:
+                if currently_streaming == model_id:
                     # Close the current model's collapsible section if needed
                     if collapsible_headers:
                         yield "\n</details>\n\n"
                     currently_streaming = None
                     
                     # Find the next model to stream
-                    for next_model in streaming_order:
-                        if next_model not in completed_models and next_model != model_name:
-                            currently_streaming = next_model
+                    for next_model_id in streaming_order:
+                        if next_model_id not in completed_models and next_model_id != model_id:
+                            currently_streaming = next_model_id
                             # Set up collapsible for the next model if needed
                             if collapsible_headers:
-                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n'
+                                display_name = model_id_to_name[next_model_id]
+                                yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
                             # Stream all buffered chunks for this model
-                            for buffered_chunk in model_buffers[next_model]:
+                            for buffered_chunk in model_buffers[next_model_id]:
                                 yield buffered_chunk
                             # Clear the buffer
-                            model_buffers[next_model] = []
+                            model_buffers[next_model_id] = []
                             break
             
             elif item[0] == "error":
-                model_name, error_msg = item[1], item[2]
-                completed_models.add(model_name)
+                model_id, error_msg = item[1], item[2]
+                completed_models.add(model_id)
                 
                 # If this was the currently streaming model, close it
-                if currently_streaming == model_name:
+                if currently_streaming == model_id:
                     if collapsible_headers:
                         yield "\n</details>\n\n"
                     currently_streaming = None
                     
                     # Find the next model to stream (same logic as above)
-                    for next_model in streaming_order:
-                        if next_model not in completed_models and next_model != model_name:
-                            currently_streaming = next_model
+                    for next_model_id in streaming_order:
+                        if next_model_id not in completed_models and next_model_id != model_id:
+                            currently_streaming = next_model_id
                             if collapsible_headers:
-                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n'
-                            for buffered_chunk in model_buffers[next_model]:
+                                display_name = model_id_to_name[next_model_id]
+                                yield f'<details>\n<summary>{header_template.format(model=display_name)}</summary>\n\n'
+                            for buffered_chunk in model_buffers[next_model_id]:
                                 yield buffered_chunk
-                            model_buffers[next_model] = []
+                            model_buffers[next_model_id] = []
                             break
                 
                 # Show error in its own collapsible if headers are enabled
                 if collapsible_headers:
-                    yield f'<details>\n<summary>Error with {model_name}</summary>\n\n```\n{error_msg}\n```\n</details>\n\n'
+                    display_name = model_id_to_name[model_id]
+                    yield f'<details>\n<summary>Error with {display_name}</summary>\n\n```\n{error_msg}\n```\n</details>\n\n'
                 else:
-                    yield f'\nError with {model_name}: {error_msg}\n\n'
+                    display_name = model_id_to_name[model_id]
+                    yield f'\nError with {display_name}: {error_msg}\n\n'
         
         except Exception:
             # Check if all futures are done to prevent infinite loops
@@ -344,7 +467,6 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     
     # Return the complete model responses dictionary for potential further processing
     return model_responses
-
 
 
 import requests
