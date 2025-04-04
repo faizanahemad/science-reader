@@ -120,6 +120,13 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
 
     from call_llm import CallLLm
     # Validate inputs
+
+    # Handle mismatch between prompts and model_names
+    if len(prompts) > len(model_names):
+        model_names = model_names * (len(prompts) // len(model_names)) + model_names[:len(prompts) % len(model_names)]
+    elif len(prompts) < len(model_names):
+        model_names = model_names[:len(prompts)]    
+    
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
     
