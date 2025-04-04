@@ -1458,6 +1458,22 @@ Now provide a continuation of the solution focusing on the above areas mentioned
 """
 
         
+        self.critic_prompt = """
+You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
+Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
+
+
+
+"""
+
+        self.combined_critic_prompt = """
+You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
+Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
+
+
+
+"""
+       
         self.tips_prompt = """
 
 
@@ -1476,7 +1492,7 @@ Now provide a continuation of the solution focusing on the above areas mentioned
         multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", 
                             "anthropic/claude-3.5-sonnet:beta", 
                             "cohere/command-a",
-                            "openai/o1-pro", "anthropic/claude-3.7-sonnet:thinking"]
+                            "o1", "anthropic/claude-3.7-sonnet:thinking"]
         
         
         # Use provided models or fallback to default list
