@@ -8,7 +8,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -1300,6 +1300,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "Agent_WebSearch":
             agent = WebSearchWithAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+        if field == "Agent_MultiSourceSearch":
+            agent = MultiSourceSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "Agent_LiteratureReview":
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "Agent_BroadSearch":
@@ -2205,9 +2207,13 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
             web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
-            if perplexity_results_future is not None and perplexity_results_future.done() and perplexity_results_future.exception() is None:
+            if perplexity_results_future is not None:
                 random_identifier = str(uuid.uuid4())
-                perplexity_results = perplexity_results_future.result()
+                try:
+                    perplexity_results = perplexity_results_future.result()
+                except Exception as e:
+                    traceback.print_exc()
+                    perplexity_results = {"text": f"We had an exception in perplexity search. Please try again later. {traceback.format_exc()}"}
                 perplexity_text = "\n" + perplexity_results["text"] + "\n"
                 perplexity_text = f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
                 yield {"text": perplexity_text, "status": "Perplexity search completed"}

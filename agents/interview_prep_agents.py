@@ -4,7 +4,7 @@ from typing import Union, List
 import uuid
 
 
-from common import collapsible_wrapper
+from common import VERY_CHEAP_LLM, collapsible_wrapper
 from prompts import tts_friendly_format_instructions
 
 
@@ -39,6 +39,8 @@ import re
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.WARNING, logging.INFO, logging.ERROR, logging.INFO)
 import time
 from .base_agent import Agent
+from .search_and_information_agents import MultiSourceSearchAgent, PerplexitySearchAgent, JinaSearchAgent
+
 mathematical_notation = """
 - Formatting Mathematical Equations:
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
@@ -1475,8 +1477,8 @@ Now focus on the following areas and provide a more details and a continuation o
 
 """
        
-        self.tips_prompt = """
-
+        self.tips_prompt = """You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
+Some tips for the candidate to impress the interviewer:
 
 1. **Structure is key** - Following a clear framework helps interviewers follow your thought process
 2. **Clarify requirements early** - Don't rush into solutions before understanding what's needed
@@ -1484,8 +1486,36 @@ Now focus on the following areas and provide a more details and a continuation o
 4. **Draw system diagrams** - Visual representations demonstrate your ability to communicate complex ideas
 5. **Connect theory to practice** - Mention real-world examples from your experience when possible
 6. **Be adaptable** - Show you can pivot as requirements change during the interview
-7. **Know your metrics** - Demonstrate deep understanding of how to evaluate ML system performance
-8. **End with monitoring** - Always include plans for maintaining system quality over time
+7. **Compartmentalize your thoughts and the building blocks of the solution** - Compartmentalize your thoughts and ideas. Don't mix them up.
+8. **Know your metrics** - Demonstrate deep understanding of how to evaluate ML system performance
+9. **End with monitoring** - Always include plans for maintaining system quality over time
+10. **Interaction with the interviewer** - Always interact with the interviewer and ask questions to understand the requirements better.
+11. **Keep Interviewer engaged** - Keep the interviewer engaged and interested in the solution. Keep checking if the interviewer is following you or not. Keep asking for feedback and if you are on the right track or not.
+12. **Use the time wisely** - Use the time wisely and don't spend too much time on one thing.
+
+
+The original query was:
+<user_query>
+{query}
+</user_query>
+
+Here are the solutions from different models:
+
+{model_solutions}
+
+Combined Solution:
+<combined_solution>
+{combined_solution}
+</combined_solution>
+
+
+More information about side areas:
+<more_information>
+{more_information}
+</more_information>
+
+Provide tips on how we can ace such an interview. Tips should range from general interview tips to ML system design interview tips to specific tips for this problem as well.
+Now provide structured and detailed tips for the candidate to impress the interviewer based on the above information. Tips should be general tips as well as specific tips for this problem and how we can improve the interview performance on this problem.
 """
 
     def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
@@ -1514,7 +1544,12 @@ Now focus on the following areas and provide a more details and a continuation o
             self.ml_system_design_prompt_2 if i % 3 == 0 else self.ml_system_design_prompt_3 if i % 3 == 1 else "") 
             for i in range(len(models_to_use))
         ]
-        
+
+        if self.n_steps >= 4:
+            # we will perform web search as well.
+            web_search_agent = MultiSourceSearchAgent(self.keys, model_name=CHEAP_LLM[0], detail_level=2, timeout=90)
+            web_search_response_future = get_async_future(web_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
+            
         # Stream results as they come in
         yield "# ML System Design Interview Preparation\n\n"
         
@@ -1594,7 +1629,7 @@ Now focus on the following areas and provide a more details and a continuation o
             self.what_if_questions_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
             self.other_areas_phase_2_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
             self.other_areas_phase_2_prompt_2.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
-            
+            self.tips_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
         ]
 
         if self.n_steps <= 3:
@@ -1614,14 +1649,11 @@ Now focus on the following areas and provide a more details and a continuation o
         ):
             yield chunk
             phase_2_insights += chunk
+
+        if self.n_steps >= 4:
+            web_search_response = web_search_response_future.result()
+            yield collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
             
-            
-            
-        
-        # Final insights and recommendations
-        yield "\n\n## Final Tips for Interview Success\n\n"
-        final_tips = self.tips_prompt
-        yield final_tips
 
 
 class MLSystemDesignInterviewerAgent(Agent):

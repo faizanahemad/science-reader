@@ -23,7 +23,7 @@ try:
     from prompts import tts_friendly_format_instructions, diagram_instructions
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
-        CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
+        VERY_CHEAP_LLM, CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
         get_async_future, sleep_and_get_future_result, convert_stream_to_iterable, EXPENSIVE_LLM
     )
     from loggers import getLoggers
@@ -214,16 +214,27 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         
         yield {"text": '\n\n', "status": "Completed web search with agent"}
         combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+        yield {"text": '<web_answer>', "status": "Completed web search with agent"}
         for text in combined_response:
             yield {"text": text, "status": "Completed web search with agent"}
             answer += text
+        yield {"text": '</web_answer>', "status": "Completed web search with agent"}
         yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
 
     def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
         return ""
     
     def get_answer(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
-        return convert_stream_to_iterable(self.__call__(text, images, temperature, stream, max_tokens, system, web_search))[-2]
+        answer = ""
+        for chunk in self.__call__(text, images, temperature, stream, max_tokens, system, web_search):
+            answer += chunk["text"]
+        # Extract content between web_answer tags
+        import re
+        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
+        match = re.search(web_answer_pattern, answer, re.DOTALL)
+        if match:
+            answer = match.group(1)
+        return answer
 
 class LiteratureReviewAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
@@ -961,12 +972,15 @@ class PerplexitySearchAgent(WebSearchWithAgent):
             "perplexity/llama-3.1-sonar-small-128k-online",
             "openai/gpt-4o-mini-search-preview",
             "openai/gpt-4o-search-preview",
+            "perplexity/sonar",
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
         if detail_level >= 3:
             self.perplexity_models.append("perplexity/llama-3.1-sonar-large-128k-online")
             self.perplexity_models.append("perplexity/sonar-pro")
+            self.perplexity_models.append("perplexity/sonar-reasoning")
+            self.perplexity_models.append("perplexity/sonar-reasoning-pro")
         
         year = time.localtime().tm_year
         self.get_references = f"""
@@ -1287,3 +1301,67 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Error summarizing results:</b> {str(e)}"
         else:
             return f"<b>No relevant search results found for query:</b> {query}"
+        
+
+class MultiSourceSearchAgent(WebSearchWithAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
+        self.keys = keys
+        self.model_name = model_name
+        self.detail_level = detail_level
+        self.timeout = timeout
+        self.num_queries = num_queries
+
+        self.combiner_prompt = """
+You are a helpful assistant that combines search results from multiple sources into a single response.
+You will be given a user query, and a list of search results from multiple sources.
+You will need to combine the search results into a single response.
+
+Your goal is to combine these results into a comprehensive response for the user's query.
+
+Instructions:
+1. Integrate and utilize information from all provided search results to write your extensive response.
+2. Write a detailed, in-depth, wide coverage and comprehensive response to the user's query using all the information from the search results. Write full answers with all details well formatted.
+3. Provide all references (that are present in the search results) with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.
+4. Provide side information from the search results to provide more context and broader perspective.
+5. Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at refere
+
+Here is the user query:
+{user_query}
+
+Here is the answer from web search:
+{web_search_results}
+
+Here is the answer from perplexity search:
+{perplexity_search_results}
+
+Here is the answer from jina search:
+{jina_search_results}
+
+Now, combine the search results into a single response. Please use the given search results to answer the user's query while combining information from all provided search results. Use all the information from the search results to write a detailed and comprehensive answer. 
+Include the full list of useful references at the end in markdown as bullet points.
+Write your comprehensive and in-depth answer below.
+"""
+
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        web_search_agent = WebSearchWithAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout)
+        perplexity_search_agent = PerplexitySearchAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout, self.num_queries)
+        jina_search_agent = JinaSearchAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout, self.num_queries)
+        
+        web_search_results = get_async_future(web_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
+        perplexity_results = get_async_future(perplexity_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
+        jina_results = get_async_future(jina_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
+        
+        web_search_results = collapsible_wrapper(web_search_results.result(), header="Web Search Results", show_initially=False, add_close_button=True)
+        perplexity_results = collapsible_wrapper(perplexity_results.result(), header="Perplexity Search Results", show_initially=False, add_close_button=True)
+        jina_results = collapsible_wrapper(jina_results.result(), header="Jina Search Results", show_initially=False, add_close_button=True)
+
+        llm = CallLLm(self.keys, model_name=self.model_name)
+        response = llm(self.combiner_prompt.format(user_query=text, web_search_results=web_search_results, perplexity_search_results=perplexity_results, jina_search_results=jina_results), temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+
+        yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
+        for chunk in response:
+            yield {"text": chunk, "status": "MultiSourceSearchAgent"}
+        yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
+
+    
+    

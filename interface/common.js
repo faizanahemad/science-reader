@@ -975,12 +975,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="field-selector" class="mr-1">Agents</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
-                <option>Agent_NStepAgent</option>
                 <option>Agent_NStepCodeAgent</option>
                 <option>Agent_MLSystemDesignAgent</option>
+                <option>Agent_NStepAgent</option>
                 <option>Agent_PerplexitySearch</option>
                 <option>Agent_JinaSearchAgent</option>
                 <option>Agent_WebSearch</option>
+                <option>Agent_MultiSourceSearch</option>
                 <option>Agent_BroadSearch</option>
                 <option>Agent_BestOfN</option>
                 <option>Agent_NResponseAgent</option>
