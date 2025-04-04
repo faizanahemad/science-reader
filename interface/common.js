@@ -919,29 +919,33 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
             <label for="main-model-selector" class="mr-1">Model</label>
             <select class="form-control" id="main-model-selector" multiple>
-                <option selected>Claude Sonnet 3.7</option>    
+                <option selected>Claude Sonnet 3.7</option>   
+                <option>openai/chatgpt-4o-latest</option> 
                 
                 
                 
                 <!-- option>openai/gpt-4.5-preview</option -->
-                <option>openai/gpt-4o-search-preview</option>
+                
                 <option>openai/o1-pro</option>
-                <option>o1-pro</option>
+                
                 <option>cohere/command-a</option>
-                <option>perplexity/sonar-deep-research</option>
+                
                 <option>perplexity/sonar-pro</option>
                 
                 
                 <option>o1</option>
                 <option>gpt-4.5-preview</option>
                 <option>Claude Sonnet 3.7 Thinking</option>
+                <option>openai/gpt-4o-search-preview</option>
                 
-                <option>openai/chatgpt-4o-latest</option>
+                
                 
                 <!-- option>o1-preview</option -->
                 
 
                 <option>Filler</option>
+                <option>o1-pro</option>
+                <option>perplexity/sonar-deep-research</option>
                 <option>Claude Sonnet 3.5</option>   
                 <option>Claude Opus</option>
                 
