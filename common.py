@@ -117,6 +117,8 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     Returns:
         Generator yielding streamed responses from models
     """
+
+    from call_llm import CallLLm
     # Validate inputs
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
