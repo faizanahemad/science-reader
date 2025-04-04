@@ -3,7 +3,7 @@ import traceback
 from typing import Union, List
 import uuid
 
-from langsmith import expect
+
 from common import collapsible_wrapper
 from prompts import tts_friendly_format_instructions
 
