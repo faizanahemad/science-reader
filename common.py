@@ -182,7 +182,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                     currently_streaming = model_name
                     # Set up the collapsible section if needed
                     if collapsible_headers:
-                        yield f'<details>\n<summary>{header_template.format(model=model_name)}</summary>\n\n```markdown\n'
+                        yield f'<details>\n<summary>{header_template.format(model=model_name)}</summary>\n\n'
                     yield chunk
                 # If this is the currently streaming model, stream it directly
                 elif model_name == currently_streaming:
@@ -199,7 +199,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 if currently_streaming == model_name:
                     # Close the current model's collapsible section if needed
                     if collapsible_headers:
-                        yield "\n```\n</details>\n\n"
+                        yield "\n</details>\n\n"
                     currently_streaming = None
                     
                     # Find the next model to stream
@@ -208,7 +208,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                             currently_streaming = next_model
                             # Set up collapsible for the next model if needed
                             if collapsible_headers:
-                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n```markdown\n'
+                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n'
                             # Stream all buffered chunks for this model
                             for buffered_chunk in model_buffers[next_model]:
                                 yield buffered_chunk
@@ -223,7 +223,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 # If this was the currently streaming model, close it
                 if currently_streaming == model_name:
                     if collapsible_headers:
-                        yield "\n```\n</details>\n\n"
+                        yield "\n</details>\n\n"
                     currently_streaming = None
                     
                     # Find the next model to stream (same logic as above)
@@ -231,7 +231,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                         if next_model not in completed_models and next_model != model_name:
                             currently_streaming = next_model
                             if collapsible_headers:
-                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n```markdown\n'
+                                yield f'<details>\n<summary>{header_template.format(model=next_model)}</summary>\n\n'
                             for buffered_chunk in model_buffers[next_model]:
                                 yield buffered_chunk
                             model_buffers[next_model] = []
@@ -250,7 +250,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     
     # Make sure we've closed any open collapsible
     if currently_streaming is not None and collapsible_headers:
-        yield "\n```\n</details>\n\n"
+        yield "\n</details>\n\n"
     
     # Return the complete model responses dictionary for potential further processing
     return model_responses
