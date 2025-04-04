@@ -100,22 +100,105 @@ def collapsible_wrapper(response, header="Solution", show_initially=True):
 def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.7, max_tokens=None, system=None, 
                            collapsible_headers=True, header_template="Response from {model}"):
     """
-    Streams responses from multiple LLM models sequentially, showing one complete model response 
-    before starting another.
+    Streams responses from multiple LLM models sequentially in a coordinated fashion, ensuring one complete
+    model response is shown at a time while running all models in parallel for efficiency.
     
-    Args:
-        keys: API keys for models
-        model_names: List of model identifiers to query
-        prompts: List of prompts to send to corresponding models
-        images: Optional list of images to include with prompts
-        temperature: Temperature setting for generation
-        max_tokens: Maximum tokens to generate per model
-        system: Optional system prompt
-        collapsible_headers: Whether to wrap responses in collapsible sections
-        header_template: Template string for headers, must contain {model} placeholder
-        
+    Core Functionality:
+    -------------------
+    1. Runs multiple language models in parallel using async execution
+    2. Buffers responses from each model as they become available
+    3. Presents responses to the user one full model at a time
+    4. Prioritizes models in order of which started responding first
+    5. Handles errors gracefully without affecting other models
+    6. Returns a dictionary of complete responses for further processing
+    
+    How It Works:
+    ------------
+    - Parallel Execution: Creates a separate thread for each model to execute requests concurrently
+    - Message Queue: Uses a queue to coordinate messages from all threads to the main thread
+    - Buffering System: Maintains a buffer for each model to store chunks when not actively streaming
+    - Streaming Order: Tracks models in order of first response for sequential presentation
+    - Error Handling: Captures and presents errors without disrupting other models
+    
+    Execution Process:
+    -----------------
+    1. Initialization:
+       - Normalizes model_names length to match prompts if needed
+       - Creates a message queue for thread communication
+       - Sets up empty buffers for each model
+       - Initializes tracking variables (streaming_order, currently_streaming, completed_models)
+    
+    2. Thread Creation:
+       - For each model+prompt pair, creates a thread that:
+         a. Calls the model with the given prompt
+         b. Sends chunks to the queue as they arrive
+         c. Signals completion or errors through the queue
+    
+    3. Main Loop:
+       - Runs until all models have completed
+       - Processes queue messages in order received
+       - For each message, handles one of three types:
+         a. "model": A chunk from a model
+         b. "complete": Signal that a model has finished
+         c. "error": Signal that a model encountered an error
+    
+    4. Chunk Processing Rules:
+       - If no model is currently streaming, start streaming the first model that responds
+       - If a chunk belongs to the currently streaming model, yield it immediately
+       - If a chunk belongs to another model, buffer it for later
+    
+    5. Model Completion Rules:
+       - When a model completes, if it was the currently streaming model:
+         a. Close its collapsible section (if enabled)
+         b. Find the next model in streaming_order that hasn't completed yet
+         c. Begin streaming that model, including any buffered chunks
+    
+    6. Error Handling:
+       - If a model errors, treat it as completed but with an error message
+       - Display the error message in its own collapsible section (if headers enabled)
+       - Continue with the next model
+    
+    7. Cleanup:
+       - Ensure any open collapsible section is properly closed
+       - Return the dictionary of complete model responses
+    
+    Arguments:
+    ----------
+    keys : dict
+        API keys for the language models
+    model_names : list
+        List of model identifiers to use for queries
+    prompts : list
+        List of prompts to send to corresponding models
+    images : list, optional
+        Images to include with the prompts
+    temperature : float, optional
+        Temperature setting for generation (default: 0.7)
+    max_tokens : int, optional
+        Maximum tokens to generate for each model
+    system : str, optional
+        System prompt to use with the models
+    collapsible_headers : bool, optional
+        Whether to wrap responses in collapsible sections (default: True)
+    header_template : str, optional
+        Template string for headers, must contain {model} placeholder
+    
+    Yields:
+    -------
+    str
+        Chunks of text from models in sequential order
+    
     Returns:
-        Generator yielding streamed responses from models
+    --------
+    dict
+        Dictionary mapping model names to their complete responses
+    
+    Notes:
+    ------
+    - If len(prompts) > len(model_names), model_names will be extended by repeating elements
+    - If a model completes before others start, the next model to respond will begin streaming immediately
+    - Models are presented in order of first response, not in the order they were provided
+    - The function returns a dictionary containing the complete responses, useful for further processing
     """
 
     from call_llm import CallLLm

@@ -557,7 +557,8 @@ You are an expert ML system design interview coach. You will be provided with mu
 2. Eliminates redundancy while preserving unique insights
 3. Ensures complete coverage of all important ML system design aspects
 4. Organizes the information in a logical, interview-friendly structure
-5. Highlights the most important points that would impress an interviewer
+5. Highlights the most important points that would impress an interviewer.
+6. While comparing the solutions to the ML system design problem, compare the solutions rather than the models from which they came.
 
 The original query was:
 <user_query>
@@ -1526,7 +1527,7 @@ Now focus on the following areas and provide a more details and a continuation o
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="Response from {model}"
         )
         
