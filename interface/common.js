@@ -923,9 +923,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Newer Models">
                     <option selected>Claude Sonnet 3.7</option>   
                     <option>openai/chatgpt-4o-latest</option> 
-                    <option>cohere/command-a</option>
                     <option>Gemini-2.5-pro-preview</option>
                     <option>gpt-4.5-preview</option>
+                    <option>cohere/command-a</option>
                 </optgroup>
 
                 <optgroup label="Filler Models">
@@ -940,33 +940,17 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>o1-hard</option>
                     <!-- option>o1-preview</option -->
                 </optgroup>
-                
-                
-                
-                
-                
-                
+
                 <optgroup label="Older Models">
+                    <option>Claude Opus</option>
                     <option>Claude Sonnet 3.5</option>  
                     <option>Pixtral Large</option> 
                     <option>gpt-4o</option>
-                    <option>Claude Opus</option>
                     <option>google/gemini-pro-1.5</option>
                 </optgroup>
 
 
                 <!-- option>openai/gpt-4.5-preview</option -->
-
-                
-                
-
-                <optgroup label="Creative Models">
-                    
-                    <option>sao10k/l3.3-euryale-70b</option>
-                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
-                    <option>thedrummer/anubis-pro-105b-v1</option>
-                    <option>steelskull/l3.3-electra-r1-70b</option>
-                </optgroup>
 
                 <optgroup label="Fast Models">
                     <option>google/gemini-2.0-flash-001</option>
@@ -976,6 +960,15 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>openai/gpt-4o-mini</option>
 
 
+                </optgroup>
+
+                <optgroup label="Creative Models">
+                    
+                    <option>sao10k/l3.3-euryale-70b</option>
+                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
+                    <option>thedrummer/anubis-pro-105b-v1</option>
+                    <option>steelskull/l3.3-electra-r1-70b</option>
+                    <option>eva-unit-01/eva-qwen-2.5-72b</option>
                 </optgroup>
 
                 <optgroup label="Web Search Models">

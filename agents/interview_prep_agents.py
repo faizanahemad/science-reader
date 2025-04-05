@@ -1518,11 +1518,11 @@ Provide tips on how we can ace such an interview. Tips should range from general
 Now provide structured and detailed tips for the candidate to impress the interviewer based on the above information. Tips should be general tips as well as specific tips for this problem and how we can improve the interview performance on this problem.
 """
 
-    def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
+    def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
         # Define the models to use
         multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", 
                             "anthropic/claude-3.5-sonnet:beta", 
-                            "cohere/command-a",
+                            "google/gemini-2.5-pro-preview-03-25",
                             "o1", "anthropic/claude-3.7-sonnet:thinking"]
         
         
@@ -1581,14 +1581,14 @@ Now provide structured and detailed tips for the candidate to impress the interv
         
         
         # Call the combiner model
-        combiner_model = "openai/chatgpt-4o-latest"
+        combiner_model = VERY_CHEAP_LLM[0] # "openai/chatgpt-4o-latest"
         combined_response = ""
         try:
             combiner_llm = CallLLm(self.keys, combiner_model)
             combiner_response = combiner_llm(combiner_prompt, images, temperature, stream=True, max_tokens=max_tokens, system=system)
             
             # Stream the combined response inside a collapsible wrapper
-            for chunk in collapsible_wrapper(combiner_response, header="Comprehensive ML System Design Solution", show_initially=True):
+            for chunk in collapsible_wrapper(combiner_response, header="Comprehensive ML System Design Solution", show_initially=False):
                 yield chunk
                 combined_response += chunk
                 
@@ -1616,7 +1616,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="First Phase of Insights from {model}"
         ):
             yield chunk
@@ -1646,7 +1646,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="More Insights from {model}"
         ):
             yield chunk

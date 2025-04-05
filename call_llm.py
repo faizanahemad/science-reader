@@ -58,10 +58,10 @@ def process_math_formatting(text):
     """
     Replaces single-backslash math tokens with double-backslash versions.
     For example:
-      - \[   -> \\\\[
-      - \]   -> \\\\]
-      - \(   -> \\\\(
-      - \)   -> \\\\)
+      - \\\[   -> \\\\\\\\[
+      - \\\]   -> \\\\\\\\]
+      - \\\(   -> \\\\\\\\(
+      - \\\)   -> \\\\\\\\)
     If you have additional rules (e.g. checking newlines), put them here.
     """
     # Simple replacements:

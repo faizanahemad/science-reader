@@ -374,6 +374,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     model_buffers = {model_id: [] for model_id, _, _ in model_instances}
     streaming_order = []  # List to track the order in which models started streaming
     currently_streaming = None  # Which model is currently being streamed
+    started_models = set()
     
     # Process the queue until all models complete
     while len(completed_models) < len(model_instances) or not response_queue.empty():
@@ -394,9 +395,11 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                     # Set up the collapsible section if needed
                     
                     yield chunk
+                    started_models.add(model_id)
                 # If this is the currently streaming model, stream it directly
                 elif model_id == currently_streaming:
                     yield chunk
+                    started_models.add(model_id)
                 # Otherwise, buffer the chunks
                 else:
                     model_buffers[model_id].append(chunk)
@@ -450,6 +453,16 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
             # Check if all futures are done to prevent infinite loops
             if all(future.done() for future in futures):
                 break
+
+    # Final pass: check for any models that have buffered content but never got to stream
+    # This ensures all model outputs are presented, even if they completed out of order
+    for model_id in streaming_order:
+        if model_buffers[model_id] and model_id not in started_models:
+            currently_streaming = model_id
+            # Stream all buffered chunks for this model
+            for buffered_chunk in model_buffers[model_id]:
+                yield buffered_chunk
+            model_buffers[model_id] = []
     
     
     

@@ -3,6 +3,8 @@ import inspect
 import types
 import collections.abc  
 import shutil
+
+import yaml
 from agents.search_and_information_agents import JinaSearchAgent
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews
 from filelock import FileLock
@@ -2526,7 +2528,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
         message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": "\n", # + str(time_dict)
+        yield {"text": "\n", "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": convert_stream_to_iterable(collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)),
                "status": "saving answer ...", "message_ids": message_ids}
 
     
@@ -2857,6 +2860,9 @@ def model_name_to_canonical_name(model_name):
         model_name = "steelskull/l3.3-electra-r1-70b"
     elif model_name == "openai/gpt-4o-mini":
         model_name = "openai/gpt-4o-mini"
+
+    elif model_name == "eva-unit-01/eva-qwen-2.5-72b":
+        model_name = "eva-unit-01/eva-qwen-2.5-72b"
     elif model_name in CHEAP_LONG_CONTEXT_LLM:
         pass
     
