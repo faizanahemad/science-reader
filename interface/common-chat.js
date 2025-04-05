@@ -695,6 +695,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 content_length = elem_to_render.html().length;
             }
             last_rendered_answer = rendered_answer;
+            last_elem_to_render = elem_to_render;
             if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
                 if (elem_to_render && elem_to_render.length > 0) {
                     renderInnerContentAsMarkdown(elem_to_render, 
@@ -737,10 +738,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
             // Always render the last active section once more at the end
             // This ensures that any content less than the 150 character threshold gets rendered
-            if (elem_to_render && elem_to_render.length > 0) {
-                renderInnerContentAsMarkdown(elem_to_render, 
+            if (last_elem_to_render && last_elem_to_render.length > 0) {
+                renderInnerContentAsMarkdown(last_elem_to_render, 
                     function() {
-                        elem_to_render.attr('data-fully-rendered', 'true');
+                        last_elem_to_render.attr('data-fully-rendered', 'true');
                     }, 
                     false, // Use false for final rendering to ensure proper display
                     last_rendered_answer);
@@ -748,14 +749,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // Don't re-render sections that were already properly rendered during streaming
             // Instead, only ensure the last section is fully rendered if needed
-            const lastSection = card.find(".answer, .post-answer").last();
-            if (lastSection.length > 0 && !lastSection.attr('data-fully-rendered')) {
-                // Only render the last section if it might not be completely rendered
-                renderInnerContentAsMarkdown(lastSection, function() {
-                    // Mark as fully rendered after completion
-                    lastSection.attr('data-fully-rendered', 'true');
-                }, false, lastSection.html());
-            }
+            // const lastSection = card.find(".answer, .post-answer").last();
+            // if (lastSection.length > 0 && !lastSection.attr('data-fully-rendered')) {
+            //     // Only render the last section if it might not be completely rendered
+            //     renderInnerContentAsMarkdown(lastSection, function() {
+            //         // Mark as fully rendered after completion
+            //         lastSection.attr('data-fully-rendered', 'true');
+            //     }, false, lastSection.html());
+            // }
             
             // Set up voting mechanism
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
