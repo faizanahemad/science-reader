@@ -671,7 +671,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             if (breakpointResult.hasBreakpoint) {
                 // Render the current section one last time with complete content
                 renderInnerContentAsMarkdown(elem_to_render,
-                    callback = null, continuous = true, html = rendered_answer);
+                    callback = function() {
+                        // Mark as rendered after callback completion
+                        elem_to_render.attr('data-fully-rendered', 'true');
+                    }, continuous = true, html = breakpointResult.textBeforeBreakpoint);
                 
                 // Create a new section for content after the breakpoint
                 sectionCount++;
@@ -732,9 +735,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             // Don't re-render sections that were already properly rendered during streaming
             // Instead, only ensure the last section is fully rendered if needed
             const lastSection = card.find(".answer, .post-answer").last();
-            if (lastSection.length > 0) {
+            if (lastSection.length > 0 && !lastSection.attr('data-fully-rendered')) {
                 // Only render the last section if it might not be completely rendered
-                renderInnerContentAsMarkdown(lastSection, null, false, lastSection.html());
+                renderInnerContentAsMarkdown(lastSection, function() {
+                    // Mark as fully rendered after completion
+                    section.attr('data-fully-rendered', 'true');
+                }, false, lastSection.html());
             }
             
             // Set up voting mechanism
