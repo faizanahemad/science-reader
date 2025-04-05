@@ -474,8 +474,12 @@ function renderStreamingResponse_old(streamingResponse, conversationId, messageT
  * - A horizontal rule preceded by an empty line (\n---\n)
  * 
  * Breakpoints are ignored if they appear inside:
- * - Code blocks (between triple backticks ```)
+ * - Code blocks (between triple backticks ```, including language specifiers)
  * - Details elements (between <details> and </details> tags)
+ * 
+ * This function only analyzes the text for breakpoints - it does not modify the content
+ * of code blocks, details elements, or any other text. All original formatting and syntax
+ * is preserved in the returned text segments.
  * 
  * @param {string} text - The text to analyze for breakpoints
  * @returns {Object} Result containing:
@@ -487,6 +491,7 @@ function getTextAfterLastBreakpoint(text) {
     // Split text into lines for analysis
     let lines = text.split('\n');
     let lastBreakpointIndex = -1;
+    let breakpointType = null; // "double-newline" or "horizontal-rule"
     
     // Track special regions where breakpoints should be ignored
     let inCodeBlock = false;
@@ -498,14 +503,14 @@ function getTextAfterLastBreakpoint(text) {
         const currentLine = lines[i].trim();
         const nextLine = lines[i+1].trim();
         
-        // Check for code block boundaries
+        // Check for code block boundaries - including language specifiers
         if (currentLine.startsWith('```')) {
             inCodeBlock = !inCodeBlock;
             continue;
         }
         
         // Check for details element boundaries
-        if (currentLine.includes('<details') || currentLine.includes('<details>')) {
+        if (currentLine.includes('<details')) {
             detailsDepth++;
             inDetailsBlock = detailsDepth > 0;
         }
@@ -520,41 +525,51 @@ function getTextAfterLastBreakpoint(text) {
             // Check for double newline (empty line followed by empty line)
             if (currentLine === '' && nextLine === '') {
                 lastBreakpointIndex = i;
+                breakpointType = "double-newline";
             }
             // Check for horizontal rule (empty line followed by ---)
             else if (currentLine === '' && nextLine === '---') {
                 lastBreakpointIndex = i;
+                breakpointType = "horizontal-rule";
             }
         }
     }
     
-    // Final check for any unclosed code blocks that might affect our understanding of the text
-    const codeBlockRegex = /```/g;
+    // Check for unclosed structures in the text
+    // For code blocks: We need to check if there's an odd number of ``` markers
+    const codeBlockRegex = /```(?:\w*)/g; // Match ``` followed by optional language specifier
     let codeBlockMatches = [...text.matchAll(codeBlockRegex)];
     const hasUnclosedCodeBlock = codeBlockMatches.length % 2 !== 0;
     
-    // Final check for any unclosed details elements
+    // For details elements: Check if opening and closing tags are balanced
     const detailsOpenRegex = /<details[^>]*>/g;
     const detailsCloseRegex = /<\/details>/g;
     const detailsOpenCount = (text.match(detailsOpenRegex) || []).length;
     const detailsCloseCount = (text.match(detailsCloseRegex) || []).length;
     const hasUnclosedDetails = detailsOpenCount > detailsCloseCount;
     
-    // If we have unclosed structures that might span beyond what we've seen,
-    // we should be cautious about identifying breakpoints
+    // If we have unclosed structures, don't identify breakpoints
     if (hasUnclosedCodeBlock || hasUnclosedDetails) {
-        return { hasBreakpoint: false, textAfterBreakpoint: text };
+        return { 
+            hasBreakpoint: false, 
+            textAfterBreakpoint: text 
+        };
     }
     
     if (lastBreakpointIndex !== -1) {
-        // Found a breakpoint, return both segments
+        // Found a breakpoint - now handle placement of the breakpoint itself
+        
+        // Put ALL breakpoint text in the "after" section
+        const beforeLines = lines.slice(0, lastBreakpointIndex);  // <-- Changed: exclude the first empty line
+        const afterLines = lines.slice(lastBreakpointIndex);      // <-- Changed: include both lines of the breakpoint
+        
         return {
             hasBreakpoint: true,
-            textAfterBreakpoint: lines.slice(lastBreakpointIndex + 1).join('\n'),
-            textBeforeBreakpoint: lines.slice(0, lastBreakpointIndex + 1).join('\n')
+            textBeforeBreakpoint: beforeLines.join('\n'),
+            textAfterBreakpoint: afterLines.join('\n')
         };
     } else {
-        // No breakpoint found
+        // No breakpoint found - return the original text unchanged
         return { 
             hasBreakpoint: false, 
             textAfterBreakpoint: text 
@@ -714,10 +729,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             statusDiv.find('.spinner-border').removeClass('spinner-border');
             console.log('Stream complete');
             
-            // Final rendering of all sections
-            card.find(".answer, .post-answer").each(function() {
-                renderInnerContentAsMarkdown($(this), null, false, $(this).html());
-            });
+            // Don't re-render sections that were already properly rendered during streaming
+            // Instead, only ensure the last section is fully rendered if needed
+            const lastSection = card.find(".answer, .post-answer").last();
+            if (lastSection.length > 0) {
+                // Only render the last section if it might not be completely rendered
+                renderInnerContentAsMarkdown(lastSection, null, false, lastSection.html());
+            }
             
             // Set up voting mechanism
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
