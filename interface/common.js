@@ -924,7 +924,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option selected>Claude Sonnet 3.7</option>   
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>cohere/command-a</option>
+                    <option>Gemini-2.5-pro-preview</option>
                     <option>gpt-4.5-preview</option>
+                </optgroup>
+
+                <optgroup label="Filler Models">
                     <option>Filler</option>
                 </optgroup>
                 
@@ -969,6 +973,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>google/gemini-flash-1.5</option>
                     <option>google/gemini-2.0-flash-lite-001</option>
                     <option>qwen/qwen-turbo</option>
+                    <option>openai/gpt-4o-mini</option>
+
 
                 </optgroup>
 

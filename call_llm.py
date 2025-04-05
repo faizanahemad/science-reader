@@ -85,9 +85,12 @@ def stream_with_math_formatting(response):
         # 'chk' is the streamed chunk response from the LLM
         chunk = chk.model_dump()
         
+        if "choices" not in chunk or len(chunk["choices"]) == 0 or "delta" not in chunk["choices"][0]:
+            continue
         # Some completions might not have 'content' in the delta:
         if "content" not in chunk["choices"][0]["delta"]:
             continue
+        
         
         text_content = chunk["choices"][0]["delta"]["content"]
         if not isinstance(text_content, str):

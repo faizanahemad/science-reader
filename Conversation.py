@@ -2764,7 +2764,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4o-search-preview"
     elif model_name == "openai/gpt-4o-mini-search-preview":
         model_name = "openai/gpt-4o-mini-search-preview"
-
+    elif model_name == "Gemini-2.5-pro-preview":
+        model_name = "google/gemini-2.5-pro-preview-03-25"
     elif model_name == "o1":
         model_name = "o1"
     elif model_name == "o1-pro":
@@ -2854,6 +2855,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "thedrummer/anubis-pro-105b-v1"
     elif model_name == "steelskull/l3.3-electra-r1-70b":
         model_name = "steelskull/l3.3-electra-r1-70b"
+    elif model_name == "openai/gpt-4o-mini":
+        model_name = "openai/gpt-4o-mini"
     elif model_name in CHEAP_LONG_CONTEXT_LLM:
         pass
     

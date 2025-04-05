@@ -1345,24 +1345,55 @@ Here is the answer from jina search:
 
 Now, combine the search results into a single response. Please use the given search results to answer the user's query while combining information from all provided search results. Use all the information from the search results to write a detailed and comprehensive answer. 
 Include the full list of useful references at the end in markdown as bullet points.
-Write your comprehensive and in-depth answer below.
+Write your comprehensive and in-depth answer below. Provide full extensive details and cover all references and sources obtained from search.
 """
 
+    def extract_answer(self, agent, text, images, temperature, stream, max_tokens, system, web_search):
+        response = agent(text, images, temperature, stream, max_tokens, system, web_search)
+        full_answer = ""
+        for chunk in response:
+            full_answer += chunk["text"]
+        # Extract content between web_answer tags
+        import re
+        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
+        match = re.search(web_answer_pattern, full_answer, re.DOTALL)
+        answer = ""
+        if match:
+            answer = match.group(1)
+        return answer, full_answer
+    
+
+    
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         web_search_agent = WebSearchWithAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout)
         perplexity_search_agent = PerplexitySearchAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout, self.num_queries)
         jina_search_agent = JinaSearchAgent(self.keys, VERY_CHEAP_LLM[0], self.detail_level, self.timeout, self.num_queries)
         
-        web_search_results = get_async_future(web_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
-        perplexity_results = get_async_future(perplexity_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
-        jina_results = get_async_future(jina_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
-        
-        web_search_results = collapsible_wrapper(web_search_results.result(), header="Web Search Results", show_initially=False, add_close_button=True)
-        perplexity_results = collapsible_wrapper(perplexity_results.result(), header="Perplexity Search Results", show_initially=False, add_close_button=True)
-        jina_results = collapsible_wrapper(jina_results.result(), header="Jina Search Results", show_initially=False, add_close_button=True)
-
+        web_search_results = get_async_future(self.extract_answer, web_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
+        perplexity_results = get_async_future(self.extract_answer, perplexity_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
+        jina_results = get_async_future(self.extract_answer, jina_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
         llm = CallLLm(self.keys, model_name=self.model_name)
-        response = llm(self.combiner_prompt.format(user_query=text, web_search_results=web_search_results, perplexity_search_results=perplexity_results, jina_search_results=jina_results), temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+        
+
+        while any(not future.done() for future in [web_search_results, perplexity_results, jina_results]):
+            if web_search_results.done() and web_search_results.exception() is None:
+                web_search_results, web_search_full_answer = web_search_results.result()
+                web_search_results = collapsible_wrapper(web_search_results, header="Web Search Results", show_initially=False, add_close_button=True)
+                yield {"text": web_search_results, "status": "MultiSourceSearchAgent"}
+                yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+            if perplexity_results.done() and perplexity_results.exception() is None:
+                perplexity_results, perplexity_full_answer = perplexity_results.result()
+                perplexity_results = collapsible_wrapper(perplexity_results, header="Perplexity Search Results", show_initially=False, add_close_button=True)
+                yield {"text": perplexity_results, "status": "MultiSourceSearchAgent"}
+                yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+            if jina_results.done() and jina_results.exception() is None:
+                jina_results, jina_full_answer = jina_results.result()
+                jina_results = collapsible_wrapper(jina_results, header="Jina Search Results", show_initially=False, add_close_button=True)
+                yield {"text": jina_results, "status": "MultiSourceSearchAgent"}
+                yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+            time.sleep(0.5)
+                
+        response = llm(self.combiner_prompt.format(user_query=text, web_search_results=web_search_full_answer+"\n\n"+web_search_results, perplexity_search_results=perplexity_full_answer+"\n\n"+perplexity_results, jina_search_results=jina_full_answer+"\n\n"+jina_results), temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
 
         yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
         for chunk in response:

@@ -1545,7 +1545,8 @@ Now provide structured and detailed tips for the candidate to impress the interv
             for i in range(len(models_to_use))
         ]
 
-        if self.n_steps >= 4:
+        web_search_response_future = None
+        if self.n_steps >= 4 and web_search:
             # we will perform web search as well.
             web_search_agent = MultiSourceSearchAgent(self.keys, model_name=CHEAP_LLM[0], detail_level=2, timeout=90)
             web_search_response_future = get_async_future(web_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
@@ -1652,7 +1653,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             phase_2_insights += chunk
         yield "\n\n"
 
-        if self.n_steps >= 4:
+        if self.n_steps >= 4 and web_search_response_future is not None:
             web_search_response = web_search_response_future.result()
             yield from collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
             

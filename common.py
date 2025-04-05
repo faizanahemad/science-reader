@@ -56,13 +56,14 @@ OPENROUTER_LLM = ["google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.
             
 VERY_CHEAP_LLM = ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["gpt-4o", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
-EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
+EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
+                 "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
                  "cohere/command-a", "ai21/jamba-1.6-large"]
 
 
 CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
-LONG_CONTEXT_LLM = ["google/gemini-pro-1.5"]
+LONG_CONTEXT_LLM = ["google/gemini-pro-1.5", "google/gemini-2.5-pro-preview-03-25"]
 
 COMMON_SALT_STRING = "31256greagy89"
 
@@ -356,7 +357,9 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
         except Exception as e:
             error_msg = f"Error with model {model_name}: {str(e)}\n{traceback.format_exc()}"
             logger.error(error_msg)
+            error_msg = collapsible_wrapper(error_msg, header=f"Error with {model_name}", show_initially=False)
             response_queue.put(("error", model_id, error_msg))
+            response_queue.put(("complete", model_id))
     
     # Start a thread for each model instance
     futures = []
@@ -409,37 +412,32 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                     currently_streaming = None
                     
                     # Find the next model to stream
+                    next_model_found = False
                     for next_model_id in streaming_order:
                         if next_model_id not in completed_models and next_model_id != model_id:
                             currently_streaming = next_model_id
-                            # Set up collapsible for the next model if needed
-                            
                             # Stream all buffered chunks for this model
                             for buffered_chunk in model_buffers[next_model_id]:
                                 yield buffered_chunk
                             # Clear the buffer
                             model_buffers[next_model_id] = []
+                            next_model_found = True
                             break
+                    # If no model in streaming_order is available, check if any other model has content
+                    if not next_model_found:
+                        for next_model_id, buffer in model_buffers.items():
+                            if next_model_id not in completed_models and len(buffer) > 0:
+                                currently_streaming = next_model_id
+                                for buffered_chunk in buffer:
+                                    yield buffered_chunk
+                                model_buffers[next_model_id] = []
+                                # Add to streaming order if not already there
+                                if next_model_id not in streaming_order:
+                                    streaming_order.append(next_model_id)
+                                break
             
             elif item[0] == "error":
                 model_id, error_msg = item[1], item[2]
-                completed_models.add(model_id)
-                
-                # If this was the currently streaming model, close it
-                if currently_streaming == model_id:
-                    
-                    currently_streaming = None
-                    
-                    # Find the next model to stream (same logic as above)
-                    for next_model_id in streaming_order:
-                        if next_model_id not in completed_models and next_model_id != model_id:
-                            currently_streaming = next_model_id
-                            
-                            for buffered_chunk in model_buffers[next_model_id]:
-                                yield buffered_chunk
-                            model_buffers[next_model_id] = []
-                            break
-                
                 # Show error in its own collapsible if headers are enabled
                 
                 
