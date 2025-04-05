@@ -696,6 +696,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
             
             if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
+                if (elem_to_render && elem_to_render.length > 0) {
+                    renderInnerContentAsMarkdown(elem_to_render, 
+                        function() {
+                            elem_to_render.attr('data-fully-rendered', 'true');
+                        }, 
+                        false, // Use false for final rendering to ensure proper display
+                        elem_to_render.html());
+                }
                 elem_to_render = $(`<div class="post-answer" id="actual-results-rendering-space-${render_phase}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
                 elem_to_render = card.find("#message-render-space-md-render").last().find('.post-answer').last().html('');
