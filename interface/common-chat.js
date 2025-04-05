@@ -674,7 +674,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     callback = function() {
                         // Mark as rendered after callback completion
                         elem_to_render.attr('data-fully-rendered', 'true');
-                    }, continuous = true, html = breakpointResult.textBeforeBreakpoint);
+                    }, continuous = true, html = rendered_answer); // rendered_answer
                 
                 // Create a new section for content after the breakpoint
                 sectionCount++;
