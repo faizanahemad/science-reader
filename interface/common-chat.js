@@ -353,7 +353,7 @@ var ConversationManager = {
 
 };
 
-function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse_old(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -459,6 +459,271 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
             return;
         }
+        // Recursive call to read next message part
+        setTimeout(read, 10);
+    }
+
+    read();
+}
+
+/**
+ * Detects the last valid breakpoint in text and returns sections before and after it.
+ * 
+ * A valid breakpoint is either:
+ * - Two consecutive empty lines (\n\n)
+ * - A horizontal rule preceded by an empty line (\n---\n)
+ * 
+ * Breakpoints are ignored if they appear inside:
+ * - Code blocks (between triple backticks ```)
+ * - Details elements (between <details> and </details> tags)
+ * 
+ * @param {string} text - The text to analyze for breakpoints
+ * @returns {Object} Result containing:
+ *   - hasBreakpoint {boolean}: Whether a valid breakpoint was found
+ *   - textAfterBreakpoint {string}: Text after the last breakpoint (or full text if no breakpoint)
+ *   - textBeforeBreakpoint {string}: Text before and including the last breakpoint (undefined if no breakpoint)
+ */
+function getTextAfterLastBreakpoint(text) {
+    // Split text into lines for analysis
+    let lines = text.split('\n');
+    let lastBreakpointIndex = -1;
+    
+    // Track special regions where breakpoints should be ignored
+    let inCodeBlock = false;
+    let inDetailsBlock = false;
+    let detailsDepth = 0; // To handle nested details elements
+    
+    // Analyze each line to find the last valid breakpoint
+    for (let i = 0; i < lines.length - 1; i++) {
+        const currentLine = lines[i].trim();
+        const nextLine = lines[i+1].trim();
+        
+        // Check for code block boundaries
+        if (currentLine.startsWith('```')) {
+            inCodeBlock = !inCodeBlock;
+            continue;
+        }
+        
+        // Check for details element boundaries
+        if (currentLine.includes('<details') || currentLine.includes('<details>')) {
+            detailsDepth++;
+            inDetailsBlock = detailsDepth > 0;
+        }
+        
+        if (currentLine.includes('</details>')) {
+            detailsDepth = Math.max(0, detailsDepth - 1); // Prevent negative depth
+            inDetailsBlock = detailsDepth > 0;
+        }
+        
+        // Only check for breakpoints if not in a special region
+        if (!inCodeBlock && !inDetailsBlock) {
+            // Check for double newline (empty line followed by empty line)
+            if (currentLine === '' && nextLine === '') {
+                lastBreakpointIndex = i;
+            }
+            // Check for horizontal rule (empty line followed by ---)
+            else if (currentLine === '' && nextLine === '---') {
+                lastBreakpointIndex = i;
+            }
+        }
+    }
+    
+    // Final check for any unclosed code blocks that might affect our understanding of the text
+    const codeBlockRegex = /```/g;
+    let codeBlockMatches = [...text.matchAll(codeBlockRegex)];
+    const hasUnclosedCodeBlock = codeBlockMatches.length % 2 !== 0;
+    
+    // Final check for any unclosed details elements
+    const detailsOpenRegex = /<details[^>]*>/g;
+    const detailsCloseRegex = /<\/details>/g;
+    const detailsOpenCount = (text.match(detailsOpenRegex) || []).length;
+    const detailsCloseCount = (text.match(detailsCloseRegex) || []).length;
+    const hasUnclosedDetails = detailsOpenCount > detailsCloseCount;
+    
+    // If we have unclosed structures that might span beyond what we've seen,
+    // we should be cautious about identifying breakpoints
+    if (hasUnclosedCodeBlock || hasUnclosedDetails) {
+        return { hasBreakpoint: false, textAfterBreakpoint: text };
+    }
+    
+    if (lastBreakpointIndex !== -1) {
+        // Found a breakpoint, return both segments
+        return {
+            hasBreakpoint: true,
+            textAfterBreakpoint: lines.slice(lastBreakpointIndex + 1).join('\n'),
+            textBeforeBreakpoint: lines.slice(0, lastBreakpointIndex + 1).join('\n')
+        };
+    } else {
+        // No breakpoint found
+        return { 
+            hasBreakpoint: false, 
+            textAfterBreakpoint: text 
+        };
+    }
+}
+
+/**
+ * Renders a streaming response in the chatbot interface with improved stability.
+ * 
+ * This function handles the progressive rendering of streaming text responses from the server
+ * into the chat interface. It addresses UI stability issues by detecting natural breakpoints
+ * in the text (e.g., double newlines, horizontal rules) and creating separate rendering
+ * sections at these points to prevent content jumping and stuttering during updates.
+ * 
+ * Key features:
+ * - Streams and decodes server response chunks progressively
+ * - Creates a card element to house the response if not already present
+ * - Detects natural breakpoints in text outside of code blocks and details elements
+ * - Splits rendering into multiple sections at breakpoints for improved UI stability
+ * - Handles special tags like <answer> and </answer> appropriately
+ * - Manages rendering state and performs markdown conversion
+ * - Sets up message IDs for tracking purposes
+ * - Finalizes rendering and sets up voting mechanisms when streaming completes
+ * 
+ * @param {ReadableStream} streamingResponse - The streaming response from the server
+ * @param {string} conversationId - The ID of the current conversation
+ * @param {string} messageText - The text of the user's message that triggered this response
+ * 
+ * @returns {void} - This function does not return a value but updates the UI directly
+ * 
+ * @requires getTextAfterLastBreakpoint - Utility function for detecting valid text breakpoints
+ * @requires renderInnerContentAsMarkdown - Function for rendering markdown content
+ * @requires ChatManager - For creating and managing chat message cards
+ * @requires initialiseVoteBank - For setting up voting UI on completed responses
+ */
+function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+    var reader = streamingResponse.body.getReader();
+    var decoder = new TextDecoder();
+    let buffer = '';
+    let card = null;
+    let answerParagraph = null;
+    let elem_to_render = null;
+    var content_length = 0;
+    var answer = ''
+    var rendered_answer = ''
+    var render_phase = '0'
+    // Track if we are inside a code block
+    var insideCodeBlock = false;
+    // Keep track of sections for rendering
+    var sectionCount = 0;
+
+    
+
+    async function read() {
+        const { value, done } = await reader.read();
+
+        buffer += decoder.decode(value || new Uint8Array, { stream: !done });
+        let boundary = buffer.indexOf('\n');
+        // Render server message
+        var serverMessage = {
+            sender: 'server',
+            text: ''
+        };
+
+        if (!card) {
+            card = ChatManager.renderMessages(conversationId, [serverMessage], false);
+        }
+        while (boundary !== -1) {
+            const part = JSON.parse(buffer.slice(0, boundary));
+            buffer = buffer.slice(boundary + 1);
+            boundary = buffer.indexOf('\n');
+
+            part['text'] = part['text'].replace(/\n/g, '  \n');
+            answer = answer + part['text'];
+            rendered_answer = rendered_answer + part['text'];
+
+            if (!answerParagraph) {
+                answerParagraph = card.find('.actual-card-text').last();
+                elem_to_render = answerParagraph;
+            }
+            var statusDiv = card.find('.status-div');
+            statusDiv.show();
+            statusDiv.find('.spinner-border').show();
+            
+            if (part['text'].includes('<answer>') && card.find("#message-render-space-md-render").length > 0) {
+                elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${render_phase}-${sectionCount}"></div>`);
+                card.find("#message-render-space-md-render").append(elem_to_render);
+                elem_to_render = card.find(`#actual-answer-rendering-space-${render_phase}-${sectionCount}`).html('');
+                content_length = 0;
+                rendered_answer = '';
+                render_phase = '1';
+                sectionCount++;
+            }
+            
+            // Check for breakpoints in the current rendered text
+            const breakpointResult = getTextAfterLastBreakpoint(rendered_answer);
+            
+            if (breakpointResult.hasBreakpoint) {
+                // Render the current section one last time with complete content
+                renderInnerContentAsMarkdown(elem_to_render,
+                    callback = null, continuous = true, html = rendered_answer);
+                
+                // Create a new section for content after the breakpoint
+                sectionCount++;
+                const newElem = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${render_phase}-${sectionCount}"></div>`);
+                card.find("#message-render-space-md-render").append(newElem);
+                elem_to_render = card.find(`#actual-answer-rendering-space-${render_phase}-${sectionCount}`).html('');
+                
+                // Reset rendering for the new section
+                content_length = 0;
+                rendered_answer = breakpointResult.textAfterBreakpoint;
+            }
+            
+            elem_to_render.append(part['text']);
+            
+            if (elem_to_render.html().length > content_length + 150) {
+                renderInnerContentAsMarkdown(elem_to_render,
+                    callback = null, continuous = true, html = rendered_answer);
+                content_length = elem_to_render.html().length;
+            }
+            
+            if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
+                elem_to_render = $(`<div class="post-answer" id="actual-results-rendering-space-${render_phase}"></div>`);
+                card.find("#message-render-space-md-render").append(elem_to_render);
+                elem_to_render = card.find("#message-render-space-md-render").last().find('.post-answer').last().html('');
+                content_length = 0;
+                rendered_answer = '';
+                render_phase = '1';
+            }
+            
+            if (content_length < 100) {
+                var chatView = $('#chatView');
+                // chatView.scrollTop(chatView.prop('scrollHeight'));
+            }
+            
+            var statusDiv = card.find('.status-div');
+            statusDiv.find('.status-text').html(part['status']);
+
+            if (part['message_ids']) {
+                user_message_id = part['message_ids']['user_message_id']
+                response_message_id = part['message_ids']['response_message_id']
+                Array.from(card.find('.history-message-checkbox'))[0].setAttribute('message-id', response_message_id);
+                Array.from(card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${response_message_id}`);
+                last_card = $(card).prevAll('.card').first()
+                Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('message-id', user_message_id);
+                Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${user_message_id}`);
+            }
+        }
+
+        if (done) {
+            $('#messageText').prop('working', false);
+            var statusDiv = card.find('.status-div');
+            statusDiv.hide();
+            statusDiv.find('.status-text').text('');
+            statusDiv.find('.spinner-border').hide();
+            statusDiv.find('.spinner-border').removeClass('spinner-border');
+            console.log('Stream complete');
+            
+            // Final rendering of all sections
+            card.find(".answer, .post-answer").each(function() {
+                renderInnerContentAsMarkdown($(this), null, false, $(this).html());
+            });
+            
+            // Set up voting mechanism
+            initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            return;
+        }
+        
         // Recursive call to read next message part
         setTimeout(read, 10);
     }
