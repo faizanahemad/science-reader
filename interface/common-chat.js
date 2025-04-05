@@ -694,7 +694,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = elem_to_render.html().length;
             }
-            
+            last_rendered_answer = rendered_answer;
             if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
                 if (elem_to_render && elem_to_render.length > 0) {
                     renderInnerContentAsMarkdown(elem_to_render, 
@@ -702,7 +702,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                             elem_to_render.attr('data-fully-rendered', 'true');
                         }, 
                         false, // Use false for final rendering to ensure proper display
-                        elem_to_render.html());
+                        rendered_answer);
                 }
                 elem_to_render = $(`<div class="post-answer" id="actual-results-rendering-space-${render_phase}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
@@ -710,11 +710,6 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 content_length = 0;
                 rendered_answer = '';
                 render_phase = '1';
-            }
-            
-            if (content_length < 100) {
-                var chatView = $('#chatView');
-                // chatView.scrollTop(chatView.prop('scrollHeight'));
             }
             
             var statusDiv = card.find('.status-div');
@@ -748,7 +743,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                         elem_to_render.attr('data-fully-rendered', 'true');
                     }, 
                     false, // Use false for final rendering to ensure proper display
-                    elem_to_render.html());
+                    last_rendered_answer);
             }
             
             // Don't re-render sections that were already properly rendered during streaming
