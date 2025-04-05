@@ -674,7 +674,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     callback = function() {
                         // Mark as rendered after callback completion
                         elem_to_render.attr('data-fully-rendered', 'true');
-                    }, continuous = true, html = rendered_answer); // rendered_answer
+                    }, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
                 
                 // Create a new section for content after the breakpoint
                 sectionCount++;
@@ -731,6 +731,17 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             statusDiv.find('.spinner-border').hide();
             statusDiv.find('.spinner-border').removeClass('spinner-border');
             console.log('Stream complete');
+
+            // Always render the last active section once more at the end
+            // This ensures that any content less than the 150 character threshold gets rendered
+            if (elem_to_render && elem_to_render.length > 0) {
+                renderInnerContentAsMarkdown(elem_to_render, 
+                    function() {
+                        elem_to_render.attr('data-fully-rendered', 'true');
+                    }, 
+                    false, // Use false for final rendering to ensure proper display
+                    elem_to_render.html());
+            }
             
             // Don't re-render sections that were already properly rendered during streaming
             // Instead, only ensure the last section is fully rendered if needed
