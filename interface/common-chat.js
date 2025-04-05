@@ -753,14 +753,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // Don't re-render sections that were already properly rendered during streaming
             // Instead, only ensure the last section is fully rendered if needed
-            // const lastSection = card.find(".answer, .post-answer").last();
-            // if (lastSection.length > 0 && !lastSection.attr('data-fully-rendered')) {
-            //     // Only render the last section if it might not be completely rendered
-            //     renderInnerContentAsMarkdown(lastSection, function() {
-            //         // Mark as fully rendered after completion
-            //         lastSection.attr('data-fully-rendered', 'true');
-            //     }, false, lastSection.html());
-            // }
+            const lastSection = card.find(".answer, .post-answer").last();
+            if (lastSection.length > 0 && !lastSection.attr('data-fully-rendered')) {
+                // Only render the last section if it might not be completely rendered
+                renderInnerContentAsMarkdown(lastSection, function() {
+                    // Mark as fully rendered after completion
+                    lastSection.attr('data-fully-rendered', 'true');
+                }, false, lastSection.html());
+            }
             
             // Set up voting mechanism
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
