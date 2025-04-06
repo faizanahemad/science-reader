@@ -687,7 +687,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 rendered_answer = breakpointResult.textAfterBreakpoint;
             }
             
-            elem_to_render.append(part['text']);
+            // elem_to_render.append(part['text']);
             
             if (elem_to_render.html().length > content_length + 150) {
                 renderInnerContentAsMarkdown(elem_to_render,

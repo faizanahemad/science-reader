@@ -1628,10 +1628,14 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
         if isinstance(model_name, (tuple, list)):
             model_name = list(map(model_name_to_canonical_name, model_name))
+            assert FILLER_MODEL not in model_name or len(model_name) == 1, "Filler model name is not allowed if multiple models are provided."
         else:
             model_name = model_name_to_canonical_name(model_name)
         if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
             model_name = model_name[0].strip()
+
+        if model_name == FILLER_MODEL:
+            links = []
             
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
