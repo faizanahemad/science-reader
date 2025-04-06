@@ -109,7 +109,7 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 ## Guidelines:
 
 ### 1. Discuss about the "Before Writing Code part"
-- What are the clarifying questions we should ask to the interviewer?
+- What are the clarifying questions we should ask to the interviewer? What questions would you ask?
 - What are some key assumptions we need to make to solve the problem?
 - What are some problem specific things we need to consider and keep in mind?
 - Anything else that might impress the interviewer and give us an edge over other candidates? Only concrete and specific things.
@@ -243,12 +243,9 @@ Guidelines:
 1. **Examples and Analogies**:
   - Incorporate practical examples to illustrate abstract concepts.
   - Use analogies to relate complex ideas to familiar scenarios.
-  - Connect this to real world scenarios and problems where this concept or algorithm or solution can be used.
+  - Connect this to real world scenarios, use cases and problems where this concept or algorithm or solution can be used.
   - Suggesting more real world examples and scenarios where this solution can be used.
 
-2. Diagrams
-    - You can use diagrams (ASCII art diagram or text-based diagram) to compare multiple solutions and discuss the pros and cons of each solution.
-    - You can use diagrams to help us understand various nuances and corner cases of the solution.
     
 
 
@@ -265,7 +262,7 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
-Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Extend the current answer to provide more information and details to cover our above guidelines ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation:
 """
         

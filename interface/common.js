@@ -866,25 +866,25 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <option>No Links</option>
                 <option selected>Wife Prompt</option>
-                <option>No Lazy</option>
+                
                 <option>CoT</option>
                 
                 
                 <option>Coding Interview</option>
+                <option>Short Coding Interview</option>
                 
                 <option>Argumentative</option>
                 <option selected>Blackmail</option>
-                <option>ML System Design Roleplay</option>
+                
                 <option>Is Coding Request</option>
-                <option>Explain Maths</option>
+                <!-- option>Explain Maths</option -->
 
-                <option>Improve Code</option>
-                <option>Improve Code Interviews</option>
+                <!-- option>Improve Code</option -->
+                <!-- option>Improve Code Interviews</option -->
                 
-                
+                <option>ML System Design Roleplay</option>
                 <option>ML System Design Answer</option>
                 <option>ML System Design Answer Short</option>
-
                 <option>Engineering Excellence</option>
                 
                 <!-- option>Coding Interview TTS Friendly</option -->
@@ -898,18 +898,19 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>no ai</option>
                 
                 <!-- option>md format</option -->
-                <option>TTS</option>
+                <!-- option>TTS</option -->
                 <!-- option>better formatting</option -->
                 <option>no format</option>
                 
-                <option>No Code Exec</option>
-                <option>Code Exec</option>
+                <!-- option>No Code Exec</option -->
+                <!-- option>Code Exec</option -->
                 
-                <option>Short references</option>
-                <option>Latex Eqn</option>
+                <!-- option>Short references</option -->
+                <!-- option>Latex Eqn</option -->
                 <!-- option>Comparison</option -->
                 <!-- option>Explore</option -->
                 <option>Creative</option>
+                <option>No Lazy</option>
                 
                 
                 <!-- option>Web Search</option -->

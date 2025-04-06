@@ -6,7 +6,7 @@ import shutil
 
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
@@ -1252,6 +1252,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preamble += "\nAnswer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "CoT" in preamble_options:
             preamble += "\nFirst write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner.\n\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
+        if "Short Coding Interview" in preamble_options:
+            preamble += short_coding_interview_prompt
         if "Short references" in preamble_options and web_search_or_document_read:
             preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
         if "Latex Eqn" in preamble_options:
