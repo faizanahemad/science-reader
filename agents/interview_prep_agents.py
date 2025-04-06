@@ -346,7 +346,9 @@ Next Step or answer extension or continuation following the above guidelines:
             try:
                 p3_answer = current_answer
                 # Execute prompt_3
-                llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(2, len(self.writer_model) - 1)])
+                
+                random_index = random.randint(0, min(2, len(self.writer_model) - 1))
+                llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
                 prompt3 = self.prompt_3.replace("{query}", text).replace("{current_answer}", p3_answer)
                 response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
@@ -366,7 +368,8 @@ Next Step or answer extension or continuation following the above guidelines:
                 what_if_response = multiple_llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
                 
                 # Execute prompt_4 with updated answer including prompt_3's output
-                llm4 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(3, len(self.writer_model) - 1)])
+                random_index = random.randint(0, min(3, len(self.writer_model) - 1))
+                llm4 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
                 prompt4 = self.prompt_4.replace("{query}", text).replace("{current_answer}", p3_answer)
                 response4 = llm4(prompt4, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
@@ -398,7 +401,8 @@ Next Step or answer extension or continuation following the above guidelines:
         background_future = get_async_future(execute_prompts_3_and_4)
         
         # Execute prompt_2 while prompts 3 and 4 are running in background
-        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(1, len(self.writer_model) - 1)])
+        random_index = random.randint(0, min(1, len(self.writer_model) - 1))
+        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
         prompt2 = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
         response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
         
