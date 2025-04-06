@@ -689,10 +689,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // elem_to_render.append(part['text']);
             
-            if (elem_to_render.html().length > content_length + 150) {
+            if (rendered_answer.length > content_length + 50) {
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
-                content_length = elem_to_render.html().length;
+                content_length = rendered_answer.length;
             }
             last_rendered_answer = rendered_answer;
             last_elem_to_render = elem_to_render;

@@ -314,6 +314,8 @@ For each piece of code:
 - Point out common pitfalls and how to avoid them
 
 - Formatting Mathematical Equations:
+  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
   - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
   - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
@@ -350,6 +352,8 @@ How should you respond to a question?
 - You can use ASCII art diagram or text-based diagram to help the user understand what you are saying better if needed.
 
 - Formatting Mathematical Equations:
+  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
   - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
   - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
@@ -753,11 +757,13 @@ Help prepare us for technical interviews at the senior or staff level.
 ## Overall Guidelines
 
 - **Mathematical Notation**:
+  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
   - Present equations and formulas using LaTeX in separate `$$` environments or `\\\\( ... \\\\)` notation.
     $$
     \text{Example Equation: } E = mc^2
     $$
-  - For inline math, use `\\\\( ... \\\\)` notation. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - For inline math, use `\\\\( ... \\\\)` or `$ ... $` notation. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
 - **Examples and Analogies**:
   - Incorporate practical examples to illustrate abstract concepts.
   - Use analogies to relate complex ideas to familiar scenarios.
