@@ -202,10 +202,7 @@ Guidelines:
 - Discuss common **algorithmic paradigms** (e.g., divide and conquer, dynamic programming) where this problem or solution fits in.
 - Highlight similar **patterns** that frequently appear in coding interviews.
 - **Discuss** related and important topics and concepts that are relevant to the problem and solution.
-- **Provide** examples and analogies to help us understand the concepts.
-- **Explain** the relationship between the concepts and the problem and solution.
 - **Discuss** how the concepts can be applied to other problems and solutions.
-- **Mention** any other related topics and concepts that are important to know.
 - **Discuss** follow-up extensions and variations of the problem and solution.
 
 
@@ -367,10 +364,9 @@ Next Step or answer extension or continuation following the above guidelines:
                 p3_answer += "\n\n---\n\n"
                 response_queue.put(("prompt3_complete", ""))
                 
-                multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", "anthropic/claude-3.5-sonnet:beta", "cohere/command-a"]
-                multiple_llm = CallMultipleLLM(self.keys, self.writer_model if isinstance(self.writer_model, list) else (multiple_llm_models + ([self.writer_model] if self.writer_model not in multiple_llm_models else [])), merge=True, merge_model=multiple_llm_models[0])
+                multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta"]
+                multiple_llm = CallMultipleLLM(self.keys, self.writer_model if isinstance(self.writer_model, list) else (multiple_llm_models + ([self.writer_model] if self.writer_model not in multiple_llm_models else [])), merge=False)
                 what_if_response = multiple_llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
-        
                 
                 # Execute prompt_4 with updated answer including prompt_3's output
                 llm4 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[min(3, len(self.writer_model) - 1)])
