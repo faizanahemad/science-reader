@@ -926,7 +926,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>Gemini-2.5-pro-preview</option>
                     <option>gpt-4.5-preview</option>
-                    <option>cohere/command-a</option>
+                    <!-- option>cohere/command-a</option -->
                 </optgroup>
 
                 <optgroup label="Filler Models">
@@ -935,10 +935,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <optgroup label="Reasoning Models">
                     <option>o1</option>
-                    <option>openai/o1-pro</option>
+                    <!-- option>openai/o1-pro</option -->
                     <option>Claude Sonnet 3.7 Thinking</option>
                     <option>o1-pro</option>
-                    <option>o1-hard</option>
+                    <!-- option>o1-hard</option -->
                     <!-- option>o1-preview</option -->
                 </optgroup>
 
@@ -948,19 +948,6 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>Pixtral Large</option> 
                     <option>gpt-4o</option>
                     <option>google/gemini-pro-1.5</option>
-                </optgroup>
-
-
-                <!-- option>openai/gpt-4.5-preview</option -->
-
-                <optgroup label="Fast Models">
-                    <option>google/gemini-2.0-flash-001</option>
-                    <option>google/gemini-flash-1.5</option>
-                    <option>google/gemini-2.0-flash-lite-001</option>
-                    <option>qwen/qwen-turbo</option>
-                    <option>openai/gpt-4o-mini</option>
-
-
                 </optgroup>
 
                 <optgroup label="Creative Models">
@@ -975,9 +962,17 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Web Search Models">
                     <option>perplexity/sonar-pro</option>
                     <option>perplexity/sonar-reasoning-pro</option>
-                    <option>openai/gpt-4o-mini-search-preview</option>
-                    <option>openai/gpt-4o-search-preview</option>
-                    <option>perplexity/sonar-deep-research</option>
+                    <!-- option>openai/gpt-4o-mini-search-preview</option -->
+                    <!-- option>openai/gpt-4o-search-preview</option -->
+                    <!-- option>perplexity/sonar-deep-research</option -->
+                </optgroup>
+
+                <optgroup label="Fast Models">
+                    <option>google/gemini-2.0-flash-001</option>
+                    <option>google/gemini-flash-1.5</option>
+                    <option>google/gemini-2.0-flash-lite-001</option>
+                    <option>qwen/qwen-turbo</option>
+                    <option>openai/gpt-4o-mini</option>
                 </optgroup>
 
                 
