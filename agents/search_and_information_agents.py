@@ -393,7 +393,7 @@ Follow the steps outlined below, using the specified XML-style tags to structure
   - `<goals>` ... `</goals>`  
   - `<reflection>` ... `</reflection>`  
   - `<thinking>` ... `</thinking>`  
-  - `<answer>` complete and final improved answer `</answer>`
+  - `<answer>` comprehensive, detailed, all expert opinions combined, complete and final improved answer `</answer>`
 
 User Query with context:
 <user_query>
@@ -414,7 +414,7 @@ Now your overall response would look and be formatted like this:
     [Identify the user's main objectives.]  
 </goals>
 <reflection>
-    [Reflect on the simple answer and identify areas of improvement.]  
+    [Reflect on the simple answer or answers and identify areas of improvement.]  
 </reflection>
 <thinking>
     [Provide a step-by-step plan for enhancements.]  
@@ -478,7 +478,12 @@ Write down the characteristics of a good answer in detail following the above gu
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         st = time.time()
         # outline_future = get_async_future(self.outline_model, self.good_answer_characteristics_prompt.format(query=text), images, temperature, False, max_tokens, system)
-        first_response = self.first_model(text, images, temperature, False, max_tokens, system)
+        first_response_stream = self.first_model(text, images, temperature, True, max_tokens, system)
+        first_response = ""
+        for chunk in first_response_stream:
+            first_response += chunk
+            yield chunk
+        yield "\n\n"
         time_logger.info(f"Time taken to get multi model response: {time.time() - st} with response length: {len(first_response.split())}")
         # outline = sleep_and_get_future_result(outline_future)
         # time_logger.info(f"Time taken to get till outline: {time.time() - st} with outline length: {len(outline.split())}")
@@ -489,30 +494,37 @@ Write down the characteristics of a good answer in detail following the above gu
         else:
             system = f"{self.system}\n{system}"
 
-        improved_response = self.improve_model(improve_prompt, images, temperature, False, max_tokens, system)
-        time_logger.info(f"Time taken to get improved response: {time.time() - st}")
-        # Now lets parse the response and return the improved response
-        goals = improved_response.split('</goals>')[0].split('<goals>')[-1]
-        reflection = improved_response.split('</reflection>')[0].split('<reflection>')[-1]
-        thinking = improved_response.split('</thinking>')[0].split('<thinking>')[-1]
-        revised_reflection = improved_response.split('</revised_reflection>')[0].split('<revised_reflection>')[-1]
-        revised_thinking = improved_response.split('</revised_thinking>')[0].split('<revised_thinking>')[-1]
-        improvements = improved_response.split('</improvements>')[0].split('<improvements>')[-1]
-        answer = improved_response.split('</answer>')[0].split('<answer>')[-1]
-        random_identifier = str(uuid.uuid4())
-        first_response = f"**First Response :** <div data-toggle='collapse' href='#firstResponse-{random_identifier}' role='button'></div> <div class='collapse' id='firstResponse-{random_identifier}'>\n" + first_response + f"\n</div>\n\n"
-        answer = first_response + f"\n\n**Improved Response :** <div data-toggle='collapse' href='#improvedResponse-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='improvedResponse-{random_identifier}'>\n" + answer + f"\n</div>"
-        # return a dictionary
-        return {
-            'goals': goals,
-            'reflection': reflection,
-            'thinking': thinking,
-            'revised_reflection': revised_reflection,
-            'revised_thinking': revised_thinking,
-            'improvements': improvements,
-            'answer': answer
-        }
+            # Start first details section for thinking
+        yield "\n<details>\n<summary><strong>Analysis & Thinking</strong></summary>\n\n"
         
+        improved_response_stream = self.improve_model(improve_prompt, images, temperature, True, max_tokens, system)
+        improved_response = ""
+        answer_section_started = False
+        
+        
+        
+        for chunk in improved_response_stream:
+            if "<answer>" in improved_response:
+                answer_section_started = True
+                yield improved_response.split('<answer>')[0]
+                yield "</details>\n\n"
+                yield "<answer>\n"
+                improved_response = improved_response.split('<answer>')[1]
+                yield "\n<details open>\n<summary><strong>Improved Answer</strong></summary>\n\n"
+                yield improved_response
+            if answer_section_started:
+                yield chunk
+            improved_response += chunk
+            
+            
+            
+            
+
+        # Close the details section
+        yield "</details>\n\n"
+        yield "\n\n"
+        time_logger.info(f"Time taken to get improved response: {time.time() - st}")
+
 
 class NStepAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 2):

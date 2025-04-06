@@ -2328,7 +2328,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                     
                     llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
-                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
+                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
                     main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                 else:
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
@@ -2364,7 +2364,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                         
                         llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
                         # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
-                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)["answer"]
+                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
                         main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                     else:
                         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)

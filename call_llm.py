@@ -405,41 +405,17 @@ class CallMultipleLLM:
         logger.warning(f"[CallMultipleLLM] with temperature = {temperature}, stream = {stream} and models = {self.model_names}")
         start_time = time.time()
         # Call each model and collect responses with stream set to False
-        responses_futures = []
-        for model in self.models:
-            response = get_async_future(model, text, images=images, temperature=temperature, stream=False, max_tokens=max_tokens,
-                             system=system, *args, **kwargs)
-            responses_futures.append((model.model_name, response))  # Assuming model_name is accessible
-        logger.warning(f"[CallMultipleLLM] invoked all models")
-
-        while len(responses_futures) > 0:
-            while not any([resp[1].done() for resp in responses_futures]):
-                time.sleep(0.1)
-                # sleep more
-            # Get the one that is done
-            resp = [resp for resp in responses_futures if resp[1].done()][0]
-            responses_futures.remove(resp)
-            logger.warning(f"[CallMultipleLLM] got response from model {resp[0]} with success/failure as ```{resp[1].exception()}``` with elapsed time as {(time.time() - start_time):.2f} seconds")
-            try:
-                result = resp[1].result()
-                
-                random_identifier = str(uuid.uuid4())
-                result = f"\n**Response from {resp[0]} :** <div data-toggle='collapse' href='#responseFrom-{random_identifier}' role='button'></div> <div class='collapse' id='responseFrom-{random_identifier}'>\n" + result + f"\n</div>\n\n"
-                
-                responses.append((resp[0], result))
-                logger.warning(
-                    f"[CallMultipleLLM] added response from model: {resp[0]} to `responses` with elapsed time as {(time.time() - start_time):.2f} seconds")
-
-            except Exception as e:
-                result = self.backup_model(text, images=images, temperature=0.9, stream=False, max_tokens=max_tokens,
-                                           system=system, *args, **kwargs)
-                random_identifier = str(uuid.uuid4())
-                result = f"\n**Response from {self.backup_model.model_name} :** <div data-toggle='collapse' href='#responseFrom-{random_identifier}' role='button'></div> <div class='collapse' id='responseFrom-{random_identifier}'>\n" + result + f"\n</div>\n\n"
-                responses.append((self.backup_model.model_name, result))
-                logger.error(
-                    f"[CallMultipleLLM] got response from backup model {self.backup_model.model_name} due to error from model {resp[0]}")
-
-
+        from common import stream_multiple_models
+        models_responses = ""
+        multi_model_stream = stream_multiple_models(self.keys, self.model_names, [text] * len(self.model_names), images=images, temperature=temperature, max_tokens=max_tokens, system=system, 
+                           collapsible_headers=True, header_template="Response from {model}")
+        for chunk in multi_model_stream:
+            models_responses += chunk
+            if stream:
+                yield chunk
+        models_responses += "\n\n"
+        yield "\n\n"
+        
         if self.merge:
             merged_prompt = f"""We had originally asked large language model experts the below information/question:
 <|original_context|>
@@ -448,20 +424,23 @@ class CallMultipleLLM:
 Given below are the responses we obtained by asking multiple models with the above context.
 Consider each response and pick the best parts from each response to create a single comprehensive response.
 Merge the following responses, ensuring to include all details from each of the expert model answers and following instructions given in the originalcontext:\n
-"""
-            for model_name, response in responses:
-                merged_prompt += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
+{models_responses}
 
-                # Add a system prompt for the merge model
+Merge the above responses to create a single comprehensive response including all details from each of the expert model answers and following instructions given in the original context.
+"""
+            
             system_prompt = "You are a language model tasked with merging responses from multiple other models without losing any information and including all details from each of the expert model answers. Please ensure clarity, coverage and completeness. Provide a comprehensive and detailed answer."
             logger.warning(f"[CallMultipleLLM] merging responses from all models with prompt length {len(merged_prompt.split())} with elapsed time as {(time.time() - start_time):.2f} seconds")
-            merged_response = self.merge_model(merged_prompt, system=system_prompt, stream=True)
-            logger.warning(f"[CallMultipleLLM] merged response from all models with merged response length {len(merged_response.split()) if isinstance(merged_response, str) else -1} with elapsed time as {(time.time() - start_time):.2f} seconds")
-            return make_stream(merged_response, stream)
+            merged_response = collapsible_wrapper(self.merge_model(merged_prompt, system=system_prompt, stream=stream), header="Merged Response", show_initially=True)
+            if stream:
+                for chunk in merged_response:
+                    models_responses += chunk
+                    yield chunk
+            else:
+                merged_response = merged_response.strip()
+                return models_responses + merged_response
+            
         else:
-            # Format responses in XML style
-            formatted_responses = ""
-            for model_name, response in responses:
-                formatted_responses += f"<model_response>\n<model_name>{model_name}</model_name>\n{response}\n</model_response>\n\n"
-            logger.warning(f"[CallMultipleLLM] returning responses from all models with elapsed time as {(time.time() - start_time):.2f} seconds")
-            return make_stream(formatted_responses.strip(), stream) # formatted_responses.strip()  # Remove trailing newlines
+            if not stream:
+                return models_responses
+            
