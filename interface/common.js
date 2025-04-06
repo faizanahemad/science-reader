@@ -882,10 +882,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>Improve Code</option -->
                 <!-- option>Improve Code Interviews</option -->
                 
-                <option>ML System Design Roleplay</option>
-                <option>ML System Design Answer</option>
-                <option>ML System Design Answer Short</option>
-                <option>Engineering Excellence</option>
+                <!-- option>ML System Design Roleplay</option -->
+                <!-- option>ML System Design Answer</option -->
+                <!-- option>ML System Design Answer Short</option -->
+                <!-- option>Engineering Excellence</option -->
                 
                 <!-- option>Coding Interview TTS Friendly</option -->
                 <option>Diagram</option>
@@ -895,12 +895,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 
                 
-                <option>no ai</option>
+                <!-- option>no ai</option -->
                 
                 <!-- option>md format</option -->
                 <!-- option>TTS</option -->
                 <!-- option>better formatting</option -->
-                <option>no format</option>
+                <!-- option>no format</option -->
                 
                 <!-- option>No Code Exec</option -->
                 <!-- option>Code Exec</option -->

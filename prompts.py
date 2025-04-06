@@ -621,6 +621,10 @@ Help prepare us for technical interviews at the senior or staff level.
 - Tell us any new niche concepts or patterns that are used in the solution
 - If there are multiple solutions, then compare the solutions and discuss the pros and cons of each solution.
 - I am preparing for FAANG coding interviews, so make sure to explain the solution in a way I can understand and apply to other problems. Optimise for learning and understanding.
+- Write verbal description of the solution in simple language in steps and in pseudocode before writing the code.
+- Show a running example of the solution where we go step by step and check outputs and intermediates at each step and show them to understand the solution better.
+- If there are loop invariants, or state variables, or any other variables that are changing, then show them changing in the example.
+- Examples should be sufficiently detailed to understand the solution.
 
 """
 
