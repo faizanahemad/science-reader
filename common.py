@@ -142,7 +142,7 @@ def collapsible_wrapper(response, header="Solution", show_initially=True, add_cl
     
     # Add CSS for the close button if requested
     if add_close_button:
-        yield """<style>
+        style_string = """<style>
 .details-close-btn {
     background-color: #f0f0f0;
     border: 1px solid #ccc;
@@ -172,6 +172,7 @@ document.addEventListener('click', function(event) {
 });
 </script>
 """
+        # yield style_string
     
     # Handle string responses directly
     if isinstance(response, str):

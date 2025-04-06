@@ -411,5 +411,34 @@
         }
       });
   </script>
+  <style>
+    .details-close-btn {
+        background-color: #f0f0f0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        margin-top: 10px;
+        display: inline-block;
+    }
+    .details-close-btn:hover {
+        background-color: #e0e0e0;
+    }
+    </style>
+    <script>
+    document.addEventListener('click', function(event) {
+        if (event.target.classList.contains('details-close-btn')) {
+            // Find the parent details element
+            let details = event.target.closest('details');
+            if (details) {
+                // Close the details element
+                details.removeAttribute('open');
+                // Scroll to the summary
+                details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
+            }
+        }
+    });
+    </script>
 </body>
 </html>
