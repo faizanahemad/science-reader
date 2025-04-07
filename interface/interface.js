@@ -100,6 +100,11 @@ $(document).ready(function() {
         // $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
         $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
         $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
+
+        
+
+        $("#chat-options-assistant-ensemble").parent().hide();
+        $("#chat-options-assistant-ensemble").prop('checked', false);
     });
 
     $('#finchat-tab').on('shown.bs.tab', function (e) {
@@ -110,7 +115,7 @@ $(document).ready(function() {
         $('#permanentText').hide();
         // $("#field-selector").val("Finance");
         $("#field-selector").val("Agent_NStepCodeAgent");
-        $("#preamble-selector").val("").val("Blackmail");
+        $("#preamble-selector").val("").val(["Short Coding Interview", "CoT", "Long"]);
         $("#field-selector").parent().show();
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", false);
@@ -121,6 +126,12 @@ $(document).ready(function() {
         $("#chat-options-assistant-use-multiple-docs-checkbox").prop('checked', false);
         $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
         $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
+
+        $("#chat-options-assistant-search-exact").parent().hide();
+        $("#chat-options-assistant-search-exact").prop('checked', false);
+
+        $("#chat-options-assistant-ensemble").parent().hide();
+        $("#chat-options-assistant-ensemble").prop('checked', false);
         
     });
     
