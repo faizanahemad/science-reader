@@ -246,6 +246,10 @@ Guidelines:
   - Connect this to real world scenarios, use cases and problems where this concept or algorithm or solution can be used.
   - Suggesting more real world examples and scenarios where this solution can be used.
 
+2. **How real world questions can be asked that would need this solution**:
+  - Ask questions that would need this solution.
+  - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
+
     
 
 
@@ -353,7 +357,7 @@ Next Step or answer extension or continuation following the above guidelines:
                 response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
                 # Stream prompt_3 response through the queue
-                for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=True):
+                for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=False):
                     response_queue.put(("prompt3", chunk))
                     p3_answer += chunk
                 
@@ -362,10 +366,19 @@ Next Step or answer extension or continuation following the above guidelines:
                 response_queue.put(("prompt3", "\n\n---\n\n"))
                 p3_answer += "\n\n---\n\n"
                 response_queue.put(("prompt3_complete", ""))
+
+                if self.n_steps == 3:
+                    return
                 
                 multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta"]
-                multiple_llm = CallMultipleLLM(self.keys, self.writer_model if isinstance(self.writer_model, list) else (multiple_llm_models + ([self.writer_model] if self.writer_model not in multiple_llm_models else [])), merge=False)
-                what_if_response = multiple_llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+                if isinstance(self.writer_model, list):
+                    multiple_llm_models += self.writer_model
+                else:
+                    multiple_llm_models += [self.writer_model]
+                multiple_llm_models = list(set(multiple_llm_models))
+                random.shuffle(multiple_llm_models)
+                multiple_llm = [CallLLm(self.keys, model) for model in multiple_llm_models[:2]]
+                what_if_response = multiple_llm[0](self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
                 
                 # Execute prompt_4 with updated answer including prompt_3's output
                 random_index = random.randint(0, min(3, len(self.writer_model) - 1))
@@ -374,7 +387,7 @@ Next Step or answer extension or continuation following the above guidelines:
                 response4 = llm4(prompt4, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
                 # Stream prompt_4 response through the queue
-                for chunk in collapsible_wrapper(response4, header="Examples and Diagrams", show_initially=True):
+                for chunk in collapsible_wrapper(response4, header="Examples and Real World Questions", show_initially=False):
                     response_queue.put(("prompt4", chunk))
                 
                 # Mark prompt4 as completed
@@ -382,8 +395,19 @@ Next Step or answer extension or continuation following the above guidelines:
                 response_queue.put(("prompt4", "\n\n---\n\n"))
                 response_queue.put(("prompt4_complete", ""))
 
-                for chunk in collapsible_wrapper(what_if_response, header="What-if questions and scenarios", show_initially=True):
+                p3_answer += "\n\n---\n\n"
+                for chunk in collapsible_wrapper(what_if_response, header="What-if questions and scenarios - 1", show_initially=False):
                     response_queue.put(("what_if", chunk))
+                    p3_answer += chunk
+
+                p3_answer += "\n\n---\n\n"
+                for i, llm in enumerate(multiple_llm[1:], start=2):
+                    what_if_response = llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", p3_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+                    for chunk in collapsible_wrapper(what_if_response, header=f"What-if questions and scenarios - {i}", show_initially=False):
+                        response_queue.put(("what_if", chunk))
+                        p3_answer += chunk
+
+                    p3_answer += "\n\n---\n\n"
                 
                 completed["what_if"] = True
                 response_queue.put(("what_if", "\n\n---\n\n"))
@@ -397,8 +421,9 @@ Next Step or answer extension or continuation following the above guidelines:
             # Signal completion
             response_queue.put(("done", None))
         
-        # Start background task
-        background_future = get_async_future(execute_prompts_3_and_4)
+        if self.n_steps > 2:
+            # Start background task
+            background_future = get_async_future(execute_prompts_3_and_4)
         
         # Execute prompt_2 while prompts 3 and 4 are running in background
         random_index = random.randint(0, min(1, len(self.writer_model) - 1))
@@ -415,7 +440,9 @@ Next Step or answer extension or continuation following the above guidelines:
         
         yield "\n\n---\n\n"
         current_answer += "\n\n---\n\n"
-        
+
+        if self.n_steps == 2:
+            return
         # After prompt_2 is done, process any remaining results from prompts 3 and 4
         # and continue streaming as they become available
         background_complete = False
