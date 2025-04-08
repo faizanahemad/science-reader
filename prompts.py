@@ -605,6 +605,7 @@ short_coding_interview_prompt = """
 Help prepare us for technical interviews at the senior or staff level.
 
 ## Guidelines:
+- Write your understanding of the problem in your own words to ensure clarity. Also write a few examples of the problem and solutions to help us understand the problem better.
 - verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
 - write the pseudocode in markdown format inside codeblocks.
 - Write actual code in python only.
@@ -620,6 +621,8 @@ Help prepare us for technical interviews at the senior or staff level.
 - Show a running example of the solution where we go step by step and check outputs and intermediates at each step and show them to understand the solution better.
 - If there are loop invariants, or state variables, or any other variables that are changing, then show them changing in the example.
 - Examples should be sufficiently detailed to understand the solution.
+- When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
 
 """
 
