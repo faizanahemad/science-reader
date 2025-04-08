@@ -118,9 +118,8 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 
 ### 2. Data Access Patterns and Performance for each solution
 - Discuss how **data access patterns** impact performance.
-- Explain techniques to optimize **memory usage** and **data retrieval**.
 - Address issues like **cache utilization** and **locality of reference**.
-- Real world implications of the data access patterns and performance, Caching (CPU, RAM, Disk etc), and other optimizations.
+- Real world implications of the data access patterns and performance, Caching (CPU, RAM, Disk etc), and other optimizations. Can we optimise the data access patterns?
 
 ### 3. Analyzing Provided Solutions (If Applicable)
 - Only analyze the provided solutions, don't write code.
@@ -130,19 +129,15 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 - Discuss the **trade-offs** and decisions made in our approach.
 - Suggest improvements in:
   - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage.
-  - **Code Style**: Enhancing readability and maintainability.
-  - **Data Access Patterns**: Optimizing data access patterns and performance.
 - Highlight **trade-offs** between different solutions:
   - **Time vs. Space Complexity**
-  - **Preprocessing Time vs. Query Time**
   - **Simplicity vs. Efficiency**
-  - **Memory Access Patterns**
   - Offer a detailed **complexity analysis** for each solution.
     - Use **Big O notation** and explain the reasoning behind it (how you arrived at the time and space complexity).
     - Compare complexities between different solutions and discuss implications.
 
 - Compare the solutions (make a table) and discuss the pros and cons of each solution (if there are multiple solutions).
-- Analyse and tell which solution (if multiple solutions are provided) is the best solution and why it would impress the interviewer.
+- Analyse and tell which solution (if multiple solutions are provided) is the best solution and why.
 {mathematical_notation}
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
@@ -163,6 +158,7 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
 Code is not needed. Do not write code. Avoid code. Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation:
 """
@@ -176,8 +172,8 @@ Help prepare us for technical interviews at the senior or staff level.
 You will expand upon the current answer and provide more information and details based  on the below framework and guidelines.
 Don't repeat the same information or details that are already provided in the current answer.
 {mathematical_notation}
-Code is not needed. Do not write code. Focus only on the below guidelines.
-
+Code is not needed. Do not write code. 
+Focus only on the below guidelines.
 
 Guidelines:
 ### 1. Testing for Edge Cases
@@ -197,21 +193,6 @@ Guidelines:
   - Scaling to distributed systems (where consistency or partitioning is needed and we may have network latency and other constraints)
 - Encourage us to consider **real-world scenarios** where such trade-offs are critical.
 
-### 3. System Design and Architecture Considerations:
-  - Designing scalable systems which might tackle this problem at a much larger scale.
-  - Designing systems which use this algorithm or concept but in a much larger scale or a constrained environment.
-  - Understanding architectural patterns.
-  - Balancing trade-offs in system components.
-  - Distributed Systems, Real-time systems, systems with high availability, systems where data may get corrupted or lost, and other constraints. 
-  - Focus on algorithms and solution paradigms rather than software or packages or libraries.
-
-### 4. Related and Important Topics and Concepts
-- Discuss common **algorithmic paradigms** (e.g., divide and conquer, dynamic programming) where this problem or solution fits in.
-- Highlight similar **patterns** that frequently appear in coding interviews.
-- **Discuss** related and important topics and concepts that are relevant to the problem and solution.
-- **Discuss** how the concepts can be applied to other problems and solutions.
-- **Discuss** follow-up extensions and variations of the problem and solution.
-
 
 
 
@@ -228,11 +209,12 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
-Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation following the above guidelines:
 """
 
-        self.prompt_3 = f"""
+        self.prompt_3_v2 = f"""
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. 
 You teach coding and interview preparation in python and pseudocode. You are also an expert in system design, scaling, real-time systems, distributed systems, and architecture.
 
@@ -277,7 +259,8 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
-Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation following the above guidelines:
 """
 
@@ -323,6 +306,7 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
 Extend the current answer to provide more information and details to cover our above guidelines ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation:
 """
@@ -370,7 +354,8 @@ Current Answer:
 {{current_answer}}
 </current_answer>
 
-Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation following the above guidelines:
 """
         
@@ -415,6 +400,15 @@ Next Step or answer extension or continuation following the above guidelines:
                 
                 # Stream prompt_3 response through the queue
                 for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=False):
+                    response_queue.put(("prompt3", chunk))
+                    p3_answer += chunk
+
+                response_queue.put(("prompt3", "\n\n---\n\n"))
+                p3_answer += "\n\n---\n\n"
+
+                prompt3_v2 = self.prompt_3_v2.replace("{query}", text).replace("{current_answer}", p3_answer)
+                response3_v2 = llm3(prompt3_v2, images, temperature, stream=True, max_tokens=max_tokens, system=system)
+                for chunk in collapsible_wrapper(response3_v2, header="System Design and Architecture Considerations", show_initially=False):
                     response_queue.put(("prompt3", chunk))
                     p3_answer += chunk
                 
