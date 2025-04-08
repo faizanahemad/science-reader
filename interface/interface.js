@@ -114,8 +114,8 @@ $(document).ready(function() {
         $('#searchInput').hide();
         $('#permanentText').hide();
         // $("#field-selector").val("Finance");
-        $("#field-selector").val("Agent_NStepCodeAgent");
-        $("#preamble-selector").val("").val(["Short Coding Interview", "CoT", "Long"]);
+        $("#field-selector").val("None");
+        $("#preamble-selector").val("").val(["Short Coding Interview", "Long"]);
         $("#field-selector").parent().show();
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", false);
