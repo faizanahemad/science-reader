@@ -253,8 +253,10 @@ $(document).ready(function() {
         pdfTabIsActive();
     });
 
-    $('#search-tab').trigger('shown.bs.tab');
-    $("a#search-tab.nav-link").addClass('active');
+    active_tab = "finchat-tab" // search-tab finchat-tab assistant-tab
+
+    $('#' + active_tab).trigger('shown.bs.tab');
+    $('a#' + active_tab).addClass('active');
     $("a#pdf-tab.nav-link").removeClass('active');
     pdfTabIsActive();
     // $("#assistant-tab").tigger('click');

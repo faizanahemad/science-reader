@@ -483,7 +483,7 @@ Next Step or answer extension or continuation following the above guidelines:
         response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
         
         # Stream prompt_2 results while checking for any available results from prompts 3 and 4
-        for chunk in collapsible_wrapper(response2, header="Analysis of the solution", show_initially=True):
+        for chunk in collapsible_wrapper(response2, header="Analysis of the solution", show_initially=False):
             yield chunk
             current_answer += chunk
             
