@@ -1586,8 +1586,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             yield {"text": '', "status": "saving message ..."}
             get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": "\n", # + str(time_dict)
-                   "status": "saving answer ...", "message_ids": message_ids}
+            yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+            stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
+            for chunk in stats:
+                yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
+            yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
             return
         
         
@@ -1621,7 +1624,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 yield {"text": '', "status": "saving message ..."}
                 get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
                 message_ids = self.get_message_ids(query["messageText"], answer)
-                yield {"text": "\n" + str(time_dict), "status": "saving answer ...", "message_ids": message_ids}
+                yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+                stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
+                for chunk in stats:
+                    yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
+                yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
                 return
 
         
@@ -2536,9 +2543,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
         message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": "\n", "status": "saving answer ...", "message_ids": message_ids}
-        yield {"text": convert_stream_to_iterable(collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)),
-               "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+        stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
+        for chunk in stats:
+            yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
+        yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
 
     
     def detect_previous_message_type(self):

@@ -353,7 +353,7 @@ var ConversationManager = {
 
 };
 
-function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse_old(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -606,7 +606,7 @@ function getTextAfterLastBreakpoint(text) {
  * @requires ChatManager - For creating and managing chat message cards
  * @requires initialiseVoteBank - For setting up voting UI on completed responses
  */
-function renderStreamingResponse_new(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';

@@ -257,6 +257,8 @@ $(document).ready(function() {
 
     $('#' + active_tab).trigger('shown.bs.tab');
     $('a#' + active_tab).addClass('active');
+    $("a#search-tab").removeClass('active');
+    $("a#search-tab.nav-link").removeClass('active');
     $("a#pdf-tab.nav-link").removeClass('active');
     pdfTabIsActive();
     // $("#assistant-tab").tigger('click');

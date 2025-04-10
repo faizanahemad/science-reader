@@ -568,7 +568,7 @@ except Exception as e:
     traceback.print_exc(file=sys.stderr)
     raise e
 """
-def run_code_with_constraints_v2(code_string, constraints={}, session: PersistentPythonEnvironment=None):
+def run_code_with_constraints_v2_old(code_string, constraints={}, session: PersistentPythonEnvironment=None):
     """
     Executes the given code_string with specified resource constraints and captures the output.
 
@@ -618,6 +618,80 @@ print = prnt
     except Exception as e:
         failure_reason = str(e) + "\n" + traceback.format_exc()
         success = False
+    finally:
+        pass
+
+    if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
+        failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n"
+    if stderr:
+        stderr = stderr.strip()
+
+    return success, failure_reason, stdout, stderr
+
+def run_code_with_constraints_v2(code_string, constraints={}, session: PersistentPythonEnvironment=None):
+    """
+    Executes the given code_string with specified resource constraints and captures the output.
+
+    Parameters:
+    - code_string (str): The Python code to execute.
+    - constraints (dict): A dictionary of constraints.
+    - session (PersistentPythonEnvironment): The persistent python environment to use for code execution.
+
+    Returns:
+    - success (bool): True if the code executed successfully, False otherwise.
+    - failure_reason (Exception): The exception that caused the code to fail, if any.
+    - stdout (str): The standard output of the code.
+    - stderr (str): The standard error of the code.
+    """
+    if session is None:
+        session = PersistentPythonEnvironment_v2()
+    memory = constraints.get("memory", 1500)
+    time = constraints.get("time", 120)
+    code_string = "\n".join([line for line in code_string.split("\n") if "plt.show()" not in line])
+    code_string += """
+prnt("-x-=" * 40)
+did_we_print = True
+prnt(str(print))
+print = prnt
+"""
+    code_string = "\n".join(["\t" + line for line in code_string.split("\n")])
+    # logger.info("Actual Executed code is: \n" + code_string)
+    code_string = mem_and_cpu_limit_str.format(memory=memory, time=time) + "\n" + try_catch_block_v2.format(code=code_string)
+    # Remove any line with plt.show() from the code
+    stdout, stderr = None, None
+    try:
+        success, failure_reason, stdout, stderr = session.run_code(code_string, time)
+        if stdout:
+            stdout = stdout.strip()
+            split_string = "-x-=" * 40
+            if split_string in stdout:
+                stdout = stdout.split(split_string)[1]
+                if stdout:
+                    stdout = stdout.strip()
+        
+        # Add error handling around logging statements
+        try:
+            if not success or stderr.strip() != "":
+                # Limit log size to prevent "file too large" errors
+                log_stderr = stderr[:1000] + "..." if len(stderr) > 1000 else stderr
+                logger.info(f"Code execution failed with error as below:\n{log_stderr}")
+            else:
+                logger.info("Code executed successfully.")
+        except Exception as log_error:
+            # Silently handle logging errors to prevent function from failing
+            pass
+        stderr = "" if stderr is None else stderr
+        failure_reason = "" if failure_reason is None else failure_reason
+        failure_reason = f"{failure_reason}\n{stderr}".strip()
+
+    except Exception as e:
+        failure_reason = str(e) + "\n" + traceback.format_exc()
+        success = False
+        # Add error handling for logging here too
+        try:
+            logger.info(f"Exception in code execution: {str(e)[:1000]}")
+        except Exception:
+            pass
     finally:
         pass
 

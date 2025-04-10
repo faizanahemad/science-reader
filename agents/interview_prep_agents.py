@@ -169,7 +169,7 @@ Code is required at this step.
 - Test cases should all be executed and their failures logged and finally the test results which failed should be printed. The failed test cases should be printed in a separate section than the successful test cases in code.
 - Finally if any test cases failed, after all the test cases have been executed, and details printed, then raise an exception and print the exception message with the all the test results which failed. If all test cases pass, then do not raise an exception.
 - The full executable and self-contained code should be written in a single code block in triple backticks in python.
-- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block.  
+- Write code that needs execution in a single code block.  
 - When writing executable code, write full and complete executable code within a single code block even within same message since our code environment is stateless and does not store any variables or previous code/state. 
 - When correction is to be made, first look at the current stdout and stderr and then analyse what test cases failed and then correct the pseudocode and logic first.
 - For correcting the code if code is already given, analyse what test cases failed and what test cases passed, why and which part of algorithm or logic is wrong and correct the code.
@@ -223,7 +223,7 @@ Write your solution below which expands our understanding of the problem and enh
         response3 = llm3(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
 
         code_written = ""
-        for chunk in collapsible_wrapper(response3, header="Solution", show_initially=False):
+        for chunk in collapsible_wrapper(response3, header="Solution", show_initially=True):
             yield chunk
             current_answer += chunk
             code_written += chunk
@@ -233,25 +233,32 @@ Write your solution below which expands our understanding of the problem and enh
         
         extracted_code = extract_code(code_written, relax=True)
         code_session = PersistentPythonEnvironment()
-        success, failure_reason, stdout, stderr, code_string = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
-
+        try:
+            success, failure_reason, stdout, stderr = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
+        except Exception as e:
+            yield f"Code execution failed with the following error: \n```\n{str(e)}\n```\n\n"
+            return
+        
         def code_runner_result(failure_reason, stdout, stderr):
             if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
                 # yield f"Code execution failed with the following error: \n```\n{failure_reason}\n```\n\n"
-                yield f"STDOUT:\n```\n{stdout}\n```\n\n"
-                yield f"STDERR:\n```\n{stderr}\n```\n\n"
-                yield "```\n"
+                yield f"STDOUT:\n\n```\n\n{stdout}\n\n```\n\n"
+                yield f"STDERR:\n\n```\n\n{stderr}\n\n```\n\n"
+                
             else:
                 yield f"Code execution passed with the following output:\n"
-                yield "```\n"
-                yield f"{stdout}\n"
-                yield "```\n"
+                yield "\n\n```\n\n"
+                yield f"{stdout}\n\n"
+                yield "```\n\n"
 
         current_answer += "\n\n---\n\n"
-        for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=False):
+        yield "\n\n---\n\n"
+        for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=True):
             yield chunk
             current_answer += chunk
         current_answer += "\n\n---\n\n"
+
+        del code_session
 
 
         n_steps = 1
@@ -263,7 +270,7 @@ Write your solution below which expands our understanding of the problem and enh
             response3 = llm3(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
 
             code_written = ""
-            for chunk in collapsible_wrapper(response3, header="Solution", show_initially=False):
+            for chunk in collapsible_wrapper(response3, header="Solution", show_initially=True):
                 yield chunk
                 current_answer += chunk
                 code_written += chunk
@@ -271,18 +278,16 @@ Write your solution below which expands our understanding of the problem and enh
             current_answer += "\n\n---\n\n"
             extracted_code = extract_code(code_written, relax=True)
             code_session = PersistentPythonEnvironment()
-            success, failure_reason, stdout, stderr, code_string = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
+            success, failure_reason, stdout, stderr = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
+            del code_session
             current_answer += "\n\n---\n\n"
-            for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=False):
+            for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=True):
                 yield chunk
                 current_answer += chunk
             current_answer += "\n\n---\n\n"
+            yield "\n\n---\n\n"
             n_steps += 1
 
-
-        
-        
-        
 
 class NStepCodeAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
