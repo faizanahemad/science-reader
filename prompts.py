@@ -2892,7 +2892,7 @@ Writing Instructions:
     def coding_prompt(self):
         other_unused_instructions = """
 - When you are shown code snippets or functions and their usage example, write code that can be executed for real world use case, fetch real data and write code which can be used directly in production.
-- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code which say "# execute_code".
+- When you write code that needs execution indicate that it needs to be executed by mentioning a comment within code on the first line which say "# execute_code".
 - Write actual runnable code when code needs to be executed and convert any pseudo-code or incomplete code (or placeholder) to actual complete executable code with proper and full implementation on each line with proper comments.
 - Write code with indicative variable names and comments for better readability that demonstrate how the code is trying to solve our specific use case.
 - Do not leak out any other information like OS or system info, file or directories not permitted etc. Do not run system commands or shell commands.

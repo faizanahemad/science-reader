@@ -787,7 +787,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[5]}">Ensemble</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[5]}">Ensemble</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
@@ -860,23 +860,23 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="preamble-selector" class="mr-1">Preambles</label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 
-                <option>Short</option>
+                
                 <!-- option>Paper Summary</option -->
-                <option>Long</option>
+                <!-- option>Long</option -->
                 
                 <option>No Links</option>
                 <option selected>Wife Prompt</option>
+                <option>Short</option>
                 
-                <option>CoT</option>
-                
-                
-                <option>Coding Interview</option>
+                <!-- option>Coding Interview</option -->
                 <option>Short Coding Interview</option>
                 
                 <option>Argumentative</option>
                 <option selected>Blackmail</option>
                 
                 <option>Is Coding Request</option>
+                
+                <option>CoT</option>
                 <!-- option>Explain Maths</option -->
 
                 <!-- option>Improve Code</option -->
@@ -991,21 +991,22 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="field-selector" class="mr-1">Agents</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
-                <option>Agent_NStepCodeAgent</option>
-                <option>Agent_MLSystemDesignAgent</option>
-                <option>Agent_NStepAgent</option>
-                <option>Agent_PerplexitySearch</option>
-                <option>Agent_JinaSearchAgent</option>
-                <option>Agent_WebSearch</option>
-                <option>Agent_MultiSourceSearch</option>
-                <option>Agent_BroadSearch</option>
-                <option>Agent_BestOfN</option>
-                <option>Agent_NResponseAgent</option>
+                <option>NStepCodeAgent</option>
+                <option>CodeSolveAgent</option>
+                <option>MLSystemDesignAgent</option>
+                <option>NStepAgent</option>
+                <option>PerplexitySearch</option>
+                <option>JinaSearchAgent</option>
+                <option>WebSearch</option>
+                <option>MultiSourceSearch</option>
+                <option>BroadSearch</option>
+                <option>BestOfN</option>
+                <option>NResponseAgent</option>
                 
-                <option>Agent_WhatIf</option>
-                <option>Agent_LiteratureReview</option>
-                <option>Agent_ToCGenerationAgent</option>
-                <option>Agent_BookCreatorAgent</option>
+                <option>WhatIf</option>
+                <option>LiteratureReview</option>
+                <option>ToCGenerationAgent</option>
+                <option>BookCreatorAgent</option>
                 
                 <!-- option>Prompt_IdeaNovelty</option -->
                 <!-- option>Prompt_IdeaComparison</option -->

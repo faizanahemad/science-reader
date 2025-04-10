@@ -15,6 +15,7 @@ import concurrent.futures
 import logging
 from openai import OpenAI
 from pydub import AudioSegment  # For merging audio files
+from code_runner import extract_code, run_code_with_constraints_v2, PersistentPythonEnvironment
 
 
 # Local imports  
@@ -57,14 +58,229 @@ mathematical_notation = """
 """
 
 class CodeSolveAgent(Agent):
-    def __init__(self, keys, writer_model: Union[List[str], str]):
+    def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
         super().__init__(keys)
         self.writer_model = writer_model
-        # 1 step test cases and problem analysis and problem understanding
+        self.n_steps = n_steps
+        # 1 step test cases and problem analysis and problem understanding.
+        # 1 longer test cases which test corner cases or surprise cases.
         # 1 step solution - TDD
         # 1 step verification of solution
-        # execution
+        # execution with asserts on test cases to know which failed and which passed.
         # re-iterate
+        self.prompt_1 = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+You are given a query about a coding problem, please help us learn and understand the problem.
+
+{mathematical_notation}
+
+Code is not required at this step. Avoid code.
+
+### 1. Write down the problem statement in a clear way with examples, expected input, output, constraints and other relevant information.
+- Use **clear examples**, **analogies** to illustrate concepts.
+- What is the problem? What class of problem is it? Can you give a name to the problem?
+- What needs to be returned? What is the expected output?
+- What are the constraints?
+- What are the problem specific things we need to consider and keep in mind?
+- Provide **step-by-step explanations** of complex algorithms or logic mentioned in the problem statement.
+- When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+
+### 2. Write down the test cases for the problem.
+    - Simple Test cases
+    - Corner Cases
+    - Edge Cases
+    - Surprise Cases
+    - Longer test cases.
+    - Longer test cases which test corner cases or surprise cases.
+    - Think how a contrarian or surprising test case can be which might break the solution and make it fail. The test case should still be valid as per the problem statement.
+
+
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+Code is not required at this step. Avoid code.
+Write your problem understanding and test cases below which expands our understanding of the problem and enhances our learning and helps us prepare for the FAANG coding interviews at senior or staff level.
+"""
+        
+        self.prompt_2 = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+You are given a query about a coding problem, please help us learn and understand the problem.
+
+{mathematical_notation}
+
+Code is not required at this step. Avoid code.
+
+### 1. More complex and harder test cases.
+    - Simple Test cases
+    - Corner Cases
+    - Edge Cases
+    - Surprise Cases
+    - Longer test cases.
+    - Longer test cases which test corner cases or surprise cases.
+    - Think how a contrarian or surprising test case can be which might break the solution and make it fail. The test case should still be valid as per the problem statement.
+
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+<problem_understanding>
+{{current_answer}}
+</problem_understanding>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+Code is not required at this step. Avoid code.
+Write your test cases below which expands our understanding of the problem and enhances our learning and helps us prepare for the FAANG coding interviews at senior or staff level.
+"""
+        
+        self.prompt_3 = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+You are given a query about a coding problem, please help us learn and understand the problem and then solve it step by step.
+
+{mathematical_notation}
+
+Code is required at this step.
+### 1. Write down the solution in verbally, then in pseudocode and then write the code in python.
+- If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
+- When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
+- **Decompose** each solution into manageable and understandable parts.
+- Use **clear examples**, **analogies** to illustrate concepts.
+- Provide **step-by-step explanations** of complex algorithms or logic.
+- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- Think carefully about the edge cases, corner cases etc.
+- Use good coding practices and principles like DRY, KISS, YAGNI, SOLID, encapsulation, abstraction, modularity, etc.
+- Use meaningful variable and function names.
+- Write unit tests for the solution.
+- Use assert statements to verify the correctness of the solution.
+- Use comments to explain "why" behind the code in more complex algorithms.
+- Use inline comments to explain "what" and "how" of the code.
+- Your main python code should be structured in a way that the main solution is separated from the helper functions. 
+- The test cases should each be in a separate code block calling the main solution function with the sample test data.
+- Test cases should all be executed and their failures logged and finally the test results which failed should be printed. The failed test cases should be printed in a separate section than the successful test cases in code.
+- Finally if any test cases failed, after all the test cases have been executed, and details printed, then raise an exception and print the exception message with the all the test results which failed. If all test cases pass, then do not raise an exception.
+- The full executable and self-contained code should be written in a single code block in triple backticks in python.
+- Indicate clearly what python code needs execution by writing the first line of code as '# execute_code'. Write code that needs execution in a single code block.  
+- When writing executable code, write full and complete executable code within a single code block even within same message since our code environment is stateless and does not store any variables or previous code/state. 
+- When correction is to be made, first look at the current stdout and stderr and then analyse what test cases failed and then correct the pseudocode and logic first.
+- For correcting the code if code is already given, analyse what test cases failed and what test cases passed, why and which part of algorithm or logic is wrong and correct the code.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+<problem_understanding>
+{{current_answer}}
+</problem_understanding>
+
+If code and current stdout and stderr are provided, then analyse them and correct the code if needed. Write the corrected code in a new python code block fully. Write full code in a single code block.
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+Write your solution below which expands our understanding of the problem and enhances our learning and helps us prepare for the FAANG coding interviews at senior or staff level.
+"""
+        
+    def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
+        # Initialize empty current answer
+        current_answer = ""
+        
+        # Execute prompt_1 first as it's the foundation
+        llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[0])
+        prompt = self.prompt_1.replace("{query}", text)
+        response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+        for chunk in collapsible_wrapper(response, header="Problem Understanding", show_initially=True):
+            yield chunk
+            current_answer += chunk
+        
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        prompt = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
+        random_index = random.randint(0, min(1, len(self.writer_model) - 1))
+        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        response2 = llm2(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+        for chunk in collapsible_wrapper(response2, header="More complex and harder test cases", show_initially=False):
+            yield chunk
+            current_answer += chunk
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        prompt = self.prompt_3.replace("{query}", text).replace("{current_answer}", current_answer)
+        random_index = random.randint(0, min(2, len(self.writer_model) - 1))
+        llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        response3 = llm3(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+        code_written = ""
+        for chunk in collapsible_wrapper(response3, header="Solution", show_initially=False):
+            yield chunk
+            current_answer += chunk
+            code_written += chunk
+
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+        
+        extracted_code = extract_code(code_written, relax=True)
+        code_session = PersistentPythonEnvironment()
+        success, failure_reason, stdout, stderr, code_string = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
+
+        def code_runner_result(failure_reason, stdout, stderr):
+            if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
+                # yield f"Code execution failed with the following error: \n```\n{failure_reason}\n```\n\n"
+                yield f"STDOUT:\n```\n{stdout}\n```\n\n"
+                yield f"STDERR:\n```\n{stderr}\n```\n\n"
+                yield "```\n"
+            else:
+                yield f"Code execution passed with the following output:\n"
+                yield "```\n"
+                yield f"{stdout}\n"
+                yield "```\n"
+
+        current_answer += "\n\n---\n\n"
+        for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=False):
+            yield chunk
+            current_answer += chunk
+        current_answer += "\n\n---\n\n"
+
+
+        n_steps = 1
+        while failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None" and n_steps < self.n_steps:
+            # we need to re-iterate and correct the code
+            prompt = self.prompt_3.replace("{query}", text).replace("{current_answer}", current_answer)
+            random_index = random.randint(0, len(self.writer_model) - 1)
+            llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+            response3 = llm3(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+            code_written = ""
+            for chunk in collapsible_wrapper(response3, header="Solution", show_initially=False):
+                yield chunk
+                current_answer += chunk
+                code_written += chunk
+            yield "\n\n---\n\n"
+            current_answer += "\n\n---\n\n"
+            extracted_code = extract_code(code_written, relax=True)
+            code_session = PersistentPythonEnvironment()
+            success, failure_reason, stdout, stderr, code_string = run_code_with_constraints_v2(extracted_code, constraints={}, session=code_session)
+            current_answer += "\n\n---\n\n"
+            for chunk in collapsible_wrapper(code_runner_result(failure_reason, stdout, stderr), header="Code Execution Results", show_initially=False):
+                yield chunk
+                current_answer += chunk
+            current_answer += "\n\n---\n\n"
+            n_steps += 1
+
+
+        
         
         
 
@@ -79,6 +295,7 @@ You are an expert coding instructor and interview preparation mentor with extens
 
 You are given a query about a coding problem, please help us learn and understand the problem and then solve it step by step.
 If multiple solutions are provided, please help us understand the pros and cons of each solution and then solve the problem step by step.
+{mathematical_notation}
 
 ### 1. Breaking Down Solutions by patterns and concepts
 - If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
@@ -96,7 +313,7 @@ If multiple solutions are provided, please help us understand the pros and cons 
     - Step by step running example of the solutions can be written in a plaintext code block.
 
 - We program in python, so write the code in python only.
-{mathematical_notation}
+
 - **When No Solution is Provided**:
   - Develop the solution yourself and **guide us through it**, following the steps above.
 
@@ -118,6 +335,8 @@ Help prepare us for technical interviews at the senior or staff level.
 You will expand upon the current answer and provide more information and details based on the below framework and guidelines and fill in any missing details.
 Don't repeat the same information or details that are already provided in the current answer.
 Write code only if it is not provided already and if you have any new insights or optimizations to share.
+
+{mathematical_notation}
 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
 ## Guidelines:
@@ -150,7 +369,7 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 
 - Compare the solutions (make a table) and discuss the pros and cons of each solution (if there are multiple solutions).
 - Analyse and tell which solution (if multiple solutions are provided) is the best solution and why.
-{mathematical_notation}
+
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
 

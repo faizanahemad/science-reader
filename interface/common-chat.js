@@ -353,7 +353,7 @@ var ConversationManager = {
 
 };
 
-function renderStreamingResponse_old(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -606,7 +606,7 @@ function getTextAfterLastBreakpoint(text) {
  * @requires ChatManager - For creating and managing chat message cards
  * @requires initialiseVoteBank - For setting up voting UI on completed responses
  */
-function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse_new(streamingResponse, conversationId, messageText) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -616,7 +616,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     var content_length = 0;
     var answer = ''
     var rendered_answer = ''
-    var render_phase = '0'
+    
     // Track if we are inside a code block
     var insideCodeBlock = false;
     // Keep track of sections for rendering
@@ -656,12 +656,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             statusDiv.find('.spinner-border').show();
             
             if (part['text'].includes('<answer>') && card.find("#message-render-space-md-render").length > 0) {
-                elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${render_phase}-${sectionCount}"></div>`);
+                elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
-                elem_to_render = card.find(`#actual-answer-rendering-space-${render_phase}-${sectionCount}`).html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
                 content_length = 0;
                 rendered_answer = '';
-                render_phase = '1';
+                
                 sectionCount++;
             }
             
@@ -671,16 +671,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             if (breakpointResult.hasBreakpoint) {
                 // Render the current section one last time with complete content
                 renderInnerContentAsMarkdown(elem_to_render,
-                    callback = function() {
-                        // Mark as rendered after callback completion
-                        elem_to_render.attr('data-fully-rendered', 'true');
-                    }, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
+                    callback = null, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
                 
                 // Create a new section for content after the breakpoint
                 sectionCount++;
-                const newElem = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${render_phase}-${sectionCount}"></div>`);
+                const newElem = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(newElem);
-                elem_to_render = card.find(`#actual-answer-rendering-space-${render_phase}-${sectionCount}`).html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
                 
                 // Reset rendering for the new section
                 content_length = 0;
@@ -689,7 +686,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // elem_to_render.append(part['text']);
             
-            if (rendered_answer.length > content_length + 50) {
+            if (rendered_answer.length > content_length + 50 || breakpointResult.hasBreakpoint) {
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
@@ -705,12 +702,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                         false, // Use false for final rendering to ensure proper display
                         rendered_answer);
                 }
-                elem_to_render = $(`<div class="post-answer" id="actual-results-rendering-space-${render_phase}"></div>`);
+                sectionCount++;
+                elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
-                elem_to_render = card.find("#message-render-space-md-render").last().find('.post-answer').last().html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
                 content_length = 0;
                 rendered_answer = '';
-                render_phase = '1';
+                
             }
             
             var statusDiv = card.find('.status-div');

@@ -10,7 +10,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -1298,45 +1298,47 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         model_name = kwargs.get("model_name", EXPENSIVE_LLM[0])
         if field == "Agent_IdeaNovelty":
             pass
-        if field == "Agent_JinaSearchAgent":
+        if field == "JinaSearchAgent":
             agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
-        if field == "Agent_PerplexitySearch":
+        if field == "PerplexitySearch":
             agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
-        if field == "Agent_WebSearch":
+        if field == "WebSearch":
             agent = WebSearchWithAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
-        if field == "Agent_MultiSourceSearch":
+        if field == "MultiSourceSearch":
             agent = MultiSourceSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
-        if field == "Agent_LiteratureReview":
+        if field == "LiteratureReview":
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
-        if field == "Agent_BroadSearch":
+        if field == "BroadSearch":
             agent = BroadSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
-        if field == "Agent_BestOfN":
+        if field == "BestOfN":
             agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
-        if field == "Agent_NResponseAgent":
+        if field == "NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
-        if field == "Agent_NStepAgent":
+        if field == "NStepAgent":
             agent = NStepAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 2))
-        if field == "Agent_NStepCodeAgent":
+        if field == "NStepCodeAgent":
             agent = NStepCodeAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
-        if field == "Agent_MLSystemDesignAgent":
+        if field == "CodeSolveAgent":
+            agent = CodeSolveAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 2))
+        if field == "MLSystemDesignAgent":
             agent = MLSystemDesignAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
-        if field == "Agent_ToCGenerationAgent":
+        if field == "ToCGenerationAgent":
             agent = ToCGenerationAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), run_phase_2=kwargs.get("detail_level", 1)>2, run_phase_3=kwargs.get("detail_level", 1)>3, storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
             
-        if field == "Agent_BookCreatorAgent":
+        if field == "BookCreatorAgent":
             agent = BookCreatorAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), depth=kwargs.get("detail_level", 1), storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
         
-        if field == "Agent_WhatIf":
+        if field == "WhatIf":
             agent = WhatIfAgent(self.get_api_keys(), writer_models=model_name, n_scenarios=kwargs.get("n_scenarios", 3))
-        if field == "Agent_CodeExecution":
+        if field == "CodeExecution":
             pass
-        if field == "Agent_VerifyAndImprove":
+        if field == "VerifyAndImprove":
             pass
-        if field == "Agent_ElaborateDiveDeepExpand":
+        if field == "ElaborateDiveDeepExpand":
             pass
-        if field == "Agent_Finance":
+        if field == "Finance":
             pass
-        if field == "Agent_DocQnA":
+        if field == "DocQnA":
             pass
         final_preamble = preamble
         if final_preamble.strip() == "":
