@@ -56,6 +56,18 @@ mathematical_notation = """
 
 """
 
+class CodeSolveAgent(Agent):
+    def __init__(self, keys, writer_model: Union[List[str], str]):
+        super().__init__(keys)
+        self.writer_model = writer_model
+        # 1 step test cases and problem analysis and problem understanding
+        # 1 step solution - TDD
+        # 1 step verification of solution
+        # execution
+        # re-iterate
+        
+        
+
 class NStepCodeAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
         super().__init__(keys)

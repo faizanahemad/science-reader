@@ -17,6 +17,8 @@ import os
 import time
 from typing import List, Dict
 import sys
+
+from very_common import get_async_future
 sys.setrecursionlimit(sys.getrecursionlimit()*16)
 import logging
 import requests
@@ -987,7 +989,35 @@ def send_message(conversation_id):
     query = request.json
 
     # We don't process the request data in this mockup, but we would normally send a new message here
-    return Response(stream_with_context(conversation(query)), content_type='text/plain')
+
+    # import queue
+    from queue import Queue
+    response_queue = Queue()
+    from flask import copy_current_request_context
+
+    @copy_current_request_context
+    def generate_response():
+        for chunk in conversation(query):
+            response_queue.put(chunk)
+        response_queue.put("<--END-->")
+
+    future = get_async_future(generate_response)
+
+    def run_queue():
+        try:
+            while True:
+                chunk = response_queue.get()
+                if chunk == "<--END-->":
+                    break
+                yield chunk
+        except GeneratorExit:
+            # Client disconnected - we'll still finish our background task
+            print("Client disconnected, but continuing background processing")
+    
+
+    # future.result()
+
+    return Response(run_queue(), content_type='text/plain')
 
 
 @app.route('/get_conversation_details/<conversation_id>', methods=['GET'])
