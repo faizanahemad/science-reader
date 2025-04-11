@@ -975,7 +975,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
     jina_service_result = None
     if failed_links.count(link) > 2:
         raise GenericShortException(f"[send_request_for_webpage] Detected Previously Failed link: {link}")
-    page_stat = check_page_status(link)
+    page_stat = check_page_status(link) if "leetcode.com" not in link else True
     if not page_stat:
         failed_links.add(link)
         raise GenericShortException(f"[send_request_for_webpage] Page not found {link}")
