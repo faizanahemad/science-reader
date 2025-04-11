@@ -604,6 +604,14 @@ short_coding_interview_prompt = """
 **Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
 Help prepare us for technical interviews at the senior or staff level.
 
+- Formatting Mathematical Equations:
+  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
+
+
 ## Guidelines:
 - Write your understanding of the problem in your own words to ensure clarity. Also write a few examples of the problem and solutions to help us understand the problem better.
 - verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
