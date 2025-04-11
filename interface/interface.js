@@ -260,6 +260,7 @@ $(document).ready(function() {
     $("a#search-tab").removeClass('active');
     $('#' + active_tab).trigger('shown.bs.tab');
     $('a#' + active_tab).addClass('active');
+    $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
     
     
     pdfTabIsActive();
