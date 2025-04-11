@@ -1,4 +1,4 @@
-$(document).ready(function() {
+function interface_readiness() {
     const options = {
         throwOnError: false,
         trust: true
@@ -135,6 +135,7 @@ $(document).ready(function() {
 
         $("#chat-options-assistant-ensemble").parent().hide();
         $("#chat-options-assistant-ensemble").prop('checked', false);
+        $('#toggleChatControls').click();
         
     });
     
@@ -270,4 +271,5 @@ $(document).ready(function() {
     // $("#assistant-tab").tigger('click');
     // $("a#assistant-tab.nav-link").trigger('click');
 
-});
+}
+
