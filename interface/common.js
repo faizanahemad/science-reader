@@ -953,16 +953,16 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
 
                 <optgroup label="Creative Models" hidden>
-                    <option>sao10k/l3.3-euryale-70b</option>
-                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
-                    <option>thedrummer/anubis-pro-105b-v1</option>
-                    <option>steelskull/l3.3-electra-r1-70b</option>
-                    <option>eva-unit-01/eva-qwen-2.5-72b</option>
+                    <option>sao10k/l3.3-euryale-70b</option hidden>
+                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option hidden>
+                    <option>thedrummer/anubis-pro-105b-v1</option hidden>
+                    <option>steelskull/l3.3-electra-r1-70b</option hidden>
+                    <option>eva-unit-01/eva-qwen-2.5-72b</option hidden>
                 </optgroup>
 
                 <optgroup label="Web Search Models" hidden>
-                    <option>perplexity/sonar-pro</option>
-                    <option>perplexity/sonar-reasoning-pro</option>
+                    <option>perplexity/sonar-pro</option hidden>
+                    <option>perplexity/sonar-reasoning-pro</option hidden>
                     <!-- option>openai/gpt-4o-mini-search-preview</option -->
                     <!-- option>openai/gpt-4o-search-preview</option -->
                     <!-- option>perplexity/sonar-deep-research</option -->
