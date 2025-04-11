@@ -799,7 +799,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <label for="${slow_fast}1"><small>1</small></label>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off" checked>
+                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off">
                     <label for="${slow_fast}2"><small>2</small></label>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
@@ -807,7 +807,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <label for="${slow_fast}3"><small>3</small></label>
                 </div>
                 <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}4" value="4" autocomplete="off">
+                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}4" value="4" autocomplete="off" checked>
                     <label for="${slow_fast}4"><small>4</small></label>
                 </div>
             </div>
