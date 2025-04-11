@@ -1001,7 +1001,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
         for future in as_completed(scraping_futures_list):
             if future.done() and future.exception() is None:
                 result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata" if future == bright_data_result else "jina" if future == jina_service_result else "None"
-                result = future.result()
+                result = future.result(timeout=60)
                 result_validity = validate_web_page_scrape(result)
                 result["result_from"] = result_from
                 time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
