@@ -150,6 +150,7 @@ You are given a query about a coding problem, please help us learn and understan
 
 Code is required at this step.
 ### 1. Write down the solution in verbally, then in pseudocode and then write the code in python.
+- Ask potential clarifying questions and then make standard assumptions and then write the solution.
 - If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
 - When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
 - **Decompose** each solution into manageable and understandable parts.
