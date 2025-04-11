@@ -118,7 +118,7 @@ $(document).ready(function() {
         $('#permanentText').hide();
         // $("#field-selector").val("Finance");
         $("#field-selector").val("None");
-        $("#preamble-selector").val("").val(["Short Coding Interview", "Long"]);
+        $("#preamble-selector").val("").val(["Short Coding Interview", "Wife Prompt"]);
         $("#field-selector").parent().show();
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", false);
@@ -263,7 +263,7 @@ $(document).ready(function() {
     $("a#search-tab").removeClass('active');
     $('#' + active_tab).trigger('shown.bs.tab');
     $('a#' + active_tab).addClass('active');
-    $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
+    // $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
     
     
     pdfTabIsActive();
