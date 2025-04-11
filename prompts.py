@@ -622,7 +622,8 @@ Help prepare us for technical interviews at the senior or staff level.
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 - Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
-- Tell us any new niche concepts or patterns that are used in the solution
+- Tell us any new niche concepts or patterns that are used in the solution.
+- Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 - If there are multiple solutions, then compare the solutions and discuss the pros and cons of each solution.
 - I am preparing for FAANG coding interviews, so make sure to explain the solution in a way I can understand and apply to other problems. Optimise for learning and understanding.
 - Write verbal description of the solution in simple language in steps and in pseudocode before writing the code.

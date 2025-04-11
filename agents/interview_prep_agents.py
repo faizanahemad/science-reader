@@ -84,6 +84,7 @@ Code is not required at this step. Avoid code.
 - What are the problem specific things we need to consider and keep in mind?
 - Provide **step-by-step explanations** of complex algorithms or logic mentioned in the problem statement.
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 
 ### 2. Write down the test cases for the problem.
     - Simple Test cases
@@ -312,6 +313,7 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 
 ### 2. Diagrams
     - Create diagrams to help us understand the solution and the problem.
