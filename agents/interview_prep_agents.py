@@ -206,16 +206,17 @@ Write your solution below which expands our understanding of the problem and enh
         yield "\n\n---\n\n"
         current_answer += "\n\n---\n\n"
 
-        prompt = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
-        random_index = random.randint(0, min(1, len(self.writer_model) - 1))
-        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
-        response2 = llm2(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+        if self.n_steps >= 2:
+            prompt = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
+            random_index = random.randint(0, min(1, len(self.writer_model) - 1))
+            llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+            response2 = llm2(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
 
-        for chunk in collapsible_wrapper(response2, header="More complex and harder test cases", show_initially=False):
-            yield chunk
-            current_answer += chunk
-        yield "\n\n---\n\n"
-        current_answer += "\n\n---\n\n"
+            for chunk in collapsible_wrapper(response2, header="More complex and harder test cases", show_initially=False):
+                yield chunk
+                current_answer += chunk
+            yield "\n\n---\n\n"
+            current_answer += "\n\n---\n\n"
 
         prompt = self.prompt_3.replace("{query}", text).replace("{current_answer}", current_answer)
         random_index = random.randint(0, min(2, len(self.writer_model) - 1))

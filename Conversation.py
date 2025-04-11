@@ -2776,6 +2776,8 @@ def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
     if model_name == "perplexity/sonar-deep-research":
         model_name = "perplexity/sonar-deep-research"
+    elif model_name == "x-ai/grok-3-beta":
+        model_name = "x-ai/grok-3-beta"
     elif model_name == "perplexity/sonar-pro":
         model_name = "perplexity/sonar-pro"
     elif model_name == "perplexity/sonar-reasoning-pro":

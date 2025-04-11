@@ -925,8 +925,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option selected>Claude Sonnet 3.7</option>   
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>Gemini-2.5-pro-preview</option>
-                    <option>gpt-4.5-preview</option>
-                    <!-- option>cohere/command-a</option -->
+                    <option>x-ai/grok-3-beta</option>
+                    
                 </optgroup>
 
                 <optgroup label="Filler Models">
@@ -943,15 +943,16 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
 
                 <optgroup label="Older Models">
+                    <option>gpt-4.5-preview</option>
                     <option>Claude Opus</option>
-                    <option>Claude Sonnet 3.5</option>  
-                    <option>Pixtral Large</option> 
+                    <!-- option>Claude Sonnet 3.5</option -->  
+                    <!-- option>Pixtral Large</option --> 
                     <option>gpt-4o</option>
-                    <option>google/gemini-pro-1.5</option>
+                    <!-- option>google/gemini-pro-1.5</option -->
+                    <!-- option>cohere/command-a</option -->
                 </optgroup>
 
-                <optgroup label="Creative Models">
-                    
+                <optgroup label="Creative Models" hidden>
                     <option>sao10k/l3.3-euryale-70b</option>
                     <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
                     <option>thedrummer/anubis-pro-105b-v1</option>
@@ -959,7 +960,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>eva-unit-01/eva-qwen-2.5-72b</option>
                 </optgroup>
 
-                <optgroup label="Web Search Models">
+                <optgroup label="Web Search Models" hidden>
                     <option>perplexity/sonar-pro</option>
                     <option>perplexity/sonar-reasoning-pro</option>
                     <!-- option>openai/gpt-4o-mini-search-preview</option -->
