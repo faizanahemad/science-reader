@@ -1,4 +1,4 @@
-$(document).ready(function() {
+function chat_interface_readiness() {
     
     // $('#chat-assistant-view').hide();
     $("#loader").show();
@@ -83,5 +83,10 @@ $(document).ready(function() {
         $('#memory-pad-modal').modal('hide');
     });
     // $('#toggleChatDocsView').click();
-})
+}
+
+$(document).ready(function() {
+    chat_interface_readiness();
+    interface_readiness();
+});
 
