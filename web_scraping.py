@@ -248,11 +248,12 @@ def send_request_ant_html(url, apikey, readability=True):
     params = {
         'url': url,
         'x-api-key': apikey,
-        'proxy_country': 'US',
         'wait_for_selector': 'body',
         'return_page_source': 'true',
         'js_snippet': ant_script
     }
+    if "leetcode.com" in url:
+        params['proxy_type'] = 'residential'
     response = requests.get(ant_url, params=params)
     if response.status_code != 200:
         error_decode = json.loads(response.text)
@@ -272,6 +273,41 @@ def send_request_ant_html(url, apikey, readability=True):
          f"link = {url}"]))
     return html
 
+def is_request_failed(response_text):
+    """
+    Check if the response indicates a failed request due to CAPTCHA or other security measures.
+    
+    Args:
+        response_text (str): The response text from the webpage
+        
+    Returns:
+        tuple: (bool, str) - (True if request failed, reason for failure)
+    """
+    # List of patterns that indicate failed requests
+    failure_patterns = {
+        "Just a moment...": "CAPTCHA check detected",
+        "Verify you are human": "Human verification required",
+        "needs to review the security": "Security check required",
+        "403: Forbidden": "Access forbidden",
+        "Target URL returned error 403": "Access forbidden",
+        "requiring CAPTCHA": "CAPTCHA check detected",
+        "Please verify you are a human": "Human verification required",
+        "Access Denied": "Access denied",
+        "Too Many Requests": "Rate limit exceeded",
+        "cloudflare": "Cloudflare protection detected",
+        DDOS_PROTECTION_STR: "DDOS protection detected",
+    }
+    
+    # Convert response text to lowercase for case-insensitive matching
+    response_lower = response_text.lower()
+    
+    # Check each pattern
+    for pattern, reason in failure_patterns.items():
+        if pattern.lower() in response_lower:
+            return True, reason
+            
+    return False, "Response appears valid"
+
 
 def send_request_jina_html(url, apikey):
     """
@@ -286,27 +322,69 @@ def send_request_jina_html(url, apikey):
     """
     import requests
     
-    reader_url = f"https://r.jina.ai/{url}"
     
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {apikey}"
-    }
     
-    try:
+
+    def basic_jina_reader_request(url):
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {apikey}"
+        }
+        reader_url = f"https://r.jina.ai/{url}"
         response = requests.get(reader_url, headers=headers)
         response.raise_for_status()
         
         json_data = response.json()
         
-        # Extract title and content from the JSON response
         title = json_data.get("data", {}).get("title", "")
         content = json_data.get("data", {}).get("content", "")
-        
+        is_failed, reason = is_request_failed(content)
+        if is_failed:
+            raise GenericShortException(f"Error in basic_jina_reader_request with reason = {reason}")
         return {
             'title': title,
             'text': content
         }
+    
+    def eu_jina_reader_request(url):
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {apikey}",
+            "Content-Type": "application/json",
+            "X-Engine": "browser", 
+            "X-Retain-Images": "none",
+            "X-With-Iframe": "true",
+            "X-With-Shadow-Dom": "true",
+            "X-No-Cache": "true",
+        }
+        
+        data = {
+            "url": url
+        }
+        
+        response = requests.post("https://eu.r.jina.ai/", headers=headers, json=data)
+        response.raise_for_status()
+        
+        json_data = response.json()
+        
+        title = json_data.get("data", {}).get("title", "")
+        content = json_data.get("data", {}).get("content", "")
+        is_failed, reason = is_request_failed(content)
+        if is_failed:
+            raise GenericShortException(f"Error in eu_jina_reader_request with reason = {reason}")
+            
+        return {
+            'title': title,
+            'text': content
+        }
+    
+    fn_to_call = basic_jina_reader_request if "leetcode.com" not in url else eu_jina_reader_request
+    other_fn_to_call = eu_jina_reader_request if "leetcode.com" not in url else basic_jina_reader_request
+    try:
+        try:
+            return fn_to_call(url)
+        except Exception as e:
+            return other_fn_to_call(url)
         
     except requests.exceptions.RequestException as e:
         logger.error(f"Error making request to Jina reader API: {e}")
@@ -935,7 +1013,7 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
         for i, future in enumerate(as_completed(scraping_futures_list)):
             if future.done() and future.exception() is None:
                 result_from = "zenrows" if future == zenrows_service_result else "ant" if future == ant_service_result else "brightdata" if future == bright_data_result else "jina" if future == jina_service_result else "None"
-                result = future.result()
+                result = future.result(timeout=60)
                 result_validity = validate_web_page_scrape(result)
                 result["result_from"] = result_from
                 time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
@@ -945,13 +1023,13 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                 if i > 2 or len(results) > 1:
                     break
         if len(results) > 0:
-            new_results = {key: (value + "\n\n") for key, value in results[0].items()}
+            new_results = {key: (value + "\n\n---\n\n") for key, value in results[0].items()}
             for result in results[1:]:
                 for key, value in result.items():
                     if key not in new_results:
                         new_results[key] = value
                     else:
-                        new_results[key] += (value + "\n\n")
+                        new_results[key] += (value + "\n\n---\n\n")
 
             time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} and sources = {', '.join([r['result_from'] for r in results])} with time spent = {time.time() - st} for link {link}")
             return new_results

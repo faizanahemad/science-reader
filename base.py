@@ -2214,6 +2214,41 @@ def is_youtube_link(link):
     return any(pattern in link for pattern in youtube_patterns)
 
 
+def create_leetcode_links(url):
+    """
+    Create description and editorial links for a LeetCode problem
+    """
+
+    def extract_problem_name(url):
+        """
+        Extract LeetCode problem name from various URL formats
+        """
+        # Remove redirect prefix if present
+        if 'r.jina.ai' in url:
+            url = url.split('https://leetcode.com/')[-1]
+        else:
+            url = url.split('leetcode.com/')[-1]
+        
+        # Extract problem name from problems/name/whatever path
+        parts = url.split('/')
+        if 'problems' in parts:
+            problem_idx = parts.index('problems') + 1
+            if problem_idx < len(parts):
+                return parts[problem_idx]
+        
+        return None
+    problem_name = extract_problem_name(url)
+    if not problem_name:
+        raise ValueError("Invalid LeetCode URL format")
+    
+    base_url = f"https://leetcode.com/problems/{problem_name}"
+    return {
+        "description": f"{base_url}/description",
+        "editorial": f"{base_url}/editorial"
+    }
+
+
+
 @CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
             enabled=False)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
@@ -2302,7 +2337,23 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_pdf"] = False
         result["is_image"] = False
     else:
-        result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+        if "leetcode.com" in link:
+            link, title, context, api_keys, text, detailed = link_title_context_apikeys
+            leetcode_links = create_leetcode_links(link)
+            link_title_context_apikeys = (leetcode_links["description"], title, context, api_keys, text, detailed)
+            result1 = get_async_future(get_page_text, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            link_title_context_apikeys = (leetcode_links["editorial"], title, context, api_keys, text, detailed)
+            result2 = get_async_future(get_page_text, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            result1 = sleep_and_get_future_result(result1)
+            result2 = sleep_and_get_future_result(result2)
+            result = {}
+            for key in result1.keys():
+                if isinstance(result1[key], str):
+                    result[key] = result1[key] + "\n\n---\n\n" + result2[key]
+                else:
+                    result[key] = result1[key]
+        else:
+            result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
         result["is_image"] = False
     assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
