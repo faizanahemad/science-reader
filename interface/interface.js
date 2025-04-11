@@ -101,6 +101,9 @@ $(document).ready(function() {
         $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
         $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
 
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);
+
         
 
         $("#chat-options-assistant-ensemble").parent().hide();
