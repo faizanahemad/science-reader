@@ -343,7 +343,7 @@ Write your answer below which expands our understanding of the problem and enhan
 Help prepare us for technical interviews at the senior or staff level.
 You will expand upon the current answer and provide more information and details based on the below framework and guidelines and fill in any missing details.
 Don't repeat the same information or details that are already provided in the current answer.
-Write code only if it is not provided already and if you have any new insights or optimizations to share.
+Code is not needed. Do not write code.
 
 {mathematical_notation}
 
@@ -363,9 +363,6 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 
 ### 3. Analyzing Provided Solutions (If Applicable)
 - Only analyze the provided solutions, don't write code.
-- Code is not needed, verbal explanation is enough.
-- **Review** our solution thoroughly for correctness and efficiency.
-- **Validate** the logic and identify any errors or edge cases missed.
 - Discuss the **trade-offs** and decisions made in our approach.
 - Suggest improvements in:
   - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage.
@@ -453,6 +450,12 @@ Note that we already have current answer and we are looking to add more informat
 Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
 Next Step or answer extension or continuation following the above guidelines:
 """
+        """
+- Discuss common **algorithmic paradigms** (e.g., divide and conquer, dynamic programming) where this problem or solution fits in.
+- Highlight similar **patterns** that frequently appear in coding interviews.
+- **Discuss** related and important topics and concepts that are relevant to the problem and solution.
+
+        """
 
         self.prompt_3_v2 = f"""
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. 
@@ -477,9 +480,8 @@ Guidelines:
   - Focus on algorithms and solution paradigms rather than software or packages or libraries.
 
 ### 2. Related and Important Topics and Concepts
-- Discuss common **algorithmic paradigms** (e.g., divide and conquer, dynamic programming) where this problem or solution fits in.
-- Highlight similar **patterns** that frequently appear in coding interviews.
-- **Discuss** related and important topics and concepts that are relevant to the problem and solution.
+- Scaling to larger data size
+- Scaling to distributed systems (where consistency or partitioning is needed and we may have network latency and other constraints)
 - **Discuss** how the concepts can be applied to other problems and solutions.
 - **Discuss** follow-up extensions and variations of the problem and solution.
 
@@ -635,16 +637,16 @@ Next Step or answer extension or continuation following the above guidelines:
                 
                 random_index = random.randint(0, min(2, len(self.writer_model) - 1))
                 llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
-                prompt3 = self.prompt_3.replace("{query}", text).replace("{current_answer}", p3_answer)
-                response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
+                # prompt3 = self.prompt_3.replace("{query}", text).replace("{current_answer}", p3_answer)
+                # response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
                 
-                # Stream prompt_3 response through the queue
-                for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=False):
-                    response_queue.put(("prompt3", chunk))
-                    p3_answer += chunk
+                # # Stream prompt_3 response through the queue
+                # for chunk in collapsible_wrapper(response3, header="Edge Cases and Corner Cases", show_initially=False):
+                #     response_queue.put(("prompt3", chunk))
+                #     p3_answer += chunk
 
-                response_queue.put(("prompt3", "\n\n---\n\n"))
-                p3_answer += "\n\n---\n\n"
+                # response_queue.put(("prompt3", "\n\n---\n\n"))
+                # p3_answer += "\n\n---\n\n"
 
                 prompt3_v2 = self.prompt_3_v2.replace("{query}", text).replace("{current_answer}", p3_answer)
                 response3_v2 = llm3(prompt3_v2, images, temperature, stream=True, max_tokens=max_tokens, system=system)
@@ -661,7 +663,7 @@ Next Step or answer extension or continuation following the above guidelines:
                 if self.n_steps == 3:
                     return
                 
-                multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta"]
+                multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", "x-ai/grok-3-beta"]
                 if isinstance(self.writer_model, list):
                     multiple_llm_models += self.writer_model
                 else:
