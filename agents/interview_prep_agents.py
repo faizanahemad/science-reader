@@ -292,7 +292,7 @@ Write your solution below which expands our understanding of the problem and enh
             n_steps += 1
 
 
-class NStepCodeAgent(Agent):
+class NStepCodeAgent_old(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
         super().__init__(keys)
         self.writer_model = writer_model
@@ -347,31 +347,27 @@ Code is not needed. Do not write code.
 
 {mathematical_notation}
 
+Code is not needed. Do not write code. Focus only on the below guidelines.
+
+You will expand upon the current answer and provide more information and details based on the below framework and guidelines. 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
+Don't repeat the same information or details that are already provided in the current answer.
+
+
 ## Guidelines:
 
-### 1. Discuss about the "Before Writing Code part"
-- What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
-- What are some key assumptions we need to make to solve the problem?
-- What are some problem specific things we need to consider and keep in mind?
+1. **How real world questions can be asked that would need this solution**:
+  - Suggesting more real world examples and scenarios where this solution can be used.
+  - Ask questions that would need this solution.
+  - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
+
+2. Other related questions or problems we have not discussed yet in our answer:
+  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+  - Provide hints and clues to solve or approach the related questions or problems.
+  - Give a verbal solution or pseudocode solution to the related questions or problems.
+  - Relate it to the current problem and solution and to other problems and solutions we have discussed. 
 
 
-### 2. Data Access Patterns and Performance for each solution
-- Discuss how **data access patterns** impact performance.
-- Address issues like **cache utilization** and **locality of reference**.
-- Real world implications of the data access patterns and performance, Caching (CPU, RAM, Disk etc), and other optimizations. Can we optimise the data access patterns?
-- What if we need to use less storage or memory? Can we use more memory to speed up the algorithm or solution?
-
-### 3. Analyzing Provided Solutions (If Applicable)
-- Only analyze the provided solutions, don't write code.
-- Discuss the **trade-offs** and decisions made in the different solutions or approaches possible.
-  - **Time vs. Space Complexity**
-  - **Simplicity vs. Efficiency**
-  - Offer a detailed **complexity analysis** for each solution.
-    - Use **Big O notation** and explain the reasoning behind it (how you arrived at the time and space complexity).
-    - Compare complexities between different solutions and discuss implications.    
-- Suggest improvements in:
-  - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage if possible.
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
 
@@ -479,7 +475,23 @@ Code is not needed. Do not write code. Focus only on the below guidelines.
 
 Guidelines:
 
-### 1. System Design and Architecture Considerations:
+### 1. Discuss about the "Before Writing Code part"
+- What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
+- What answers would you assume to the above questions?
+
+### 2. Analyzing Provided Solutions (If Applicable)
+- Only analyze the provided solutions, don't write code.
+- Discuss the **trade-offs** and decisions made in the different solutions or approaches possible.
+  - **Time vs. Space Complexity**
+  - **Simplicity vs. Efficiency**
+  - Offer a detailed **complexity analysis** for each solution.
+    - Use **Big O notation** and explain the reasoning behind it (how you arrived at the time and space complexity).
+    - Compare complexities between different solutions and discuss implications.    
+- Suggest improvements in:
+  - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage if possible.
+  - **Storage or Memory**: What if we need to use less storage or memory? Can we use more memory to speed up the algorithm or solution?
+
+### 3. System Design and Architecture Considerations:
   - Designing scalable systems which might tackle this problem at a much larger scale.
   - Designing systems which use this algorithm or concept but in a much larger scale or a constrained environment.
   - Distributed Systems, Real-time systems, systems with high availability, systems where data may get corrupted or lost, and other constraints. 
@@ -764,6 +776,280 @@ Next Step or answer extension or continuation following the above guidelines:
                         yield f"\n\nError in background processing: {background_future.exception()}\n\n"
                     background_complete = True
 
+
+class NStepCodeAgent(Agent):
+    def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
+        super().__init__(keys)
+        self.writer_model = writer_model
+        self.n_steps = n_steps
+        
+        self.prompt_1 = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+
+You are given a query about a coding problem, please help us learn and understand the problem and then solve it step by step.
+If multiple solutions are provided, please help us understand the pros and cons of each solution and then solve the problem step by step.
+{mathematical_notation}
+
+### 1. Breaking Down Solutions by patterns and concepts
+- If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
+- When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
+- **Decompose** each solution into manageable and understandable parts.
+- Use **clear examples**, **analogies** to illustrate concepts.
+- Provide **step-by-step explanations** of complex algorithms or logic.
+- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
+
+### 2. Diagrams (if needed and possible)
+    - Create diagrams to help us understand the solution and the problem.
+    - Use ASCII art to help us understand each solution by running them step by step.
+    - Use ASCII art diagrams mainly to help illustrate the solution (or multiple solutions) and the problem. 
+    - Step by step running example of the solutions can be written in a plaintext code block.
+
+- We program in python, so write the code in python only.
+
+- **When No Solution is Provided**:
+  - Develop the solution yourself and **guide us through it**, following the steps above.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+Write your answer below which expands our understanding of the problem and enhances our learning and helps us prepare for the FAANG coding interviews at senior or staff level.
+"""
+
+        self.prompt_2 = f"""**Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+
+**Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
+Help prepare us for technical interviews at the senior or staff level.
+You will expand upon the current answer and provide more information and details based on the below framework and guidelines and fill in any missing details.
+Don't repeat the same information or details that are already provided in the current answer.
+Code is not needed. Do not write code.
+
+{mathematical_notation}
+
+Code is not needed. Do not write code. Focus only on the below guidelines.
+
+You will expand upon the current answer and provide more information and details based on the below framework and guidelines. 
+Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
+Don't repeat the same information or details that are already provided in the current answer.
+
+
+## Guidelines:
+
+1. **How real world questions can be asked that would need this solution**:
+  - Suggesting more real world examples and scenarios where this solution can be used.
+  - Ask questions that would need this solution.
+  - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
+
+2. Other related questions or problems we have not discussed yet in our answer:
+  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+  - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
+  - Give a verbal solution or pseudocode solution to the related questions or problems.
+  - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
+
+
+Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
+
+You will expand upon the current answer and provide more information and details.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+
+Current Answer:
+<current_answer>
+{{current_answer}}
+</current_answer>
+
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Code is not needed. Do not write code. Avoid code. Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Next Step or answer extension or continuation:
+"""
+
+        self.prompt_3 = f"""
+**Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. 
+You teach coding and interview preparation in python and pseudocode. You are also an expert in system design, scaling, real-time systems, distributed systems, and architecture.
+
+**Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
+Help prepare us for technical interviews at the senior or staff level. 
+
+You will expand upon the current answer and provide more information and details based  on the below framework and guidelines.
+Don't repeat the same information or details that are already provided in the current answer.
+{mathematical_notation}
+Code is not needed. Do not write code. Focus only on the below guidelines.
+
+Guidelines:
+
+### 1. Discuss about the "Before Writing Code part"
+- What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
+- What answers would you assume to the above questions?
+
+### 2. Suggest improvements in
+  - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage if possible.
+  - **Storage or Memory**: What if we need to use less storage or memory? Can we use more memory to speed up the algorithm or solution?
+
+### 3. System Design and Architecture Considerations (Focus on how this problem and its solutions (and other related problems and solutions) can be used in below scenarios):
+  - Designing scalable systems which might tackle this problem at a much larger scale.
+  - Designing systems which use this algorithm or concept but in a much larger scale or a constrained environment.
+  - How to make this solution distributed or useful in a distributed environment.
+  - How to use this problem (and its various solutions or variations) in real-time systems, or systems with high availability, or other constraints. 
+  - Focus on algorithms and solution paradigms rather than software or packages or libraries.
+  - What changes might be needed to be made to the solution to make it scalable or realtime or distributed or high availability or fault tolerant or secure or in a constrained environment.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+
+Current Answer:
+<current_answer>
+{{current_answer}}
+</current_answer>
+
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
+Next Step or answer extension or continuation following the above guidelines:
+"""
+
+        
+
+        self.what_if_prompt = f"""
+**Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+
+**Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
+Help prepare us for technical interviews at the senior or staff level.
+Suggest new things, don't repeat what is already in the current answer. 
+
+{mathematical_notation}
+
+Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
+
+Guidelines:
+### 1. What-if questions and scenarios
+- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions are changed as per the above what-if questions and scenarios.
+- Verbalize the solutions first and then also mention their time and space complexities. 
+
+### 2. **More What-if questions and scenarios**:
+  - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+  - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+  - Verbalize the solutions first and then also mention their time and space complexities. 
+
+### 3. **Mind Bending Questions**:
+  - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
+  - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
+  - Provide verbal hints and clues to solve or approach the mind bending questions.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+
+Current Answer:
+<current_answer>
+{{current_answer}}
+</current_answer>
+
+Suggest new things in addition to what is already in the current answer.
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Extend the answer to provide more information and details ensuring we cover the above guidelines. Stay true and relevant to the user query and context.
+Next Step or answer extension or continuation following the above guidelines:
+"""
+        
+    
+    
+    def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
+        # Initialize empty current answer
+        current_answer = ""
+        
+        # Execute prompt_1 first as it's the foundation
+        llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[0])
+        prompt = self.prompt_1.replace("{query}", text)
+        response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+
+        for chunk in collapsible_wrapper(response, header=f"Solution using {llm.model_name}", show_initially=True):
+            yield chunk
+            current_answer += chunk
+        
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        if self.n_steps == 1:
+            return
+        
+        random_index = random.randint(0, min(1, len(self.writer_model) - 1))
+        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        prompt2 = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
+        response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+        
+        for chunk in collapsible_wrapper(response2, header=f"Similar problems and Real world examples from {llm2.model_name}", show_initially=False):
+            yield chunk
+            current_answer += chunk
+
+        
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        if self.n_steps == 2:
+            return
+        
+        multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet", "x-ai/grok-3-beta"]
+        if isinstance(self.writer_model, list):
+            multiple_llm_models += self.writer_model
+        else:
+            multiple_llm_models += [self.writer_model]
+        multiple_llm_models = list(set(multiple_llm_models))
+        random.shuffle(multiple_llm_models)
+        multiple_llm = [CallLLm(self.keys, model) for model in multiple_llm_models[:2]]
+        
+        
+        for i, llm in enumerate(multiple_llm, start=1):
+            what_if_response = llm(self.what_if_prompt.replace("{query}", text).replace("{current_answer}", current_answer), images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+            for chunk in collapsible_wrapper(what_if_response, header=f"What-if questions and scenarios - {i} with {llm.model_name}", show_initially=False):
+                yield chunk
+                current_answer += chunk
+
+            yield "\n\n---\n\n"
+            current_answer += "\n\n---\n\n"
+
+        if self.n_steps == 3:
+            return
+        
+        
+        random_index = random.randint(0, min(2, len(self.writer_model) - 1))
+        llm3 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        prompt3 = self.prompt_3.replace("{query}", text).replace("{current_answer}", current_answer)
+        response3 = llm3(prompt3, images, temperature, stream=True, max_tokens=max_tokens, system=system)
+        
+        for chunk in collapsible_wrapper(response3, header=f"Analysis and System design from {llm3.model_name}", show_initially=False):
+            yield chunk
+            current_answer += chunk
+
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        if self.n_steps == 4:
+            return
+        
+        
 
 class MLSystemDesignAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
