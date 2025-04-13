@@ -315,7 +315,7 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
 - Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 
-### 2. Diagrams
+### 2. Diagrams (if needed and possible)
     - Create diagrams to help us understand the solution and the problem.
     - Use ASCII art to help us understand each solution by running them step by step.
     - Use ASCII art diagrams mainly to help illustrate the solution (or multiple solutions) and the problem. 
@@ -351,31 +351,27 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 ## Guidelines:
 
 ### 1. Discuss about the "Before Writing Code part"
-- What are the clarifying questions we should ask to the interviewer? What questions would you ask?
+- What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
 - What are some key assumptions we need to make to solve the problem?
 - What are some problem specific things we need to consider and keep in mind?
-- Anything else that might impress the interviewer and give us an edge over other candidates? Only concrete and specific things.
+
 
 ### 2. Data Access Patterns and Performance for each solution
 - Discuss how **data access patterns** impact performance.
 - Address issues like **cache utilization** and **locality of reference**.
 - Real world implications of the data access patterns and performance, Caching (CPU, RAM, Disk etc), and other optimizations. Can we optimise the data access patterns?
+- What if we need to use less storage or memory? Can we use more memory to speed up the algorithm or solution?
 
 ### 3. Analyzing Provided Solutions (If Applicable)
 - Only analyze the provided solutions, don't write code.
-- Discuss the **trade-offs** and decisions made in our approach.
-- Suggest improvements in:
-  - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage.
-- Highlight **trade-offs** between different solutions:
+- Discuss the **trade-offs** and decisions made in the different solutions or approaches possible.
   - **Time vs. Space Complexity**
   - **Simplicity vs. Efficiency**
   - Offer a detailed **complexity analysis** for each solution.
     - Use **Big O notation** and explain the reasoning behind it (how you arrived at the time and space complexity).
-    - Compare complexities between different solutions and discuss implications.
-
-- Compare the solutions (make a table) and discuss the pros and cons of each solution (if there are multiple solutions).
-- Analyse and tell which solution (if multiple solutions are provided) is the best solution and why.
-
+    - Compare complexities between different solutions and discuss implications.    
+- Suggest improvements in:
+  - **Algorithmic Efficiency**: Optimizing runtime and memory/space usage if possible.
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
 
@@ -455,6 +451,18 @@ Next Step or answer extension or continuation following the above guidelines:
 - Highlight similar **patterns** that frequently appear in coding interviews.
 - **Discuss** related and important topics and concepts that are relevant to the problem and solution.
 
+- Incorporate practical examples to illustrate abstract concepts.
+- Use analogies to relate complex ideas to familiar scenarios.
+
+- Balancing trade-offs in system components.
+- Understanding architectural patterns.
+### 2. Related and Important Topics and Concepts
+- Scaling to larger data size
+- Scaling to distributed systems (where consistency or partitioning is needed and we may have network latency and other constraints)
+- **Discuss** how the concepts can be applied to other problems and solutions.
+- **Discuss** follow-up extensions and variations of the problem and solution.
+
+
         """
 
         self.prompt_3_v2 = f"""
@@ -474,18 +482,9 @@ Guidelines:
 ### 1. System Design and Architecture Considerations:
   - Designing scalable systems which might tackle this problem at a much larger scale.
   - Designing systems which use this algorithm or concept but in a much larger scale or a constrained environment.
-  - Understanding architectural patterns.
-  - Balancing trade-offs in system components.
   - Distributed Systems, Real-time systems, systems with high availability, systems where data may get corrupted or lost, and other constraints. 
   - Focus on algorithms and solution paradigms rather than software or packages or libraries.
-
-### 2. Related and Important Topics and Concepts
-- Scaling to larger data size
-- Scaling to distributed systems (where consistency or partitioning is needed and we may have network latency and other constraints)
-- **Discuss** how the concepts can be applied to other problems and solutions.
-- **Discuss** follow-up extensions and variations of the problem and solution.
-
-
+  - What changes might be needed to be made to the solution to make it scalable or realtime or distributed or high availability or fault tolerant or secure or in a constrained environment.
 
 
 Query:
@@ -522,17 +521,16 @@ Don't repeat the same information or details that are already provided in the cu
 
 Guidelines:
 
-1. **Examples and Analogies**:
-  - Incorporate practical examples to illustrate abstract concepts.
-  - Use analogies to relate complex ideas to familiar scenarios.
-  - Connect this to real world scenarios, use cases and problems where this concept or algorithm or solution can be used.
+1. **How real world questions can be asked that would need this solution**:
   - Suggesting more real world examples and scenarios where this solution can be used.
-
-2. **How real world questions can be asked that would need this solution**:
   - Ask questions that would need this solution.
   - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
 
-    
+2. Other related questions or problems we have not discussed yet in our answer:
+  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+  - Provide hints and clues to solve or approach the related questions or problems.
+  - Give a verbal solution or pseudocode solution to the related questions or problems.
+  - Relate it to the current problem and solution and to other problems and solutions we have discussed. 
 
 
 Query:
@@ -567,9 +565,8 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 Guidelines:
 ### 1. What-if questions and scenarios
 - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+- Ask and hint on how to solve the problem if some constraints, data, or other conditions are changed as per the above what-if questions and scenarios.
 - Verbalize the solutions first and then also mention their time and space complexities. 
-
 
 ### 2. **More What-if questions and scenarios**:
   - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
@@ -580,7 +577,6 @@ Guidelines:
   - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
   - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
   - Provide verbal hints and clues to solve or approach the mind bending questions.
-
 
 
 Query:
