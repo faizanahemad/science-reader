@@ -2776,6 +2776,11 @@ def model_name_to_canonical_name(model_name):
     model_name = model_name.strip()
     if model_name == "perplexity/sonar-deep-research":
         model_name = "perplexity/sonar-deep-research"
+    elif model_name == "openai/gpt-4.1":
+        model_name = "openai/gpt-4.1"
+    elif model_name == "gpt-4.1":
+        model_name = "gpt-4.1"
+    
     elif model_name == "x-ai/grok-3-beta":
         model_name = "x-ai/grok-3-beta"
     elif model_name == "perplexity/sonar-pro":
@@ -2922,6 +2927,8 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "gpt-4o"
     elif "anthropic/claude-3.7-sonnet:thinking" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
+    elif "openai/gpt-4.1" in model_names:
+        improve_model = "openai/gpt-4.1"
 
     elif any(c.startswith("openai") for c in model_names):
         improve_model = "openai/chatgpt-4o-latest"

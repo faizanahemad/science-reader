@@ -924,6 +924,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Newer Models">
                     <option selected>Claude Sonnet 3.7</option>   
                     <option>openai/chatgpt-4o-latest</option> 
+                    <option>gpt-4.1</option>
                     <option>Gemini-2.5-pro-preview</option>
                     <option>x-ai/grok-3-beta</option>
                     

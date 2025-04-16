@@ -614,7 +614,8 @@ Help prepare us for technical interviews at the senior or staff level.
 
 ## Guidelines:
 - Write your understanding of the problem in your own words to ensure clarity. Also write a few examples of the problem and solutions to help us understand the problem better.
-- verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
+- Think carefully about the problem and how we can solve it. Your thinking should be thorough and so it's fine if it's very long. You can think step by step before and after each action you decide to take.
+- Write verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
 - Intuitive explanation of various non-obvious concepts and ideas in the solution.
 - write the pseudocode in markdown format inside codeblocks.
 - Write actual code in python only.
