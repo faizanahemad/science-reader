@@ -93,6 +93,8 @@ function interface_readiness() {
         $('#permanentText').hide();
         $('#linkInput').hide();
         $('#searchInput').hide();
+
+        $("#preamble-selector").val("").val(["Wife Prompt"]);
         
         $("#field-selector").parent().show();
         $("#chat-options-assistant-use-google-scholar").parent().show();
