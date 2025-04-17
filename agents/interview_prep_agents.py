@@ -850,7 +850,7 @@ Don't repeat the same information or details that are already provided in the cu
 2. Other related questions or problems we have not discussed yet in our answer:
   - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
-  - Give a verbal solution or pseudocode solution to the related questions or problems.
+  - Give a verbal solution and then pseudocode solution to the related questions or problems.
   - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
 
 
@@ -877,6 +877,58 @@ Code is not needed. Do not write code. Avoid code. Extend the answer to provide 
 Next Step or answer extension or continuation:
 """
 
+        self.prompt_2_v2 = f"""**Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
+
+**Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
+Help prepare us for technical interviews at the senior or staff level.
+You will expand upon the current answer and provide more information and details based on the below framework and guidelines and fill in any missing details.
+Don't repeat the same information or details that are already provided in the current answer.
+Code is not needed. Do not write code.
+
+{mathematical_notation}
+
+Code is not needed. Do not write code. Focus only on the below guidelines.
+
+You will expand upon the current answer and provide more new information and details based on the below framework and guidelines. 
+Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
+Don't repeat the same information or details that are already provided in the current answer.
+
+
+## Guidelines:
+
+1. More related questions or problems we have not discussed yet in our answer:
+  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+  - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
+  - Give a verbal solution and then pseudocode solution to the related questions or problems.
+  - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
+  - Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
+
+
+Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
+
+You will expand upon the current answer and provide more information and details.
+
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
+The user query above contains the user's query and some context around it including the previous conversation history and retreived documents and web search results if applicable.
+
+
+Current Answer:
+<current_answer>
+{{current_answer}}
+</current_answer>
+
+Note that we already have current answer and we are looking to add more information and details to it. Follow from the current answer and add more information and details.
+Code is not needed. Do not write code. Avoid code. Extend the answer to provide more information and details ensuring we cover the above framework and guidelines. Stay true and relevant to the user query and context.
+Next Step or answer extension or continuation:
+"""
+
+        
+        
         self.prompt_3 = f"""
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. 
 You teach coding and interview preparation in python and pseudocode. You are also an expert in system design, scaling, real-time systems, distributed systems, and architecture.
@@ -999,6 +1051,19 @@ Next Step or answer extension or continuation following the above guidelines:
         random_index = random.randint(0, min(1, len(self.writer_model) - 1))
         llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
         prompt2 = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
+        response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
+        
+        for chunk in collapsible_wrapper(response2, header=f"Similar problems and Real world examples from {llm2.model_name}", show_initially=False):
+            yield chunk
+            current_answer += chunk
+
+        
+        yield "\n\n---\n\n"
+        current_answer += "\n\n---\n\n"
+
+        random_index = random.randint(0, min(1, len(self.writer_model) - 1))
+        llm2 = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        prompt2 = self.prompt_2_v2.replace("{query}", text).replace("{current_answer}", current_answer)
         response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
         
         for chunk in collapsible_wrapper(response2, header=f"Similar problems and Real world examples from {llm2.model_name}", show_initially=False):
