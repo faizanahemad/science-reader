@@ -405,9 +405,11 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 else:
                     model_buffers[model_id].append(chunk)
             
-            elif item[0] == "complete":
+            elif item[0] == "complete" or item[0] == "error":
                 model_id = item[1]
                 completed_models.add(model_id)
+                if item[0] == "error":
+                    yield f'\nError with {model_id_to_name[model_id]}: \n\n```\n{item[2]}\n```\n\n'
                 
                 # If this was the currently streaming model, close it and start the next one
                 if currently_streaming == model_id:
@@ -440,19 +442,13 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                                     streaming_order.append(next_model_id)
                                 break
             
-            elif item[0] == "error":
-                model_id, error_msg = item[1], item[2]
-                # Show error in its own collapsible if headers are enabled
-                
-                
-                display_name = model_id_to_name[model_id]
-                yield f'\nError with {display_name}: \n\n```\n{error_msg}\n```\n\n'
+            
             else:
                 raise Exception(f"Unknown item type: {item[0]}")
         
         except Exception:
             # Check if all futures are done to prevent infinite loops
-            if all(future.done() for future in futures):
+            if all(future.done() or future.exception() is not None for future in futures):
                 break
 
     # Final pass: check for any models that have buffered content but never got to stream
