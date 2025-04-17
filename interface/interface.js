@@ -122,8 +122,8 @@ function interface_readiness() {
         $("#field-selector").val("None");
         $("#preamble-selector").val("").val(["Short Coding Interview", "Wife Prompt"]);
         $("#field-selector").parent().show();
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", true);
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", false);
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
+        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);
 
         $("#chat-options-assistant-use-google-scholar").parent().hide();
         $("#chat-options-assistant-use-google-scholar").prop('checked', false);
