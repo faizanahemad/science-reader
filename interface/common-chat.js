@@ -758,6 +758,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // Set up voting mechanism
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            showMore(card, text = answer, textElem = card.find('.chat-card-body'), as_html = true, show_at_start = true); // index >= array.length - 2
             return;
         }
         
