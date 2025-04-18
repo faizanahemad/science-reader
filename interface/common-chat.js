@@ -739,12 +739,11 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
             
             function show_more() {
-                textElem = card.find('.chat-card-body') 
+                textElem = card.find('#message-render-space')
                 // check if textElem is hidden by display: none
-                if (textElem.css('display') === 'none') {
-                    textElem = card.find('#message-render-space')
-                }
-                toggle = showMore(null, text = answer, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
+                
+                text = card.find('#message-render-space').html()
+                toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
                 textElem.find('.show-more').click(toggle);
                 textElem.find('.show-more').click(toggle);
             }
