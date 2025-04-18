@@ -757,8 +757,16 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             // }
             
             // Set up voting mechanism
+            
+            textElem = card.find('.chat-card-body') 
+            // check if textElem is hidden by display: none
+            if (textElem.css('display') === 'none') {
+                textElem = card.find('#message-render-space')
+            }
+            toggle = showMore(null, text = answer, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
+            textElem.find('.show-more').click(toggle);
+            textElem.find('.show-more').click(toggle);
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
-            showMore(card, text = answer, textElem = card.find('.chat-card-body'), as_html = true, show_at_start = true); // index >= array.length - 2
             return;
         }
         

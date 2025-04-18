@@ -1034,6 +1034,9 @@ Next Step or answer extension or continuation following the above guidelines:
         current_answer = ""
         
         # Execute prompt_1 first as it's the foundation
+
+        if isinstance(self.writer_model, list):
+            random.shuffle(self.writer_model)
         llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[0])
         prompt = self.prompt_1.replace("{query}", text)
         response = llm(prompt, images, temperature, stream=stream, max_tokens=max_tokens, system=system)

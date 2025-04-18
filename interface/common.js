@@ -198,6 +198,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
 
     textElem.find('.show-more').click(toggle);
+    return toggle;
 }
 
 function disableMainFunctionality() {
