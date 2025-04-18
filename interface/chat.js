@@ -83,6 +83,98 @@ function chat_interface_readiness() {
         $('#memory-pad-modal').modal('hide');
     });
     // $('#toggleChatDocsView').click();
+
+    // User Details and Preferences API functions
+    function fetchUserDetail() {
+        return $.ajax({
+            url: '/get_user_detail',
+            type: 'GET',
+            success: function(result) {
+                $('#user-details-text').val(result.text);
+            },
+            error: function(xhr) {
+                console.error('Error fetching user details:', xhr.responseText);
+                // Optionally show an error message
+                // alert('Failed to load user details');
+            }
+        });
+    }
+
+    function saveUserDetail(text) {
+        return $.ajax({
+            url: '/modify_user_detail',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ 'text': text }),
+            success: function(result) {
+                console.log('User details saved successfully');
+            },
+            error: function(xhr) {
+                console.error('Error saving user details:', xhr.responseText);
+                alert('Error: Failed to save user details');
+            }
+        });
+    }
+
+    function fetchUserPreference() {
+        return $.ajax({
+            url: '/get_user_preference',
+            type: 'GET',
+            success: function(result) {
+                $('#user-preferences-text').val(result.text);
+            },
+            error: function(xhr) {
+                console.error('Error fetching user preferences:', xhr.responseText);
+                // Optionally show an error message
+                // alert('Failed to load user preferences');
+            }
+        });
+    }
+
+    function saveUserPreference(text) {
+        return $.ajax({
+            url: '/modify_user_preference',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ 'text': text }),
+            success: function(result) {
+                console.log('User preferences saved successfully');
+            },
+            error: function(xhr) {
+                console.error('Error saving user preferences:', xhr.responseText);
+                alert('Error: Failed to save user preferences');
+            }
+        });
+    }
+
+    // Event handlers for User Details modal
+    $('#user-details-modal-open-button').click(function() {
+        // Fetch user details before showing the modal
+        fetchUserDetail().then(function() {
+            $('#user-details-modal').modal('show');
+        });
+    });
+
+    $('#user-details-text-save-button').click(function() {
+        var text = $('#user-details-text').val();
+        saveUserDetail(text);
+        $('#user-details-modal').modal('hide');
+    });
+
+    // Event handlers for User Preferences modal
+    $('#user-preferences-modal-open-button').click(function() {
+        // Fetch user preferences before showing the modal
+        fetchUserPreference().then(function() {
+            $('#user-preferences-modal').modal('show');
+        });
+    });
+
+    $('#user-preferences-text-save-button').click(function() {
+        var text = $('#user-preferences-text').val();
+        saveUserPreference(text);
+        $('#user-preferences-modal').modal('hide');
+    });
+    
 }
 
 $(document).ready(function() {

@@ -1132,8 +1132,8 @@ def send_message(conversation_id):
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404
     else:
-        conversation = conversation_cache[conversation_id]
-        conversation = set_keys_on_docs(conversation, keys)
+        conversation: Conversation = conversation_cache[conversation_id]
+        conversation: Conversation = set_keys_on_docs(conversation, keys)
 
     query = request.json
 
@@ -1146,7 +1146,7 @@ def send_message(conversation_id):
 
     @copy_current_request_context
     def generate_response():
-        for chunk in conversation(query):
+        for chunk in conversation(query, user_details):
             response_queue.put(chunk)
         response_queue.put("<--END-->")
 
@@ -1458,6 +1458,130 @@ def transcribe_audio():
             os.unlink(temp_audio_file.name)
 
     return jsonify({"error": "Failed to process audio file"}), 500
+
+
+
+@app.route('/get_user_detail', methods=['GET'])
+@limiter.limit("25 per minute")
+@login_required
+def get_user_detail():
+    """
+    GET API endpoint to retrieve user memory/details
+    
+    Returns:
+        JSON with the user's memory information
+    """
+    email, name, loggedin = check_login(session)
+    
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_details = getUserFromUserDetailsTable(email)
+    
+    if user_details is None:
+        # If user doesn't exist in the details table yet, return empty
+        return jsonify({"text": ""})
+    
+    # Return the user_memory field
+    return jsonify({"text": user_details.get("user_memory", "")})
+
+@app.route('/get_user_preference', methods=['GET'])
+@limiter.limit("25 per minute")
+@login_required
+def get_user_preference():
+    """
+    GET API endpoint to retrieve user preferences
+    
+    Returns:
+        JSON with the user's preference information
+    """
+    email, name, loggedin = check_login(session)
+    
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    user_details = getUserFromUserDetailsTable(email)
+    
+    if user_details is None:
+        # If user doesn't exist in the details table yet, return empty
+        return jsonify({"text": ""})
+    
+    # Return the user_preferences field
+    return jsonify({"text": user_details.get("user_preferences", "")})
+
+@app.route('/modify_user_detail', methods=['POST'])
+@limiter.limit("15 per minute")
+@login_required
+def modify_user_detail():
+    """
+    POST API endpoint to update user memory/details
+    
+    Expects:
+        JSON with "text" field containing the new user memory data
+        
+    Returns:
+        JSON with success/error message
+    """
+    email, name, loggedin = check_login(session)
+    
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        # Get the new memory text from request
+        memory_text = request.json.get('text')
+        
+        if memory_text is None:
+            return jsonify({"error": "Missing 'text' field in request"}), 400
+        
+        # Update only the user_memory field
+        success = updateUserInfoInUserDetailsTable(email, user_memory=memory_text)
+        
+        if success:
+            return jsonify({"message": "User details updated successfully"})
+        else:
+            return jsonify({"error": "Failed to update user details"}), 500
+    
+    except Exception as e:
+        logger.error(f"Error in modify_user_detail: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/modify_user_preference', methods=['POST'])
+@limiter.limit("15 per minute")
+@login_required
+def modify_user_preference():
+    """
+    POST API endpoint to update user preferences
+    
+    Expects:
+        JSON with "text" field containing the new user preferences data
+        
+    Returns:
+        JSON with success/error message
+    """
+    email, name, loggedin = check_login(session)
+    
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        # Get the new preferences text from request
+        preferences_text = request.json.get('text')
+        
+        if preferences_text is None:
+            return jsonify({"error": "Missing 'text' field in request"}), 400
+        
+        # Update only the user_preferences field
+        success = updateUserInfoInUserDetailsTable(email, user_preferences=preferences_text)
+        
+        if success:
+            return jsonify({"message": "User preferences updated successfully"})
+        else:
+            return jsonify({"error": "Failed to update user preferences"}), 500
+    
+    except Exception as e:
+        logger.error(f"Error in modify_user_preference: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
 

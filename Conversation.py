@@ -904,9 +904,9 @@ Your response will be in below xml style format:
         self.set_field("messages", messages, overwrite=True)
         self.save_local()
 
-    def __call__(self, query):
+    def __call__(self, query, userData=None):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
-        for txt in self.reply(query):
+        for txt in self.reply(query, userData):
             yield json.dumps(txt)+"\n"
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True):
@@ -1416,12 +1416,15 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
         return coding_rules if code_execution else "", prefix # if need_diagram or code_execution else ""
 
-    def reply(self, query):
+    def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
         time_dict = dict()
+        user_memory = userData.get("user_memory", None) if userData is not None else None
+        user_preferences = userData.get("user_preferences", None) if userData is not None else None
+        
         answer = ''
         summary = self.running_summary
         summary_text_init = summary
@@ -1674,7 +1677,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
 
         prior_chat_summary_future = None
         if enable_planner:
-            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"])
+            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, previous_context + "\n\n Current User Query or message:\n" + query["messageText"])
             
         
         
@@ -1769,7 +1772,40 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             perplexity_agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=(10 if provide_detailed_answers >= 3 else 5) if provide_detailed_answers >= 2 else 3)
             perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '') + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
+        if userData is not None:
+            user_info_text = f"""Few details about the user and how they want us to respond to them:
+**User Memory:** 
+```
+{user_memory}
+```
 
+**User Preferences:** 
+```
+{user_preferences}
+```
+
+Also given is the conversation summary:
+```
+{summary}
+```
+
+Previous conversation history:
+```
+{prior_context['previous_messages_very_short']}
+```
+
+The current query is:
+```
+{user_query}
+```
+
+Now based on the above information, please extract the user's preferences and user memory relevant to the current query and conversation history. Only focus on extracting the user preferences and user memory and only write the extracted user preferences and user memory.
+Write the extracted user preferences and user memory below in bullet points. Write in concise manner.
+"""
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+            llm2 = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[1], use_gpt4=True, use_16k=True)
+            user_info_text1 = get_async_future(llm, user_info_text, temperature=0.2, stream=False)
+            user_info_text2 = get_async_future(llm2, user_info_text, temperature=0.2, stream=False)
 
         # raw_documents_index = self.get_field("raw_documents_index")
         link_result_text = ''
@@ -2255,6 +2291,13 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
 
+        user_info_text = ""
+        if userData is not None:
+            while user_info_text1.done() is False and user_info_text2.done() is False:
+                time.sleep(0.5)
+            user_info_text = user_info_text1.result() if user_info_text1.done() else user_info_text2.result()
+            user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n\n"
+
         memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
 
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
@@ -2269,7 +2312,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages if agent is None else previous_messages_short,
-                                                       permanent_instructions=permanent_instructions + memory_pad + coding_rules,
+                                                       permanent_instructions=permanent_instructions + memory_pad + coding_rules + user_info_text,
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)

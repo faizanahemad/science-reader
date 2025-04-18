@@ -84,6 +84,8 @@ function interface_readiness() {
         $("#chat-options-assistant-use-google-scholar").parent().show();
         $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
         $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
+        $("#user-preferences-modal-open-button").parent().show();
+        $("#user-details-modal-open-button").parent().show();
         activateChatTab();
     });
     $('#search-tab').on('shown.bs.tab', function (e) {
@@ -105,6 +107,8 @@ function interface_readiness() {
 
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);
+        $("#user-preferences-modal-open-button").parent().show();
+        $("#user-details-modal-open-button").parent().show();
 
         
 
@@ -137,7 +141,9 @@ function interface_readiness() {
 
         $("#chat-options-assistant-ensemble").parent().hide();
         $("#chat-options-assistant-ensemble").prop('checked', false);
-        $('#toggleChatControls').click();
+        $("#user-preferences-modal-open-button").parent().hide();
+        $("#user-details-modal-open-button").parent().hide();
+        // $('#toggleChatControls').click();
         
     });
     

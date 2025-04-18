@@ -1051,6 +1051,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <input class="form-check-input" id="enable_planner" type="checkbox">
             <label class="form-check-label" for="enable_planner">Planner</label>
         </div>
+
+        <div class="form-check form-check-inline mt-1">
+            <button class="btn btn-primary rounded-pill mt-1" id="user-details-modal-open-button"><i class="bi bi-pen"></i>&nbsp;User Details</button>
+        </div>
+
+        <div class="form-check form-check-inline mt-1">
+            <button class="btn btn-primary rounded-pill mt-1" id="user-preferences-modal-open-button"><i class="bi bi-pen"></i>&nbsp;User Preferences</button>
+        </div>
         
     </div>
     <div class="col-md-auto mt-1" style="width: 100%;">

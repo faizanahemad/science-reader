@@ -316,6 +316,48 @@
       </div>
     </div>
 
+    <!-- User Details Modal -->
+    <div class="modal fade" id="user-details-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">User Details</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <textarea id="user-details-text" class="form-control" rows="10"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="user-details-text-save-button" class="btn btn-primary" onclick="$('#user-details-modal').modal('hide');">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Preferences Modal -->
+    <div class="modal fade" id="user-preferences-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">User Preferences</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <textarea id="user-preferences-text" class="form-control" rows="10"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="user-preferences-text-save-button" class="btn btn-primary" onclick="$('#user-preferences-modal').modal('hide');">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
     <!-- Message Edit Modal -->
     <div class="modal fade" id="message-edit-modal" tabindex="-1" aria-hidden="true">  
       <div class="modal-dialog modal-lg"> <!-- Changed to modal-lg for a larger modal -->  

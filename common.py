@@ -62,7 +62,7 @@ EXPENSIVE_LLM = ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest",
                  "cohere/command-a", "ai21/jamba-1.6-large"]
 
 
-CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash-preview", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
+CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash-preview", "gpt-4.1-mini", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
 LONG_CONTEXT_LLM = ["google/gemini-pro-1.5", "google/gemini-2.5-pro-preview-03-25"]
 
 COMMON_SALT_STRING = "31256greagy89"
