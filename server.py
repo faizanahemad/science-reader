@@ -91,24 +91,30 @@ def create_table(conn, create_table_sql):
 def create_tables():
     database = "{}/users.db".format(users_dir)
 
-
-                                
     sql_create_user_to_conversation_id_table = """CREATE TABLE IF NOT EXISTS UserToConversationId (
                                     user_email text,
                                     conversation_id text,
                                     created_at text,
                                     updated_at text
                                 ); """
-
+                                
+    sql_create_user_details_table = """CREATE TABLE IF NOT EXISTS UserDetails (
+                                    user_email text PRIMARY KEY,
+                                    user_preferences text,
+                                    user_memory text,
+                                    created_at text,
+                                    updated_at text
+                                ); """
 
     # create a database connection
     conn = create_connection(database)
     
-
     # create tables
     if conn is not None:
         # create UserToVotes table
         create_table(conn, sql_create_user_to_conversation_id_table)
+        # create UserDetails table
+        create_table(conn, sql_create_user_details_table)
     else:
         print("Error! cannot create the database connection.")
         
@@ -116,6 +122,7 @@ def create_tables():
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToConversationId_email_doc ON UserToConversationId (user_email, conversation_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
     conn.commit()
         
         
@@ -176,6 +183,145 @@ def removeUserFromConversation(user_email, conversation_id):
     cur.execute("DELETE FROM UserToConversationId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
     conn.commit()
     conn.close()
+
+
+
+def addUserToUserDetailsTable(user_email, user_preferences=None, user_memory=None):
+    """
+    Add a new user to the UserDetails table or update if it already exists
+    
+    Args:
+        user_email (str): User's email address
+        user_preferences (str): JSON string of user preferences
+        user_memory (str): JSON string of what we know about the user
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    if conn is None:
+        logger.error("Failed to connect to database when adding user details")
+        return False
+    
+    cur = conn.cursor()
+    try:
+        # Check if user exists
+        cur.execute("SELECT user_email FROM UserDetails WHERE user_email=?", (user_email,))
+        exists = cur.fetchone()
+        
+        current_time = datetime.now()
+        
+        if exists:
+            # Update existing user
+            cur.execute(
+                """
+                UPDATE UserDetails
+                SET user_preferences=?, user_memory=?, updated_at=?
+                WHERE user_email=?
+                """,
+                (user_preferences, user_memory, current_time, user_email)
+            )
+        else:
+            # Insert new user
+            cur.execute(
+                """
+                INSERT INTO UserDetails
+                (user_email, user_preferences, user_memory, created_at, updated_at)
+                VALUES(?,?,?,?,?)
+                """,
+                (user_email, user_preferences, user_memory, current_time, current_time)
+            )
+        
+        conn.commit()
+        return True
+    except Error as e:
+        logger.error(f"Database error when adding user details: {e}")
+        return False
+    finally:
+        conn.close()
+
+def getUserFromUserDetailsTable(user_email):
+    """
+    Retrieve user details from the UserDetails table
+    
+    Args:
+        user_email (str): User's email address
+        
+    Returns:
+        dict: User details or None if not found
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    if conn is None:
+        logger.error("Failed to connect to database when retrieving user details")
+        return None
+    
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM UserDetails WHERE user_email=?", (user_email,))
+        row = cur.fetchone()
+        
+        if row:
+            return {
+                "user_email": row[0],
+                "user_preferences": row[1],
+                "user_memory": row[2],
+                "created_at": row[3],
+                "updated_at": row[4]
+            }
+        else:
+            return None
+    except Error as e:
+        logger.error(f"Database error when retrieving user details: {e}")
+        return None
+    finally:
+        conn.close()
+
+def updateUserInfoInUserDetailsTable(user_email, user_preferences=None, user_memory=None):
+    """
+    Update user information in the UserDetails table
+    
+    Args:
+        user_email (str): User's email address
+        user_preferences (str, optional): JSON string of user preferences
+        user_memory (str, optional): JSON string of what we know about the user
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    if conn is None:
+        logger.error("Failed to connect to database when updating user details")
+        return False
+    
+    cur = conn.cursor()
+    try:
+        # Get current values to only update what's provided
+        cur.execute("SELECT user_preferences, user_memory FROM UserDetails WHERE user_email=?", (user_email,))
+        row = cur.fetchone()
+        
+        if not row:
+            # User doesn't exist, add them instead
+            return addUserToUserDetailsTable(user_email, user_preferences, user_memory)
+        
+        current_preferences, current_memory = row
+        
+        # Use provided values or keep existing ones
+        update_preferences = user_preferences if user_preferences is not None else current_preferences
+        update_memory = user_memory if user_memory is not None else current_memory
+        
+        cur.execute(
+            """
+            UPDATE UserDetails
+            SET user_preferences=?, user_memory=?, updated_at=?
+            WHERE user_email=?
+            """,
+            (update_preferences, update_memory, datetime.now(), user_email)
+        )
+        
+        conn.commit()
+        return True
+    except Error as e:
+        logger.error(f"Database error when updating user details: {e}")
+        return False
+    finally:
+        conn.close()
 
 
 def keyParser(session):
@@ -979,6 +1125,9 @@ def list_messages_by_conversation_shareable(conversation_id):
 def send_message(conversation_id):
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
+    # check if the user has a user_details row
+    user_details = getUserFromUserDetailsTable(email)
+    
     conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     if conversation_id not in conversation_ids:
         return jsonify({"message": "Conversation not found"}), 404

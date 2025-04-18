@@ -736,13 +736,30 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
             // Always render the last active section once more at the end
             // This ensures that any content less than the 150 character threshold gets rendered
+
+            
+            function show_more() {
+                textElem = card.find('.chat-card-body') 
+                // check if textElem is hidden by display: none
+                if (textElem.css('display') === 'none') {
+                    textElem = card.find('#message-render-space')
+                }
+                toggle = showMore(null, text = answer, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
+                textElem.find('.show-more').click(toggle);
+                textElem.find('.show-more').click(toggle);
+            }
+
             if (last_elem_to_render && last_elem_to_render.length > 0) {
                 renderInnerContentAsMarkdown(last_elem_to_render, 
                     function() {
                         last_elem_to_render.attr('data-fully-rendered', 'true');
+                        show_more();
                     }, 
                     false, // Use false for final rendering to ensure proper display
                     last_rendered_answer);
+            }
+            else {
+                setTimeout(show_more, 1000);
             }
             
             // Don't re-render sections that were already properly rendered during streaming
@@ -758,14 +775,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             // Set up voting mechanism
             
-            textElem = card.find('.chat-card-body') 
-            // check if textElem is hidden by display: none
-            if (textElem.css('display') === 'none') {
-                textElem = card.find('#message-render-space')
-            }
-            toggle = showMore(null, text = answer, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
-            textElem.find('.show-more').click(toggle);
-            textElem.find('.show-more').click(toggle);
+            
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
             return;
         }

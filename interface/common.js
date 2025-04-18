@@ -255,7 +255,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     let ttsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('tts-btn')
-        .html('<span style="font-size:1rem;">🔊</span>')  // Larger icon
+        .html('<span style="font-size:1rem;">🔊 S</span>')  // Larger icon
         .css({
             'border-radius': '6px',
             'border': '1px solid',
@@ -270,7 +270,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     let shortTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-tts-btn')
-        .html('<span style="font-size:0.7rem;">S</span><span style="font-size:0.75rem;margin-left:2px;">🔉 S</span>')  // Smaller text and icon
+        .html('<span style="font-size:0.7rem;">S</span><span style="font-size:0.75rem;margin-left:2px;">🔉 SS</span>')  // Smaller text and icon
         .css({
             'border-radius': '6px',
             'border': '1px solid',
@@ -300,7 +300,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     let shortPodcastTtsBtn = $('<button>')
         .addClass('vote-btn')
         .addClass('short-podcast-tts-btn')
-        .html('<span style="font-size:0.7rem;">SP</span><span style="font-size:0.75rem;margin-left:2px;">🔉 PS</span>')  // Smaller text and icon
+        .html('<span style="font-size:0.7rem;">SP</span><span style="font-size:0.75rem;margin-left:2px;">🔉 SP</span>')  // Smaller text and icon
         .css({
             'border-radius': '6px',
             'border': '1px solid',
@@ -490,7 +490,16 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             'right': '30px'
         });
 
-    voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
+    // Add a check to determine if the screen is narrow (mobile)
+    let isWideScreen = window.innerWidth > 768; // 768px is a common breakpoint for mobile devices
+
+    // Only show podcast buttons on wider screens
+    if (isWideScreen) {
+        voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
+    } else {
+        // On narrow screens, only append standard TTS buttons, not podcast buttons
+        voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
+    }
     cardElem.find('.vote-box').remove();
     cardElem.append(voteBox);
 
