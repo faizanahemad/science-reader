@@ -16,7 +16,7 @@ function chat_interface_readiness() {
     setMaxHeightForTextbox("searchInput", 4);
     function textboxCallBack(e) { // Add this block to submit the question on enter
         this_id = this.id
-        if (e.which == 13 && !e.shiftKey && !e.altKey) {
+        if (e.which == 13 && !e.shiftKey && !e.altKey && window.innerWidth > 768) {
             if (this.id == 'messageText'){
                 sendMessageCallback();
             }
@@ -25,7 +25,7 @@ function chat_interface_readiness() {
             }
             return false; // Prevents the default action
         }
-        if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey)) {
+        if ((e.keyCode == 13 && e.altKey) || (e.keyCode == 13 && e.shiftKey) || (e.which == 13 && window.innerWidth <= 768)) {
             addNewlineToTextbox(this_id);
             return false; // Prevents the default action
         }

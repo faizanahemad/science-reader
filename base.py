@@ -2903,3 +2903,16 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
 
 
+class UserMemory:
+    def __init__(self, user_email: str, existing_memory: str = None):
+        self.user_email = user_email
+        self.user_memory = existing_memory.split("\n")
+
+    def update_memory(self, query: str, answer: str, context: str):
+        pass
+
+    def get_memory(self, query: str, context: str):
+        pass
+
+    def get_all_memory(self):
+        pass
