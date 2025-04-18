@@ -2795,6 +2795,11 @@ def model_name_to_canonical_name(model_name):
         model_name = "google/gemini-2.5-pro-preview-03-25"
     elif model_name == "o1":
         model_name = "o1"
+    elif model_name == "o3":
+        model_name = "o3"
+    elif model_name == "openai/o3":
+        model_name = "openai/o3"
+    
     elif model_name == "o1-pro":
         model_name = "o1-pro"
     elif model_name == "openai/o1-pro":
@@ -2887,6 +2892,8 @@ def model_name_to_canonical_name(model_name):
 
     elif model_name == "eva-unit-01/eva-qwen-2.5-72b":
         model_name = "eva-unit-01/eva-qwen-2.5-72b"
+    elif model_name == "google/gemini-2.5-flash-preview":
+        model_name = "google/gemini-2.5-flash-preview"
     elif model_name in CHEAP_LONG_CONTEXT_LLM:
         pass
     

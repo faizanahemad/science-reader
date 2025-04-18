@@ -937,6 +937,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <optgroup label="Reasoning Models">
                     <option>o1</option>
+                    <option>o3</option>
                     <!-- option>openai/o1-pro</option -->
                     <option>Claude Sonnet 3.7 Thinking</option>
                     <option>o1-pro</option>
@@ -972,6 +973,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <optgroup label="Fast Models">
                     <option>google/gemini-2.0-flash-001</option>
+                    <option>google/gemini-2.5-flash-preview</option>
                     <option>google/gemini-flash-1.5</option>
                     <option>google/gemini-2.0-flash-lite-001</option>
                     <option>qwen/qwen-turbo</option>
