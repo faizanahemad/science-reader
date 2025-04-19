@@ -1800,6 +1800,7 @@ The current query is:
 ```
 
 Now based on the above information, please extract the user's preferences and user memory relevant to the current query and conversation history. Only focus on extracting the user preferences and user memory and only write the extracted user preferences and user memory.
+If there is no user preferences or user memory relevant to the current query and conversation history, then just write "No user preferences or user memory found".
 Write the extracted user preferences and user memory below in bullet points. Write in concise manner.
 """
             llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
