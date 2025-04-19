@@ -798,6 +798,7 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - Use **clear examples**, **analogies** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- Write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
 - Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 

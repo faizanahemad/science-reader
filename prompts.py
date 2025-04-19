@@ -618,6 +618,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Write verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
 - Intuitive explanation of various non-obvious concepts and ideas in the solution.
 - write the pseudocode in markdown format inside codeblocks.
+- write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
 - Write actual code in python only.
 - **Decompose** each solution into manageable and understandable parts.
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
@@ -636,6 +637,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
 - If no solution is provided, First write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner.
 - Sometimes if you have taken a wrong approach, then mention it, backtrack and then provide the correct approach. You can do this by dry running the solution on the sample data and checking if it works.
+
 
 """
 
