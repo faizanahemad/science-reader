@@ -885,6 +885,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option selected>Blackmail</option>
                 
                 <option>Is Coding Request</option>
+                <option>More Related Coding Questions</option>
                 
                 <option>CoT</option>
                 <!-- option>Explain Maths</option -->
