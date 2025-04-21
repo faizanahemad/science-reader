@@ -637,7 +637,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - When no solution is provided, then write the solution yourself. Write a solution and run your solution on the sample data (generate sample data if needed) and check if your solution will work, if not then revise and correct your solution. 
 - If no solution is provided, First write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner.
 - Sometimes if you have taken a wrong approach, then mention it, backtrack and then provide the correct approach. You can do this by dry running the solution on the sample data and checking if it works.
-
+- Mention other related questions or problems that are similar or use similar concepts or algorithms or solutions. Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
 
 """
 
