@@ -965,12 +965,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <!-- option>cohere/command-a</option -->
                 </optgroup>
 
-                <optgroup label="Creative Models" hidden>
-                    <option>sao10k/l3.3-euryale-70b</option hidden>
-                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option hidden>
-                    <option>thedrummer/anubis-pro-105b-v1</option hidden>
-                    <option>steelskull/l3.3-electra-r1-70b</option hidden>
-                    <option>eva-unit-01/eva-qwen-2.5-72b</option hidden>
+                <optgroup label="Creative Models">
+                    <option>sao10k/l3.3-euryale-70b</option>
+                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
+                    <option>thedrummer/anubis-pro-105b-v1</option>
+                    <option>steelskull/l3.3-electra-r1-70b</option>
+                    <option>eva-unit-01/eva-qwen-2.5-72b</option>
                 </optgroup>
 
                 <optgroup label="Web Search Models" hidden>

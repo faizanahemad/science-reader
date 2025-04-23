@@ -903,6 +903,7 @@ Don't repeat the same information or details that are already provided in the cu
   - Give a verbal solution and then pseudocode solution to the related questions or problems.
   - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
   - Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
+  - Focus on medium or hard level problems which require more thinking, innovation and reasoning and application of concepts/algorithms.
 
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
