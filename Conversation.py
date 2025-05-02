@@ -6,7 +6,7 @@ import shutil
 
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
@@ -1254,6 +1254,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preamble += "\nFirst write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner.\n\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Sometimes if you have taken a wrong approach, then mention it, backtrack and then provide the correct approach. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
         if "Short Coding Interview" in preamble_options:
             preamble += short_coding_interview_prompt
+        if "Relationship" in preamble_options:
+            preamble += relationship_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
         if "Short references" in preamble_options and web_search_or_document_read:
@@ -2940,6 +2942,20 @@ def model_name_to_canonical_name(model_name):
         model_name = "eva-unit-01/eva-qwen-2.5-72b"
     elif model_name == "google/gemini-2.5-flash-preview":
         model_name = "google/gemini-2.5-flash-preview"
+    elif model_name == "eva-unit-01/eva-llama-3.33-70b":
+        model_name = "eva-unit-01/eva-llama-3.33-70b"
+    elif model_name == "nousresearch/hermes-3-llama-3.1-405b":
+        model_name = "nousresearch/hermes-3-llama-3.1-405b"
+    elif model_name == "neversleep/llama-3.1-lumimaid-70b":
+        model_name = "neversleep/llama-3.1-lumimaid-70b"
+    elif model_name == "raifle/sorcererlm-8x22b":
+        model_name = "raifle/sorcererlm-8x22b"
+    elif model_name == "qwen/qwen3-235b-a22b":
+        model_name = "qwen/qwen3-235b-a22b"
+    elif model_name == "deepseek/deepseek-prover-v2":
+        model_name = "deepseek/deepseek-prover-v2"
+    elif model_name == "deepseek/deepseek-chat-v3-0324":
+        model_name = "deepseek/deepseek-chat-v3-0324"
     elif model_name in CHEAP_LONG_CONTEXT_LLM:
         pass
     

@@ -880,6 +880,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <!-- option>Coding Interview</option -->
                 <option>Short Coding Interview</option>
+                <option>Relationship</option>
                 
                 <option>Argumentative</option>
                 <option selected>Blackmail</option>
@@ -938,6 +939,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>gpt-4.1</option>
                     <option>Gemini-2.5-pro-preview</option>
                     <option>x-ai/grok-3-beta</option>
+                    <option>qwen/qwen3-235b-a22b</option>
+                    <option>deepseek/deepseek-prover-v2</option>
+                    <option>deepseek/deepseek-chat-v3-0324</option>
                     
                 </optgroup>
 
@@ -971,6 +975,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>thedrummer/anubis-pro-105b-v1</option>
                     <option>steelskull/l3.3-electra-r1-70b</option>
                     <option>eva-unit-01/eva-qwen-2.5-72b</option>
+                    <option>eva-unit-01/eva-llama-3.33-70b</option>
+                    <option>nousresearch/hermes-3-llama-3.1-405b</option>
+                    <option>neversleep/llama-3.1-lumimaid-70b</option>
+                    <option>raifle/sorcererlm-8x22b</option>
                 </optgroup>
 
                 <optgroup label="Web Search Models" hidden>
