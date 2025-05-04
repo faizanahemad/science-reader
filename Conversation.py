@@ -49,6 +49,7 @@ class Conversation:
         memory = {  "title": 'Start the Conversation',
                     "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "running_summary":[], # List of strings, each string is a running summary of chat till now.
+                    "title_force_set": False,
                 }
         messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
         self.set_field("memory", memory)
@@ -579,7 +580,10 @@ Your response will be in below xml style format:
         actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
         title = summary.split('</title>')[0].split('<title>')[-1]
         memory["running_summary"].append(actual_summary)
-        memory["title"] = title
+        
+        memory["title_force_set"] = False or memory.get("title_force_set", False)
+        if not memory["title_force_set"]:
+            memory["title"] = title
 
         self.running_summary = actual_summary
         self.set_field("memory", memory)
@@ -592,6 +596,7 @@ Your response will be in below xml style format:
         memory = self.get_field("memory")
         memory["title"] = title
         self.set_field("memory", memory)
+        memory["title_force_set"] = True
         self.save_local()
         
     def convert_to_tts(self, text, message_id, message_index, recompute=False, shortTTS=False):
@@ -1580,7 +1585,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             if not title:
                 title = re.search(r'/set_title (.*)', query['messageText'], re.DOTALL).group(1).strip()
             if title:
-                query['messageText'] = query['messageText'].replace(f"/title {title}", "").replace(f"/set_title {title}", "")
+                
                 self.set_title(title)
                 yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
             model_name = FILLER_MODEL
