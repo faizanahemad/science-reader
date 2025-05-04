@@ -587,6 +587,12 @@ Your response will be in below xml style format:
         self.save_local()
         msg_set.result()
         memory_pad.result()
+
+    def set_title(self, title):
+        memory = self.get_field("memory")
+        memory["title"] = title
+        self.set_field("memory", memory)
+        self.save_local()
         
     def convert_to_tts(self, text, message_id, message_index, recompute=False, shortTTS=False):
         """
@@ -1552,6 +1558,10 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         # if any of the patterns are present in query['messageText'], then set links to [], don't process links
         if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText'] or "no_link_processing" in query['messageText'] or "no_link_parsing" in query['messageText']  or "no_links_parsing" in query['messageText'] or "parse_no_links" in query['messageText'] or "parse_no_link" in query['messageText'] or "avoid_links_processing" in query['messageText'] or "avoid_link_parsing" in query['messageText'] or "avoid_link_processing" in query['messageText']:
             links = []
+
+        qmt_no_space = query['messageText'].replace(" ", "_")
+        if "<no_links_processing>" in qmt_no_space or "no_links_processing" in qmt_no_space or "no_link_processing" in qmt_no_space or "no_link_parsing" in qmt_no_space  or "no_links_parsing" in qmt_no_space or "parse_no_links" in qmt_no_space or "parse_no_link" in qmt_no_space or "avoid_links_processing" in qmt_no_space or "avoid_link_parsing" in qmt_no_space or "avoid_link_processing" in qmt_no_space:
+            links = []
             
         if "No Links" in preambles:
             links = []
@@ -1564,6 +1574,18 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             assert attached_docs_for_summary == query['messageText'].strip(), f"Attached docs for summary should be the only docs in the message text. Our message text is:\n{query['messageText']}\n\nAttached docs are:\n{attached_docs_for_summary}"
             
         is_dense = "dense_summary" in attached_docs_for_summary
+
+        if "/title " in query['messageText'] or "/set_title " in query['messageText']:
+            title = re.search(r'/title (.*?) ', query['messageText'], re.DOTALL).group(1)
+            if not title:
+                title = re.search(r'/set_title (.*?) ', query['messageText'], re.DOTALL).group(1)
+            if title:
+                query['messageText'] = query['messageText'].replace(f"/title {title}", "").replace(f"/set_title {title}", "")
+                self.set_title(title)
+                yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
+                model_name = FILLER_MODEL
+                
+            
             
         attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "")
         attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
