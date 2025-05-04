@@ -1576,15 +1576,15 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         is_dense = "dense_summary" in attached_docs_for_summary
 
         if "/title " in query['messageText'] or "/set_title " in query['messageText']:
-            title = re.search(r'/title (.*?) ', query['messageText'], re.DOTALL).group(1)
+            title = re.search(r'/title (.*)', query['messageText'], re.DOTALL).group(1).strip()
             if not title:
-                title = re.search(r'/set_title (.*?) ', query['messageText'], re.DOTALL).group(1)
+                title = re.search(r'/set_title (.*)', query['messageText'], re.DOTALL).group(1).strip()
             if title:
                 query['messageText'] = query['messageText'].replace(f"/title {title}", "").replace(f"/set_title {title}", "")
                 self.set_title(title)
                 yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
-                model_name = FILLER_MODEL
-                
+            model_name = FILLER_MODEL
+            checkboxes["main_model"] = model_name
             
             
         attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "")
