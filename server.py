@@ -897,7 +897,7 @@ def upload_doc_to_conversation(conversation_id):
         return jsonify({'error': 'No pdf_url or pdf_file provided'}), 400
 
 @app.route('/delete_document_from_conversation/<conversation_id>/<document_id>', methods=['DELETE'])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def delete_document_from_conversation(conversation_id, document_id):
     keys = keyParser(session)
@@ -1268,7 +1268,7 @@ def delete_conversation(conversation_id):
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Conversation {conversation_id} deleted'})
 @app.route('/delete_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['DELETE'])
-@limiter.limit("30 per minute")
+@limiter.limit("300 per minute")
 @login_required
 def delete_message_from_conversation(conversation_id, message_id, index):
     email, name, loggedin = check_login(session)
