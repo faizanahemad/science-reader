@@ -547,7 +547,7 @@ Compact list of bullet points:
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
     @timer
-    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True):
+    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
         if not persist_or_not:
             return
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
@@ -559,7 +559,12 @@ Compact list of bullet points:
             {"message_id": message_ids["user_message_id"], "text": query,
              "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
             {"message_id": message_ids["response_message_id"], "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
-        msg_set = get_async_future(self.set_field, "messages", preserved_messages)
+        
+        if past_message_ids and len(past_message_ids) > 0:
+            messages = get_async_future(self.get_field, "messages")
+        else:
+            msg_set = get_async_future(self.set_field, "messages", preserved_messages)
+
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
         llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)
         prompt = get_first_last_parts(prompt, 18000, 10_000)
@@ -575,6 +580,27 @@ Your response will be in below xml style format:
         memory = memory.result()
         if memory is None:
             memory = dict(running_summary=[])
+
+        if past_message_ids and len(past_message_ids) > 0:
+            messages = messages.result()
+            # Find index of last message in past_message_ids
+            last_msg_idx = -1
+            for i, msg in enumerate(messages):
+                if msg["message_id"] == past_message_ids[-1]:
+                    last_msg_idx = i
+                    break
+                    
+            # Split messages into before and after groups
+            messages_before = messages[:last_msg_idx+1] 
+            messages_after = messages[last_msg_idx+1:]
+            
+            # Insert new messages between the groups
+            messages = messages_before + preserved_messages + messages_after
+            
+            # Update messages in storage
+            msg_set = get_async_future(self.set_field, "messages", messages, overwrite=True)
+            
+
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         summary = sleep_and_get_future_result(summary)
         actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
@@ -1618,7 +1644,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             
             yield {"text": '', "status": "saving answer ..."}
             yield {"text": '', "status": "saving message ..."}
-            get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
+            get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
             stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
@@ -1656,7 +1682,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 
                 yield {"text": '', "status": "saving answer ..."}
                 yield {"text": '', "status": "saving message ..."}
-                get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not)
+                get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
                 stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
@@ -2230,7 +2256,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 yield {"text": 'WEB_SEARCH_FAILED', "status": "saving answer ...", "message_ids": message_ids}
                 answer += 'WEB_SEARCH_FAILED'
-                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
+                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
                 return
 
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
@@ -2240,7 +2266,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -2253,7 +2279,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -2261,7 +2287,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0:
             yield {"text": '', "status": "saving answer ..."}
             answer += '!ERROR WEB SEARCH FAILED\n'
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
+            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
             return
@@ -2616,7 +2642,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 answer += (query_results + "</div>")
                 yield {"text": query_results + "</div>", "status": "Showing all results ... "}
         yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not)
+        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
         stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
