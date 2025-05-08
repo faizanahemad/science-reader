@@ -822,16 +822,17 @@ def interface():
     return send_from_directory('interface', 'interface.html', max_age=0)
 
 
-# Path to your shared.html file
-html_file_path = os.path.join('interface', 'shared.html')
 
-# Read the HTML file
-with open(html_file_path, 'r', encoding='utf-8') as file:
-    html_content = file.read()
 
 @app.route('/shared/<conversation_id>')
 @limiter.limit("200 per minute")
 def shared(conversation_id):
+    # Path to your shared.html file
+    html_file_path = os.path.join('interface', 'shared.html')
+
+    # Read the HTML file
+    with open(html_file_path, 'r', encoding='utf-8') as file:
+        html_content = file.read()
     # Insert the <div> element before the closing </body> tag
     div_element = f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
     modified_html = html_content.replace('</body>', f'{div_element}</body>')
