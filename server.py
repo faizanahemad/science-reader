@@ -810,10 +810,7 @@ def loader():
     return send_from_directory(os.path.join(app.root_path, 'static'),
                                'gradient-loader.gif', mimetype='image/gif')
 
-@app.route('/interface/<path:path>')
-@limiter.limit("1000 per minute")
-def send_static(path):
-    return send_from_directory('interface', path, max_age=0)
+
 
 @app.route('/interface')
 @limiter.limit("200 per minute")
@@ -821,6 +818,36 @@ def send_static(path):
 def interface():
     return send_from_directory('interface', 'interface.html', max_age=0)
 
+
+@app.route('/interface/<path:path>')  
+@limiter.limit("1000 per minute")  
+def interface_combined(path):  
+    # Check login status  
+    email, name, loggedin = check_login(session)  
+      
+    # First, handle potential conversation IDs  
+    if loggedin:  
+        try:  
+            # Get user's conversations  
+            conversation_ids = [c[1] for c in getCoversationsForUser(email)]  
+            if path in conversation_ids:  
+                # Valid conversation ID, serve the interface  
+                return send_from_directory('interface', 'interface.html', max_age=0)  
+        except Exception as e:  
+            logger.error(f"Error checking conversation access: {str(e)}")  
+            # Continue to static file handling on error  
+    else:  
+        # Heuristic to detect if path might be a conversation ID  
+        # Adjust this logic based on your conversation ID format  
+        if path.isalnum() and len(path) >= 8 and '.' not in path:  
+            # Looks like a conversation ID attempt, redirect to login  
+            return redirect('/login', code=302)  
+      
+    # If we get here, treat as static file request  
+    try:  
+        return send_from_directory('interface', path.replace('interface/', ''), max_age=0)  
+    except FileNotFoundError:  
+        return "File not found", 404  
 
 
 

@@ -106,7 +106,14 @@ function setMaxHeightForTextbox(textboxId, height = 10) {
     var messageText = $('#' + textboxId);
 
     // Determine the line height (might not always be precise, but close)
-    var lineHeight = parseFloat(getComputedStyle(messageText[0]).lineHeight);
+    var lineHeight;
+    try {
+        lineHeight = parseFloat(getComputedStyle(messageText[0]).lineHeight);
+    } catch (e) {
+        // Default to 20px line height if computation fails
+        lineHeight = 20;
+        console.log("Could not compute line height, using default value of 20px");
+    }
 
     // Set max-height for 10 lines
     if (!height) {

@@ -321,6 +321,7 @@ var ConversationManager = {
 
     setActiveConversation: function (conversationId) {
         this.activeConversationId = conversationId;
+        updateUrlWithConversationId(conversationId);
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function (messages) {
             ChatManager.renderMessages(conversationId, messages, true);
@@ -1264,6 +1265,26 @@ var ChatManager = {
 
 };
 
+function getConversationIdFromUrl(url) {  
+    const path = url ? new URL(url).pathname : window.location.pathname;
+    const pathParts = path.split('/');  
+    // Remove any hash fragments from the end of the path
+    const cleanPath = pathParts[pathParts.length - 1].split('#')[0];
+    pathParts[pathParts.length - 1] = cleanPath;
+    
+      
+    // Check if the URL contains a conversation ID  
+    if (pathParts.length > 2 && pathParts[1] === 'interface') {  
+        return pathParts[2];  
+    }  
+    return null;  
+}  
+
+function updateUrlWithConversationId(conversationId) {  
+    // Update the URL without reloading the page  
+    window.history.pushState({conversationId: conversationId}, '', '/interface/' + conversationId);  
+} 
+
 
 function loadConversations(autoselect = true) {
     // var domain = $("#field-selector").val();
@@ -1305,13 +1326,41 @@ function loadConversations(autoselect = true) {
                 ConversationManager.setActiveConversation(conversationId);
             });
 
+            const conversationId = getConversationIdFromUrl();  
+
             if (autoselect) {
-                if (firstConversation) {
+                if (firstConversation && !conversationId) {
                     ConversationManager.setActiveConversation(conversation.conversation_id);
                     firstConversation = false;
                 }
             }
         });
+        const conversationId = getConversationIdFromUrl();  
+        if (conversationId) {  
+            ConversationManager.setActiveConversation(conversationId);
+        }  
+
+        // Handle browser back/forward navigation  
+        window.onpopstate = function(event) {  
+            if (event.state && event.state.conversationId) {  
+                ConversationManager.setActiveConversation(event.state.conversationId);  
+            } else {  
+                // normal go back only if there is no conversation id
+                // get current conversation id
+                var currentConversationId = ConversationManager.getActiveConversation();
+                // get previous url
+                var previousUrl = window.history.previousUrl;
+                // get previous conversation id from the url
+                var previousConversationId = getConversationIdFromUrl(previousUrl);
+
+                // if both are same then do nothing
+                if (currentConversationId === previousConversationId) {
+                    return;
+                }
+                // if both are different then go back
+                window.history.back();
+            }  
+        };  
         if (data.length === 0) {
             ConversationManager.createConversation();
         }
