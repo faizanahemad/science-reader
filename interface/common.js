@@ -789,6 +789,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `${parentElementId}-${type}-tell-me-more-checkbox`,
         `${parentElementId}-${type}-search-exact`,
         `${parentElementId}-${type}-ensemble`,
+        `${parentElementId}-${type}-persist_or_not`,
     ];
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     var checkboxOneText = type === "assistant" ? "Scholar" : "References and Citations";
@@ -805,6 +806,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[5]}">Ensemble</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[6]}" type="checkbox" checked><label class="form-check-label" for="${checkBoxIds[6]}">Persist</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
@@ -1121,6 +1123,7 @@ function getOptions(parentElementId, type) {
         enable_planner: $('#enable_planner').is(':checked'),
         search_exact: $(`#${parentElementId}-${type}-search-exact`).is(':checked'),
         ensemble: $(`#${parentElementId}-${type}-ensemble`).is(':checked'),
+        persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).is(':checked'),
     };
     let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
     values['provide_detailed_answers'] = speedValue;
@@ -1145,6 +1148,7 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).prop('checked', false);
     $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
     $(`#${parentElementId}-${type}-ensemble`).prop('checked', false);
+    $(`#${parentElementId}-${type}-persist_or_not`).prop('checked', true);
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
 
 
@@ -1168,6 +1172,7 @@ function removeOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-provide-detailed-answers-checkbox`).parent().remove();
     $(`#${parentElementId}-${type}-search-exact`).parent().remove();
     $(`#${parentElementId}-${type}-ensemble`).parent().remove();
+    $(`#${parentElementId}-${type}-persist_or_not`).parent().remove();
 
     $(`[id$="${type}-search-box"]`).remove();
     $(`[id$="${type}-document-tags"]`).remove();

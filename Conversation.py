@@ -605,13 +605,16 @@ Your response will be in below xml style format:
         summary = sleep_and_get_future_result(summary)
         actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
         title = summary.split('</title>')[0].split('<title>')[-1]
-        memory["running_summary"].append(actual_summary)
         
         memory["title_force_set"] = False or memory.get("title_force_set", False)
-        if not memory["title_force_set"]:
+        if not memory["title_force_set"] and past_message_ids is None:
             memory["title"] = title
 
-        self.running_summary = actual_summary
+        if past_message_ids and len(past_message_ids) > 0:
+            pass
+        else:
+            self.running_summary = actual_summary
+            memory["running_summary"].append(actual_summary)
         self.set_field("memory", memory)
         # self.set_field("memory", memory)
         self.save_local()
@@ -1616,6 +1619,12 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
             model_name = FILLER_MODEL
             checkboxes["main_model"] = model_name
+
+        
+        if "/temp " in query['messageText'] or "/temporary " in query['messageText']:
+            
+            query['messageText'] = query['messageText'].replace("/temp ", "").replace("/temporary ", "").strip()
+            persist_or_not = False
             
             
         attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "")
