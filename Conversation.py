@@ -607,7 +607,7 @@ Your response will be in below xml style format:
         title = summary.split('</title>')[0].split('<title>')[-1]
         
         memory["title_force_set"] = False or memory.get("title_force_set", False)
-        if not memory["title_force_set"] and past_message_ids is None:
+        if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
             memory["title"] = title
 
         if past_message_ids and len(past_message_ids) > 0:
