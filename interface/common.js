@@ -647,62 +647,77 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (callback) {
         MathJax.Hub.Queue(callback)
     }
-    MathJax.Hub.Queue(function() {
-        // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
-        if (!hasUnclosedMermaidTag(html) && has_end_answer_tag) {
-            possible_mermaid_elem = elem_to_render_in.find(".mermaid")
-            // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
-            if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')) {
-                mermaid_text = possible_mermaid_elem[0].textContent
-                mermaid_elem = $("<pre class='mermaid'></div>")
-                mermaid_elem.text(mermaid_text)
-                // append as sibling to the possible_mermaid_elem
-                possible_mermaid_elem.after(mermaid_elem)
-            }
-            const mermaidBlocks = document.querySelectorAll('pre.mermaid');  
-            function cleanMermaidCode(mermaidCode) {  
-                return mermaidCode  
-                  .split('\n')  
-                  .map(line => line.trimRight())  
-                  .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
-                  .join('\n');  
-            }
-            
-            if (elem_to_render_in.find(".mermaid").length > 0) {
-                mermaidBlocks.forEach(block => {  
-                    // Get and clean the mermaid code  
-                    let code = block.textContent || block.innerText;  
-                    // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
-                    if (!block.querySelector('svg')) {
-                        code = cleanMermaidCode(code);
-                        // Update the content directly  
-                        block.textContent = code;  
-                    }
-                  
-                    
-                });  
-            }
-            mermaid.run({
-                querySelector: 'pre.mermaid',
-                useMaxWidth: false,
-                suppressErrors: false,
+    mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag
+    code_rendering_needed = $(elem_to_render_in).find('code').length > 0
+    drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0
 
-            }).then(() => {
-                // find all svg inside .mermaid class pre elements.
-                var svgs = $(document).find('pre.mermaid svg');
-                // iterate over each svg element and unset its height attribute
-                svgs.each(function (index, svg) {
-                    $(svg).attr('height', null);
+    if (mermaid_rendering_needed) {
+        MathJax.Hub.Queue(function() {
+            // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
+            if (mermaid_rendering_needed) {
+                possible_mermaid_elem = elem_to_render_in.find(".mermaid")
+                // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
+                if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')) {
+                    mermaid_text = possible_mermaid_elem[0].textContent
+                    mermaid_elem = $("<pre class='mermaid'></div>")
+                    mermaid_elem.text(mermaid_text)
+                    // append as sibling to the possible_mermaid_elem
+                    possible_mermaid_elem.after(mermaid_elem)
+                }
+                const mermaidBlocks = document.querySelectorAll('pre.mermaid');  
+                function cleanMermaidCode(mermaidCode) {  
+                    return mermaidCode  
+                      .split('\n')  
+                      .map(line => line.trimRight())  
+                      .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
+                      .join('\n');  
+                }
+                
+                if (elem_to_render_in.find(".mermaid").length > 0) {
+                    mermaidBlocks.forEach(block => {  
+                        // Get and clean the mermaid code  
+                        let code = block.textContent || block.innerText;  
+                        // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
+                        if (!block.querySelector('svg')) {
+                            code = cleanMermaidCode(code);
+                            // Update the content directly  
+                            block.textContent = code;  
+                        }
+                      
+                        
+                    });  
+                }
+                mermaid.run({
+                    querySelector: 'pre.mermaid',
+                    useMaxWidth: false,
+                    suppressErrors: false,
+    
+                }).then(() => {
+                    // find all svg inside .mermaid class pre elements.
+                    var svgs = $(document).find('pre.mermaid svg');
+                    // iterate over each svg element and unset its height attribute
+                    svgs.each(function (index, svg) {
+                        $(svg).attr('height', null);
+                    });
+                }).catch(err => {
+                    console.error('Mermaid Error:', err);
                 });
-            }).catch(err => {
-                console.error('Mermaid Error:', err);
+            }
+        })
+    }
+
+    if (code_rendering_needed) {
+        MathJax.Hub.Queue(function() {
+            code_elems = $(elem_to_render_in).find('code')
+            Array.from(code_elems).forEach(function (code_elem) {
+                hljs.highlightBlock(code_elem);
             });
-        }
-        
-        code_elems = $(elem_to_render_in).find('code')
-        Array.from(code_elems).forEach(function (code_elem) {
-            hljs.highlightBlock(code_elem);
-        });
+        })
+    }
+
+    if (drawio_rendering_needed) {
+        MathJax.Hub.Queue(function() {
+
         let permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
         waitForDrawIo(function (timeout) {
             let diagrams = document.querySelectorAll(".drawio-diagram");
@@ -717,10 +732,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     return;
                 }
 
-                processDiagram(diagram);
-            });
+                    processDiagram(diagram);
+                });
+            })
         })
-    })
+    }
 }
 
 
@@ -800,7 +816,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
     $(`#${parentElementId}`).append(
         `<small><div class="row">` +
         `<div class="col-md-auto">` +
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[0]}" type="checkbox" ${disabled}><label class="form-check-label" for="${checkBoxIds[0]}">${checkboxOneText}</label></div>` +
 
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[1]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[1]}">Search</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
@@ -876,7 +892,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
     </div>
     <div class="col-md-auto mt-1">
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-            <label for="preamble-selector" class="mr-1">Preambles</label>
+            <label for="preamble-selector" class="mr-1"></label>
             <select class="form-control selectpicker" id="preamble-selector" multiple>
                 
                 
@@ -939,7 +955,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
         
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-            <label for="main-model-selector" class="mr-1">Model</label>
+            <label for="main-model-selector" class="mr-1"></label>
             <select class="form-control" id="main-model-selector" multiple>
 
                 <optgroup label="Newer Models">
@@ -1020,7 +1036,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
         
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-            <label for="field-selector" class="mr-1">Agents</label>
+            <label for="field-selector" class="mr-1">Agent</label>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
                 <option>NStepCodeAgent</option>
@@ -1065,7 +1081,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label class="form-check-label" for="use_memory_pad">Use Pad</label>
         </div>
 
-        <div class="form-check form-check-inline mt-1">
+        <div class="form-check form-check-inline mt-1" style="display:none;">
             <input class="form-check-input" id="enable_planner" type="checkbox">
             <label class="form-check-label" for="enable_planner">Planner</label>
         </div>
