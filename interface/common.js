@@ -1,6 +1,10 @@
 var currentDomain = {
     domain: 'assistant', // finchat, search
+    page_loaded: false,
+    manual_domain_change: false,
 }
+
+var allDomains = ['finchat', 'search', 'assistant'];
 
 async function responseWaitAndSuccessChecker(url, responsePromise) {
     // Set a timeout for the API call
@@ -586,7 +590,7 @@ function hasUnclosedMermaidTag(htmlString) {
  
 
 
-function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null) {
+function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null) {
     parent = jqelem.parent()
     elem_id = jqelem.attr('id');
     elem_to_render_in = jqelem
@@ -647,6 +651,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (callback) {
         MathJax.Hub.Queue(callback)
     }
+
+    if (immediate_callback) {
+        immediate_callback()
+    }
+
     mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag
     code_rendering_needed = $(elem_to_render_in).find('code').length > 0
     drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0

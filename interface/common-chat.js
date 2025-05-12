@@ -319,6 +319,20 @@ var ConversationManager = {
         });
     },
 
+    getConversationDetails: function () {
+        conversationId = this.activeConversationId
+        return $.ajax({
+            url: '/get_conversation_details/' + conversationId,
+            type: 'GET',
+            success: function (result) {
+                return result;
+            },
+            error: function (result) {
+                alert('Error: ' + result.responseText);
+            }
+        });
+    },
+
     setActiveConversation: function (conversationId) {
         this.activeConversationId = conversationId;
         updateUrlWithConversationId(conversationId);
@@ -334,6 +348,27 @@ var ConversationManager = {
             }
             
 
+        });
+        this.getConversationDetails().done(function (conversationDetails) {
+            currentDomain["manual_domain_change"] = false;
+            if (conversationDetails.domain) {
+                domain = conversationDetails.domain;
+                if (domain !== currentDomain["domain"]) {
+                    for (var i = 0; i < allDomains.length; i++) {
+                        $('a#' + allDomains[i] + '-tab').removeClass('active');
+                    }
+
+                    active_tab = domain + '-tab';
+                    $('#' + active_tab).trigger('shown.bs.tab');
+                    $('a#' + active_tab).addClass('active');
+                    // $('#' + active_tab).trigger('click');
+                    
+                    
+                    
+
+                    
+                }
+            }
         });
         this.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
@@ -1285,6 +1320,10 @@ function updateUrlWithConversationId(conversationId) {
     window.history.pushState({conversationId: conversationId}, '', '/interface/' + conversationId);  
 } 
 
+// Similar to above functions we also need a function to clear the url of the conversation id and just make it /interface/
+function clearUrlofConversationId() {
+    window.history.pushState({}, '', '/interface/');
+}
 
 function loadConversations(autoselect = true) {
     // var domain = $("#field-selector").val();

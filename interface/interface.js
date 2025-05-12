@@ -65,17 +65,26 @@ function interface_readiness() {
     $('#assistant-tab').on('click', function () { 
         $("#chat-pdf-content").addClass('d-none'); 
         $("#chat-content").removeClass('d-none');
+        currentDomain["manual_domain_change"] = true;
     })
     $('#search-tab').on('click', function () { 
         $("#chat-pdf-content").addClass('d-none'); 
         $("#chat-content").removeClass('d-none');
+        currentDomain["manual_domain_change"] = true;
     })
     $('#finchat-tab').on('click', function () { 
         $("#chat-pdf-content").addClass('d-none'); 
         $("#chat-content").removeClass('d-none');
+        currentDomain["manual_domain_change"] = true;
     })
     $('#assistant-tab').on('shown.bs.tab', function (e) {
+        previous_domain = currentDomain["domain"];
         currentDomain["domain"] = "assistant";
+        
+        if (previous_domain !== currentDomain["domain"] && currentDomain["page_loaded"] && currentDomain["manual_domain_change"]) {
+            clearUrlofConversationId();
+        }
+        currentDomain["page_loaded"] = true;
         $("#field-selector").val("None");
         $('#permanentText').show();
         $('#linkInput').show();
@@ -89,7 +98,13 @@ function interface_readiness() {
         activateChatTab();
     });
     $('#search-tab').on('shown.bs.tab', function (e) {
+        previous_domain = currentDomain["domain"];
         currentDomain["domain"] = "search";
+        
+        if (previous_domain !== currentDomain["domain"] && currentDomain["page_loaded"] && currentDomain["manual_domain_change"]) {
+            clearUrlofConversationId();
+        }
+        currentDomain["page_loaded"] = true;
         $("#field-selector").val("None");
         activateChatTab();
         $('#permanentText').hide();
@@ -117,7 +132,14 @@ function interface_readiness() {
     });
 
     $('#finchat-tab').on('shown.bs.tab', function (e) {
+        previous_domain = currentDomain["domain"];
         currentDomain["domain"] = "finchat";
+        
+        if (previous_domain !== currentDomain["domain"] && currentDomain["page_loaded"] && currentDomain["manual_domain_change"]) {
+            clearUrlofConversationId();
+        }
+        currentDomain["page_loaded"] = true;
+        
         activateChatTab();
         $('#linkInput').hide();
         $('#searchInput').hide();

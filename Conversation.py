@@ -2678,7 +2678,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             memory["title"] = ""
         title = memory["title"]
         return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
-                    summary_till_now=summary_till_now,
+                    summary_till_now=summary_till_now, domain=self.domain,
                     last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
     
     def delete_last_turn(self):
