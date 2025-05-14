@@ -3051,10 +3051,12 @@ def extract_user_answer(text):
     
     
 def model_hierarchies(model_names: List[str]):
-    if "openai/chatgpt-4o-latest" in model_names:
-        improve_model = "openai/chatgpt-4o-latest"
-    elif "x-ai/grok-3-beta" in model_names:
+    if "x-ai/grok-3-beta" in model_names:
         improve_model = "x-ai/grok-3-beta"
+    
+    elif "openai/chatgpt-4o-latest" in model_names:
+        improve_model = "openai/chatgpt-4o-latest"
+    
     elif "anthropic/claude-3.7-sonnet" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
     elif "anthropic/claude-3.5-sonnet:beta" in model_names:

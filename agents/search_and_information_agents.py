@@ -648,7 +648,8 @@ Please evaluate each response and provide your analysis in the following XML for
         responses = []
         for i, future in enumerate(futures):
             try:
-                response = sleep_and_get_future_result(future)
+                
+                response = sleep_and_get_future_result(future, timeout=120)
                 responses.append((i, response))
             except Exception as e:
                 logger.error(f"Error getting response {i}: {e}, \n\n{traceback.format_exc()}")
