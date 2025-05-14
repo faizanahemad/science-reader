@@ -1005,7 +1005,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <optgroup label="Creative Models">
                     <option>sao10k/l3.3-euryale-70b</option>
-                    <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
+                    
                     <option>thedrummer/anubis-pro-105b-v1</option>
                     
                     <option>eva-unit-01/eva-qwen-2.5-72b</option>
