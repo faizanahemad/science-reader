@@ -1007,7 +1007,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>sao10k/l3.3-euryale-70b</option>
                     <option>latitudegames/wayfarer-large-70b-llama-3.3</option>
                     <option>thedrummer/anubis-pro-105b-v1</option>
-                    <option>steelskull/l3.3-electra-r1-70b</option>
+                    
                     <option>eva-unit-01/eva-qwen-2.5-72b</option>
                     <option>eva-unit-01/eva-llama-3.33-70b</option>
                     <option>nousresearch/hermes-3-llama-3.1-405b</option>
