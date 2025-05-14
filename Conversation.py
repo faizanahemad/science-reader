@@ -611,7 +611,12 @@ Your response will be in below xml style format:
             memory["title"] = title
 
         if past_message_ids and len(past_message_ids) > 0:
-            pass
+            summary_index = (last_msg_idx+1)//2
+            # list.insert() increases the length of the list by 1
+            # If index > len(list), insert() will append the item at the end (equivalent to index=len(list))
+            # So we should ensure summary_index is within bounds
+            summary_index = min(summary_index, len(memory["running_summary"]))
+            memory["running_summary"].insert(summary_index, actual_summary)
         else:
             self.running_summary = actual_summary
             memory["running_summary"].append(actual_summary)

@@ -292,6 +292,172 @@ Write your solution below which expands our understanding of the problem and enh
             yield "\n\n---\n\n"
             n_steps += 1
 
+class CodeEvaluationAgent(Agent):
+    def __init__(self, keys, writer_model: Union[List[str], str]):
+        super().__init__(keys)
+        self.writer_model = writer_model
+        
+        # Prompt to generate code with test cases when only functions are present
+        self.complete_code_prompt = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, and technical interviews at top tech companies.
+
+I have code that contains a solution function or algorithm, but it lacks test cases and a main execution block. Please add the necessary code to make it fully executable with test cases.
+
+{mathematical_notation}
+
+Guidelines:
+- Add test cases that cover normal cases, edge cases, and corner cases
+- Include an if __name__ == "__main__" block
+- Make sure all imports are included
+- Keep all existing functions intact
+- Use assert statements to verify correctness
+- Print test results clearly showing which tests pass/fail
+- Maintain the existing algorithm/solution logic
+
+Here is the existing code:
+```python
+{{code}}
+```
+
+Please provide a complete, executable version of this code with appropriate test cases. The final code should be self-contained in a single file.
+"""
+        
+        # Prompt to evaluate code and suggest improvements/corrections
+        self.code_evaluation_prompt = f"""
+You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, and technical interviews at top tech companies.
+
+I have executed some Python code and want your expert evaluation of it. Please analyze both the code and its execution results.
+
+{mathematical_notation}
+
+Original Code:
+```python
+{{code}}
+```
+
+Execution Results:
+{{execution_results}}
+
+Please provide an evaluation addressing the following:
+
+1. **Correctness**: Does the code execute successfully? Do all tests pass? If not, identify the issues.
+
+2. **Algorithm Analysis**: 
+   - Time and space complexity analysis
+   - Is the chosen algorithm optimal?
+   - Are there edge cases not being handled?
+
+3. **Code Quality**:
+   - Style and readability
+   - Variable naming and documentation
+   - Potential refactoring opportunities
+   - Adherence to Python best practices
+
+4. **Improvements**:
+   - If the code is correct but could be improved stylistically, suggest specific improvements
+   - If the code fails or has bugs, provide a complete corrected version
+
+If providing a corrected version, please ensure it's complete and executable.
+"""
+
+    def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
+        # Extract code from text (taking the last code block if multiple exists)
+        extracted_code = self._extract_last_code_block(text)
+        
+        if not extracted_code:
+            yield "No code block found in the input text."
+            return
+        
+        # Check if the code has a main execution block
+        has_main_execution = 'if __name__ == "__main__"' in extracted_code
+        has_main_function = re.search(r'def\s+(main|algorithm|solution)\s*\(', extracted_code) is not None
+        
+        # If code has a function but no main execution block, complete it
+        if not has_main_execution and has_main_function:
+            yield "Code has a solution function but no main execution block. Completing the code with test cases...\n\n"
+            completed_code = yield from self._complete_code_with_tests(extracted_code)
+            if completed_code:
+                extracted_code = completed_code
+                yield "\n\n---\n\n"
+            else:
+                yield "Failed to complete the code with test cases."
+                return
+        
+        # Execute the code
+        execution_results = yield from self._execute_code(extracted_code)
+        
+        # Evaluate the code
+        yield from self._evaluate_code(extracted_code, execution_results)
+    
+    def _extract_last_code_block(self, text):
+        """Extract the last code block from the text."""
+        code_blocks = re.findall(r'```(?:python)?\s*(.*?)```', text, re.DOTALL)
+        if not code_blocks:
+            return None
+        
+        # Return the last code block
+        return code_blocks[-1].strip()
+    
+    def _complete_code_with_tests(self, code):
+        """Use LLM to complete code with test cases."""
+        prompt = self.complete_code_prompt.replace("{code}", code)
+        
+        llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[0])
+        response = llm(prompt, [], temperature=0.7, stream=True)
+        
+        completed_code = ""
+        for chunk in collapsible_wrapper(response, header="Completed Code with Test Cases", show_initially=True):
+            yield chunk
+            completed_code += chunk
+        
+        # Extract the completed code from the response
+        code_blocks = re.findall(r'```(?:python)?\s*(.*?)```', completed_code, re.DOTALL)
+        if not code_blocks:
+            return None
+        
+        return code_blocks[-1].strip()
+    
+    def _execute_code(self, code):
+        """Execute the code and return the results."""
+        yield "Executing code...\n\n"
+        
+        code_session = PersistentPythonEnvironment()
+        try:
+            success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code, constraints={}, session=code_session)
+            
+            execution_results = ""
+            
+            if success:
+                execution_output = f"Code execution passed with the following output:\n\n```\n{stdout}\n```\n\n"
+                yield from collapsible_wrapper(execution_output, header="Code Execution Results", show_initially=True)
+                execution_results = stdout
+            else:
+                execution_output = f"Code execution failed with the following error:\n\n```\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nERROR: {failure_reason}\n```\n\n"
+                yield from collapsible_wrapper(execution_output, header="Code Execution Results", show_initially=True)
+                execution_results = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}\n\nERROR: {failure_reason}"
+            
+            yield "\n\n---\n\n"
+            del code_session
+            return execution_results
+            
+        except Exception as e:
+            error_output = f"Code execution failed with an unexpected error:\n\n```\n{str(e)}\n{traceback.format_exc()}\n```\n\n"
+            yield from collapsible_wrapper(error_output, header="Execution Error", show_initially=True)
+            yield "\n\n---\n\n"
+            del code_session
+            return f"Execution Error: {str(e)}\n{traceback.format_exc()}"
+    
+    def _evaluate_code(self, code, execution_results):
+        """Use LLM to evaluate code quality and correctness."""
+        prompt = self.code_evaluation_prompt.replace("{code}", code).replace("{execution_results}", execution_results)
+        
+        # Use a different model instance for evaluation
+        random_index = random.randint(0, len(self.writer_model)-1 if isinstance(self.writer_model, list) else 0)
+        llm = CallLLm(self.keys, self.writer_model if isinstance(self.writer_model, str) else self.writer_model[random_index])
+        response = llm(prompt, [], temperature=0.7, stream=True)
+        
+        for chunk in collapsible_wrapper(response, header="Code Evaluation and Recommendations", show_initially=True):
+            yield chunk
 
 class NStepCodeAgent_old(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], n_steps: int = 4):
