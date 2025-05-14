@@ -9,7 +9,7 @@ from agents.search_and_information_agents import JinaSearchAgent
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, BestOfNAgent, WhatIfAgent
+from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent
 from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -1359,8 +1359,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "BroadSearch":
             agent = BroadSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
-        if field == "BestOfN":
-            agent = BestOfNAgent(self.get_api_keys(), writer_model=model_name, evaluator_model=model_name if isinstance(model_name, str) else model_name[0], n_responses=kwargs.get("n_responses", 3))
+        
         if field == "NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
         if field == "NStepAgent":
@@ -2410,7 +2409,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif agent is not None:
-            if isinstance(agent, (BestOfNAgent, ReflectionAgent)):
+            if isinstance(agent, (NResponseAgent, ReflectionAgent)):
                 if hasattr(agent, "n_responses"):
                     agent.n_responses = 5 if provide_detailed_answers >= 3 else 3
                 if hasattr(agent, "model_name"):

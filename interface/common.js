@@ -1052,13 +1052,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>CodeSolveAgent</option>
                 <option>MLSystemDesignAgent</option>
                 <option>NStepAgent</option>
+                <option>NResponseAgent</option>
                 <option>PerplexitySearch</option>
                 <option>JinaSearchAgent</option>
                 <option>WebSearch</option>
                 <option>MultiSourceSearch</option>
                 <option>BroadSearch</option>
-                <option>BestOfN</option>
-                <option>NResponseAgent</option>
+                
                 
                 <option>WhatIf</option>
                 <option>LiteratureReview</option>

@@ -565,59 +565,14 @@ Next Step or answer extension or continuation:
 
 
 
-class BestOfNAgent(Agent):
-    def __init__(self, keys, writer_model: Union[List[str], str], evaluator_model: str, n_responses: int = 3):
+class NResponseAgent(Agent):
+    def __init__(self, keys, writer_model: Union[List[str], str], n_responses: int = 3):
         self.keys = keys
         self.writer_model = writer_model
-        self.evaluator_model = evaluator_model
         self.n_responses = n_responses
         self.system = """
 Select the best response from the given multiple responses.
         """.strip()
-
-        self.evaluator_prompt = f"""
-You are tasked with evaluating multiple responses to a user query and selecting the best one. 
-Analyze each response carefully and rate them based on the following criteria:
-- Correctness and accuracy of information
-- Comprehensiveness and completeness
-- Clarity and organization
-- Relevance to the query
-- Practical usefulness
-- Technical depth and expertise demonstrated
-- Quality of explanations and examples
-
-User Query:
-<user_query>
-{{query}}
-</user_query>
-
-Generated Responses:
-<generated_responses>
-{{responses}}
-</generated_responses>
-
-Please evaluate each response and provide your analysis in the following XML format:
-
-<evaluation>
-    <analysis>
-        [Detailed analysis of each response, comparing their strengths and weaknesses]
-    </analysis>
-    
-    <rankings>
-        [Numerical rankings of responses with brief justification for each]
-    </rankings>
-    
-    <reasoning>
-        [Detailed reasoning for selecting the best response]
-    </reasoning>
-    
-    <best_response_index>
-        [Index of the best response (0-based)]
-    </best_response_index>
-    
-    
-</evaluation>
-"""
 
     @property
     def model_name(self):
@@ -628,140 +583,20 @@ Please evaluate each response and provide your analysis in the following XML for
         self.writer_model = model_name
         self.evaluator_model = model_name if isinstance(model_name, str) else model_name[0]
         
-    def get_multiple_responses(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        st = time.time()
-        
-        # Generate N responses in parallel
-        futures = []
-        for _ in range(self.n_responses):
-            if isinstance(self.writer_model, str):
-                first_model = CallLLm(self.keys, self.writer_model)
-                future = get_async_future(first_model, text, images, temperature, False, max_tokens, system)
-                futures.append(future)
-            else:
-                for model in self.writer_model:
-                    first_model = CallLLm(self.keys, model)
-                    future = get_async_future(first_model, text, images, temperature, False, max_tokens, system)
-                    futures.append(future)
-
-        # Collect responses
-        responses = []
-        for i, future in enumerate(futures):
-            try:
-                
-                response = sleep_and_get_future_result(future, timeout=120)
-                responses.append((i, response))
-            except Exception as e:
-                logger.error(f"Error getting response {i}: {e}, \n\n{traceback.format_exc()}")
-
-        time_logger.info(f"Time taken to get {len(responses)} responses: {time.time() - st}")
-
-        # Format responses for evaluation
-        formatted_responses = "\n\n".join([f"Response {i}:\n{response}" for i, response in responses])
-        return formatted_responses, responses
-    
-    def combine_responses(self, formatted_responses, responses, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        # Evaluate responses
-        evaluator = CallLLm(self.keys, self.evaluator_model)
-        eval_text = self.evaluator_prompt.format(query=text, responses=formatted_responses)
-        evaluation = evaluator(
-            eval_text,
-            images=images,
-            temperature=temperature,
-            stream=False,
-            max_tokens=max_tokens,
-            system=system + "\n\n" + self.system
-        )
-
-        # Parse evaluation
-        analysis = evaluation.split('</analysis>')[0].split('<analysis>')[-1].strip()
-        rankings = evaluation.split('</rankings>')[0].split('<rankings>')[-1].strip()
-        best_index = int(evaluation.split('</best_response_index>')[0].split('<best_response_index>')[-1].strip())
-        reasoning = evaluation.split('</reasoning>')[0].split('<reasoning>')[-1].strip()
-
-        # Format the final answer with collapsible sections
-        random_identifier = str(uuid.uuid4())
-        
-        # Format all responses in collapsible divs
-        all_responses = []
-        for i, (_, response) in enumerate(responses):
-            is_best = i == best_index
-            response_class = 'collapse show' if is_best else 'collapse'
-            response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
-            aria_expanded = 'true' if is_best else 'false'
-            all_responses.append(
-                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button' aria-expanded='{aria_expanded}'></div> "
-                f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
-            )
-
-        # Format evaluation details in a collapsible div
-        evaluation_details = (
-            f"**Evaluation Details:** <div data-toggle='collapse' href='#evaluation-{random_identifier}' role='button'></div> "
-            f"<div class='collapse' id='evaluation-{random_identifier}'>\n"
-            f"### Analysis\n{analysis}\n\n"
-            f"### Rankings\n{rankings}\n\n"
-            f"### Reasoning for Best Response\n{reasoning}\n"
-            f"</div>"
-        )
-
-        # Combine everything into the final answer
-        final_answer = "\n\n".join([
-            "# Generated Responses and Evaluation",
-            "\n\n".join(all_responses),
-            evaluation_details
-        ])
-
-        return {
-            'answer': final_answer,
-            'best_response_index': best_index,
-            'analysis': analysis,
-            'rankings': rankings,
-            'reasoning': reasoning
-        }
-    
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        formatted_responses, responses = self.get_multiple_responses(text, images, temperature, stream, max_tokens, system, web_search)
-        combined_response = self.combine_responses(formatted_responses, responses, text, images, temperature, stream, max_tokens, system, web_search)
-        return combined_response
+
+        # repeat self.writer_model n_responses times if it is a string, otherwise use the list directly
+        self.writer_models = [self.writer_model] * self.n_responses if isinstance(self.writer_model, str) else self.writer_model
+        llm = CallMultipleLLM(self.keys, self.writer_models)
+
+        first_response_stream = llm(text, images, temperature, True, max_tokens, system)
+        first_response = ""
+        for chunk in first_response_stream:
+            first_response += chunk
+            yield chunk
+        yield "\n\n---\n\n"
         
         
-
-
-class NResponseAgent(BestOfNAgent):
-    def __init__(self, keys, writer_model: Union[List[str], str], n_responses: int = 3):
-        super().__init__(keys, writer_model, None, n_responses)
-
-
-    # No need for model_name property and setter since they are inherited from BestOfNAgent
-    
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        _, responses = self.get_multiple_responses(text, images, temperature, stream, max_tokens, system, web_search)
-        # Format the final answer with collapsible sections
-        random_identifier = str(uuid.uuid4())
-        best_index = 0
-        # Format all responses in collapsible divs
-        all_responses = []
-        for i, (_, response) in enumerate(responses):
-            is_best = i == best_index
-            response_class = 'collapse show' if is_best else 'collapse'
-            response_header = f"**{'Best ' if is_best else ''}Response {i+1}:**"
-            aria_expanded = 'true' if is_best else 'false'
-            all_responses.append(
-                f"{response_header} <div data-toggle='collapse' href='#response-{random_identifier}-{i}' role='button' aria-expanded='{aria_expanded}'></div> "
-                f"<div class='{response_class}' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
-            )
-
-        # Combine everything into the final answer
-        final_answer = "\n\n".join([
-            "# Generated Responses and Evaluation",
-            "\n\n".join(all_responses)
-        ])
-
-        return {
-            'answer': final_answer,
-            'best_response_index': best_index,
-            
-        }
         
 def is_future_ready(future):
     """Check if a future is ready without blocking"""
