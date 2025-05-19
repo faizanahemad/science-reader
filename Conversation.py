@@ -2906,7 +2906,7 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "openai/gpt-4o-mini-search-preview":
         model_name = "openai/gpt-4o-mini-search-preview"
     elif model_name == "Gemini-2.5-pro-preview":
-        model_name = "google/gemini-2.5-pro-preview-03-25"
+        model_name = "google/gemini-2.5-pro-preview"
     elif model_name == "o1":
         model_name = "o1"
     elif model_name == "o3":

@@ -831,70 +831,47 @@ function addOptions(parentElementId, type, activeDocId = null) {
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[3]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[3]}">More</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[4]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[4]}">Search Exact</label></div>` +
         `<div class="form-check form-check-inline" style="margin-right: 10px; display:none;"><input class="form-check-input" id="${checkBoxIds[5]}" type="checkbox"><label class="form-check-label" for="${checkBoxIds[5]}">Ensemble</label></div>` +
-        `<div class="form-check form-check-inline" style="margin-right: 10px;"><input class="form-check-input" id="${checkBoxIds[6]}" type="checkbox" checked><label class="form-check-label" for="${checkBoxIds[6]}">Persist</label></div>` +
+        `<div class="form-check form-check-inline" style="margin-right: 0px;"><input class="form-check-input" id="${checkBoxIds[6]}" type="checkbox" checked><label class="form-check-label" for="${checkBoxIds[6]}">Persist</label></div>` +
         `</div>` +
         (type === "assistant" ? `
     <div class="col-md-auto">
         <div class="form-check form-check-inline" id="${slow_fast}" style="line-height: 0.9;">
-            <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-                <div style="margin-left: auto; margin-right: 5px;">Depth</div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}1" value="1" autocomplete="off">
-                    <label for="${slow_fast}1"><small>1</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}2" value="2" autocomplete="off">
-                    <label for="${slow_fast}2"><small>2</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}3" value="3" autocomplete="off">
-                    <label for="${slow_fast}3"><small>3</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="${slow_fast}Options" id="${slow_fast}4" value="4" autocomplete="off" checked>
-                    <label for="${slow_fast}4"><small>4</small></label>
-                </div>
+            <div style="border: 1px solid #ccc; padding: 1px; border-radius: 12px; display: inline-flex; align-items: center;">
+                <div style="margin-left: 0px; margin-right: 5px;">Depth</div>
+                <select id="depthSelector" class="form-control form-control-sm" style="width: auto; margin-right: 5px;">
+                    
+                        <option value="1">1</option>
+                        <option value="2" selected>2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                    
+                </select>
             </div>
         </div>
+
+        <!-- History -->
         
         <div class="form-check form-check-inline" id="enablePreviousMessagesContainer" style="line-height: 0.9;">
-            <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-                <div style="margin-left: auto; margin-right: 5px;">History</div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="historyBan" value="-1" autocomplete="off">
-                    <label for="historyBan"><small>∅</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history0" value="0" autocomplete="off">
-                    <label for="history0"><small>0</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history1" value="1" autocomplete="off">
-                    <label for="history1"><small>1</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history2" value="2" autocomplete="off">
-                    <label for="history2"><small>2</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history3" value="3" autocomplete="off" checked>
-                    <label for="history3"><small>3</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history4" value="4" autocomplete="off" checked>
-                    <label for="history4"><small>4</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="history5" value="5" autocomplete="off" checked>
-                    <label for="history5"><small>5</small></label>
-                </div>
-                <div style="display: flex; flex-direction: column; align-items: center; margin-right: 5px;">
-                    <input type="radio" name="historyOptions" id="historyInfinite" value="infinite" autocomplete="off">
-                    <label for="historyInfinite"><small>∞</small></label>
-                </div>
-                
+            <div style="border: 1px solid #ccc; padding: 1px; border-radius: 12px; display: inline-flex; align-items: center;">
+                <div style="margin-left: 0px; margin-right: 5px;">History</div>
+                <select id="historySelector" class="form-control form-control-sm selectpicker" style="width: auto; margin-right: 5px;">
+                    
+                        <option value="-1">∅</option>
+                        <option value="0">0</option>
+                        <option value="1">1</option>
+                        <option value="2" selected>2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="infinite">∞</option>
+                    
+                </select>
             </div>
         </div>
+
+        <!-- History -->
+
+        
     
 
         <div class="form-check form-check-inline"><button id="deleteLastTurn" class="btn btn-danger rounded-pill mt-1">Del Last Turn</button></div>
@@ -1045,7 +1022,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
         </div>
         
         <div class="form-check form-check-inline mt-1" style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
-            <label for="field-selector" class="mr-1">Agent</label>
+            <label for="field-selector" class="mr-1"></label>
+            <div style="margin-left: 0px; margin-right: 5px;">Agent</div>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
                 <option>NStepCodeAgent</option>
@@ -1124,7 +1102,50 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
 
     // Elements for Multiple Documents option
-    
+    function historyUpdate() {
+        `
+        <div class="form-check form-check-inline" id="enablePreviousMessagesContainer" style="line-height: 0.9;">
+            <div style="border: 1px solid #ccc; padding: 2px; border-radius: 12px; display: inline-flex; align-items: center;">
+                <div style="margin-left: auto; margin-right: 5px;">History</div>
+                <button id="historyDecrease" class="btn btn-sm btn-outline-secondary" style="padding: 0px 6px;">-</button>
+                <span id="historyValue" style="margin: 0 8px; min-width: 20px; text-align: center;">3</span>
+                <button id="historyIncrease" class="btn btn-sm btn-outline-secondary" style="padding: 0px 6px;">+</button>
+                <input type="hidden" id="historyDialerValue" value="3">
+            </div>
+        </div>
+        `
+        // Initialize the dialer with a default value of 3
+        let historyDialerValue = 3;
+        updateHistoryDisplay();
+        
+        $("#historyDecrease").click(function() {
+            if (historyDialerValue > -1) {
+                historyDialerValue--;
+            }
+            updateHistoryDisplay();
+        });
+        
+        $("#historyIncrease").click(function() {
+            historyDialerValue++;
+            updateHistoryDisplay();
+        });
+        
+        function updateHistoryDisplay() {
+            // Update the hidden input
+            $("#historyDialerValue").val(historyDialerValue);
+            
+            // Update the display
+            if (historyDialerValue === -1) {
+                $("#historyValue").text("∅");
+            } else if (historyDialerValue === Infinity || historyDialerValue === "infinite") {
+                $("#historyValue").text("∞");
+                historyDialerValue = "infinite";
+            } else {
+                $("#historyValue").text(historyDialerValue);
+            }
+        }
+    }
+    historyUpdate();
     if (type === 'assistant') {
         $('#deleteLastTurn').click(function () {
             if (ConversationManager.activeConversationId) {
@@ -1150,11 +1171,11 @@ function getOptions(parentElementId, type) {
         ensemble: $(`#${parentElementId}-${type}-ensemble`).is(':checked'),
         persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).is(':checked'),
     };
-    let speedValue = $(`input[name='${slow_fast}Options']:checked`).val();
+    let speedValue = $("#depthSelector").val();
     values['provide_detailed_answers'] = speedValue;
     values[checkBoxOptionOne] = optionOneChecked;
     if (type === "assistant") {
-        let historyValue = $("input[name='historyOptions']:checked").val();
+        let historyValue = $("#historySelector").val();
         values['enable_previous_messages'] = historyValue;
     }
     
