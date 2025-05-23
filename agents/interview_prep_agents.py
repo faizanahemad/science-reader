@@ -44,16 +44,16 @@ from .search_and_information_agents import MultiSourceSearchAgent, PerplexitySea
 
 mathematical_notation = """
 - Formatting Mathematical Equations:
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
+    - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+    - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
+    - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+    - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`.
 
 - **Mathematical Notation**:
   - Present equations and formulas using LaTeX in separate `$$` environments or `\\\\( ... \\\\)` notation.
     $$
     \text{{Example Equation: }} E = mc^2
     $$
-  - For inline math, use `\\\\( ... \\\\)` notation. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
 
 """
 
