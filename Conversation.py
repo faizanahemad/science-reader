@@ -2894,6 +2894,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4.1"
     elif model_name == "gpt-4.1":
         model_name = "gpt-4.1"
+    elif model_name == "anthropic/claude-opus-4" or model_name == "Opus 4":
+        model_name = "anthropic/claude-opus-4"
+    elif model_name == "anthropic/claude-sonnet-4" or model_name == "Claude Sonnet 4" or model_name == "Sonnet 4":
+        model_name = "anthropic/claude-sonnet-4"
     
     elif model_name == "x-ai/grok-3-beta":
         model_name = "x-ai/grok-3-beta"
@@ -3058,6 +3062,10 @@ def model_hierarchies(model_names: List[str]):
     
     elif "anthropic/claude-3.7-sonnet" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
+    elif "anthropic/claude-opus-4" in model_names or "Opus 4" in model_names or "Claude Opus 4" in model_names:
+        improve_model = "anthropic/claude-sonnet-4"
+    elif "anthropic/claude-sonnet-4" in model_names or "Claude Sonnet 4" in model_names or "Sonnet 4" in model_names:
+        improve_model = "anthropic/claude-sonnet-4"
     elif "anthropic/claude-3.5-sonnet:beta" in model_names:
         improve_model = "anthropic/claude-3.5-sonnet:beta"
     elif "gpt-4o" in model_names:

@@ -944,14 +944,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1"></label>
             <select class="form-control" id="main-model-selector" multiple>
 
-                <optgroup label="Newer Models">
-                    <option selected>Claude Sonnet 3.7</option>   
+                <optgroup label="Newer Models">   
                     <option>openai/chatgpt-4o-latest</option> 
-                    <option>gpt-4.1</option>
-                    <option>Gemini-2.5-pro-preview</option>
                     <option>x-ai/grok-3-beta</option>
-                    <option>qwen/qwen3-235b-a22b</option>
-                    <option>deepseek/deepseek-prover-v2</option>
+                    <option>Opus 4</option>
+                    <option selected>Claude Sonnet 3.7</option>
+                    <option>Sonnet 4</option>
                     <option>deepseek/deepseek-chat-v3-0324</option>
                     
                 </optgroup>
@@ -961,6 +959,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
                 
                 <optgroup label="Reasoning Models">
+                    <option>Gemini-2.5-pro-preview</option>
                     <option>o1</option>
                     <option>o3</option>
                     <!-- option>openai/o1-pro</option -->
@@ -972,7 +971,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
 
                 <optgroup label="Older Models">
                     <option>gpt-4.5-preview</option>
-                    <option>Claude Opus</option>
+                    <option>qwen/qwen3-235b-a22b</option>
+                    <option>gpt-4.1</option>
+                    <!-- option>Claude Opus</option -->
                     <!-- option>Claude Sonnet 3.5</option -->  
                     <!-- option>Pixtral Large</option --> 
                     <option>gpt-4o</option>
@@ -993,8 +994,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
 
                 <optgroup label="Web Search Models" hidden>
-                    <option>perplexity/sonar-pro</option hidden>
-                    <option>perplexity/sonar-reasoning-pro</option hidden>
+                    <!-- option>perplexity/sonar-pro</option hidden -->
+                    <!-- option>perplexity/sonar-reasoning-pro</option hidden -->
                     <!-- option>openai/gpt-4o-mini-search-preview</option -->
                     <!-- option>openai/gpt-4o-search-preview</option -->
                     <!-- option>perplexity/sonar-deep-research</option -->
