@@ -945,11 +945,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <select class="form-control" id="main-model-selector" multiple>
 
                 <optgroup label="Newer Models">   
+                    <option>Claude Sonnet 3.7</option>
+                    <option selected>Sonnet 4</option>
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>x-ai/grok-3-beta</option>
                     <option>Opus 4</option>
-                    <option selected>Claude Sonnet 3.7</option>
-                    <option>Sonnet 4</option>
+                    
                     <option>deepseek/deepseek-chat-v3-0324</option>
                     
                 </optgroup>
