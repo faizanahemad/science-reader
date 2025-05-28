@@ -90,6 +90,7 @@ function interface_readiness() {
         $('#linkInput').show();
         $('#searchInput').show();
         $("#field-selector").parent().show();
+        $("#preamble-selector").val("").val(["Wife Prompt"]);
         $("#chat-options-assistant-use-google-scholar").parent().show();
         $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
         $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
@@ -146,7 +147,7 @@ function interface_readiness() {
         $('#permanentText').hide();
         // $("#field-selector").val("Finance");
         $("#field-selector").val("None");
-        $("#preamble-selector").val("").val(["Short Coding Interview", "Wife Prompt"]);
+        $("#preamble-selector").val("").val(["Short Coding Interview"]);
         $("#field-selector").parent().show();
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
         $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);

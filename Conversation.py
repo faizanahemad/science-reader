@@ -1614,11 +1614,19 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         is_dense = "dense_summary" in attached_docs_for_summary
 
         if "/title " in query['messageText'] or "/set_title " in query['messageText']:
-            title = re.search(r'/title (.*)', query['messageText'], re.DOTALL).group(1).strip()
-            if not title:
-                title = re.search(r'/set_title (.*)', query['messageText'], re.DOTALL).group(1).strip()
+            title = None
+            
+            # Try to match /title pattern first
+            title_match = re.search(r'/title (.*)', query['messageText'], re.DOTALL)
+            if title_match:
+                title = title_match.group(1).strip()
+            else:
+                # Try to match /set_title pattern
+                set_title_match = re.search(r'/set_title (.*)', query['messageText'], re.DOTALL)
+                if set_title_match:
+                    title = set_title_match.group(1).strip()
+            
             if title:
-                
                 self.set_title(title)
                 yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
             model_name = FILLER_MODEL
