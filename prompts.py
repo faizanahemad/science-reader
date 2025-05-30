@@ -675,9 +675,9 @@ Help prepare us for technical interviews at the senior or staff level.
 
 - Formatting Mathematical Equations:
   - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`.
+  - Prefer using `\\\\( ... \\\\)` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
+  - If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
 
 
 ## Guidelines:
