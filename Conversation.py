@@ -6,7 +6,7 @@ import shutil
 
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent
@@ -1301,6 +1301,8 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preamble += short_coding_interview_prompt
         if "Relationship" in preamble_options:
             preamble += relationship_prompt
+        if "Dating Maverick" in preamble_options:
+            preamble += dating_maverick_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
         if "Short references" in preamble_options and web_search_or_document_read:

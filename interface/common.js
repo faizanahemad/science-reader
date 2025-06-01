@@ -892,7 +892,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <!-- option>Coding Interview</option -->
                 <option>Short Coding Interview</option>
                 <option>Relationship</option>
-                
+                <option>Dating Maverick</option>
                 <option>Argumentative</option>
                 <option selected>Blackmail</option>
                 
