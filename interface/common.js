@@ -130,7 +130,7 @@ function setMaxHeightForTextbox(textboxId, height = 10) {
     messageText.css('overflow-y', 'auto');
 }
 
-function showMore(parentElem, text = null, textElem = null, as_html = false, show_at_start = false) {
+function showMore(parentElem, text = null, textElem = null, as_html = false, show_at_start = false, server_side = null) {
 
     if (textElem) {
 
@@ -200,6 +200,22 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             }
             textElem.find('.show-more').each(function () { $(this).text('[hide]'); })
             $(this).text('[hide]');
+        }
+
+        // if server_side is an object then call the server side flask api and save the state of whether we should show or hide the text
+        if (server_side && typeof server_side === 'object') {
+            var show_hide = moreText.is(':visible') ? 'show' : 'hide';
+            var message_id = server_side.message_id;
+            var conversation_id = ConversationManager.activeConversationId;
+            
+            // Make API call to save show/hide state
+            apiCall(`/show_hide_message_from_conversation/${conversation_id}/${message_id}/0`, 'POST', {
+                'show_hide': show_hide
+            }).done(function(data) {
+                console.log('Show/hide state saved: ' + show_hide);
+            }).fail(function(xhr, status, error) {
+                alert('Failed to save show/hide state: ' + (xhr.responseJSON?.message || error || 'Unknown error'));
+            });
         }
     }
 

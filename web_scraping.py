@@ -425,7 +425,21 @@ user_agents = [
 
             
         
-readability_script_content_response = requests.get("https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+try:
+    readability_script_content_response = requests.get("https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+    if readability_script_content_response.status_code != 200:
+        raise requests.exceptions.RequestException(f"HTTP {readability_script_content_response.status_code}")
+except Exception as e:
+    logger.warning(f"Failed to fetch Readability.js from CDN: {e}. Falling back to local file.")
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        readability_path = os.path.join(script_dir, "Readability.js")
+        with open(readability_path, 'r', encoding='utf-8') as f:
+            readability_script_content = f.read()
+        readability_script_content_response = type('MockResponse', (), {'status_code': 200, 'text': readability_script_content})()
+    except Exception as local_e:
+        logger.error(f"Failed to read local Readability.js file: {local_e}")
+        raise Exception("Could not load Readability.js from either CDN or local file")
 assert readability_script_content_response.status_code == 200
 readability_script_content = readability_script_content_response.text
 

@@ -652,13 +652,90 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
     var content_length = 0;
     var answer = ''
     var rendered_answer = ''
+    var response_message_id = null;
+    var user_message_id = null;
+    
+    // Timer for URL update (same as in renderMessages)
+    let focusTimer = null;
+    let currentFocusedMessageId = null;
+    let streamingObserver = null;
     
     // Track if we are inside a code block
     var insideCodeBlock = false;
     // Keep track of sections for rendering
     var sectionCount = 0;
 
+    // Function to handle message focus and URL update (same as in renderMessages)
+    function handleMessageFocus(messageId, convId) {
+        // Don't handle focus if message ID is not available yet
+        if (!messageId) {
+            return;
+        }
+        
+        // Clear existing timer if any
+        if (focusTimer) {
+            clearTimeout(focusTimer);
+        }
+        
+        messageIdInUrl = getMessageIdFromUrl();
+        // Don't restart timer if same message is already focused
+        if (currentFocusedMessageId === messageId && messageIdInUrl === messageId) {
+            return;
+        }
+        
+        currentFocusedMessageId = messageId;
+        
+        // Set new timer for 5 seconds
+        focusTimer = setTimeout(function() {
+            updateUrlWithMessageId(convId, messageId);
+            focusTimer = null;
+        }, 1000);
+    }
     
+    // Function to set up event handlers for the streaming card
+    function setupStreamingCardEventHandlers(cardElement, messageId) {
+        // Add click event handler
+        cardElement.off('click').on('click', function(e) {
+            // Don't trigger on delete button or checkbox clicks
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                return;
+            }
+            
+            handleMessageFocus(messageId, conversationId);
+        });
+        
+        // Add text selection event handler
+        cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
+            // Don't trigger on delete button or checkbox clicks
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                return;
+            }
+            
+            // Check if text is actually selected
+            setTimeout(function() {
+                const selection = window.getSelection();
+                if (selection && selection.toString().trim().length > 0) {
+                    handleMessageFocus(messageId, conversationId);
+                }
+            }, 10);
+        });
+        
+        // Add focus event handler for keyboard navigation
+        cardElement.off('focus focusin').on('focus focusin', function(e) {
+            // Don't trigger on delete button or checkbox clicks
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                return;
+            }
+            
+            handleMessageFocus(messageId, conversationId);
+        });
+        
+        
+        // Store observer for cleanup if needed
+        if (!window.messageObservers) {
+            window.messageObservers = [];
+        }
+    }
 
     async function read() {
         const { value, done } = await reader.read();
@@ -673,6 +750,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
 
         if (!card) {
             card = ChatManager.renderMessages(conversationId, [serverMessage], false);
+            // Set up initial event handlers (without message ID initially)
+            setupStreamingCardEventHandlers(card, null);
         }
         while (boundary !== -1) {
             const part = JSON.parse(buffer.slice(0, boundary));
@@ -758,6 +837,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                 last_card = $(card).prevAll('.card').first()
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('message-id', user_message_id);
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${user_message_id}`);
+                
+                // Update the card header with message-id attribute
+                card.find('.card-header').attr('message-id', response_message_id);
+                card.find('.delete-message-button').attr('message-id', response_message_id);
+                
+                // Re-setup event handlers now that we have the message ID
+                setupStreamingCardEventHandlers(card, response_message_id);
             }
         }
 
@@ -776,12 +862,15 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             function show_more() {
                 textElem = card.find('#message-render-space')
+                console.log("Calling show_more function ...")
                 // check if textElem is hidden by display: none
                 
                 text = card.find('#message-render-space').html()
-                toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
-                textElem.find('.show-more').click(toggle);
-                textElem.find('.show-more').click(toggle);
+                toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true, server_side = {
+                    'message_id': response_message_id,
+                }); // index >= array.length - 2
+                // textElem.find('.show-more').click(toggle);
+                // textElem.find('.show-more').click(toggle);
             }
 
             if (last_elem_to_render && last_elem_to_render.length > 0) {
@@ -789,6 +878,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     function() {
                         last_elem_to_render.attr('data-fully-rendered', 'true');
                         show_more();
+                        // set the last_elem_to_render as the active message
+                        handleMessageFocus(response_message_id, conversationId);
                     }, 
                     false, // Use false for final rendering to ensure proper display
                     last_rendered_answer);
@@ -812,6 +903,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             
             
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            
+            // Final setup of event handlers with the complete message ID (if available)
+            if (response_message_id) {
+                setupStreamingCardEventHandlers(card, response_message_id);
+            }
+            
             return;
         }
         
@@ -828,6 +925,38 @@ function highLightActiveConversation(conversationId) {
     $('#conversations .list-group-item').removeClass('active');
     $('#conversations .list-group-item[data-conversation-id="' + conversationId + '"]').addClass('active');
 }
+
+function getMessageIdFromUrl(url) {
+    const path = url ? new URL(url).pathname : window.location.pathname;
+    const pathParts = path.split('/');
+    
+    // Remove any hash fragments from the end of the path
+    const cleanPath = pathParts[pathParts.length - 1].split('#')[0];
+    pathParts[pathParts.length - 1] = cleanPath;
+    
+    // Check if the URL contains a message ID
+    // Expected format: /interface/<conversation_id>/<message_id>
+    if (pathParts.length > 3 && pathParts[1] === 'interface' && pathParts[2] && pathParts[3]) {
+        return pathParts[3];
+    }
+    return null;
+}
+
+function cleanupMessageObservers() {
+    if (window.messageObservers) {
+        window.messageObservers.forEach(function(observer) {
+            observer.disconnect();
+        });
+        window.messageObservers = [];
+    }
+}
+
+
+function updateUrlWithMessageId(conversationId, messageId) {
+    // Update the URL without reloading the page
+    window.history.pushState({conversationId: conversationId, messageId: messageId}, '', `/interface/${conversationId}/${messageId}`);
+}
+
 
 var ChatManager = {
     shownDoc: null,
@@ -1199,12 +1328,19 @@ var ChatManager = {
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true) {
         if (shouldClearChatView) {
             $('#chatView').empty();  // Clear the chat view first
+            cleanupMessageObservers();
         }
+        
+        // Timer for URL update
+        let focusTimer = null;
+        let currentFocusedMessageId = null;
+        
         messages.forEach(function (message, index, array) {
             // $(document).find('.card') count number of card elements in the document
             card_elements_count = $(document).find('.card').length;
             index = card_elements_count;
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
+            var showHide = message.show_hide || 'hide';
             var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
             var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
             var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}>
@@ -1241,7 +1377,9 @@ var ChatManager = {
             if (message.text.trim().length > 0) {
                 renderInnerContentAsMarkdown(textElem, function () {
                     if ((textElem.text().length > 300)) { // && (index < array.length - 2)
-                        showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = true); // index >= array.length - 2
+                        showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
+                            'message_id': message.message_id
+                        }); // index >= array.length - 2
                     }
                 }, continuous = false, html = message.text.replace(/\n/g, '  \n'));
             }
@@ -1256,7 +1394,67 @@ var ChatManager = {
             $('#chatView').append(messageElement);
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
+            
+            // Add event handlers for immediate focus
+            messageElement.on('click', function(e) {
+                // Don't trigger on delete button or checkbox clicks
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                    return;
+                }
+                
+                handleMessageFocus(message.message_id, conversationId);
+            });
+            
+            // Add text selection event handler
+            messageElement.on('selectstart mouseup', function(e) {
+                // Don't trigger on delete button or checkbox clicks
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                    return;
+                }
+                
+                // Check if text is actually selected
+                setTimeout(function() {
+                    const selection = window.getSelection();
+                    if (selection && selection.toString().trim().length > 0) {
+                        handleMessageFocus(message.message_id, conversationId);
+                    }
+                }, 10);
+            });
+            
+            // Add focus event handler for keyboard navigation
+            messageElement.on('focus focusin', function(e) {
+                // Don't trigger on delete button or checkbox clicks
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                    return;
+                }
+                
+                handleMessageFocus(message.message_id, conversationId);
+            });
         });
+        
+        // Function to handle message focus and URL update
+        function handleMessageFocus(messageId, convId) {
+            // Clear existing timer if any
+            if (focusTimer) {
+                clearTimeout(focusTimer);
+            }
+            
+            // Don't restart timer if same message is already focused
+            messageIdInUrl = getMessageIdFromUrl();
+            if (currentFocusedMessageId === messageId && messageIdInUrl === messageId) {
+                return;
+            }
+            
+            currentFocusedMessageId = messageId;
+            
+            // Set new timer for 5 seconds
+            focusTimer = setTimeout(function() {
+                updateUrlWithMessageId(convId, messageId);
+                focusTimer = null;
+            }, 1000);
+        }
+        
+        
         $(".delete-message-button").off().on("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
@@ -1267,6 +1465,30 @@ var ChatManager = {
         });
         // var chatView = $('#chatView');
         // chatView.scrollTop(chatView.prop('scrollHeight'));
+        
+        // Check if URL contains a message ID and scroll to that message
+        const messageIdFromUrl = getMessageIdFromUrl();
+        if (messageIdFromUrl && shouldClearChatView) {
+            // Use setTimeout to ensure DOM is fully updated after rendering
+            setTimeout(function() {
+                const targetMessageElement = $(`[message-id="${messageIdFromUrl}"]`);
+                const targetMessageCard = targetMessageElement.length > 0 ? targetMessageElement.closest('.card') : $();
+                if (targetMessageCard && targetMessageCard.length > 0) {
+                    // Scroll to the target message card
+                    targetMessageCard[0].scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center'
+                    });
+                    
+                    // Optional: Add a temporary highlight effect
+                    targetMessageCard.addClass('highlight-message');
+                    setTimeout(function() {
+                        targetMessageCard.removeClass('highlight-message');
+                    }, 2000);
+                }
+            }, 100);
+        }
+        
         return $('#chatView').find('.card').last();
     },
 
@@ -1316,8 +1538,19 @@ function getConversationIdFromUrl(url) {
 }  
 
 function updateUrlWithConversationId(conversationId) {  
+    // check if the conversation id is already in the url
+    if (window.location.pathname.includes('interface/' + conversationId)) {
+        return;
+    }
+
+    // get message id from the url  
+    var messageId = getMessageIdFromUrl();
     // Update the URL without reloading the page  
-    window.history.pushState({conversationId: conversationId}, '', '/interface/' + conversationId);  
+    if (messageId) {
+        window.history.pushState({conversationId: conversationId, messageId: messageId}, '', '/interface/' + conversationId + '/' + messageId);  
+    } else {
+        window.history.pushState({conversationId: conversationId}, '', '/interface/' + conversationId);  
+    }
 } 
 
 // Similar to above functions we also need a function to clear the url of the conversation id and just make it /interface/

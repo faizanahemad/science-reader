@@ -821,16 +821,23 @@ def interface():
 
 @app.route('/interface/<path:path>')  
 @limiter.limit("1000 per minute")  
-def interface_combined(path):  
+def interface_combined(path):
     # Check login status  
     email, name, loggedin = check_login(session)  
-      
+
+    # custom path logic
+    
+    if path.startswith(email) and path.count('/') >= 2:
+        path = '/'.join(path.split('/')[1:])
+    
+
     # First, handle potential conversation IDs  
     if loggedin:  
         try:  
             # Get user's conversations  
             conversation_ids = [c[1] for c in getCoversationsForUser(email)]  
-            if path in conversation_ids:  
+            conversation_id = path.split('/')[0]
+            if conversation_id in conversation_ids:  
                 # Valid conversation ID, serve the interface  
                 return send_from_directory('interface', 'interface.html', max_age=0)  
         except Exception as e:  
@@ -841,11 +848,11 @@ def interface_combined(path):
         # Adjust this logic based on your conversation ID format  
         if path.isalnum() and len(path) >= 8 and '.' not in path:  
             # Looks like a conversation ID attempt, redirect to login  
-            return redirect('/login', code=302)  
+            return redirect('/login', code=302)
       
     # If we get here, treat as static file request  
     try:  
-        return send_from_directory('interface', path.replace('interface/', ''), max_age=0)  
+        return send_from_directory('interface', path.replace('interface/', '').replace('interface/interface/', ''), max_age=0)  
     except FileNotFoundError:  
         return "File not found", 404  
 
@@ -1126,7 +1133,8 @@ def list_messages_by_conversation(conversation_id):
     else:
         conversation = conversation_cache[conversation_id]
         conversation = set_keys_on_docs(conversation, keys)
-    return jsonify(conversation.get_message_list())
+    messages = conversation.get_message_list()
+    return jsonify(messages)
 
 @app.route('/list_messages_by_conversation_shareable/<conversation_id>', methods=['GET'])
 @limiter.limit("100 per minute")
@@ -1263,6 +1271,24 @@ def edit_message_from_conversation(conversation_id, message_id, index):
     conversation.edit_message(message_id, index, message_text)
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
+
+
+@app.route('/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def show_hide_message_from_conversation(conversation_id, message_id, index):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    show_hide = request.json.get('show_hide')
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.show_hide_message(message_id, index, show_hide)
+    # In a real application, you'd delete the conversation here
+    return jsonify({'message': f'Message {message_id} state changed to {show_hide}'})
 
 @app.route('/clone_conversation/<conversation_id>', methods=['POST'])
 @limiter.limit("25 per minute")

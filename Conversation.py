@@ -53,7 +53,7 @@ class Conversation:
                 }
         messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
         self.set_field("memory", memory)
-        self.set_field("messages", messages)
+        self.set_messages_field(messages)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self._domain = domain
         self.save_local()
@@ -486,6 +486,9 @@ Compact list of bullet points:
                 with open(os.path.join(filepath), "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
 
+    def set_messages_field(self, messages, overwrite=False):
+        self.set_field("messages", messages, overwrite=overwrite)
+
 
     @timer
     def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
@@ -546,29 +549,49 @@ Compact list of bullet points:
         response_message_id = str(mmh3.hash(self.conversation_id + self.user_id + response["messageText"] if isinstance(response, dict) else response, signed=False))
         return dict(user_message_id=user_message_id, response_message_id=response_message_id)
 
+    def show_hide_message(self, message_id, index, show_hide):
+        # Add lock acquisition at the beginning
+        lock_location = self._get_lock_location("message_operations")
+        lock = FileLock(f"{lock_location}.lock")
+        
+        with lock.acquire(timeout=600):
+            messages = self.get_field("messages")
+            for i, m in enumerate(messages):
+                if m["message_id"] == message_id:
+                    messages[i]["show_hide"] = show_hide
+                    break
+            self.set_messages_field(messages, overwrite=True)
+            self.save_local()
+    
     @timer
     def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
         if not persist_or_not:
             return
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
-        memory = get_async_future(self.get_field, "memory")
-        memory_pad = get_async_future(self.add_to_memory_pad_from_response, query, response, previous_messages_text, previous_summary)
-        message_ids = self.get_message_ids(query, response)
-        preserved_messages = [
-            {"message_id": message_ids["user_message_id"], "text": query,
-             "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
-            {"message_id": message_ids["response_message_id"], "text": response, "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
-        
-        if past_message_ids and len(past_message_ids) > 0:
-            messages = get_async_future(self.get_field, "messages")
-        else:
-            msg_set = get_async_future(self.set_field, "messages", preserved_messages)
 
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)
-        prompt = get_first_last_parts(prompt, 18000, 10_000)
-        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+        # Add lock acquisition at the beginning
+        lock_location = self._get_lock_location("message_operations")
+        lock = FileLock(f"{lock_location}.lock")
+        
+        with lock.acquire(timeout=600):
+            memory = get_async_future(self.get_field, "memory")
+            memory_pad = get_async_future(self.add_to_memory_pad_from_response, query, response, previous_messages_text, previous_summary)
+            message_ids = self.get_message_ids(query, response)
+            preserved_messages = [
+                {"message_id": message_ids["user_message_id"], "text": query, "show_hide": "show",
+                "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
+                {"message_id": message_ids["response_message_id"], "text": response, "show_hide": "show", "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
+            
+            if past_message_ids and len(past_message_ids) > 0:
+                messages = get_async_future(self.get_field, "messages")
+            else:
+                msg_set = get_async_future(self.set_messages_field, preserved_messages)
+
+            prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)
+            prompt = get_first_last_parts(prompt, 18000, 10_000)
+            system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
 You will also write a very short title for this conversation.
 
@@ -576,55 +599,55 @@ Your response will be in below xml style format:
 <summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
 <title> {{Very short title for the conversation}} </title>
 """
-        summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
-        memory = memory.result()
-        if memory is None:
-            memory = dict(running_summary=[])
+            summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
+            memory = memory.result()
+            if memory is None:
+                memory = dict(running_summary=[])
 
-        if past_message_ids and len(past_message_ids) > 0:
-            messages = messages.result()
-            # Find index of last message in past_message_ids
-            last_msg_idx = -1
-            for i, msg in enumerate(messages):
-                if msg["message_id"] == past_message_ids[-1]:
-                    last_msg_idx = i
-                    break
-                    
-            # Split messages into before and after groups
-            messages_before = messages[:last_msg_idx+1] 
-            messages_after = messages[last_msg_idx+1:]
-            
-            # Insert new messages between the groups
-            messages = messages_before + preserved_messages + messages_after
-            
-            # Update messages in storage
-            msg_set = get_async_future(self.set_field, "messages", messages, overwrite=True)
-            
+            if past_message_ids and len(past_message_ids) > 0:
+                messages = messages.result()
+                # Find index of last message in past_message_ids
+                last_msg_idx = -1
+                for i, msg in enumerate(messages):
+                    if msg["message_id"] == past_message_ids[-1]:
+                        last_msg_idx = i
+                        break
+                        
+                # Split messages into before and after groups
+                messages_before = messages[:last_msg_idx+1] 
+                messages_after = messages[last_msg_idx+1:]
+                
+                # Insert new messages between the groups
+                messages = messages_before + preserved_messages + messages_after
+                
+                # Update messages in storage
+                msg_set = get_async_future(self.set_messages_field, messages, overwrite=True)
+                
 
-        memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        summary = sleep_and_get_future_result(summary)
-        actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
-        title = summary.split('</title>')[0].split('<title>')[-1]
-        
-        memory["title_force_set"] = False or memory.get("title_force_set", False)
-        if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
-            memory["title"] = title
+            memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            summary = sleep_and_get_future_result(summary)
+            actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
+            title = summary.split('</title>')[0].split('<title>')[-1]
+            
+            memory["title_force_set"] = False or memory.get("title_force_set", False)
+            if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
+                memory["title"] = title
 
-        if past_message_ids and len(past_message_ids) > 0:
-            summary_index = (last_msg_idx+1)//2
-            # list.insert() increases the length of the list by 1
-            # If index > len(list), insert() will append the item at the end (equivalent to index=len(list))
-            # So we should ensure summary_index is within bounds
-            summary_index = min(summary_index, len(memory["running_summary"]))
-            memory["running_summary"].insert(summary_index, actual_summary)
-        else:
-            self.running_summary = actual_summary
-            memory["running_summary"].append(actual_summary)
-        self.set_field("memory", memory)
-        # self.set_field("memory", memory)
-        self.save_local()
-        msg_set.result()
-        memory_pad.result()
+            if past_message_ids and len(past_message_ids) > 0:
+                summary_index = (last_msg_idx+1)//2
+                # list.insert() increases the length of the list by 1
+                # If index > len(list), insert() will append the item at the end (equivalent to index=len(list))
+                # So we should ensure summary_index is within bounds
+                summary_index = min(summary_index, len(memory["running_summary"]))
+                memory["running_summary"].insert(summary_index, actual_summary)
+            else:
+                self.running_summary = actual_summary
+                memory["running_summary"].append(actual_summary)
+            self.set_field("memory", memory)
+            # self.set_field("memory", memory)
+            self.save_local()
+            msg_set.result()
+            memory_pad.result()
 
     def set_title(self, title):
         memory = self.get_field("memory")
@@ -935,7 +958,7 @@ Your response will be in below xml style format:
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         messages = self.get_field("messages")
         messages = [m for i, m in enumerate(messages) if m["message_id"] != message_id and i != index]
-        self.set_field("messages", messages, overwrite=True)
+        self.set_messages_field(messages, overwrite=True)
         self.save_local()
 
     def edit_message(self, message_id, index, text):
@@ -946,7 +969,7 @@ Your response will be in below xml style format:
             if m["message_id"] == message_id or i == index:
                 messages[i]["text"] = text
 
-        self.set_field("messages", messages, overwrite=True)
+        self.set_messages_field(messages, overwrite=True)
         self.save_local()
 
     def __call__(self, query, userData=None):
@@ -2681,7 +2704,8 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         return self.get_field("messages")[-10:]
     
     def get_message_list(self):
-        return self.get_field("messages")
+        msg_list = self.get_field("messages")
+        return msg_list
     
     def get_metadata(self):
         self.set_memory_if_None()
@@ -2698,7 +2722,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
     def delete_last_turn(self):
         messages = self.get_field("messages")
         messages = messages[:-2]
-        self.set_field("messages", messages, overwrite=True)
+        self.set_messages_field(messages, overwrite=True)
         memory = self.get_field("memory")
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"] = memory["running_summary"][:-1]
@@ -2767,7 +2791,7 @@ class TemporaryConversation(Conversation):
                 }
         messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
         self.set_field("memory", memory)
-        self.set_field("messages", messages)
+        self.set_messages_field(messages)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
 
     def add_uploaded_document(self, pdf_url):
