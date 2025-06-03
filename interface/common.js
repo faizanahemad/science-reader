@@ -179,7 +179,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         parentElem.append(textElem);
     }
 
-    function toggle(event) {
+    function toggle(event, api_call_trigger = true) {
         if (event) {
             event.preventDefault();
             event.stopPropagation();
@@ -203,7 +203,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         }
 
         // if server_side is an object then call the server side flask api and save the state of whether we should show or hide the text
-        if (server_side && typeof server_side === 'object') {
+        if (server_side && typeof server_side === 'object' && api_call_trigger) {
             var show_hide = moreText.is(':visible') ? 'show' : 'hide';
             var message_id = server_side.message_id;
             var conversation_id = ConversationManager.activeConversationId;
@@ -220,7 +220,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
     }
 
     if (show_at_start) {
-        toggle(null);
+        toggle(null, false);
     }
 
 
