@@ -283,6 +283,8 @@ Include references inline in wikipedia style as your write the answer.
                                                                                                                                                  "openai/o1",
                                                                                                                                                  "openai/o1-pro",
                                                                                                                                                  "openai/gpt-4o",
+                                                                                                                                                 "anthropic/claude-sonnet-4",
+                                                                                                                                                 "anthropic/claude-opus-4",
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
