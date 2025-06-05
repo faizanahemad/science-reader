@@ -568,6 +568,11 @@ function getTextAfterLastBreakpoint(text) {
                 lastBreakpointIndex = i;
                 breakpointType = "horizontal-rule";
             }
+            // check for newline and then markdown header pattern
+            // else if (currentLine === '' && (nextLine.startsWith('# ') || nextLine.startsWith('## ') || nextLine.startsWith('### '))) {
+            //     lastBreakpointIndex = i;
+            //     breakpointType = "markdown-header";
+            // }
         }
     }
     
@@ -859,13 +864,22 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             // Always render the last active section once more at the end
             // This ensures that any content less than the 150 character threshold gets rendered
 
+            var show_more_called = {value: false};
             
             function show_more() {
+                if (show_more_called.value == true) {
+                    return;
+                }
+                show_more_called.value = true;
                 textElem = card.find('#message-render-space')
                 console.log("Calling show_more function ...")
                 // check if textElem is hidden by display: none
                 
                 text = card.find('#message-render-space').html()
+                if (text.length == 0) {
+                    textElem = card.find('#message-render-space-md-render');
+                    text = card.find('#message-render-space-md-render').html();
+                }
                 toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true, server_side = {
                     'message_id': response_message_id,
                 }); // index >= array.length - 2
@@ -874,10 +888,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
             }
 
             if (last_elem_to_render && last_elem_to_render.length > 0) {
-                renderInnerContentAsMarkdown(last_elem_to_render, 
-                    function() {
+                renderInnerContentAsMarkdown(last_elem_to_render, immediate_callback=function() {
                         last_elem_to_render.attr('data-fully-rendered', 'true');
                         show_more();
+                        // show_more_called.value = true;
                         // set the last_elem_to_render as the active message
                         handleMessageFocus(response_message_id, conversationId);
                     }, 
@@ -885,7 +899,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
                     last_rendered_answer);
             }
             else {
-                setTimeout(show_more, 1000);
+                if (!show_more_called.value) {
+                    setTimeout(show_more, 500);
+                    show_more_called.value = true;
+                }
+            }
+            if (!show_more_called.value) {
+                setTimeout(show_more, 500);
+                // show_more_called.value = true;
             }
             
             // Don't re-render sections that were already properly rendered during streaming
@@ -1375,7 +1396,7 @@ var ChatManager = {
             }
             
             if (message.text.trim().length > 0) {
-                renderInnerContentAsMarkdown(textElem, function () {
+                renderInnerContentAsMarkdown(textElem, immediate_callback=function () {
                     if ((textElem.text().length > 300)) { // && (index < array.length - 2)
                         showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
                             'message_id': message.message_id

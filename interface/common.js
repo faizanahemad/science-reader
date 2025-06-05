@@ -664,6 +664,15 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         mathjax_elem = jqelem
     }
     MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+    // Use Process instead of Queue for immediate execution
+    // MathJax.Hub.Process(mathjax_elem);
+    // MathJax.Hub.Typeset(mathjax_elem);
+    // Option 2: If you want to keep using Process but ensure typesetting
+    // MathJax.Hub.processUpdateTime = 0; // Force immediate processing
+    // MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+    // MathJax.Hub.processUpdateTime = 0; // Force immediate processing
+    
+    
     if (callback) {
         MathJax.Hub.Queue(callback)
     }

@@ -6,6 +6,7 @@ import shutil
 
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent
+from call_llm import MockCallLLm
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt
 from filelock import FileLock
 
@@ -2490,6 +2491,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                 else:
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                    # llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
                 while len(answer) <= 10 and not isinstance(main_ans_gen, str):
@@ -2501,50 +2503,18 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 traceback.print_exc()
                 # answer += f"We had an exception in answering using model - {model_name}"
                 yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
-                try:
-                    if ensemble:
-                        if isinstance(model_name, (list, tuple)):
-                            model_names = model_name
-                            improve_model = model_hierarchies(model_names)
-                        else:
-                            model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",
-                                            "openai/o1-mini",
-                                            "cohere/command-r-plus-08-2024",
-                                            "google/gemini-pro-1.5",
-
-                                            # "anthropic/claude-3-opus:beta",
-                                            # "mistralai/mistral-large",
-                                            # "deepseek/deepseek-chat",
-                                            # "meta-llama/llama-3.1-405b-instruct",
-                                            # "nousresearch/hermes-3-llama-3.1-405b",
-                                            ] + [model_name])
-                            improve_model = model_name
-                        
-                        llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
-                        # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
-                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
-                        main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
-                    else:
-                        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-
-                    while len(answer) <= 10 and not isinstance(main_ans_gen, str):
-                        t2y = next(main_ans_gen)
-                        yield {"text": t2y, "status": "answering in progress"}
-                        answer += t2y
-                except Exception as e:
-                    traceback.print_exc()
-                    logger.error(
-                        f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
-                    # answer += f"We had an exception in answering using model - {model_name}"
-                    yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
-                        "status": "stage 2 answering in progress"}
-                    llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-                    while len(answer) <= 10 and not isinstance(main_ans_gen, str):
-                        t2y = next(main_ans_gen)
-                        yield {"text": t2y, "status": "answering in progress"}
-                        answer += t2y
+                traceback.print_exc()
+                logger.error(
+                    f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
+                # answer += f"We had an exception in answering using model - {model_name}"
+                yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
+                    "status": "stage 2 answering in progress"}
+                llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                while len(answer) <= 10 and not isinstance(main_ans_gen, str):
+                    t2y = next(main_ans_gen)
+                    yield {"text": t2y, "status": "answering in progress"}
+                    answer += t2y
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
