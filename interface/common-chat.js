@@ -1,5 +1,8 @@
 var ConversationManager = {
     activeConversationId: null,
+    getActiveConversation: function () {
+        return this.activeConversationId;
+    },
 
     listConversations: function () {
         // The code to list conversations goes here...
@@ -647,7 +650,7 @@ function getTextAfterLastBreakpoint(text) {
  * @requires ChatManager - For creating and managing chat message cards
  * @requires initialiseVoteBank - For setting up voting UI on completed responses
  */
-function renderStreamingResponse(streamingResponse, conversationId, messageText) {
+function renderStreamingResponse(streamingResponse, conversationId, messageText, history_message_ids) {
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -754,7 +757,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText)
         };
 
         if (!card) {
-            card = ChatManager.renderMessages(conversationId, [serverMessage], false);
+            card = ChatManager.renderMessages(conversationId, [serverMessage], false, true, history_message_ids, true);
             // Set up initial event handlers (without message ID initially)
             setupStreamingCardEventHandlers(card, null);
         }
@@ -1346,7 +1349,7 @@ var ChatManager = {
             }
         });
     },
-    renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true) {
+    renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
         if (shouldClearChatView) {
             $('#chatView').empty();  // Clear the chat view first
             cleanupMessageObservers();
@@ -1355,6 +1358,7 @@ var ChatManager = {
         // Timer for URL update
         let focusTimer = null;
         let currentFocusedMessageId = null;
+        var messageElement = null;
         
         messages.forEach(function (message, index, array) {
             // $(document).find('.card') count number of card elements in the document
@@ -1362,7 +1366,7 @@ var ChatManager = {
             index = card_elements_count;
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
-            var messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
+            messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
             var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
             var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}>
           <input type="checkbox" class="history-message-checkbox" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
@@ -1412,7 +1416,32 @@ var ChatManager = {
             statusDiv.append(spinner);
             statusDiv.append(statusText);
             messageElement.append(statusDiv);
-            $('#chatView').append(messageElement);
+            if (history_message_ids.length > 0) {
+                // get all the "card message-card" and their message-id , then append the messageElement (new card) after the last card of the history_message_ids, if skip_one is true then skip one card further and then append the messageElement
+                var cards = $('#chatView').find('.card.message-card');
+                    var lastCard = null;
+                    for (var i = 0; i < cards.length; i++) {
+                        var card = cards[i];
+                        var cardMessageId = $(card).find('.history-message-checkbox').attr('message-id');
+                        if (history_message_ids.includes(cardMessageId)) {
+                            lastCard = card;
+                        }
+                    }
+                    if (lastCard) {
+                        if (skip_one) {
+                            $(lastCard).next().after(messageElement);
+                        } else {
+                            $(lastCard).after(messageElement);
+                        }
+                    } else {
+                        $('#chatView').append(messageElement);
+                    }
+            }
+            else {
+                $('#chatView').append(messageElement);
+            }
+            // $('#chatView').append(messageElement);
+
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
             
@@ -1510,7 +1539,7 @@ var ChatManager = {
             }, 100);
         }
         
-        return $('#chatView').find('.card').last();
+        return messageElement;
     },
 
 
@@ -1522,7 +1551,9 @@ var ChatManager = {
             sender: 'user',
             text: messageText
         };
-        ChatManager.renderMessages(conversationId, [userMessage], false);
+        history_message_ids = checkboxes['history_message_ids'] || []
+
+        ChatManager.renderMessages(conversationId, [userMessage], false, true, history_message_ids, false);
 
         // Use Fetch API to make request
         let response = fetch('/send_message/' + conversationId, {
@@ -1809,8 +1840,11 @@ function sendMessageCallback() {
             alert('An error occurred: ' + response.status);
             return;
         }
+        // $('#messageText').val('');  // Clear the messageText field
+        history_message_ids = options['history_message_ids'] || []
+
         // Call the renderStreamingResponse function to handle the streaming response
-        renderStreamingResponse(response, ConversationManager.activeConversationId, messageText);
+        renderStreamingResponse(response, ConversationManager.activeConversationId, messageText, history_message_ids);
         $('#linkInput').val('')
         $('#searchInput').val('')
         if (!/Mobi|Android/i.test(navigator.userAgent) && !/iPhone/i.test(navigator.userAgent) && window.innerWidth > 768) {
