@@ -416,10 +416,10 @@ textarea.form-control.dynamic-textarea {
     border-color: #ccc;
 }
 
-.delete-message-button {
+.delete-message-button, .move-message-up-button, .move-message-down-button {
     border: 1px solid #000000;  /* Change color as needed */
-    border-radius: 4px;      /* Change for more or less curvature */
-    padding: 5px;            /* Adjust padding as needed */
+    border-radius: 2px;      /* Change for more or less curvature */
+    padding: 1px;            /* Adjust padding as needed */
     color: #000000;
 }
 

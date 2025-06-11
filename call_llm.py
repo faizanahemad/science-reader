@@ -1,5 +1,6 @@
 import logging
 import os.path
+import string
 import uuid
 from datetime import datetime
 from uuid import uuid4
@@ -811,38 +812,16 @@ Unlike other sciences that use mathematics to describe existing phenomena, compu
 The mathematical sophistication required varies greatly depending on the area of computer science, but the fundamental principle remains: **computation is applied mathematics**, where abstract mathematical concepts become concrete, executable solutions to real-world problems.  
   
 Would you like me to dive deeper into any specific area, such as the mathematics behind a particular machine learning algorithm, or explore how graph theory is used in social network analysis?</answer>  
-  
-  
-  
-<details >  
-<summary><strong>Time taken to reply for chatbot</strong></summary>  
-  
-before_planner_time: 0.21686625480651855  
-bot_time_to_reply: 43.77787780761719  
-doc_answer_length: 0  
-first_word_generated: 6.637453079223633  
-link_result_text_length: 0  
-previous_messages: 1465  
-previous_messages_length: 6648  
-previous_messages_long: 2879  
-previous_messages_short: 1465  
-previous_messages_very_long: 2879  
-prior_context_time: 0.21617412567138672  
-prompt_length: 7191  
-start_reply_final: 6.665983200073242  
-summary_text_length: 266  
-total_time_to_reply: 50.4433171749115  
-web_text_length: 0  
-  
-</details>  
+
 
 """
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
+        mock_response = self.mock_response + " " + "".join(random.choices(string.ascii_letters + string.digits, k=100))
         if stream:
-            for line in self.mock_response.split("\n"):
+            for line in mock_response.split("\n"):
                 yield line
                 yield "\n"
-                time.sleep(0.01)
+                time.sleep(0.05)
         else:
-            return self.mock_response
+            return mock_response

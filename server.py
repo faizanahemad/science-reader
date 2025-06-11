@@ -1272,6 +1272,26 @@ def edit_message_from_conversation(conversation_id, message_id, index):
     # In a real application, you'd delete the conversation here
     return jsonify({'message': f'Message {message_id} deleted'})
 
+@app.route('/move_messages_up_or_down/<conversation_id>', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def move_messages_up_or_down(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    message_ids = request.json.get('message_ids')
+    assert isinstance(message_ids, list)
+    assert all(isinstance(m, str) for m in message_ids)
+    direction = request.json.get('direction')
+    assert direction in ["up", "down"]
+    if conversation_id not in conversation_ids:
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    conversation.move_messages_up_or_down(message_ids, direction)
+    return jsonify({'message': f'Messages {message_ids} moved {direction}'})
+
 
 @app.route('/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['POST'])
 @limiter.limit("30 per minute")

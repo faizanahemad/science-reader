@@ -705,7 +705,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
             // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                 return;
             }
             
@@ -715,7 +715,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
             // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                 return;
             }
             
@@ -731,7 +731,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
             // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                 return;
             }
             
@@ -1349,6 +1349,24 @@ var ChatManager = {
             }
         });
     },
+    moveMessagesUpOrDown: function (messageIds, direction) {
+        conversationId = ConversationManager.activeConversationId;
+        return $.ajax({
+            url: '/move_messages_up_or_down/' + conversationId,
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                message_ids: messageIds,
+                direction: direction
+            }),
+            success: function (response) {
+                console.log(response);
+            },
+            error: function (response) {
+                alert('Refresh page, move messages error, Error: ' + response.responseText);
+            }
+        });
+    },
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
         if (shouldClearChatView) {
             $('#chatView').empty();  // Clear the chat view first
@@ -1368,9 +1386,11 @@ var ChatManager = {
             var showHide = message.show_hide || 'hide';
             messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
             var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
+            var moveMessageUp = `<small><button class="btn p-0 ms-2 ml-2 move-message-up-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-arrow-up"></i></button></small>`
+            var moveMessageDown = `<small><button class="btn p-0 ms-2 ml-2 move-message-down-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-arrow-down"></i></button></small>`
             var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}>
           <input type="checkbox" class="history-message-checkbox" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
-          <small><strong>` + senderText + `</strong>${delMessage}</small></div>`);
+          <small><strong>` + senderText + `</strong>${delMessage}${moveMessageUp}${moveMessageDown}</small></div>`);
             var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
             var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
             textElem.html(message.text.replace(/\n/g, '  \n'))
@@ -1448,7 +1468,7 @@ var ChatManager = {
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
                 // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                     return;
                 }
                 
@@ -1458,7 +1478,7 @@ var ChatManager = {
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
                 // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                     return;
                 }
                 
@@ -1474,7 +1494,7 @@ var ChatManager = {
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
                 // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox').length > 0) {
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
                     return;
                 }
                 
@@ -1512,6 +1532,20 @@ var ChatManager = {
             var messageIndex = $(this).closest('[message-index]').attr('message-index');
             $(this).closest('.card').remove();
             ChatManager.deleteMessage(conversationId, messageId, messageIndex);
+        });
+        $(".move-message-up-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).closest('[message-id]').attr('message-id');
+            var messageIndex = $(this).closest('[message-index]').attr('message-index');
+            moveMessagesUpOrDownCallback("up");
+        });
+        $(".move-message-down-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).closest('[message-id]').attr('message-id');
+            var messageIndex = $(this).closest('[message-index]').attr('message-index');
+            moveMessagesUpOrDownCallback("down");
         });
         // var chatView = $('#chatView');
         // chatView.scrollTop(chatView.prop('scrollHeight'));
@@ -1760,6 +1794,61 @@ function activateChatTab() {
     contentCol.removeClass('col-md-10').addClass('col-md-12');
     var contentCol = $('#chat-assistant');
     contentCol.removeClass('col-md-10').addClass('col-md-12');
+}
+
+function moveMessagesUpOrDownCallback(direction) {
+    var history_message_ids = []
+    $(".history-message-checkbox").each(function () {
+        var message_id = $(this).attr('message-id');
+        var checked = $(this).prop('checked');
+        if (checked) {
+            history_message_ids.push(message_id);
+            // remove the checked
+            $(this).prop('checked', false);
+        }
+    });
+    if (history_message_ids.length === 0) {
+        return;
+    }
+    if (history_message_ids.length > 0) {
+        movePromise = ChatManager.moveMessagesUpOrDown(history_message_ids, direction);
+        movePromise.done(function () {
+            // Get all selected message cards
+            var selectedCards = [];
+            history_message_ids.forEach(function(messageId) {
+                var card = $(`[message-id="${messageId}"]`).closest('.card');
+                if (card.length) {
+                    selectedCards.push(card);
+                }
+            });
+
+            // Sort cards by their position in the DOM
+            selectedCards.sort(function(a, b) {
+                return $(a).index() - $(b).index(); 
+            });
+
+            if (direction === "up") {
+                // Move cards up one position, starting from top
+                selectedCards.forEach(function(card) {
+                    var prev = $(card).prev('.card');
+                    if (prev.length) {
+                        prev.before(card);
+                    }
+                });
+            } else if (direction === "down") {
+                // Move cards down one position, starting from bottom
+                $(selectedCards.reverse()).each(function(i, card) {
+                    var next = $(card).next('.card');
+                    if (next.length) {
+                        next.after(card);
+                    }
+                });
+            }
+        });
+        movePromise.fail(function () {
+            alert('Error moving messages');
+        });
+    }
 }
 
 

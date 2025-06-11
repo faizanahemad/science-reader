@@ -954,6 +954,44 @@ Your response will be in below xml style format:
 
     
 
+    def move_messages_up_or_down(self, message_ids, direction="up"):
+        messages = self.get_field("messages")
+        message_ids: List[str] = [str(m) for m in message_ids]
+        messages:List[Dict] = [m for m in messages if m["message_id"] in message_ids]
+        # Get indices of selected messages
+        selected_indices = []
+        for i, msg in enumerate(self.get_field("messages")):
+            if msg["message_id"] in message_ids:
+                selected_indices.append(i)
+        
+        # Sort indices to maintain relative order
+        selected_indices.sort()
+        
+        # Get all messages
+        all_messages = self.get_field("messages")
+        
+        # Check boundaries
+        if direction == "up" and min(selected_indices) > 0:
+            # Move messages up
+            for idx in selected_indices:
+                msg = all_messages[idx]
+                all_messages[idx] = all_messages[idx-1]
+                all_messages[idx-1] = msg
+                
+        elif direction == "down" and max(selected_indices) < len(all_messages) - 1:
+            # Move messages down (process in reverse to avoid conflicts)
+            for idx in reversed(selected_indices):
+                msg = all_messages[idx]
+                all_messages[idx] = all_messages[idx+1] 
+                all_messages[idx+1] = msg
+                
+        # Save changes
+        self.set_messages_field(all_messages, overwrite=True)
+        self.save_local()
+        # we want to move them all up or down, relative to their current position.
+        # we want to move them all up or down, relative to their current position.
+
+    
     def delete_message(self, message_id, index):
         index = int(index)
         get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
