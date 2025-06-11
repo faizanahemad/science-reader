@@ -19,6 +19,8 @@ def convert_markdown_to_pdf_simple(markdown_text: str, output_path: str):
 
     pdf = MarkdownPdf(toc_level=2)
     pdf.add_section(Section(markdown_text, paper_size="A4-L"))
+    if os.path.exists(output_path):
+        os.remove(output_path)
     pdf.save(output_path)
 
 
