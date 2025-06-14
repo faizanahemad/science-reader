@@ -1918,7 +1918,7 @@ function sendMessageCallback() {
     }
     const booleanKeys = Object.keys(options).filter(key => typeof options[key] === 'boolean');
     const allFalse = booleanKeys.every(key => options[key] === false);
-    if ((wordCount > 25000 && !allFalse) || (wordCount > 50000)) {
+    if ((wordCount > 50000 && !allFalse) || (wordCount > 75000)) {
         alert('Please enter a message with less words');
         $('#messageText').prop('working', false);
         return;
