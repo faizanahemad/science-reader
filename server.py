@@ -826,6 +826,8 @@ def interface_combined(path):
     email, name, loggedin = check_login(session)  
 
     # custom path logic
+    if not loggedin or email is None:
+        return redirect('/login', code=302)
     
     if email is not None and path.startswith(email) and path.count('/') >= 2:
         path = '/'.join(path.split('/')[1:])
