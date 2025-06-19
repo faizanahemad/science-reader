@@ -827,7 +827,7 @@ def interface_combined(path):
 
     # custom path logic
     
-    if path.startswith(email) and path.count('/') >= 2:
+    if email is not None and path.startswith(email) and path.count('/') >= 2:
         path = '/'.join(path.split('/')[1:])
     
 
