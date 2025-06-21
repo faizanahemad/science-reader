@@ -969,14 +969,14 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <label for="main-model-selector" class="mr-1"></label>
             <select class="form-control" id="main-model-selector" multiple>
 
+                
                 <optgroup label="Newer Models">   
-                    <option>Claude Sonnet 3.7</option>
                     <option selected>Sonnet 4</option>
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>x-ai/grok-3-beta</option>
                     <option>Opus 4</option>
                     
-                    <option>deepseek/deepseek-chat-v3-0324</option>
+                    <!-- option>deepseek/deepseek-chat-v3-0324</option -->
                     
                 </optgroup>
 
@@ -985,7 +985,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
                 
                 <optgroup label="Reasoning Models">
-                    <option>Gemini-2.5-pro-preview</option>
+                    <option>Gemini-2.5-pro</option>
+                    <option>minimax/minimax-m1</option>
                     <option>o1</option>
                     <option>o3</option>
                     <!-- option>openai/o1-pro</option -->
@@ -999,10 +1000,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>gpt-4.5-preview</option>
                     <option>qwen/qwen3-235b-a22b</option>
                     <option>gpt-4.1</option>
+                    <option>Claude Sonnet 3.7</option>
                     <!-- option>Claude Opus</option -->
                     <!-- option>Claude Sonnet 3.5</option -->  
                     <!-- option>Pixtral Large</option --> 
-                    <option>gpt-4o</option>
+                    <!-- option>gpt-4o</option -->
                     <!-- option>google/gemini-pro-1.5</option -->
                     <!-- option>cohere/command-a</option -->
                 </optgroup>
@@ -1012,10 +1014,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     
                     <option>thedrummer/anubis-pro-105b-v1</option>
                     
-                    <option>eva-unit-01/eva-qwen-2.5-72b</option>
-                    <option>eva-unit-01/eva-llama-3.33-70b</option>
+                    <!-- option>eva-unit-01/eva-qwen-2.5-72b</option -->
+                    <!-- option>eva-unit-01/eva-llama-3.33-70b</option -->
                     <option>nousresearch/hermes-3-llama-3.1-405b</option>
-                    <option>neversleep/llama-3.1-lumimaid-70b</option>
+                    <!-- option>neversleep/llama-3.1-lumimaid-70b</option -->
                     <option>raifle/sorcererlm-8x22b</option>
                 </optgroup>
 
@@ -1028,12 +1030,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </optgroup>
 
                 <optgroup label="Fast Models">
+                    <option>google/gemini-2.5-flash</option>
                     <option>google/gemini-2.0-flash-001</option>
-                    <option>google/gemini-2.5-flash-preview</option>
-                    <option>google/gemini-flash-1.5</option>
+                    <option>google/gemini-2.5-flash-lite-preview-06-17</option>
                     <option>google/gemini-2.0-flash-lite-001</option>
                     <option>qwen/qwen-turbo</option>
-                    <option>openai/gpt-4o-mini</option>
+                    <!-- option>openai/gpt-4o-mini</option -->
+                    <option>openai/gpt-4.1-mini</option>
                 </optgroup>
 
                 

@@ -289,7 +289,11 @@ Include references inline in wikipedia style as your write the answer.
                                                                                                                                                  "mistralai/pixtral-large-2411",
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
-                                                                                                                                                 "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet", "anthropic/claude-3.7-sonnet:beta"], f"{self.model_name} is not supported for image input."
+                                                                                                                                                 "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest",
+                                                                                                                                                 "anthropic/claude-4-opus-20250522",
+                                                                                                                                                 "anthropic/claude-4-sonnet-20250522",
+                                                                                                                                                 "google/gemini-2.5-pro", "google/gemini-2.0-flash-001", "google/gemini-2.5-flash",
+                                                                                                                                                   "anthropic/claude-3.7-sonnet", "anthropic/claude-3.7-sonnet:beta"], f"{self.model_name} is not supported for image input."
             encoded_images = []
             for img in images:
                 if os.path.exists(img):

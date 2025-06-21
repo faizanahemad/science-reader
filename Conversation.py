@@ -2940,7 +2940,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4"
     elif model_name == "anthropic/claude-sonnet-4" or model_name == "Claude Sonnet 4" or model_name == "Sonnet 4":
         model_name = "anthropic/claude-sonnet-4"
-    
+    elif model_name == "anthropic/claude-4-opus-20250522":
+        model_name = "anthropic/claude-4-opus-20250522"
+    elif model_name == "anthropic/claude-4-sonnet-20250522":
+        model_name = "anthropic/claude-4-sonnet-20250522"
     elif model_name == "x-ai/grok-3-beta":
         model_name = "x-ai/grok-3-beta"
     elif model_name == "perplexity/sonar-pro":
@@ -2953,6 +2956,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4o-mini-search-preview"
     elif model_name == "Gemini-2.5-pro-preview":
         model_name = "google/gemini-2.5-pro-preview"
+    elif model_name == "Gemini-2.5-pro":
+        model_name = "google/gemini-2.5-pro"
     elif model_name == "o1":
         model_name = "o1"
     elif model_name == "o3":
@@ -3054,6 +3059,12 @@ def model_name_to_canonical_name(model_name):
         model_name = "eva-unit-01/eva-qwen-2.5-72b"
     elif model_name == "google/gemini-2.5-flash-preview":
         model_name = "google/gemini-2.5-flash-preview"
+    elif model_name == "google/gemini-2.5-flash":
+        model_name = "google/gemini-2.5-flash"
+    elif model_name == "google/gemini-2.5-flash-lite-preview-06-17":
+        model_name = "google/gemini-2.5-flash-lite-preview-06-17"
+    elif model_name == "minimax/minimax-m1":
+        model_name = "minimax/minimax-m1"
     elif model_name == "eva-unit-01/eva-llama-3.33-70b":
         model_name = "eva-unit-01/eva-llama-3.33-70b"
     elif model_name == "nousresearch/hermes-3-llama-3.1-405b":
@@ -3068,7 +3079,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "deepseek/deepseek-prover-v2"
     elif model_name == "deepseek/deepseek-chat-v3-0324":
         model_name = "deepseek/deepseek-chat-v3-0324"
-    elif model_name in CHEAP_LONG_CONTEXT_LLM:
+    elif model_name == "openai/gpt-4.1-mini":
+        model_name = "openai/gpt-4.1-mini"
+    
+    elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM:
         pass
     
         
