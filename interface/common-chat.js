@@ -814,16 +814,15 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
             }
-            last_rendered_answer = rendered_answer;
-            last_elem_to_render = elem_to_render;
-            if (part['text'].includes('</answer>') && card.find("#message-render-space-md-render").length > 0) {
+            
+            if ((part['text'].includes('</answer>') || part['text'].includes('</details>')) && card.find("#message-render-space-md-render").length > 0) {
                 if (elem_to_render && elem_to_render.length > 0) {
                     renderInnerContentAsMarkdown(elem_to_render, 
-                        function() {
+                        immediate_callback = function() {
                             elem_to_render.attr('data-fully-rendered', 'true');
                         }, 
-                        false, // Use false for final rendering to ensure proper display
-                        rendered_answer);
+                        continuous = false, // Use false for final rendering to ensure proper display
+                        html = rendered_answer);
                 }
                 sectionCount++;
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
@@ -833,6 +832,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 rendered_answer = '';
                 
             }
+            last_rendered_answer = rendered_answer;
+            last_elem_to_render = elem_to_render;
             
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').html(part['status']);
@@ -1405,15 +1406,15 @@ var ChatManager = {
                 // messageElement.addClass('ml-md-auto');  // For right alignment
                 messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
                 if (message.text.trim().length > 0) {
-                    setTimeout(function () {
-                        initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
-                    }, 1000);
+                    msgElements = [$(messageElement)]
+                    initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
+                    
                 }
             } else {
                 if (message.text.trim().length > 0) {
-                    setTimeout(function () {
-                        initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = !initialize_voting);
-                    }, 1000);
+                    msgElements = [$(messageElement)]
+                    initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = !initialize_voting);
+                    
                 }
                 // messageElement.addClass('mr-md-auto');  // For left alignment
                 messageElement.css('background-color', '#ffffff');  // Lighter shade of blue
