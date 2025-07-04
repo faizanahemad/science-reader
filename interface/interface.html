@@ -24,6 +24,113 @@
     
     <!-- mermaid.initialize({ startOnLoad: true }); -->
     <script src="https://laingsimon.github.io/render-diagram/drawio-renderer.js"></script>
+    <!-- BULLETPROOF: CodeMirror 5 -->  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>  
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/indent-fold.min.js"></script>  
+      
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">  
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">  
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.css">  
+      
+    <script>  
+    // CodeMirror 5 - ALWAYS WORKS  
+    window.CodeMirror5 = {  
+      createEditor: function(parent, doc) {  
+        console.log("🚀 Creating bulletproof CodeMirror 5 editor...");  
+      
+        try {  
+          parent.innerHTML = '';  
+      
+          const textarea = document.createElement('textarea');  
+          textarea.value = doc || `# Python Code Editor (CodeMirror 5)  
+    def robust_function():  
+        """This ALWAYS works - no module conflicts possible"""  
+        import os  
+        import sys  
+        import json  
+        from datetime import datetime  
+          
+        # Complex Python code with full syntax highlighting  
+        data = {  
+            'platform': sys.platform,  
+            'python_version': sys.version,  
+            'current_time': datetime.now().isoformat(),  
+            'environment': dict(os.environ)  
+        }  
+          
+        # List comprehension  
+        squares = [x**2 for x in range(10) if x % 2 == 0]  
+          
+        # Dictionary comprehension    
+        word_lengths = {word: len(word) for word in ['hello', 'world', 'python']}  
+          
+        # Exception handling  
+        try:  
+            result = 10 / 0  
+        except ZeroDivisionError as e:  
+            print(f"Error: {e}")  
+            result = None  
+          
+        print(json.dumps(data, indent=2))  
+        return {'squares': squares, 'words': word_lengths, 'result': result}  
+      
+    # Start your reliable Python coding here...  
+    `;  
+          parent.appendChild(textarea);  
+      
+          const editor = CodeMirror.fromTextArea(textarea, {  
+            mode: 'python',  
+            theme: 'monokai',  
+            lineNumbers: true,  
+            indentUnit: 4,  
+            lineWrapping: true,  
+            autoCloseBrackets: true,  
+            matchBrackets: true,  
+            styleActiveLine: true,  
+            foldGutter: true,  
+            gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],  
+            extraKeys: {  
+              "Tab": function(cm) {  
+                if (cm.somethingSelected()) {  
+                  cm.indentSelection("add");  
+                } else {  
+                  cm.replaceSelection("    ");  
+                }  
+              },  
+              "Shift-Tab": function(cm) {  
+                cm.indentSelection("subtract");  
+              },  
+              "Ctrl-/": function(cm) {  
+                cm.toggleComment();  
+              },
+              "Ctrl-F": "findPersistent", // Enable search  
+              "Ctrl-H": "replace"      
+            }  
+          });  
+      
+          editor.setSize(null, '70vh');  
+          editor.getWrapperElement().style.fontSize = '12px';  
+      
+          console.log("🎉 CodeMirror 5 editor created successfully!");  
+          return editor;  
+      
+        } catch (error) {  
+          console.error("💥 Even CodeMirror 5 failed:", error);  
+          throw error;  
+        }  
+      }  
+    };  
+      
+    console.log("✅ CodeMirror 5 loaded and guaranteed to work");  
+    </script>  
+
+
 
 
 
@@ -87,7 +194,7 @@
                 <a class="nav-link active" id="search-tab" href="#search-view" data-toggle="tab" role="tab">Search</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" id="finchat-tab" href="#finchat-view" data-toggle="tab" role="tab">Fin-Chat</a>
+                <a class="nav-link" id="finchat-tab" href="#finchat-view" data-toggle="tab" role="tab">Prep-Chat</a>
             </li>
             
             
@@ -412,6 +519,105 @@
       </div>
     </div>
 
+    <!-- Code Editor Modal -->  
+    <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true">  
+      <div class="modal-dialog modal-xl"> <!-- Using modal-xl for more space -->  
+        <div class="modal-content">  
+          <div class="modal-header">  
+            <h5 class="modal-title">  
+              <i class="bi bi-code-slash"></i>&nbsp;Python Code Editor  
+            </h5>  
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">  
+              <span aria-hidden="true">&times;</span>  
+            </button>  
+          </div>  
+          <div class="modal-body p-0"> <!-- Remove padding for full editor space -->  
+            <!-- Toolbar for copy/paste actions -->  
+            <div class="border-bottom p-2 bg-light">  
+              <div class="btn-group" role="group">  
+                <button type="button" id="copy-code-button" class="btn btn-sm btn-outline-primary">  
+                  <i class="bi bi-clipboard"></i>&nbsp;Copy Code  
+                </button>  
+                 
+                <button type="button" id="clear-code-button" class="btn btn-sm btn-outline-danger">  
+                  <i class="bi bi-trash"></i>&nbsp;Clear  
+                </button>  
+              </div>  
+              <div class="btn-group float-right" role="group">  
+                <button type="button" id="format-code-button" class="btn btn-sm btn-outline-info">  
+                  <i class="bi bi-magic"></i>&nbsp;Format  
+                </button>  
+              </div>  
+            </div>  
+            <!-- CodeMirror Editor Container -->  
+          <div id="python-code-editor" style="height: 70vh; border: none;"></div>  
+          </div>  
+          <div class="modal-footer">  
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>  
+            <button type="button" id="save-code-button" class="btn btn-primary">  
+              <i class="bi bi-check-lg"></i>&nbsp;Save Code  
+            </button>  
+
+            <button type="button" id="run-code-button" class="btn btn-success">  
+              <i class="bi bi-play-fill"></i>&nbsp;Run Code  
+            </button>  
+          </div>  
+        </div>  
+      </div>  
+    </div>  
+
+
+    <!-- Code Execution Results Modal -->  
+    <!-- Code Execution Results Modal - Scrollable Version -->  
+    <div class="modal fade" id="code-results-modal" tabindex="-1" aria-hidden="true">  
+      <div class="modal-dialog modal-lg" style="max-width: 90vw; height: 80vh; margin: 10vh auto;">  
+        <div class="modal-content" style="height: 100%; display: flex; flex-direction: column;">  
+          <div class="modal-header" style="flex-shrink: 0;">  
+            <h5 class="modal-title">  
+              <i class="bi bi-terminal"></i>&nbsp;Code Execution Results  
+            </h5>  
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">  
+              <span aria-hidden="true">&times;</span>  
+            </button>  
+          </div>  
+            
+          <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1rem;">  
+            <!-- Loading state -->  
+            <div id="results-loading" class="text-center py-4">  
+              <div class="spinner-border text-primary" role="status">  
+                <span class="sr-only">Executing code...</span>  
+              </div>  
+              <p class="mt-2 text-muted">Executing your Python code...</p>  
+            </div>  
+      
+            <!-- Results content (hidden initially) - This div will scroll -->  
+            <div id="results-content" class="d-none" style="max-height: none; word-wrap: break-word; white-space: pre-wrap;">  
+              <!-- This div will contain the markdown-rendered results -->  
+            </div>  
+      
+            <!-- Error state (hidden initially) -->  
+            <div id="results-error" class="d-none">  
+              <div class="alert alert-danger">  
+                <h6><i class="bi bi-exclamation-triangle"></i> Execution Error</h6>  
+                <pre id="error-details" class="mb-0" style="white-space: pre-wrap; word-wrap: break-word; max-height: 300px; overflow-y: auto;"></pre>  
+              </div>  
+            </div>  
+          </div>  
+            
+          <div class="modal-footer" style="flex-shrink: 0;">  
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>  
+            <button type="button" id="copy-results-button" class="btn btn-outline-primary">  
+              <i class="bi bi-clipboard"></i>&nbsp;Copy Results  
+            </button>  
+          </div>  
+        </div>  
+      </div>  
+    </div>  
+
+
+
+
+
 
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
@@ -422,6 +628,7 @@
     <script src="interface/common.js"></script>
     <script src="interface/common-chat.js"></script>
     <script src="interface/interface.js"></script>
+    <script src="interface/codemirror.js"></script>
     <script src="interface/chat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/darkmode-js@1.5.7/lib/darkmode-js.min.js"></script>
     <script>

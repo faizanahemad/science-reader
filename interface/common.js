@@ -775,57 +775,90 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
 
 
-function copyToClipboard(textElem, textToCopy, mode = "text") {
-    // var text = textElem.text().replace(/\[show\]|\[hide\]/g, '');
-    if (mode === "text") {
-        var textElements = $(textElem);
-        // .find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em');
-    }
-    else if (mode === "code") {
-        var textElements = $(textElem).closest('.code-block').find('code');
-        // .find('p, span, div, code');
-    }
-    else {
-        var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em, input');
-    }
+function copyToClipboard(textElem, textToCopy, mode = "text") {  
+    // Handle CodeMirror editor specifically  
+    if (mode === "codemirror") {  
+        // Check if it's CodeMirror 5 or 6  
+        if (textElem && typeof textElem.getValue === 'function') {  
+            // CodeMirror 5 API  
+            textToCopy = textElem.getValue();  
+            console.log("📋 Using CodeMirror 5 API for copy");  
+        } else if (textElem && textElem.state && textElem.state.doc) {  
+            // CodeMirror 6 API  
+            textToCopy = textElem.state.doc.toString();  
+            console.log("📋 Using CodeMirror 6 API for copy");  
+        } else {  
+            console.error("❌ Invalid CodeMirror editor instance:", textElem);  
+            showToast("Failed to access editor content", "error");  
+            return false;  
+        }  
+    }  
+    // Your existing logic for other modes  
+    else if (mode === "text") {  
+        var textElements = $(textElem);  
+    }  
+    else if (mode === "code") {  
+        var textElements = $(textElem).closest('.code-block').find('code');  
+    }  
+    else {  
+        var textElements = $(textElem).find('p, span, div, code, h1, h2, h3, h4, h5, h6, strong, em, input');  
+    }  
+  
+    // if textToCopy is undefined, then we will copy the text from the textElem  
+    if (textToCopy === undefined && mode !== "codemirror") {  
+        var textToCopy = "";  
+        textElements.each(function () {  
+            var $this = $(this);  
+            if ($this.is("input, textarea")) {  
+                textToCopy += $this.val().replace(/\\\[show\\]|\\\[hide\\\]/g, '') + "\n";  
+            } else {  
+                textToCopy += $this.text().replace(/\\\[show\\\]|\\\[hide\\\]/g, '') + "\n";  
+            }  
+        });  
+    }  
+  
+    if (navigator.clipboard && navigator.clipboard.writeText) {  
+        // New Clipboard API  
+        navigator.clipboard.writeText(textToCopy).then(() => {  
+            console.log("✅ Text successfully copied to clipboard");  
+            showToast("Code copied to clipboard!", "success");  
+        }).catch(err => {  
+            console.warn("⚠️ Copy to clipboard failed.", err);  
+            showToast("Failed to copy code", "error");  
+        });  
+    } else {  
+        // Fallback to the older method for incompatible browsers  
+        var textarea = document.createElement("textarea");  
+        textarea.textContent = textToCopy;  
+        document.body.appendChild(textarea);  
+        textarea.select();  
+        try {  
+            var success = document.execCommand("copy");  
+            if (success) {  
+                showToast("Code copied to clipboard!", "success");  
+            }  
+            return success;  
+        } catch (ex) {  
+            console.warn("⚠️ Copy to clipboard failed.", ex);  
+            showToast("Failed to copy code", "error");  
+            return false;  
+        } finally {  
+            document.body.removeChild(textarea);  
+        }  
+    }  
+}  
 
-    // if textToCopy is undefined, then we will copy the text from the textElem
+  
+// Simple toast notification function  
+function showToast(message, type = "info") {  
+    // You can integrate with your existing notification system  
+    // For now, using a simple alert - replace with your toast system  
+    console.log(`${type.toUpperCase()}: ${message}`);  
+    // Example with Bootstrap toast (if you have it):  
+    // $('.toast-body').text(message);  
+    // $('.toast').toast('show');  
+}  
 
-    if (textToCopy === undefined) {
-        var textToCopy = "";
-        textElements.each(function () {
-            var $this = $(this);
-            if ($this.is("input, textarea")) {
-                textToCopy += $this.val().replace(/\[show\]|\[hide\]/g, '') + "\n";
-            } else {
-                textToCopy += $this.text().replace(/\[show\]|\[hide\]/g, '') + "\n";
-            }
-        });
-    }
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        // New Clipboard API
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            console.log("Text successfully copied to clipboard")
-        }).catch(err => {
-            console.warn("Copy to clipboard failed.", err);
-        });
-    } else {
-        // Fallback to the older method for incompatible browsers
-        var textarea = document.createElement("textarea");
-        textarea.textContent = textToCopy;
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            return document.execCommand("copy");
-        } catch (ex) {
-            console.warn("Copy to clipboard failed.", ex);
-            return false;
-        } finally {
-            document.body.removeChild(textarea);
-        }
-    }
-}
 
 
 
@@ -1110,6 +1143,13 @@ function addOptions(parentElementId, type, activeDocId = null) {
         <div class="form-check form-check-inline mt-1">
             <button class="btn btn-primary rounded-pill mt-1" id="user-preferences-modal-open-button"><i class="bi bi-pen"></i>&nbsp;User Preferences</button>
         </div>
+
+        <div class="form-check form-check-inline mt-1">  
+            <button class="btn btn-primary rounded-pill mt-1" id="code-editor-modal-open-button">  
+                <i class="bi bi-code-slash"></i>&nbsp;Code Editor  
+            </button>  
+        </div>  
+
         
     </div>
     <div class="col-md-auto mt-1" style="width: 100%;">

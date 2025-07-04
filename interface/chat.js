@@ -180,5 +180,6 @@ function chat_interface_readiness() {
 $(document).ready(function() {
     chat_interface_readiness();
     interface_readiness();
+    setupCodeEditor();
 });
 

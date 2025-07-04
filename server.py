@@ -1658,6 +1658,16 @@ def modify_user_preference():
     except Exception as e:
         logger.error(f"Error in modify_user_preference: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
+@app.route('/run_code_once', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def run_code():
+    code_string = request.json.get('code_string')
+    from code_runner import run_code_once
+    return run_code_once(code_string)
+
 
 
 

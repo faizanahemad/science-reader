@@ -11,6 +11,21 @@ import itertools
 from queue import Empty
 import re
 import inspect
+
+import threading
+import signal
+import os
+import psutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+
+import pickle
+import tempfile
+import subprocess
+import signal
+import os
+
+
 import random
 
 import concurrent.futures
@@ -144,10 +159,402 @@ class PersistentPythonEnvironment:
             sys.stdout = original_stdout
             sys.stderr = original_stderr
 
+
+class PersistentPythonEnvironmentWithForceKill_old:
+    def __init__(self):
+        self.shell = InteractiveShell.instance()
+        self.thread_local_io = ThreadLocalStringIO()
+        self.execution_thread = None
+        self.current_process_id = None
+        from IPython import get_ipython
+        ipython = get_ipython()
+        ipython.run_line_magic('config', 'TerminalInteractiveShell.color_info = False')
+        ipython.run_line_magic('config', 'TerminalInteractiveShell.highlight_matching_brackets = False')
+
+    def run_code(self, code_string, time_limit):
+        """
+        Execute the code and capture the output with force termination capability.
+        """
+        self.thread_local_io = ThreadLocalStringIO()
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        sys.stdout = self.thread_local_io.stdout_buffer
+        sys.stderr = self.thread_local_io.stderr_buffer
+        stdout = stderr = ""
+        
+        # Store the main process ID
+        self.current_process_id = os.getpid()
+        
+        try:
+            with ThreadPoolExecutor() as executor:
+                # Start the execution in a separate thread
+                future = executor.submit(self._execute_with_monitoring, code_string)
+                
+                try:
+                    output = future.result(timeout=time_limit)
+                    stdout = self.thread_local_io.stdout_buffer.getvalue()
+                    stderr = self.thread_local_io.stderr_buffer.getvalue()
+                    stdout = strip_formatting(stdout)
+                    stderr = strip_formatting(stderr)
+                    
+                    if output.success:
+                        return True, None, stdout, stderr
+                    else:
+                        if output.error_before_exec:
+                            failure_reason = f"Error before execution: {output.error_before_exec}"
+                            return False, failure_reason, stdout, stderr
+                        exception = output.error_in_exec
+                        if isinstance(exception, UsageError):
+                            exception_trace = exception.etype.__name__ + ": " + str(exception.evalue)
+                        else:
+                            exception_trace = str(exception)
+                        sys.stdout = original_stdout
+                        sys.stderr = original_stderr
+                        return False, exception_trace, stdout, stderr
+                        
+                except concurrent.futures.TimeoutError:
+                    logger.info("The script exceeded the time limit. Force terminating...")
+                    stdout = self.thread_local_io.stdout_buffer.getvalue()
+                    stderr = self.thread_local_io.stderr_buffer.getvalue()
+                    
+                    # Force kill any child processes created by the execution
+                    self._force_kill_execution_processes()
+                    
+                    # Cancel the future
+                    future.cancel()
+                    
+                    
+                    stdout = strip_formatting(stdout)
+                    stderr = strip_formatting(stderr)
+                    
+                    logger.info("Process forcefully terminated due to timeout.")
+                    sys.stdout = original_stdout
+                    sys.stderr = original_stderr
+                    return False, f"Code execution forcefully terminated after {time_limit} seconds", stdout, stderr
+                    
+        except Exception as e:
+            logger.info(f"Unexpected error occurred: {e}")
+            return False, str(e), stdout, stderr
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+
+    def _execute_with_monitoring(self, code_string):
+        """Execute code while monitoring for child processes."""
+        # Record child processes before execution
+        try:
+            parent = psutil.Process(self.current_process_id)
+            initial_children = set(child.pid for child in parent.children(recursive=True))
+        except psutil.NoSuchProcess:
+            initial_children = set()
+        
+        # Execute the code
+        result = self.shell.run_cell(code_string)
+        
+        return result
+    
+    def _force_kill_execution_processes(self):
+        """Force kill any processes created during code execution."""
+        try:
+            parent = psutil.Process(self.current_process_id)
+            current_children = parent.children(recursive=True)
+            
+            for child in current_children:
+                try:
+                    logger.info(f"Terminating child process: {child.pid}")
+                    child.terminate()
+                    # Wait a bit for graceful termination
+                    child.wait(timeout=2)
+                except psutil.TimeoutExpired:
+                    # Force kill if it doesn't terminate gracefully
+                    logger.info(f"Force killing child process: {child.pid}")
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    # Process already terminated
+                    pass
+                except Exception as e:
+                    logger.error(f"Error terminating child process {child.pid}: {e}")
+                    
+        except psutil.NoSuchProcess:
+            logger.warning("Parent process not found for cleanup")
+        except Exception as e:
+            logger.error(f"Error during process cleanup: {e}")
+
+
+
+
+
+class PythonEnvironmentWithForceKill:
+    def __init__(self):
+        self.state_file = tempfile.NamedTemporaryFile(mode='wb', delete=False)
+        self.state_file.close()
+        self.globals_dict = {}
+        
+    def run_code(self, code_string, time_limit):
+        """
+        Execute code in a separate process with state persistence and force termination.
+        """
+        # Create execution script that loads previous state
+        memory_limit = 1000
+        write_limit = 10
+        cpu_time_limit = 60
+        execution_script = f'''
+import pickle
+import sys
+import warnings
+import traceback
+import signal
+from io import StringIO
+warnings.filterwarnings("ignore")
+
+import pickle
+import sys
+import warnings
+import traceback
+import signal
+import resource
+from io import StringIO
+warnings.filterwarnings("ignore")
+
+# Set resource limits first
+def set_resource_limits():
+    try:
+        # Memory limit
+        memory_bytes = {memory_limit} * 1024 * 1024
+        current_mem_limits = resource.getrlimit(resource.RLIMIT_AS)
+        new_mem_limit = min(memory_bytes, current_mem_limits[1] if current_mem_limits[1] != -1 else memory_bytes)
+        resource.setrlimit(resource.RLIMIT_AS, (new_mem_limit, current_mem_limits[1]))
+        
+        # CPU time limit  
+        current_cpu_limits = resource.getrlimit(resource.RLIMIT_CPU)
+        new_cpu_limit = min({cpu_time_limit}, current_cpu_limits[1] if current_cpu_limits[1] != -1 else {cpu_time_limit})
+        resource.setrlimit(resource.RLIMIT_CPU, (new_cpu_limit, current_cpu_limits[1]))
+        
+        # File size limit
+        write_bytes = {write_limit} * 1024 * 1024
+        current_write_limits = resource.getrlimit(resource.RLIMIT_FSIZE)
+        new_write_limit = min(write_bytes, current_write_limits[1] if current_write_limits[1] != -1 else write_bytes)
+        resource.setrlimit(resource.RLIMIT_FSIZE, (new_write_limit, current_write_limits[1]))
+        
+    except (OSError, ValueError) as e:
+        # Log but don't fail if resource limits can't be set
+        print(f"Warning: Could not set resource limits: {{e}}", file=sys.stderr)
+
+# Apply resource limits
+set_resource_limits()
+
+
+# Capture stdout
+old_stdout = sys.stdout
+old_stderr = sys.stderr
+stdout_buffer = StringIO()
+stderr_buffer = StringIO()
+sys.stdout = stdout_buffer
+sys.stderr = stderr_buffer
+
+execution_success = True
+error_message = ""
+
+def handle_timeout_signal(signum, frame):
+    """Handle timeout signal by generating stack trace"""
+    import traceback
+    global execution_success, error_message
+    execution_success = False
+    error_message = f"Execution timed out\\n" + "".join(traceback.format_stack(frame))
+    
+    # Print partial results immediately
+    sys.stdout = old_stdout
+    sys.stderr = old_stderr
+    sys.exit(1)
+
+# Set up signal handler for graceful termination
+signal.signal(signal.SIGTERM, handle_timeout_signal)
+
+# Custom print function that flushes output
+original_print = print
+def flushing_print(*args, **kwargs):
+    result = original_print(*args, **kwargs)
+    sys.stdout.flush()
+    return result
+
+# Override print in the execution environment
+globals()['print'] = flushing_print
+
+try:
+    # Execute user code
+{self._indent_code(code_string)}
+
+        
+except Exception as e:
+    execution_success = False
+    error_message = str(e) + "\\n" + traceback.format_exc()
+    
+    
+finally:
+    # Restore stdout/stderr
+    sys.stdout = old_stdout
+    sys.stderr = old_stderr
+    
+    # Print results in a structured way
+    print("===EXECUTION_RESULT===", flush=True)
+    print(f"SUCCESS: {{execution_success}}", flush=True)
+    print(f"ERROR: {{error_message}}", flush=True)
+    print("===STDOUT_START===", flush=True)
+    print(stdout_buffer.getvalue(), flush=True)
+    print("===STDOUT_END===", flush=True)
+    print("===STDERR_START===", flush=True)
+    print(stderr_buffer.getvalue(), flush=True)
+    print("===STDERR_END===", flush=True)
+'''
+
+        # Write script to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as tmp_file:
+            tmp_file.write(execution_script)
+            tmp_file_path = tmp_file.name
+
+        try:
+            # Start process
+            proc = subprocess.Popen(
+                [sys.executable, tmp_file_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            try:
+                # Wait for completion with timeout
+                stdout, stderr = proc.communicate(timeout=time_limit)
+                success = proc.returncode == 0
+                
+                # Parse structured output
+                if success:
+                    result = self._parse_execution_result(stdout)
+                    return result['success'], result['error'], result['stdout'], result['stderr']
+                else:
+                    return False, f"Process failed with return code {proc.returncode}", stdout, stderr
+                    
+            except subprocess.TimeoutExpired:
+                # Try graceful termination first
+                logger.info("Timeout reached, attempting graceful termination...")
+                proc.terminate()  # Send SIGTERM instead of SIGKILL
+                
+                # Wait a bit for graceful termination and partial output
+                try:
+                    stdout, stderr = proc.communicate(timeout=2)
+                    success = False
+                    
+                    # Try to parse structured output first
+                    try:
+                        result = self._parse_execution_result(stdout)
+                        partial_stdout = result['stdout']
+                        partial_stderr = result['stderr']
+                        error_msg = result['error'] if result['error'] else f"Execution terminated after {time_limit} seconds"
+                    except:
+                        # Fallback to raw output if parsing fails
+                        partial_stdout = stdout
+                        partial_stderr = stderr
+                        error_msg = f"Execution terminated after {time_limit} seconds"
+                        
+                    return False, error_msg, partial_stdout, partial_stderr
+                    
+                except subprocess.TimeoutExpired:
+                    # Force kill if graceful termination fails
+                    logger.info("Graceful termination failed, force killing...")
+                    self._force_kill_process_tree(proc.pid)
+                    
+                    # Get whatever output we can
+                    try:
+                        stdout, stderr = proc.communicate(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        stdout, stderr = "", ""
+                    
+                    # Return raw output since structured parsing likely failed
+                    return False, f"Execution forcefully terminated after {time_limit} seconds", stdout, stderr
+                
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(tmp_file_path)
+            except:
+                pass
+    
+    def _indent_code(self, code_string):
+        """Indent code for inclusion in the script."""
+        return '\n'.join('    ' + line for line in code_string.split('\n'))
+    
+    def _parse_execution_result(self, output):
+        """Parse structured output from the execution script."""
+        lines = output.split('\n')
+        result = {'success': False, 'error': '', 'stdout': '', 'stderr': ''}
+        
+        current_section = None
+        for line in lines:
+            if line == "===EXECUTION_RESULT===":
+                current_section = 'result'
+            elif line.startswith("SUCCESS: "):
+                result['success'] = line.split("SUCCESS: ")[1].strip() == 'True'
+            elif line.startswith("ERROR: "):
+                result['error'] = line.split("ERROR: ", 1)[1] if len(line.split("ERROR: ", 1)) > 1 else ''
+            elif line == "===STDOUT_START===":
+                current_section = 'stdout'
+            elif line == "===STDOUT_END===":
+                current_section = None
+            elif line == "===STDERR_START===":
+                current_section = 'stderr'
+            elif line == "===STDERR_END===":
+                current_section = None
+            elif current_section == 'stdout':
+                result['stdout'] += line + '\n'
+            elif current_section == 'stderr':
+                result['stderr'] += line + '\n'
+        
+        # Clean up trailing newlines
+        result['stdout'] = result['stdout'].rstrip('\n')
+        result['stderr'] = result['stderr'].rstrip('\n')
+        
+        return result
+    
+    def _force_kill_process_tree(self, pid):
+        """Force kill a process and all its children."""
+        try:
+            import psutil
+            parent = psutil.Process(pid)
+            children = parent.children(recursive=True)
+            
+            # Kill children first
+            for child in children:
+                try:
+                    child.kill()
+                except psutil.NoSuchProcess:
+                    pass
+            
+            # Kill parent
+            parent.kill()
+            
+            # Wait for processes to die
+            gone, still_alive = psutil.wait_procs(children + [parent], timeout=3)
+            
+            # Force kill any remaining processes
+            for p in still_alive:
+                try:
+                    p.kill()
+                except psutil.NoSuchProcess:
+                    pass
+                    
+        except ImportError:
+            # Fallback to os.kill if psutil is not available
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+
 from persistent_code_env import PersistentPythonEnvironment as PersistentPythonEnvironment_v2
 
+
+
 def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLLm, llm_easy: CallLLm, code_string: str = "",
-                           session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2]=None, retry=3):
+                           session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2]=None, retry=3, stdout_limit=50):
     """
     Executes the given code_string with specified resource constraints and captures the output.
 
@@ -167,7 +574,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
         code_string = write_code_with_llm(instructions, rules, llm_hard)
 
     all_stdout = []
-    for i in range(retry):
+    for i in range(retry + 1):
         success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=session)
         # logger.info(f"[code_runner_with_retry] Code execution attempt {i+1} with success: {success}, failure_reason: {failure_reason}, stdout: {stdout}, stderr: {stderr}")
         if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
@@ -183,12 +590,18 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
         all_stdout.append(stdout)
 
         if success:
-            if len(stdout.split("\n")) > 50:
+            if len(stdout.split("\n")) > stdout_limit:
                 stdout = extract_relevant_from_stdout(instructions, llm_easy, code_string, stdout)
             return success, failure_reason, stdout, stderr, code_string
-        else:
+        elif i < retry:
             code_string = write_code_with_llm(instructions, rules, llm_hard, previous_code=code_string, previous_stdout=stdout, previous_failure=failure_reason)
     return success, failure_reason, stdout, stderr, code_string
+
+
+def run_code_once(code_string: str, session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2]=None):
+    success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=PythonEnvironmentWithForceKill() if session is None else session, timeout=5, pad_code_string=False)
+    final_output = format_execution_output_for_ui(success, failure_reason, stdout, stderr)
+    return final_output
 
 
 def extract_relevant_from_stdout(instructions: str, llm: CallLLm, code:str, stdout: str):
@@ -549,8 +962,8 @@ class MyPrint:
     def __init__(self):
         self.stdout_buffer = StringIO()
 
-    def __call__(self, *args):
-        prnt(*args, file=self.stdout_buffer)
+    def __call__(self, *args, **kwargs):
+        prnt(*args, file=self.stdout_buffer, **kwargs)
 
     def __str__(self):
         return self.stdout_buffer.getvalue()
@@ -628,7 +1041,8 @@ print = prnt
 
     return success, failure_reason, stdout, stderr
 
-def run_code_with_constraints_v2(code_string, constraints={}, session: PersistentPythonEnvironment=None):
+def run_code_with_constraints_v2(code_string, constraints={}, session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2, PythonEnvironmentWithForceKill]=None, 
+                                 timeout=120, pad_code_string=True):
     """
     Executes the given code_string with specified resource constraints and captures the output.
 
@@ -646,17 +1060,18 @@ def run_code_with_constraints_v2(code_string, constraints={}, session: Persisten
     if session is None:
         session = PersistentPythonEnvironment_v2()
     memory = constraints.get("memory", 1500)
-    time = constraints.get("time", 120)
-    code_string = "\n".join([line for line in code_string.split("\n") if "plt.show()" not in line])
-    code_string += """
+    time = constraints.get("time", timeout)
+    if pad_code_string:
+        code_string = "\n".join([line for line in code_string.split("\n") if "plt.show()" not in line])
+        code_string += """
 prnt("-x-=" * 40)
 did_we_print = True
 prnt(str(print))
 print = prnt
 """
-    code_string = "\n".join(["\t" + line for line in code_string.split("\n")])
-    # logger.info("Actual Executed code is: \n" + code_string)
-    code_string = mem_and_cpu_limit_str.format(memory=memory, time=time) + "\n" + try_catch_block_v2.format(code=code_string)
+        code_string = "\n".join(["\t" + line for line in code_string.split("\n")])
+        # logger.info("Actual Executed code is: \n" + code_string)
+        code_string = mem_and_cpu_limit_str.format(memory=memory, time=time) + "\n" + try_catch_block_v2.format(code=code_string)
     # Remove any line with plt.show() from the code
     stdout, stderr = None, None
     try:
@@ -701,6 +1116,86 @@ print = prnt
         stderr = stderr.strip()
 
     return success, failure_reason, stdout, stderr
+
+
+def format_execution_output_for_ui(success, failure_reason, stdout, stderr, code_string=None):
+    """
+    Formats code execution output in a pretty markdown format for UI display.
+    
+    Parameters:
+    - success (bool): Whether the code executed successfully
+    - failure_reason (str): Error details if execution failed
+    - stdout (str): Standard output from code execution
+    - stderr (str): Standard error from code execution
+    - code_string (str, optional): The original code that was executed
+    
+    Returns:
+    - str: Formatted markdown string for UI display
+    """
+    
+    # Initialize the markdown output
+    markdown_output = []
+    
+    # Add execution status header
+    if success:
+        markdown_output.append("## ✅ Code Execution Successful")
+    else:
+        markdown_output.append("## ❌ Code Execution Failed")
+    
+    markdown_output.append("")  # Empty line for spacing
+    
+    # Add original code if provided
+    if code_string and code_string.strip():
+        markdown_output.append("### 📝 Executed Code")
+        markdown_output.append("```python")
+        markdown_output.append(code_string.strip())
+        markdown_output.append("```")
+        markdown_output.append("")
+    
+    # Add stdout if present
+    if stdout and stdout.strip():
+        markdown_output.append("### 📤 Output")
+        markdown_output.append("```")
+        markdown_output.append(stdout.strip())
+        markdown_output.append("```")
+        markdown_output.append("")
+    
+    # Add stderr if present and different from failure_reason
+    if stderr and stderr.strip() and stderr.strip() != failure_reason.strip():
+        markdown_output.append("### ⚠️ Warnings/Errors")
+        markdown_output.append("```")
+        markdown_output.append(stderr.strip())
+        markdown_output.append("```")
+        markdown_output.append("")
+    
+    # Add failure reason if execution failed
+    if not success and failure_reason and failure_reason.strip():
+        markdown_output.append("### 🐛 Error Details")
+        markdown_output.append("```")
+        markdown_output.append(failure_reason.strip())
+        markdown_output.append("```")
+        markdown_output.append("")
+    
+    # Add summary section
+    if success:
+        if stdout and stdout.strip():
+            markdown_output.append("### 📊 Summary")
+            markdown_output.append("✅ **Status**: Execution completed successfully")
+            markdown_output.append(f"📏 **Output Length**: {len(stdout)} characters")
+        else:
+            markdown_output.append("### 📊 Summary")
+            markdown_output.append("✅ **Status**: Execution completed successfully (no output)")
+    else:
+        markdown_output.append("### 📊 Summary")
+        markdown_output.append("❌ **Status**: Execution failed")
+        if failure_reason:
+            # Try to extract the main error type
+            error_lines = failure_reason.split('\n')
+            main_error = next((line for line in error_lines if 'Error:' in line or 'Exception:' in line), "Unknown error")
+            markdown_output.append(f"🔍 **Error Type**: {main_error}")
+    
+    # Join all parts with newlines
+    return "\n".join(markdown_output)
 
 
 
