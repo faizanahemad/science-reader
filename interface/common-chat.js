@@ -745,6 +745,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         }
     }
 
+    var rendered_till_now = ''
+
     async function read() {
         const { value, done } = await reader.read();
 
@@ -795,6 +797,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // Render the current section one last time with complete content
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
+                rendered_till_now = rendered_till_now + breakpointResult.textBeforeBreakpoint;
                 
                 // Create a new section for content after the breakpoint
                 sectionCount++;
@@ -813,16 +816,21 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
+                rendered_till_now = rendered_till_now + rendered_answer;
+                
             }
             
-            if ((part['text'].includes('</answer>') || part['text'].includes('</details>')) && card.find("#message-render-space-md-render").length > 0) {
-                if (elem_to_render && elem_to_render.length > 0) {
+            if ((part['text'].includes('</answer>')) && card.find("#message-render-space-md-render").length > 0) {
+                if (elem_to_render && elem_to_render.length > 0 && rendered_answer.length > 0 && !rendered_till_now.includes(rendered_answer)) {
                     renderInnerContentAsMarkdown(elem_to_render, 
                         immediate_callback = function() {
                             elem_to_render.attr('data-fully-rendered', 'true');
                         }, 
                         continuous = false, // Use false for final rendering to ensure proper display
                         html = rendered_answer);
+
+                    rendered_till_now = rendered_till_now + rendered_answer;
+                    
                 }
                 sectionCount++;
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
