@@ -1703,7 +1703,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             persist_or_not = False
             
             
-        attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "")
+        attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "").replace("summarise_", "").replace("summarize_", "").replace("dense_summarise_", "").replace("dense_summarize_", "")
         attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
         _, attached_docs, doc_names, (_, _), (
             _, _) = attached_docs_for_summary_future.result()
@@ -2946,6 +2946,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-4-sonnet-20250522"
     elif model_name == "x-ai/grok-3-beta":
         model_name = "x-ai/grok-3-beta"
+    elif model_name == "x-ai/grok-4":
+        model_name = "x-ai/grok-4"
+    elif model_name == "mistralai/devstral-medium":
+        model_name = "mistralai/devstral-medium"
     elif model_name == "perplexity/sonar-pro":
         model_name = "perplexity/sonar-pro"
     elif model_name == "perplexity/sonar-reasoning-pro":
@@ -3050,6 +3054,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "latitudegames/wayfarer-large-70b-llama-3.3"
     elif model_name == "thedrummer/anubis-pro-105b-v1":
         model_name = "thedrummer/anubis-pro-105b-v1"
+    elif model_name == "thedrummer/anubis-70b-v1.1":
+        model_name = "thedrummer/anubis-70b-v1.1"
+    elif model_name == "moonshotai/kimi-k2":
+        model_name = "moonshotai/kimi-k2"
     elif model_name == "steelskull/l3.3-electra-r1-70b":
         model_name = "steelskull/l3.3-electra-r1-70b"
     elif model_name == "openai/gpt-4o-mini":
@@ -3112,6 +3120,10 @@ def extract_user_answer(text):
 def model_hierarchies(model_names: List[str]):
     if "x-ai/grok-3-beta" in model_names:
         improve_model = "x-ai/grok-3-beta"
+    elif "x-ai/grok-4" in model_names:
+        improve_model = "x-ai/grok-4"
+    elif "mistralai/devstral-medium" in model_names:
+        improve_model = "mistralai/devstral-medium"
     
     elif "openai/chatgpt-4o-latest" in model_names:
         improve_model = "openai/chatgpt-4o-latest"

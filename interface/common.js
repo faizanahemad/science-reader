@@ -1007,7 +1007,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option selected>Sonnet 4</option>
                     <option>openai/chatgpt-4o-latest</option> 
                     <option>x-ai/grok-3-beta</option>
+                    <option>x-ai/grok-4</option>
                     <option>Opus 4</option>
+                    <option>moonshotai/kimi-k2</option>
                     
                     <!-- option>deepseek/deepseek-chat-v3-0324</option -->
                     
@@ -1029,11 +1031,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <!-- option>o1-preview</option -->
                 </optgroup>
 
-                <optgroup label="Older Models">
-                    <option>gpt-4.5-preview</option>
-                    <option>qwen/qwen3-235b-a22b</option>
-                    <option>gpt-4.1</option>
-                    <option>Claude Sonnet 3.7</option>
+                <optgroup label="Older Models" hidden>
+                    <!-- option>gpt-4.5-preview</option -->
+                    <!-- option>qwen/qwen3-235b-a22b</option -->
+                    <!--option>gpt-4.1</option>
+                    <!-- option>Claude Sonnet 3.7</option -->
+                    <!-- option>mistralai/devstral-medium</option -->
                     <!-- option>Claude Opus</option -->
                     <!-- option>Claude Sonnet 3.5</option -->  
                     <!-- option>Pixtral Large</option --> 
@@ -1046,6 +1049,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>sao10k/l3.3-euryale-70b</option>
                     
                     <option>thedrummer/anubis-pro-105b-v1</option>
+                    <option>thedrummer/anubis-70b-v1.1</option>
                     
                     <!-- option>eva-unit-01/eva-qwen-2.5-72b</option -->
                     <!-- option>eva-unit-01/eva-llama-3.33-70b</option -->
