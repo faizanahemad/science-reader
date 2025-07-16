@@ -251,7 +251,7 @@ Only provide answer from the document given above.
         doc_word_count = len(text_document.split())
         logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
         if preferred_model is None and doc_word_count < 200_000:
-            preferred_model = CHEAP_LONG_CONTEXT_LLM[1]
+            preferred_model = CHEAP_LONG_CONTEXT_LLM[0]
         elif preferred_model is None and doc_word_count > 200_000:
             preferred_model = LONG_CONTEXT_LLM[0]
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
