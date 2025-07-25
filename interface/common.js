@@ -1006,10 +1006,12 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Newer Models">   
                     <option selected>Sonnet 4</option>
                     <option>openai/chatgpt-4o-latest</option> 
-                    <option>x-ai/grok-3-beta</option>
+                    <option hidden>x-ai/grok-3-beta</option>
+                    <option>x-ai/grok-3</option>
                     <option>x-ai/grok-4</option>
                     <option>Opus 4</option>
                     <option>moonshotai/kimi-k2</option>
+                    <option>Qwen3-Coder</option>
                     
                     <!-- option>deepseek/deepseek-chat-v3-0324</option -->
                     

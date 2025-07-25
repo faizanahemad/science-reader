@@ -3067,6 +3067,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "eva-unit-01/eva-qwen-2.5-72b"
     elif model_name == "google/gemini-2.5-flash-preview":
         model_name = "google/gemini-2.5-flash-preview"
+    elif model_name == "qwen/qwen3-coder" or model_name == "Qwen3-Coder":
+        model_name = "qwen/qwen3-coder"
     elif model_name == "google/gemini-2.5-flash":
         model_name = "google/gemini-2.5-flash"
     elif model_name == "google/gemini-2.5-flash-lite-preview-06-17":
@@ -3120,6 +3122,8 @@ def extract_user_answer(text):
 def model_hierarchies(model_names: List[str]):
     if "x-ai/grok-3-beta" in model_names:
         improve_model = "x-ai/grok-3-beta"
+    elif "x-ai/grok-3" in model_names:
+        improve_model = "x-ai/grok-3"
     elif "x-ai/grok-4" in model_names:
         improve_model = "x-ai/grok-4"
     elif "mistralai/devstral-medium" in model_names:

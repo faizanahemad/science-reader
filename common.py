@@ -59,7 +59,7 @@ CHEAP_LLM = ["gpt-4o", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", 
 EXPENSIVE_LLM = ["anthropic/claude-sonnet-4", "anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
                  "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
-                 "cohere/command-a", "ai21/jamba-1.6-large"]
+                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder", "x-ai/grok-3"]
 
 
 CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "gpt-4.1-mini", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
