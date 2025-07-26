@@ -1,0 +1,380 @@
+/* Workspace Styles */
+.workspace-section {
+    margin-bottom: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #f8f9fa;
+}
+
+.workspace-header {
+    padding: 8px 12px;
+    background: #e9ecef;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 6px 6px 0 0;
+}
+
+.workspace-header:hover {
+    background: #dee2e6;
+}
+
+.workspace-header.collapsed {
+    border-radius: 6px;
+}
+
+.workspace-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    flex-grow: 1;
+    margin-right: 10px;
+}
+
+.workspace-count {
+    font-size: 0.75rem;
+    color: #6c757d;
+    background: #ffffff;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-right: 8px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.workspace-toggle {
+    color: #6c757d;
+    transition: transform 0.2s;
+}
+
+.workspace-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+.workspace-content {
+    padding: 0;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.workspace-conversations {
+    padding: 5px;
+}
+
+.workspace-conversations .list-group-item {
+    margin-bottom: 3px;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    border: 1px solid #dee2e6;
+}
+
+.conversation-content {
+    min-width: 0; /* Allows text truncation */
+}
+
+.conversation-actions {
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.conversation-item:hover .conversation-actions {
+    opacity: 1;
+}
+
+/* Drag and Drop Styles */
+.conversation-dragging {
+    opacity: 0.5;
+    transform: rotate(2deg);
+}
+
+.workspace-drop-zone {
+    background: #e3f2fd !important;
+    border: 2px dashed #2196f3 !important;
+}
+
+.workspace-drop-zone .workspace-header {
+    background: #bbdefb !important;
+}
+
+.drop-indicator {
+    height: 3px;
+    background: #2196f3;
+    margin: 2px 0;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.drop-indicator.show {
+    opacity: 1;
+}
+
+/* Context Menu Styles */
+.context-menu {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    z-index: 1000;
+    min-width: 150px;
+}
+
+.context-menu ul li {
+    padding: 0;
+}
+
+.context-menu ul li a {
+    display: block;
+    padding: 8px 12px;
+    text-decoration: none;
+    color: #333;
+    font-size: 0.85rem;
+}
+
+.context-menu ul li a:hover {
+    background: #f8f9fa;
+    color: #333;
+    text-decoration: none;
+}
+
+.context-menu ul li:first-child a {
+    border-radius: 4px 4px 0 0;
+}
+
+.context-menu ul li:last-child a {
+    border-radius: 0 0 4px 4px;
+}
+
+/* Workspace Colors */
+.workspace-color-primary { border-left: 4px solid #007bff; }
+.workspace-color-success { border-left: 4px solid #28a745; }
+.workspace-color-danger { border-left: 4px solid #dc3545; }
+.workspace-color-warning { border-left: 4px solid #ffc107; }
+.workspace-color-info { border-left: 4px solid #17a2b8; }
+.workspace-color-purple { border-left: 4px solid #6f42c1; }
+.workspace-color-pink { border-left: 4px solid #e83e8c; }
+.workspace-color-orange { border-left: 4px solid #fd7e14; }
+
+
+#add-new-workspace {
+    background-color: #f8f9fa !important;
+    border-color: #6c757d !important;
+    color: #6c757d !important;
+    margin-left: 2px !important;
+}
+
+#add-new-workspace:hover {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+    color: white !important;
+}
+
+/* Ensure btn-group spacing */
+.btn-group .btn {
+    margin-right: 0 !important;
+}
+
+.btn-group .btn:not(:first-child) {
+    border-left: 1px solid #dee2e6;
+}
+
+/* Fallback if FontAwesome doesn't load */
+#add-new-workspace i::before {
+    content: "📁+";
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+    font-style: normal;
+}
+
+#add-new-chat i::before {
+    content: "+";
+    font-weight: bold;
+    font-style: normal;
+}
+
+/* Updated workspace header styles */
+.workspace-header {
+    padding: 8px 12px;
+    background: #e9ecef;
+    border-bottom: 1px solid #e0e0e0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 6px 6px 0 0;
+}
+
+.workspace-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.workspace-count {
+    font-size: 0.75rem;
+    color: #6c757d;
+    background: #ffffff;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.workspace-add-chat {
+    border: none;
+    background: none;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 0.2s;
+}
+
+.workspace-add-chat:hover {
+    background: rgba(0,0,0,0.1);
+}
+
+.workspace-add-chat i {
+    color: #6c757d;
+}
+
+.workspace-add-chat:hover i {
+    color: #495057;
+}
+
+.workspace-toggle {
+    color: #6c757d;
+    transition: transform 0.2s;
+    /* Make it a proper clickable button-like element */
+    padding: 8px 10px;
+    margin-left: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    min-width: 24px;
+    min-height: 24px;
+    /* Ensure it's on top */
+    position: relative;
+    z-index: 2;
+    /* Prevent other elements from interfering */
+    pointer-events: auto;
+}
+
+.workspace-toggle.collapsed {
+    transform: rotate(-90deg);
+}
+
+.workspace-toggle:hover {
+    color: #495057;
+    background: rgba(0,0,0,0.08);
+}
+
+/* Ensure the icon itself doesn't interfere */
+.workspace-toggle i {
+    pointer-events: none;
+}
+
+
+/* Add this to your workspace-styles.css */
+.conversation-item.active {
+    background-color: #007bff !important;
+    color: white !important;
+    border-color: #007bff !important;
+}
+
+.conversation-item.active .conversation-summary {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.conversation-item.active .conversation-actions i {
+    color: white !important;
+}
+
+
+/* Enhanced drag and drop styles */
+.conversation-item[draggable="true"] {
+    cursor: grab;
+}
+
+.conversation-item[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.conversation-dragging {
+    opacity: 0.6 !important;
+    transform: rotate(3deg) !important;
+    z-index: 1000 !important;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
+}
+
+.workspace-drop-zone {
+    background: #e3f2fd !important;
+    border: 2px dashed #2196f3 !important;
+    transition: all 0.2s ease !important;
+}
+
+.workspace-drop-zone .workspace-header {
+    background: #bbdefb !important;
+}
+
+/* Prevent text selection during drag */
+.conversation-item {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+/* Add to workspace-styles.css */
+.moving-conversation {
+    opacity: 0.3 !important;
+    pointer-events: none !important;
+}
+
+.moving-conversation::after {
+    content: "Moving...";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    z-index: 1001;
+}
+
+
+/* Add these to workspace-styles.css to fix drag and drop */
+
+/* Ensure proper drag and drop behavior */
+.workspace-section {
+    pointer-events: auto;
+}
+
+.workspace-header, 
+.workspace-conversations,
+.workspace-content {
+    pointer-events: auto;
+}
+
+/* Prevent child elements from blocking drop events */
+.workspace-section * {
+    pointer-events: auto;
+}
+
+/* Make sure dragged items don't interfere */
+.conversation-dragging {
+    pointer-events: none !important;
+}
+
+/* Ensure workspace sections are properly positioned for drop detection */
+.workspace-section {
+    position: relative;
+    z-index: 1;
+}
+

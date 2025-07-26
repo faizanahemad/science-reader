@@ -105,6 +105,26 @@ def create_tables():
                                     created_at text,
                                     updated_at text
                                 ); """
+    
+    # ConversationId to WorkspaceId
+    sql_create_conversation_id_to_workspace_id_table = """CREATE TABLE IF NOT EXISTS ConversationIdToWorkspaceId (
+                                    conversation_id text PRIMARY KEY,
+                                    user_email text,
+                                    workspace_id text,
+                                    created_at text,
+                                    updated_at text
+                                ); """
+    
+    # workspace metadata table
+    sql_create_workspace_metadata_table = """CREATE TABLE IF NOT EXISTS WorkspaceMetadata (
+                                    workspace_id text PRIMARY KEY,
+                                    workspace_name text,
+                                    workspace_color text,
+                                    domain text,
+                                    expanded boolean,
+                                    created_at text,
+                                    updated_at text
+                                ); """
 
     # create a database connection
     conn = create_connection(database)
@@ -115,12 +135,25 @@ def create_tables():
         create_table(conn, sql_create_user_to_conversation_id_table)
         # create UserDetails table
         create_table(conn, sql_create_user_details_table)
+        # create ConversationIdToWorkspaceId table
+        create_table(conn, sql_create_conversation_id_to_workspace_id_table)
+        # create WorkspaceMetadata table
+        create_table(conn, sql_create_workspace_metadata_table)
     else:
         print("Error! cannot create the database connection.")
         
     cur = conn.cursor()
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_UserToConversationId_email_doc ON UserToConversationId (user_email, conversation_id)")
+    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ConversationIdToWorkspaceId_conversation_id ON ConversationIdToWorkspaceId (conversation_id)")
+    # create index on workspace_id
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ConversationIdToWorkspaceId_workspace_id ON ConversationIdToWorkspaceId (workspace_id)")
+    # create index on domain
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ConversationIdToWorkspaceId_user_email ON ConversationIdToWorkspaceId (user_email)")
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_workspace_id ON WorkspaceMetadata (workspace_id)")
+
+    
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
     conn.commit()
@@ -128,37 +161,495 @@ def create_tables():
         
 from datetime import datetime
 
-    
-def addConversationToUser(user_email, conversation_id):
+def load_workspaces_for_user(user_email, domain):
+    """
+    Retrieve all unique workspaces for a user, including workspace name and color,
+    using a single database query with a join.
+
+    Args:
+        user_email (str): The user's email address.
+
+    Returns:
+        list of dict: Each dict contains workspace_id, workspace_name, workspace_color, and domain.
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    # Use a single query to get unique workspace_ids for the user, with workspace name and color
+    cur.execute("""
+        SELECT DISTINCT c.workspace_id, 
+                        wm.workspace_name, 
+                        wm.workspace_color, 
+                        wm.domain,
+                        wm.expanded
+        FROM ConversationIdToWorkspaceId c
+        LEFT JOIN WorkspaceMetadata wm ON c.workspace_id = wm.workspace_id
+        WHERE c.user_email = ? AND c.workspace_id IS NOT NULL AND wm.domain = ?
+    """, (user_email, domain))
+    rows = cur.fetchall()
+    conn.close()
+    # Return as list of dicts for clarity and extensibility
+    workspaces = [
+        {
+            "workspace_id": row[0],
+            "workspace_name": row[1],
+            "workspace_color": row[2],
+            "domain": row[3],
+            "expanded": row[4]
+        }
+        for row in rows
+    ]
+    return workspaces
+
+def addConversationToWorkspace(user_email, conversation_id, workspace_id):
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT OR IGNORE INTO UserToConversationId
-        (user_email, conversation_id, created_at, updated_at)
+        INSERT OR IGNORE INTO ConversationIdToWorkspaceId
+        (conversation_id, user_email, workspace_id, created_at, updated_at)
         VALUES(?,?,?,?)
-        """, 
-        (user_email, conversation_id, datetime.now(), datetime.now())
+        """,
+        (conversation_id, user_email, workspace_id, datetime.now(), datetime.now())
     )
     conn.commit()
     conn.close()
 
-
-
-def getCoversationsForUser(user_email):
+def moveConversationToWorkspace(user_email, conversation_id, workspace_id):
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
-    cur.execute("SELECT * FROM UserToConversationId WHERE user_email=?", (user_email,))
+    cur.execute("UPDATE ConversationIdToWorkspaceId SET workspace_id=? WHERE user_email=? AND conversation_id=?", (workspace_id, user_email, conversation_id,))
+    conn.commit()
+    conn.close()
+
+def removeConversationFromWorkspace(user_email, conversation_id):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ConversationIdToWorkspaceId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
+    conn.commit()
+    conn.close()
+
+def getWorkspaceForConversation(conversation_id):
+    """
+    Retrieve the workspace metadata associated with a given conversation_id.
+
+    Args:
+        conversation_id (str): The conversation ID.
+
+    Returns:
+        dict or None: Dictionary containing workspace and its metadata, or None if not found.
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        # Get the workspace_id and user_email for the conversation
+        cur.execute(
+            "SELECT workspace_id, user_email FROM ConversationIdToWorkspaceId WHERE conversation_id=?",
+            (conversation_id,)
+        )
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return None  # No workspace associated
+
+        workspace_id, user_email = row
+
+        # Get the workspace metadata
+        cur.execute(
+            """
+            SELECT workspace_id, workspace_name, workspace_color, domain, expanded, created_at, updated_at
+            FROM WorkspaceMetadata
+            WHERE workspace_id=?
+            """,
+            (workspace_id,)
+        )
+        meta_row = cur.fetchone()
+        if not meta_row:
+            # If metadata not found, return minimal info
+            return {
+                "workspace_id": workspace_id,
+                "user_email": user_email
+            }
+
+        return {
+            "workspace_id": meta_row[0],
+            "workspace_name": meta_row[1],
+            "workspace_color": meta_row[2],
+            "domain": meta_row[3],
+            "expanded": meta_row[4],
+            "created_at": meta_row[5],
+            "updated_at": meta_row[6],
+            "user_email": user_email
+        }
+    finally:
+        conn.close()
+
+def getConversationsForWorkspace(workspace_id, user_email):
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM ConversationIdToWorkspaceId WHERE workspace_id=? AND user_email=?", (workspace_id, user_email,))
     rows = cur.fetchall()
     conn.close()
     return rows
 
-def deleteConversationForUser(user_email, conversation_id):
+def createWorkspace(user_email, workspace_id, domain, workspace_name, workspace_color):
+    """
+    Create a new workspace for a user.
+    This function inserts a workspace record into both ConversationIdToWorkspaceId (for user-workspace mapping)
+    and WorkspaceMetadata (for workspace metadata), ensuring both are created atomically.
+
+    Args:
+        user_email (str): The user's email address.
+        workspace_id (str): The unique workspace ID.
+        domain (str): The domain for the workspace.
+        workspace_name (str): The name of the workspace.
+        workspace_color (str): The color for the workspace.
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        now = datetime.now()
+
+        # Insert into WorkspaceMetadata (if not exists)
+        cur.execute("""
+            INSERT OR IGNORE INTO WorkspaceMetadata
+            (workspace_id, workspace_name, workspace_color, domain, expanded, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (workspace_id, workspace_name, workspace_color, domain, True, now, now))
+
+        # Insert into ConversationIdToWorkspaceId for the workspace itself (no conversation_id)
+        cur.execute("""
+            INSERT INTO ConversationIdToWorkspaceId
+            (conversation_id, user_email, workspace_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (None, user_email, workspace_id, now, now))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def collapseWorkspaces(workspace_ids: list[str]):
+    """
+    Collapse (set expanded=0) for all workspaces whose IDs are in the provided list.
+    """
+    if not workspace_ids:
+        return  # Nothing to do
+
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        # Create the correct number of placeholders for the IN clause
+        placeholders = ','.join(['?'] * len(workspace_ids))
+        sql = f"UPDATE WorkspaceMetadata SET expanded=0 WHERE workspace_id IN ({placeholders})"
+        cur.execute(sql, tuple(workspace_ids))
+        conn.commit()
+    finally:
+        conn.close()
+
+def updateWorkspace(user_email, workspace_id, workspace_name=None, workspace_color=None, expanded=None):
+    """
+    Update the name and/or color of a workspace in the WorkspaceMetadata table.
+
+    Args:
+        user_email (str): The email of the user performing the update (for auditing or future use).
+        workspace_id (str): The unique ID of the workspace to update.
+        workspace_name (str, optional): The new name for the workspace.
+        workspace_color (str, optional): The new color for the workspace.
+
+    Raises:
+        ValueError: If neither workspace_name nor workspace_color is provided.
+    """
+    if workspace_name is None and workspace_color is None and expanded is None:
+        raise ValueError("At least one of workspace_name or workspace_color or expanded must be provided.")
+
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        fields = []
+        values = []
+        now = datetime.now()
+
+        if workspace_name is not None:
+            fields.append("workspace_name=?")
+            values.append(workspace_name)
+        if workspace_color is not None:
+            fields.append("workspace_color=?")
+            values.append(workspace_color)
+        if expanded is not None:
+            fields.append("expanded=?")
+            values.append(expanded)
+        fields.append("updated_at=?")
+        values.append(now)
+        values.append(workspace_id)
+
+        sql = f"UPDATE WorkspaceMetadata SET {', '.join(fields)} WHERE workspace_id=?"
+        cur.execute(sql, values)
+        conn.commit()
+    finally:
+        conn.close()
+
+def deleteWorkspace(workspace_id, user_email):
+    """
+    Deletes a workspace for a user.
+    All conversations in the workspace are moved to the user's default workspace before deletion.
+    Removes the workspace from both ConversationIdToWorkspaceId and WorkspaceMetadata tables.
+    Assumes that each user has a default workspace with id 'default' and name 'default'.
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+
+        # Fetch all conversations in the workspace to be deleted
+        cur.execute(
+            "SELECT conversation_id FROM ConversationIdToWorkspaceId WHERE workspace_id=? AND user_email=?",
+            (workspace_id, user_email)
+        )
+        conversations = cur.fetchall()
+
+        # Ensure the default workspace exists for the user
+        default_workspace_id = 'default'
+        default_workspace_name = 'default'
+        cur.execute(
+            "SELECT 1 FROM ConversationIdToWorkspaceId WHERE workspace_id=? AND user_email=? LIMIT 1",
+            (default_workspace_id, user_email)
+        )
+        if not cur.fetchone():
+            # Create a default workspace entry for the user if it doesn't exist
+            cur.execute(
+                """
+                INSERT INTO ConversationIdToWorkspaceId
+                (conversation_id, user_email, workspace_id, domain, workspace_name, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    None,  # No conversation_id for the workspace itself
+                    user_email,
+                    default_workspace_id,
+                    None,  # domain unknown here
+                    default_workspace_name,
+                    datetime.now(),
+                    datetime.now()
+                )
+            )
+            # Also ensure WorkspaceMetadata exists for the default workspace
+            cur.execute(
+                """
+                INSERT OR IGNORE INTO WorkspaceMetadata
+                (workspace_id, workspace_name, workspace_color, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    default_workspace_id,
+                    default_workspace_name,
+                    None,
+                    datetime.now(),
+                    datetime.now()
+                )
+            )
+
+        # Move all conversations to the default workspace
+        for row in conversations:
+            conversation_id = row[0]
+            if conversation_id is not None:
+                cur.execute(
+                    """
+                    UPDATE ConversationIdToWorkspaceId
+                    SET workspace_id=?, workspace_name=?, updated_at=?
+                    WHERE conversation_id=? AND user_email=?
+                    """,
+                    (
+                        default_workspace_id,
+                        default_workspace_name,
+                        datetime.now(),
+                        conversation_id,
+                        user_email
+                    )
+                )
+
+        # Delete the workspace from ConversationIdToWorkspaceId (all rows with this workspace_id and user_email)
+        cur.execute(
+            "DELETE FROM ConversationIdToWorkspaceId WHERE workspace_id=? AND user_email=?",
+            (workspace_id, user_email)
+        )
+
+        # Delete the workspace from WorkspaceMetadata (if no other user is using it)
+        # If you want to delete the workspace metadata only if no other user is using it:
+        cur.execute(
+            "SELECT 1 FROM ConversationIdToWorkspaceId WHERE workspace_id=? LIMIT 1",
+            (workspace_id,)
+        )
+        if not cur.fetchone():
+            cur.execute(
+                "DELETE FROM WorkspaceMetadata WHERE workspace_id=?",
+                (workspace_id,)
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+    
+def addConversation(user_email, conversation_id, workspace_id=None, domain=None):
+    """
+    Adds a conversation for a user, associating it with a workspace and domain.
+    Inserts into both UserToConversationId and ConversationIdToWorkspaceId in a single transaction.
+    If workspace_id is None, assigns to the default workspace.
+
+    Args:
+        user_email (str): The user's email.
+        conversation_id (str): The conversation ID.
+        workspace_id (str, optional): The workspace ID. Defaults to 'default' if None.
+        domain (str, optional): The domain for the conversation.
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    # Requirements:
+    # - If workspace_id is None, use 'default' for both ID and name.
+    # - If workspace_id is provided, fetch the workspace_name for this workspace_id from the DB.
+    # - Never insert None as workspace_name.
+
+    DEFAULT_WORKSPACE_ID = 'default'
+    DEFAULT_WORKSPACE_NAME = 'default'
+    now = datetime.now()
+
+    # Use default workspace if not provided
+    workspace_id_to_use = workspace_id if workspace_id is not None else DEFAULT_WORKSPACE_ID
+
+    conn = create_connection("{}/users.db".format(users_dir))
+    if conn is None:
+        logger.error("Failed to connect to database when adding conversation")
+        return False
+
+    try:
+        cur = conn.cursor()
+
+        
+
+        # Insert into UserToConversationId
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO UserToConversationId
+            (user_email, conversation_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_email, conversation_id, now, now)
+        )
+        # Insert into ConversationIdToWorkspaceId
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO ConversationIdToWorkspaceId
+            (conversation_id, user_email, workspace_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                user_email,
+                workspace_id_to_use,
+                now,
+                now
+            )
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error adding conversation for user {user_email}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+
+def checkConversationExists(user_email: str, conversation_id: str):
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
-    cur.execute("DELETE FROM UserToConversationId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
-    conn.commit()
+    cur.execute("SELECT 1 FROM UserToConversationId WHERE user_email=? AND conversation_id=?", (user_email, conversation_id,))
+    exists = cur.fetchone() is not None
     conn.close()
+    return exists
+
+def getCoversationsForUser(user_email: str, domain: str):
+    """
+    Fetch all conversations for a user, along with their associated workspace info.
+
+    Returns:
+        List of tuples: (user_email, conversation_id, created_at, updated_at, workspace_id, workspace_name, workspace_color)
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    cur = conn.cursor()
+    # Join UserToConversationId with ConversationIdToWorkspaceId and WorkspaceMetadata to get workspace info
+    cur.execute("""
+        SELECT 
+            uc.user_email, 
+            uc.conversation_id, 
+            uc.created_at, 
+            uc.updated_at,
+            cw.workspace_id,
+            wm.workspace_name,
+            wm.workspace_color
+        FROM UserToConversationId uc
+        LEFT JOIN ConversationIdToWorkspaceId cw
+            ON uc.conversation_id = cw.conversation_id AND uc.user_email = cw.user_email
+        LEFT JOIN WorkspaceMetadata wm
+            ON cw.workspace_id = wm.workspace_id
+        WHERE uc.user_email=?
+    """, (user_email,))
+    rows = cur.fetchall()
+
+    # Find all conversation_ids where workspace_id is None
+    conversation_ids_to_update = [row[1] for row in rows if row[4] is None]
+    if conversation_ids_to_update:
+        # Perform one UPDATE for all relevant conversation_ids in ConversationIdToWorkspaceId
+        placeholders = ','.join(['?'] * len(conversation_ids_to_update))
+        cur.execute(
+            f"UPDATE ConversationIdToWorkspaceId SET workspace_id=? WHERE conversation_id IN ({placeholders})",
+            ['default'] + conversation_ids_to_update
+        )
+        # Also update WorkspaceMetadata for the default workspace if not already present
+        # Check if default workspace exists
+        cur.execute("SELECT 1 FROM WorkspaceMetadata WHERE workspace_id=? AND domain=?", ('default', domain))
+        if not cur.fetchone():
+            from datetime import datetime
+            now = datetime.now()
+            cur.execute(
+                "INSERT INTO WorkspaceMetadata (workspace_id, workspace_name, workspace_color, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                ('default', 'default', None, domain, now, now)
+            )
+        conn.commit()
+        # Update the in-memory rows as well
+        updated_rows = []
+        for row in rows:
+            row = list(row)
+            if row[4] is None:
+                row[4] = 'default'
+                row[5] = 'default'
+                row[6] = None  # workspace_color unknown for default
+            updated_rows.append(tuple(row))
+        rows = updated_rows
+    conn.close()
+    return rows
+
+def deleteConversationForUser(user_email, conversation_id):
+    """
+    Deletes a conversation for a user from both UserToConversationId and ConversationIdToWorkspaceId tables.
+
+    Args:
+        user_email (str): The user's email address.
+        conversation_id (str): The conversation ID to delete.
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        # Remove from UserToConversationId
+        cur.execute(
+            "DELETE FROM UserToConversationId WHERE user_email=? AND conversation_id=?",
+            (user_email, conversation_id,)
+        )
+        # Remove from ConversationIdToWorkspaceId
+        cur.execute(
+            "DELETE FROM ConversationIdToWorkspaceId WHERE user_email=? AND conversation_id=?",
+            (user_email, conversation_id,)
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 def getAllCoversations():
     conn = create_connection("{}/users.db".format(users_dir))
@@ -837,9 +1328,8 @@ def interface_combined(path):
     if loggedin:  
         try:  
             # Get user's conversations  
-            conversation_ids = [c[1] for c in getCoversationsForUser(email)]  
             conversation_id = path.split('/')[0]
-            if conversation_id in conversation_ids:  
+            if checkConversationExists(email, conversation_id):
                 # Valid conversation ID, serve the interface  
                 return send_from_directory('interface', 'interface.html', max_age=0)  
         except Exception as e:  
@@ -1042,8 +1532,10 @@ def list_conversation_by_user(domain:str):
     keys = keyParser(session)
     last_n_conversations = request.args.get('last_n_conversations', 10)
     # TODO: add ability to get only n conversations
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
+    conv_db = getCoversationsForUser(email, domain)
+    conversation_ids = [c[1] for c in conv_db]
     conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
+    conversation_id_to_workspace_id = {c[1]: {"workspace_id": c[4], "workspace_name": c[5]} for c in conv_db if c[4] is not None}
     # stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
     # for conversation in stateless_conversations:
     #     removeUserFromConversation(email, conversation.conversation_id)
@@ -1061,6 +1553,11 @@ def list_conversation_by_user(domain:str):
     conversations = [conversation for conversation in conversations if conversation is not None and conversation.domain==domain] #  and not conversation.stateless
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
     data = [[conversation.get_metadata(), conversation] for conversation in conversations]
+    for metadata, conversation in data:
+        assert conversation.conversation_id in conversation_id_to_workspace_id, f"Conversation {conversation.conversation_id} not found in conversation_id_to_workspace_id"
+        metadata["workspace_id"] = conversation_id_to_workspace_id[conversation.conversation_id]["workspace_id"]
+        metadata["workspace_name"] = conversation_id_to_workspace_id[conversation.conversation_id]["workspace_name"]
+        metadata["domain"] = conversation.domain
     sorted_data_reverse = sorted(data, key=lambda x: x[0]['last_updated'], reverse=True)
     # TODO: if any conversation has 0 messages then just make it the latest. IT should also have a zero length summary.
 
@@ -1070,26 +1567,132 @@ def list_conversation_by_user(domain:str):
             new_conversation = sorted_data_reverse[0][1]
             sorted_data_reverse = sorted_data_reverse[1:]
             sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]['last_updated'], reverse=True)
-            new_conversation.set_field("memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+            # new_conversation.set_field("memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         else:
             new_conversation = create_conversation_simple(session, domain)
         sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
     if len(sorted_data_reverse) == 0:
         new_conversation = create_conversation_simple(session, domain)
         sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
-    sorted_data_reverse = [sd[0] for sd in sorted_data_reverse]
-    return jsonify(sorted_data_reverse)
+    sorted_metadata_reverse = [sd[0] for sd in sorted_data_reverse]
+    return jsonify(sorted_metadata_reverse)
 
-@app.route('/create_conversation/<domain>', methods=['POST'])
+@app.route('/create_conversation/<domain>/', defaults={'workspace_id': None}, methods=['POST'])
+@app.route('/create_conversation/<domain>/<workspace_id>', methods=['POST'])
 @limiter.limit("500 per minute")
 @login_required
-def create_conversation(domain: str):
+def create_conversation(domain: str, workspace_id: str = None):
     domain = domain.strip().lower()
-    conversation = create_conversation_simple(session, domain)
+    conversation = create_conversation_simple(session, domain, workspace_id)
     data = conversation.get_metadata()
+    data['workspace'] = getWorkspaceForConversation(conversation.conversation_id)
     return jsonify(data)
 
-def create_conversation_simple(session, domain: str):
+@app.route('/create_workspace/<domain>/<workspace_name>', methods=['POST'])
+@limiter.limit("500 per minute")
+@login_required
+def create_workspace(domain: str, workspace_name: str):
+    email, name, loggedin = check_login(session)
+    
+    # Get color from request body if provided, default to 'primary'
+    workspace_color = 'primary'
+    if request.is_json and request.json and 'workspace_color' in request.json:
+        workspace_color = request.json['workspace_color']
+    
+    workspace_id = email + "_" + ''.join(secrets.choice(alphabet) for i in range(16))
+    createWorkspace(email, workspace_id, domain, workspace_name, workspace_color)  # Now includes color
+    return jsonify({
+        "workspace_id": workspace_id, 
+        "workspace_name": workspace_name,
+        "workspace_color": workspace_color
+    })
+
+@app.route('/list_workspaces/<domain>', methods=['GET'])
+@limiter.limit("200 per minute")
+@login_required
+def list_workspaces(domain):
+    """
+    Returns a list of workspaces for the given domain that the current user has access to.
+    """
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+
+    # Load all workspaces for the user
+    all_workspaces = load_workspaces_for_user(email, domain)
+    
+    return jsonify(all_workspaces)
+
+@app.route('/update_workspace/<workspace_id>', methods=['PUT'])
+@limiter.limit("500 per minute")
+@login_required
+def update_workspace(workspace_id):
+    email, name, loggedin = check_login(session)
+    workspace_name = request.json.get('workspace_name', None)
+    workspace_color = request.json.get('workspace_color', None)
+    expanded = request.json.get('expanded', None)
+    if workspace_name is None and workspace_color is None and expanded is None:
+        return jsonify({"error": "At least one of workspace_name or workspace_color or expanded must be provided."}), 400
+    updateWorkspace(email, workspace_id, workspace_name, workspace_color, expanded)
+    return jsonify({"message": "Workspace updated successfully"})
+
+@app.route('/collapse_workspaces', methods=['POST'])
+@limiter.limit("500 per minute")
+@login_required
+def collapse_workspaces():
+    email, name, loggedin = check_login(session)
+    workspace_ids = request.json.get('workspace_ids', [])
+    collapseWorkspaces(workspace_ids)
+    return jsonify({"message": "Workspaces collapsed successfully"})
+
+
+
+
+@app.route('/delete_workspace/<workspace_id>', methods=['DELETE'])
+@limiter.limit("500 per minute")
+@login_required
+def delete_workspace(workspace_id):
+    """
+    Deletes a workspace for the current user.
+    All conversations in the workspace are moved to the user's default workspace before deletion.
+    """
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+
+    try:
+        deleteWorkspace(workspace_id, email)
+        return jsonify({"message": "Workspace deleted and conversations moved to default workspace."}), 200
+    except Exception as e:
+        logger.error(f"Error deleting workspace {workspace_id} for user {email}: {e}")
+        return jsonify({"error": "Failed to delete workspace."}), 500
+
+@app.route('/move_conversation_to_workspace/<conversation_id>', methods=['PUT'])
+@limiter.limit("500 per minute")
+@login_required
+def move_conversation_to_workspace(conversation_id):
+    """
+    Moves a conversation to a different workspace for the current user.
+    Expects JSON body: { "workspace_id": "<target_workspace_id>" }
+    """
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+
+    data = request.get_json()
+    if not data or "workspace_id" not in data:
+        return jsonify({"error": "workspace_id is required in the request body."}), 400
+
+    target_workspace_id = data["workspace_id"]
+
+    try:
+        moveConversationToWorkspace(email, conversation_id, target_workspace_id)
+        return jsonify({"message": f"Conversation {conversation_id} moved to workspace {target_workspace_id}."}), 200
+    except Exception as e:
+        logger.error(f"Error moving conversation {conversation_id} for user {email} to workspace {target_workspace_id}: {e}")
+        return jsonify({"error": "Failed to move conversation to workspace."}), 500
+
+def create_conversation_simple(session, domain: str, workspace_id: str = None):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
     from base import get_embedding_model
@@ -1098,7 +1701,7 @@ def create_conversation_simple(session, domain: str):
     conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,
                                 conversation_id=conversation_id, domain=domain)
     conversation = set_keys_on_docs(conversation, keys)
-    addConversationToUser(email, conversation.conversation_id)
+    addConversation(email, conversation.conversation_id, workspace_id, domain)
     conversation.save_local()
     return conversation
 
@@ -1129,8 +1732,7 @@ def list_messages_by_conversation(conversation_id):
     email, name, loggedin = check_login(session)
     last_n_messages = request.args.get('last_n_messages', 10)
     # TODO: add capability to get only last n messages
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1166,8 +1768,7 @@ def send_message(conversation_id):
     # check if the user has a user_details row
     user_details = getUserFromUserDetailsTable(email)
     
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation: Conversation = conversation_cache[conversation_id]
@@ -1211,17 +1812,35 @@ def send_message(conversation_id):
 @limiter.limit("1000 per minute")
 @login_required
 def get_conversation_details(conversation_id):
+    """
+    Returns conversation metadata along with full workspace information for the given conversation_id.
+    """
+
     keys = keyParser(session)
     email, name, loggedin = check_login(session)
 
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
-    else:
-        conversation = conversation_cache[conversation_id]
-        conversation = set_keys_on_docs(conversation, keys)
-    # Dummy data
+
+    # Get conversation object and set keys
+    conversation = conversation_cache[conversation_id]
+    conversation = set_keys_on_docs(conversation, keys)
+
+    # Get conversation metadata
     data = conversation.get_metadata()
+
+    # Get workspace info for this conversation, including full metadata
+    workspace_info = getWorkspaceForConversation(conversation_id)
+
+    if not workspace_info:
+        # If not found, default to None or a default workspace
+        workspace_info = {
+            "workspace_id": None
+        }
+
+    # Add workspace info to the response
+    data['workspace'] = workspace_info
+
     return jsonify(data)
 
 @app.route('/make_conversation_stateless/<conversation_id>', methods=['DELETE'])
@@ -1230,8 +1849,7 @@ def get_conversation_details(conversation_id):
 def make_conversation_stateless(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1246,8 +1864,7 @@ def make_conversation_stateless(conversation_id):
 def make_conversation_stateful(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1263,9 +1880,8 @@ def make_conversation_stateful(conversation_id):
 def edit_message_from_conversation(conversation_id, message_id, index):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     message_text = request.json.get('text')
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1280,13 +1896,12 @@ def edit_message_from_conversation(conversation_id, message_id, index):
 def move_messages_up_or_down(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     message_ids = request.json.get('message_ids')
     assert isinstance(message_ids, list)
     assert all(isinstance(m, str) for m in message_ids)
     direction = request.json.get('direction')
     assert direction in ["up", "down"]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1301,9 +1916,8 @@ def move_messages_up_or_down(conversation_id):
 def show_hide_message_from_conversation(conversation_id, message_id, index):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
     show_hide = request.json.get('show_hide')
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1316,15 +1930,42 @@ def show_hide_message_from_conversation(conversation_id, message_id, index):
 @limiter.limit("25 per minute")
 @login_required
 def clone_conversation(conversation_id):
+    """
+    Clone an existing conversation, preserving its workspace association.
+    """
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
+
+    # Ensure the conversation exists in the cache
+    if conversation_id not in conversation_cache:
+        return jsonify({"message": "Conversation not found"}), 404
+
     conversation = conversation_cache[conversation_id]
     conversation = set_keys_on_docs(conversation, keys)
+
+    # Clone the conversation
     new_conversation: Conversation = conversation.clone_conversation()
     new_conversation.save_local()
-    addConversationToUser(email, new_conversation.conversation_id)
+
+    # Retrieve the correct workspace_id for the original conversation
+    workspace_info = getWorkspaceForConversation(conversation_id)
+    workspace_id = workspace_info.get('workspace_id') if workspace_info else None
+
+    # Add the new conversation with the correct workspace_id and domain
+    addConversation(
+        email,
+        new_conversation.conversation_id,
+        workspace_id=workspace_id,
+        domain=conversation.domain
+    )
+
+    # Cache the new conversation
     conversation_cache[new_conversation.conversation_id] = new_conversation
-    return jsonify({'message': f'Conversation {conversation_id} cloned', 'conversation_id': new_conversation.conversation_id})
+
+    return jsonify({
+        'message': f'Conversation {conversation_id} cloned',
+        'conversation_id': new_conversation.conversation_id
+    })
 
 @app.route('/delete_conversation/<conversation_id>', methods=['DELETE'])
 @limiter.limit("5000 per minute")
@@ -1332,8 +1973,7 @@ def clone_conversation(conversation_id):
 def delete_conversation(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1349,8 +1989,7 @@ def delete_conversation(conversation_id):
 def delete_message_from_conversation(conversation_id, message_id, index):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1366,8 +2005,7 @@ def delete_last_message(conversation_id):
     message_id=1
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1382,8 +2020,7 @@ def delete_last_message(conversation_id):
 def set_memory_pad(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1398,8 +2035,7 @@ def set_memory_pad(conversation_id):
 def fetch_memory_pad(conversation_id):
     email, name, loggedin = check_login(session)
     keys = keyParser(session)
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]
@@ -1448,8 +2084,7 @@ def tts(conversation_id, message_id):
     # But let's assume we do streaming permanently now.
     # stream_tts = request.json.get('streaming', True)
 
-    conversation_ids = [c[1] for c in getCoversationsForUser(email)]
-    if conversation_id not in conversation_ids:
+    if not checkConversationExists(email, conversation_id):
         return jsonify({"message": "Conversation not found"}), 404
     else:
         conversation = conversation_cache[conversation_id]

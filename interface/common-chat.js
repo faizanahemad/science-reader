@@ -51,10 +51,7 @@ var ConversationManager = {
             url: '/clone_conversation/' + conversationId,
             type: 'POST',
             success: function (result) {
-                loadConversations(true).done(function () {
-                    // Set the new conversation as the active conversation and highlight it
-                    ConversationManager.setActiveConversation(result.conversation_id);
-                });
+                
             }
         });
     },
@@ -390,6 +387,10 @@ var ConversationManager = {
         }, 150);
     }
 
+};
+
+ConversationManager.createConversation = function() {
+    WorkspaceManager.createConversationInCurrentWorkspace();
 };
 
 function renderStreamingResponse_old(streamingResponse, conversationId, messageText) {
@@ -812,7 +813,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             // elem_to_render.append(part['text']);
             
-            if (rendered_answer.length > content_length + 50 || breakpointResult.hasBreakpoint) {
+            if ((rendered_answer.length > content_length + 50 || breakpointResult.hasBreakpoint) && !rendered_till_now.includes(rendered_answer)) {
                 renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
@@ -899,7 +900,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // textElem.find('.show-more').click(toggle);
             }
 
-            if (last_elem_to_render && last_elem_to_render.length > 0) {
+            if (last_elem_to_render && last_elem_to_render.length > 0 && !rendered_till_now.includes(last_rendered_answer)) {
                 renderInnerContentAsMarkdown(last_elem_to_render, immediate_callback=function() {
                         last_elem_to_render.attr('data-fully-rendered', 'true');
                         show_more();
@@ -957,6 +958,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 function highLightActiveConversation(conversationId) {
     $('#conversations .list-group-item').removeClass('active');
     $('#conversations .list-group-item[data-conversation-id="' + conversationId + '"]').addClass('active');
+    WorkspaceManager.highlightActiveConversation(conversationId);
 }
 
 function getMessageIdFromUrl(url) {
@@ -1653,133 +1655,9 @@ function clearUrlofConversationId() {
     window.history.pushState({}, '', '/interface/');
 }
 
+
 function loadConversations(autoselect = true) {
-    // var domain = $("#field-selector").val();
-    // if (domain === 'None') {
-    //     domain = currentDomain['domain']
-    // }
-    var api = '/list_conversation_by_user/' + currentDomain['domain'];
-    var request = apiCall(api, 'GET', {})
-
-    request.done(function (data) {
-        // sort data by last_updated in descending order
-        data.sort(function (a, b) {
-            return new Date(b.last_updated) - new Date(a.last_updated);
-        });
-        // Auto-select the first conversation
-        var firstConversation = true;
-        $('#conversations').empty();
-
-        // Since we want most recently updated conversations at the top, reverse the data
-        data.forEach(function (conversation) {
-            var conversationItem = $('<a href="#" class="list-group-item list-group-item-action" data-conversation-id="' + conversation.conversation_id + '"></a>');
-            var deleteButton = $('<small><button class="btn p-0 ms-2 delete-chat-button"><i class="bi bi-trash-fill"></i></button></small>');
-            var cloneButton = $('<small><button class="btn p-0 ms-2 clone-conversation-button"><i class="bi bi-clipboard"></i></button></small>');
-            conversationItem.append('<strong class="conversation-title-in-sidebar">' + conversation.title.slice(0, 60).trim() + '</strong></br>');
-            conversationItem.append(deleteButton);
-            conversationItem.append(cloneButton);
-
-            // Add a button for conversation state
-            var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
-            conversationItem.append(stateButton);
-
-            // Include a summary of the conversation
-            showMore(conversationItem, conversation.summary_till_now);
-            // showMore(conversationItem, text=null, textElem=$('#summary-text'), as_html=true);
-
-            $('#conversations').append(conversationItem);
-            conversationItem.on('click', function () {
-                var conversationId = $(this).attr('data-conversation-id');
-                ConversationManager.setActiveConversation(conversationId);
-            });
-
-            const conversationId = getConversationIdFromUrl();  
-
-            if (autoselect) {
-                if (firstConversation && !conversationId) {
-                    ConversationManager.setActiveConversation(conversation.conversation_id);
-                    firstConversation = false;
-                }
-            }
-        });
-        const conversationId = getConversationIdFromUrl();  
-        if (conversationId) {  
-            ConversationManager.setActiveConversation(conversationId);
-        }  
-
-        // Handle browser back/forward navigation  
-        window.onpopstate = function(event) {  
-            if (event.state && event.state.conversationId) {  
-                ConversationManager.setActiveConversation(event.state.conversationId);  
-            } else {  
-                // normal go back only if there is no conversation id
-                // get current conversation id
-                var currentConversationId = ConversationManager.getActiveConversation();
-                // get previous url
-                var previousUrl = window.history.previousUrl;
-                // get previous conversation id from the url
-                var previousConversationId = getConversationIdFromUrl(previousUrl);
-
-                // if both are same then do nothing
-                if (currentConversationId === previousConversationId) {
-                    return;
-                }
-                // if both are different then go back
-                window.history.back();
-            }  
-        };  
-        if (data.length === 0) {
-            ConversationManager.createConversation();
-        }
-
-        // Handle click events for the delete button
-        $('.delete-chat-button').click(function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
-            ConversationManager.deleteConversation(conversationId);
-        });
-
-        $('.clone-conversation-button').click(function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
-            ConversationManager.cloneConversation(conversationId);
-        });
-
-        // Handle click events for the stateless button
-        $('.stateless-button').click(function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            // var stateButton = $('<small><button class="btn p-0 ms-2 stateless-button"><i class="bi bi-eye-slash"></i></button></small>');
-
-            var conversationId = $(this).closest('[data-conversation-id]').attr('data-conversation-id');
-            // check if class inside the i tag is bi-eye-slash then execute below code
-            var stateless_button = $(this)
-            if ($(this).find('i').hasClass('bi-eye-slash')) {
-                ConversationManager.statelessConversation(conversationId).done(function () {
-                    // change the icon to bi-eye
-                    $(stateless_button).find('i').removeClass('bi-eye-slash').addClass('bi-eye');
-                });
-            }
-            // do the reverse here
-            if ($(this).find('i').hasClass('bi-eye')) {
-                ConversationManager.statefulConversation(conversationId).done(function () {
-                    // change the icon to bi-eye-slash
-                    $(stateless_button).find('i').removeClass('bi-eye').addClass('bi-eye-slash');
-                });
-            }
-        });
-
-        // find current conversation and highlight it
-        if (currentDomain['domain'] === 'search') {
-            var current_conversation = $('#conversations').find('.list-group-item.active');
-            current_conversation.find('.stateless-button').click();
-        }
-        
-    });
-
-    return request;
+    return WorkspaceManager.loadConversationsWithWorkspaces(autoselect);
 }
 
 function activateChatTab() {

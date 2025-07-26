@@ -231,11 +231,38 @@
                         <div class="col-md-2 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
                             <!-- Sidebar -->
                             <div class="d-flex justify-content-between align-items-center mt-2">
-                                <h5 class="mb-0">Chats</h5> <!-- Added class mb-0 to remove default bottom margin -->
-                                <button id="add-new-chat" type="button" class="btn btn-primary ml-2 btn-sm"><i class="fa fa-plus">&nbsp;Chat</i></button>
+                                <h5 class="mb-0">Chats</h5>
+                                <div class="btn-group">
+                                    <button id="add-new-chat" type="button" class="btn btn-primary btn-sm"><i class="fa fa-plus"></i></button>
+                                    <button id="add-new-workspace" type="button" class="btn btn-secondary btn-sm" title="New Workspace"><i class="fa fa-folder-plus"></i></button>
+                                </div>
                             </div>
-                            <div id="conversations" class="list-group" style="margin-top: 10px;">
-                                <!-- Conversations will be dynamically populated here -->
+                            
+                            <!-- Workspace Container -->
+                            <div id="workspaces-container" style="margin-top: 10px;">
+                                <!-- Workspaces will be dynamically populated here -->
+                            </div>
+                            
+                            <!-- Context Menu for Workspaces -->
+                            <div id="workspace-context-menu" class="context-menu" style="display: none;">
+                                <ul class="list-unstyled mb-0">
+                                    <li><a href="#" id="rename-workspace"><i class="fa fa-edit"></i> Rename</a></li>
+                                    <li><a href="#" id="delete-workspace"><i class="fa fa-trash"></i> Delete</a></li>
+                                    <li><a href="#" id="change-workspace-color"><i class="fa fa-palette"></i> Change Color</a></li>
+                                </ul>
+                            </div>
+                            
+                            <!-- Context Menu for Conversations -->
+                            <div id="conversation-context-menu" class="context-menu" style="display: none;">
+                                <ul class="list-unstyled mb-0">
+                                    <li><a href="#" id="move-to-workspace"><i class="fa fa-folder"></i> Move to Workspace</a></li>
+                                    <li class="dropdown-submenu">
+                                        <a href="#" class="dropdown-toggle"><i class="fa fa-folder-open"></i> Move to...</a>
+                                        <ul id="workspace-submenu" class="dropdown-menu">
+                                            <!-- Workspace options will be populated here -->
+                                        </ul>
+                                    </li>
+                                </ul>
                             </div>
                         </div>
                         <div class="col-md-10" id="chat-assistant" style="height: calc(100vh - 55px) !important;">
@@ -630,6 +657,12 @@
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
     <script src="interface/chat.js"></script>
+    <!-- Add to the <head> section -->
+    <link rel="stylesheet" href="interface/workspace-styles.css">
+
+    <!-- Add before closing </body> tag -->
+    <script src="interface/workspace-manager.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/darkmode-js@1.5.7/lib/darkmode-js.min.js"></script>
     <script>
       function addDarkmodeWidget() {
