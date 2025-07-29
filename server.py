@@ -88,6 +88,15 @@ def create_table(conn, create_table_sql):
     except Error as e:
         print(e)
 
+
+def delete_table(conn, table_name):
+    """ delete a table from the database """
+    try:
+        c = conn.cursor()
+        c.execute(f"DROP TABLE IF EXISTS {table_name}")
+    except Error as e:
+        print(e)
+
 def create_tables():
     database = "{}/users.db".format(users_dir)
 
@@ -125,9 +134,12 @@ def create_tables():
                                     created_at text,
                                     updated_at text
                                 ); """
-
-    # create a database connection
+    
     conn = create_connection(database)
+    delete_table(conn, "ConversationIdToWorkspaceId")
+    delete_table(conn, "WorkspaceMetadata")
+
+    
     
     # create tables
     if conn is not None:
@@ -157,6 +169,7 @@ def create_tables():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
     conn.commit()
+    conn.close()  # Close the database connection
         
         
 from datetime import datetime
@@ -165,15 +178,18 @@ def load_workspaces_for_user(user_email, domain):
     """
     Retrieve all unique workspaces for a user, including workspace name and color,
     using a single database query with a join.
+    Ensures a default workspace exists and is included in the results.
 
     Args:
         user_email (str): The user's email address.
+        domain (str): The domain to filter workspaces by.
 
     Returns:
         list of dict: Each dict contains workspace_id, workspace_name, workspace_color, and domain.
     """
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
+    
     # Use a single query to get unique workspace_ids for the user, with workspace name and color
     cur.execute("""
         SELECT DISTINCT c.workspace_id, 
@@ -186,8 +202,8 @@ def load_workspaces_for_user(user_email, domain):
         WHERE c.user_email = ? AND c.workspace_id IS NOT NULL AND wm.domain = ?
     """, (user_email, domain))
     rows = cur.fetchall()
-    conn.close()
-    # Return as list of dicts for clarity and extensibility
+    
+    # Convert to list of dicts for easier manipulation
     workspaces = [
         {
             "workspace_id": row[0],
@@ -198,6 +214,42 @@ def load_workspaces_for_user(user_email, domain):
         }
         for row in rows
     ]
+    
+    # Check if default workspace exists
+    default_workspace_id = f'default_{user_email}_{domain}'
+    default_workspace_name = f'default_{user_email}_{domain}'
+    
+    has_default = any(ws["workspace_id"] == default_workspace_id for ws in workspaces)
+    
+    if not has_default:
+        now = datetime.now()
+        
+        # Insert into WorkspaceMetadata (if not exists)
+        cur.execute("""
+            INSERT OR IGNORE INTO WorkspaceMetadata
+            (workspace_id, workspace_name, workspace_color, domain, expanded, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (default_workspace_id, default_workspace_name, None, domain, True, now, now))
+        
+        # Insert into ConversationIdToWorkspaceId for the workspace itself (no conversation_id)
+        cur.execute("""
+            INSERT OR IGNORE INTO ConversationIdToWorkspaceId
+            (conversation_id, user_email, workspace_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (None, user_email, default_workspace_id, now, now))
+        
+        conn.commit()
+        
+        # Add default workspace to the results
+        workspaces.append({
+            "workspace_id": default_workspace_id,
+            "workspace_name": default_workspace_name,
+            "workspace_color": None,
+            "domain": domain,
+            "expanded": True
+        })
+    
+    conn.close()
     return workspaces
 
 def addConversationToWorkspace(user_email, conversation_id, workspace_id):
@@ -387,7 +439,7 @@ def updateWorkspace(user_email, workspace_id, workspace_name=None, workspace_col
     finally:
         conn.close()
 
-def deleteWorkspace(workspace_id, user_email):
+def deleteWorkspace(workspace_id, user_email, domain):
     """
     Deletes a workspace for a user.
     All conversations in the workspace are moved to the user's default workspace before deletion.
@@ -406,8 +458,8 @@ def deleteWorkspace(workspace_id, user_email):
         conversations = cur.fetchall()
 
         # Ensure the default workspace exists for the user
-        default_workspace_id = 'default'
-        default_workspace_name = 'default'
+        default_workspace_id = f'default_{user_email}_{domain}'
+        default_workspace_name = f'default_{user_email}_{domain}'
         cur.execute(
             "SELECT 1 FROM ConversationIdToWorkspaceId WHERE workspace_id=? AND user_email=? LIMIT 1",
             (default_workspace_id, user_email)
@@ -506,8 +558,8 @@ def addConversation(user_email, conversation_id, workspace_id=None, domain=None)
     # - If workspace_id is provided, fetch the workspace_name for this workspace_id from the DB.
     # - Never insert None as workspace_name.
 
-    DEFAULT_WORKSPACE_ID = 'default'
-    DEFAULT_WORKSPACE_NAME = 'default'
+    DEFAULT_WORKSPACE_ID = f'default_{user_email}_{domain}'
+    DEFAULT_WORKSPACE_NAME = f'default_{user_email}_{domain}'
     now = datetime.now()
 
     # Use default workspace if not provided
@@ -600,17 +652,17 @@ def getCoversationsForUser(user_email: str, domain: str):
         placeholders = ','.join(['?'] * len(conversation_ids_to_update))
         cur.execute(
             f"UPDATE ConversationIdToWorkspaceId SET workspace_id=? WHERE conversation_id IN ({placeholders})",
-            ['default'] + conversation_ids_to_update
+            [f'default_{user_email}_{domain}'] + conversation_ids_to_update
         )
         # Also update WorkspaceMetadata for the default workspace if not already present
         # Check if default workspace exists
-        cur.execute("SELECT 1 FROM WorkspaceMetadata WHERE workspace_id=? AND domain=?", ('default', domain))
+        cur.execute("SELECT 1 FROM WorkspaceMetadata WHERE workspace_id=? AND domain=?", (f'default_{user_email}_{domain}', domain))
         if not cur.fetchone():
             from datetime import datetime
             now = datetime.now()
             cur.execute(
                 "INSERT INTO WorkspaceMetadata (workspace_id, workspace_name, workspace_color, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                ('default', 'default', None, domain, now, now)
+                (f'default_{user_email}_{domain}', f'default_{user_email}_{domain}', None, domain, now, now)
             )
         conn.commit()
         # Update the in-memory rows as well
@@ -618,8 +670,8 @@ def getCoversationsForUser(user_email: str, domain: str):
         for row in rows:
             row = list(row)
             if row[4] is None:
-                row[4] = 'default'
-                row[5] = 'default'
+                row[4] = f'default_{user_email}_{domain}'
+                row[5] = f'default_{user_email}_{domain}'
                 row[6] = None  # workspace_color unknown for default
             updated_rows.append(tuple(row))
         rows = updated_rows
@@ -1648,10 +1700,10 @@ def collapse_workspaces():
 
 
 
-@app.route('/delete_workspace/<workspace_id>', methods=['DELETE'])
+@app.route('/delete_workspace/<domain>/<workspace_id>', methods=['DELETE'])
 @limiter.limit("500 per minute")
 @login_required
-def delete_workspace(workspace_id):
+def delete_workspace(domain, workspace_id):
     """
     Deletes a workspace for the current user.
     All conversations in the workspace are moved to the user's default workspace before deletion.
@@ -1661,7 +1713,7 @@ def delete_workspace(workspace_id):
         return jsonify({"error": "User not logged in"}), 401
 
     try:
-        deleteWorkspace(workspace_id, email)
+        deleteWorkspace(workspace_id, email, domain)
         return jsonify({"message": "Workspace deleted and conversations moved to default workspace."}), 200
     except Exception as e:
         logger.error(f"Error deleting workspace {workspace_id} for user {email}: {e}")

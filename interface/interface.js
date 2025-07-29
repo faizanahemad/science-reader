@@ -1,3 +1,8 @@
+var userDetails = {
+    email: null,
+    name: null
+}
+
 function interface_readiness() {
     const options = {
         throwOnError: false,
@@ -52,6 +57,8 @@ function interface_readiness() {
         $.get('/get_user_info', function(data) {
             $('#username').text(data.name.slice(0, 10));
             $('#logout-link').attr('href', '/logout');
+            userDetails.email = data.email;
+            userDetails.name = data.name;
         });
     }
     

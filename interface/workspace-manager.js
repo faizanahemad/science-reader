@@ -1,7 +1,13 @@
 // Complete Workspace Manager that integrates with existing server APIs
 var WorkspaceManager = {
     workspaces: {},
-    defaultWorkspaceId: 'default',
+    get defaultWorkspaceId() {
+        // Compose the default workspace id similar to Python: f'default_{user_email}_{domain}'
+        // Fallback to 'default' if userDetails or currentDomain are not available
+        const email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        const domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return `default_${email}_${domain}`;
+    },
     conversations: [],
     
     // Initialize workspace system
@@ -42,7 +48,7 @@ var WorkspaceManager = {
                     workspace_id: workspace.workspace_id,
                     name: workspace.workspace_name,
                     color: workspace.workspace_color || 'primary',
-                    is_default: workspace.workspace_id === this.defaultWorkspaceId,
+                    is_default: workspace.workspace_id.startsWith(this.defaultWorkspaceId),
                     expanded: workspace.expanded === true || workspace.expanded === 'true' || workspace.expanded === 1
                 };
             });
@@ -711,7 +717,7 @@ var WorkspaceManager = {
         
         if (confirm('Are you sure you want to delete this workspace? All conversations will be moved to General.')) {
             return $.ajax({
-                url: '/delete_workspace/' + workspaceId,
+                url: '/delete_workspace/' + currentDomain['domain'] + '/' + workspaceId,
                 type: 'DELETE',
                 success: () => {
                     this.loadConversationsWithWorkspaces(false);
