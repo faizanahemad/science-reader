@@ -136,8 +136,8 @@ def create_tables():
                                 ); """
     
     conn = create_connection(database)
-    delete_table(conn, "ConversationIdToWorkspaceId")
-    delete_table(conn, "WorkspaceMetadata")
+    # delete_table(conn, "ConversationIdToWorkspaceId")
+    # delete_table(conn, "WorkspaceMetadata")
 
     
     
