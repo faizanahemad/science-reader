@@ -10,7 +10,7 @@ from call_llm import MockCallLLm
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent
+from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
 from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -43,6 +43,7 @@ class Conversation:
     def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:
         self.conversation_id = conversation_id
         self.user_id = user_id
+        self._next_question_suggestions = list()
         folder = os.path.join(storage, f"{self.conversation_id}")
         self._storage = folder
         os.makedirs(folder, exist_ok=True)
@@ -57,6 +58,19 @@ class Conversation:
         self.set_messages_field(messages)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self._domain = domain
+        
+        # Initialize persistent context data for reward system
+        self._context_data = {
+            "current_score": 0,
+            "recent_achievements": [],
+            "problem_difficulty": "medium",
+            "total_rewards": 0,
+            "total_penalties": 0,
+            "session_start_time": time.time(),
+            "last_reward_timestamp": None,
+            "reward_history": []
+        }
+        
         self.save_local()
 
 
@@ -66,6 +80,20 @@ class Conversation:
                                       "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                       "running_summary": []})
 
+    @property
+    def next_question_suggestions(self):
+        if hasattr(self, "_next_question_suggestions"):
+            return self._next_question_suggestions
+        return []
+
+    @next_question_suggestions.setter
+    def next_question_suggestions(self, value):
+        if hasattr(self, "_next_question_suggestions"):
+            self._next_question_suggestions = value
+        else:
+            setattr(self, "_next_question_suggestions", value)
+        self.save_local()
+    
     @property
     def memory_pad(self):
         if hasattr(self, "_memory_pad"):
@@ -158,6 +186,39 @@ Compact list of bullet points:
         else:
             setattr(self, "_domain", value)
         self.save_local()
+
+    @property
+    def context_data(self):
+        """Get the persistent context data for reward system"""
+        if hasattr(self, "_context_data"):
+            return self._context_data
+        # Initialize if not present (for backward compatibility)
+        self._context_data = {
+            "current_score": 0,
+            "recent_achievements": [],
+            "problem_difficulty": "medium",
+            "total_rewards": 0,
+            "total_penalties": 0,
+            "session_start_time": time.time(),
+            "last_reward_timestamp": None,
+            "reward_history": []
+        }
+        return self._context_data
+
+    @context_data.setter
+    def context_data(self, value):
+        """Set the persistent context data for reward system"""
+        if isinstance(value, dict):
+            self._context_data = value
+        else:
+            raise ValueError("context_data must be a dictionary")
+
+    def update_context_data(self, updates):
+        """Update specific fields in context_data"""
+        if isinstance(updates, dict):
+            self.context_data.update(updates)
+        else:
+            raise ValueError("updates must be a dictionary")
 
     @property
     def stateless(self):
@@ -495,10 +556,10 @@ Compact list of bullet points:
     def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
-        token_limit_very_short = 4000
-        token_limit_short = 5000
-        token_limit_long = 15000
-        token_limit_very_long = 48000
+        token_limit_very_short = 8000
+        token_limit_short = 12_000
+        token_limit_long = 25_000
+        token_limit_very_long = 55_000
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
         memory, messages = [sleep_and_get_future_result(f) for f in futures]
         message_lookback = 2
@@ -544,6 +605,59 @@ Compact list of bullet points:
         time_logger.info(f"Time taken to retrieve prior context = {time_spend} seconds")
         return results
 
+    def get_conversation_history(self, query=""):
+        """Generate a comprehensive conversation history combining summary and recent messages"""
+        try:
+            # Get prior context and running summary
+            context_data = self.retrieve_prior_context(query, required_message_lookback=20)
+            running_summary = self.running_summary
+            
+            # Build comprehensive conversation history
+            history_text = ""
+            
+            # Add conversation summary if available
+            if running_summary and len(running_summary) > 0:
+                if isinstance(running_summary, list):
+                    summary_text = "\n".join(running_summary)
+                else:
+                    summary_text = str(running_summary)
+                
+                history_text += "# Conversation Summary\n\n"
+                history_text += summary_text + "\n\n"
+            
+            # Add recent messages
+            previous_messages_long = context_data.get("previous_messages_long", "")
+            if previous_messages_long and previous_messages_long.strip() != "<messages>\n\n</messages>":
+                history_text += "# Recent Messages\n\n"
+                # Clean up the messages format for better readability
+                clean_messages = previous_messages_long.replace("<messages>\n", "").replace("\n</messages>", "")
+                if clean_messages.strip():
+                    history_text += clean_messages + "\n\n"
+            
+            # Add metadata
+            messages = self.get_field("messages")
+            if messages:
+                history_text += f"# Conversation Metadata\n\n"
+                history_text += f"- **Total Messages:** {len(messages)}\n"
+                history_text += f"- **Conversation ID:** {self.conversation_id}\n"
+                history_text += f"- **Domain:** {self.domain}\n"
+                
+                # Add last message timestamp if available
+                if messages:
+                    last_message = messages[-1]
+                    if "timestamp" in last_message:
+                        history_text += f"- **Last Updated:** {last_message['timestamp']}\n"
+            
+            # If no content, provide a default message
+            if not history_text.strip():
+                history_text = "# Conversation History\n\nThis conversation is just getting started. No previous messages or summary available yet."
+            
+            return history_text
+            
+        except Exception as e:
+            logger.error(f"Error generating conversation history: {str(e)}")
+            return f"# Conversation History\n\nUnable to retrieve conversation history due to an error: {str(e)}"
+
 
     def get_message_ids(self, query, response):
         user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query["messageText"] if isinstance(query, dict) else query, signed=False))
@@ -564,6 +678,40 @@ Compact list of bullet points:
             self.set_messages_field(messages, overwrite=True)
             self.save_local()
     
+    
+    def create_next_question_suggestions(self, query, response, previous_messages_text, previous_summary):
+        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
+The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
+
+The next question/response suggestions can either be a question or a response that the user can tap on in the chat interface to continue the conversation.
+
+Your response will be in below xml style format:
+<next_question_suggestions>
+    <suggestion>question/response suggestion 1</suggestion>
+    <suggestion>question/response suggestion 2</suggestion>
+    <suggestion>question/response suggestion 3</suggestion>
+    ...
+</next_question_suggestions>
+
+Give 4 suggestions.
+"""
+
+        next_question_suggestions_prompt = prompts.next_question_suggestions_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, summary=previous_summary)
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)
+        next_question_suggestions = llm(next_question_suggestions_prompt, system=system, temperature=0.2, stream=False)
+        # Parse the next_question_suggestions to extract individual suggestions
+        import re
+        suggestions = []
+        suggestion_pattern = r'<suggestion>(.*?)</suggestion>'
+        matches = re.findall(suggestion_pattern, next_question_suggestions)
+        if matches:
+            suggestions = matches
+        else:
+            # Fallback in case the XML format wasn't followed
+            suggestions = ["Tell me more", "Can you explain further?", "What's next?"]
+        return suggestions
+    
     @timer
     def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
         if not persist_or_not:
@@ -574,6 +722,21 @@ Compact list of bullet points:
         # Add lock acquisition at the beginning
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
+
+        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)
+        prompt = get_first_last_parts(prompt, 18000, 10_000)
+        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+You will write a new summary for this conversation which takes the last 2 recent messages into account. 
+You will also write a very short title for this conversation.
+
+Your response will be in below xml style format:
+<summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
+<title> {{Very short title for the conversation}} </title>
+"""
+        summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
+        next_question_suggestions = get_async_future(self.create_next_question_suggestions, query, response, previous_messages_text, previous_summary)
+
         
         with lock.acquire(timeout=600):
             memory = get_async_future(self.get_field, "memory")
@@ -589,18 +752,7 @@ Compact list of bullet points:
             else:
                 msg_set = get_async_future(self.set_messages_field, preserved_messages)
 
-            prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)
-            prompt = get_first_last_parts(prompt, 18000, 10_000)
-            system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a new summary for this conversation which takes the last 2 recent messages into account. 
-You will also write a very short title for this conversation.
-
-Your response will be in below xml style format:
-<summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
-<title> {{Very short title for the conversation}} </title>
-"""
-            summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
+            
             memory = memory.result()
             if memory is None:
                 memory = dict(running_summary=[])
@@ -627,6 +779,10 @@ Your response will be in below xml style format:
 
             memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             summary = sleep_and_get_future_result(summary)
+            next_question_suggestions = sleep_and_get_future_result(next_question_suggestions)
+            
+            self.set_next_question_suggestions(next_question_suggestions)
+
             actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
             title = summary.split('</title>')[0].split('<title>')[-1]
             
@@ -1423,7 +1579,19 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "BroadSearch":
             agent = BroadSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
-        
+        if field == "InterviewSimulator":
+            keys = self.get_api_keys()
+            detail_level = kwargs.get("detail_level", 1)
+            conversation_id = self.conversation_id
+            model_name = model_name if isinstance(model_name, str) else model_name[0]
+            agent = InterviewSimulatorAgent(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+        if field == "InterviewSimulatorV2":
+            keys = self.get_api_keys()
+            detail_level = kwargs.get("detail_level", 1)
+            conversation_id = self.conversation_id
+            model_name = model_name if isinstance(model_name, str) else model_name[0]
+            agent = InterviewSimulatorAgentV2(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+
         if field == "NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
         if field == "NStepAgent":
@@ -1528,8 +1696,27 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                                                     plot_prefix=plot_prefix, file_prefix=file_prefix, )
         return coding_rules if code_execution else "", prefix # if need_diagram or code_execution else ""
 
+    
+    def set_next_question_suggestions(self, suggestions):
+        self.next_question_suggestions = suggestions
+    
+    def get_next_question_suggestions(self):
+        if self.next_question_suggestions is None or len(self.next_question_suggestions) == 0:
+            messages = self.get_field("messages")
+            
+            running_summary = self.running_summary
+            if len(messages) >= 4:
+                nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], messages[-4]["text"] + "\n\n" + messages[-3]["text"], running_summary)
+            elif len(messages) >= 2:
+                nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], "", running_summary)
+            else:
+                nqs = []
+            self.set_next_question_suggestions(nqs)
+        return self.next_question_suggestions
+    
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
+        self.next_question_suggestions = list()
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
@@ -1549,6 +1736,9 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
         past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
         enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
+        
+        # Extract reward level from checkboxes (0 = disabled, -3 to +3 = enabled with sensitivity)
+        reward_level = int(checkboxes.get("reward_level", 0))
         if enablePreviousMessages == "infinite":
             message_lookback = provide_detailed_answers * 4
         else:
@@ -1564,6 +1754,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
+        
+        # Start reward evaluation async if reward level is non-zero
+        reward_future = self._initiate_reward_evaluation(
+            reward_level, query["messageText"], checkboxes, previous_messages_long, summary
+        )
         permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes[
             "permanentText"] + "\n") if "permanentText" in checkboxes and len(
             checkboxes["permanentText"].strip()) > 0 else ""
@@ -1702,7 +1897,6 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             query['messageText'] = query['messageText'].replace("/temp ", "").replace("/temporary ", "").strip()
             persist_or_not = False
             
-            
         attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "").replace("summarise_", "").replace("summarize_", "").replace("dense_summarise_", "").replace("dense_summarize_", "")
         attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
         _, attached_docs, doc_names, (_, _), (
@@ -1730,6 +1924,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             yield {"text": '', "status": "saving answer ..."}
             yield {"text": '', "status": "saving message ..."}
             get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
+            # Process reward evaluation before saving message
+            if reward_future is not None:
+                yield {"text": "\n", "status": "reward evaluation complete"}
+                yield from self._process_reward_evaluation(reward_future)
+                yield {"text": "\n", "status": "reward evaluation complete"}
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
             stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
@@ -1769,6 +1968,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
                 yield {"text": '', "status": "saving message ..."}
                 get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
                 message_ids = self.get_message_ids(query["messageText"], answer)
+                # Process reward evaluation before saving message
+                if reward_future is not None:
+                    yield {"text": "\n", "status": "reward evaluation complete"}
+                    yield from self._process_reward_evaluation(reward_future)
+                    yield {"text": "\n", "status": "reward evaluation complete"}
                 yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
                 stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
                 for chunk in stats:
@@ -2341,6 +2545,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 yield {"text": 'WEB_SEARCH_FAILED', "status": "saving answer ...", "message_ids": message_ids}
                 answer += 'WEB_SEARCH_FAILED'
+                # Process reward evaluation before saving message
+                if reward_future is not None:
+                    yield {"text": "\n", "status": "reward evaluation complete"}
+                    yield from self._process_reward_evaluation(reward_future)
+                    yield {"text": "\n", "status": "reward evaluation complete"}
                 get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
                 return
 
@@ -2351,6 +2560,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
+            # Process reward evaluation before saving message
+            if reward_future is not None:
+                yield {"text": "\n", "status": "reward evaluation complete"}
+                yield from self._process_reward_evaluation(reward_future)
+                yield {"text": "\n", "status": "reward evaluation complete"}
             get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
@@ -2364,6 +2578,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": text, "status": "answering in progress"}
             answer += text
             yield {"text": '', "status": "saving answer ..."}
+            # Process reward evaluation before saving message
+            if reward_future is not None:
+                yield {"text": "\n", "status": "reward evaluation complete"}
+                yield from self._process_reward_evaluation(reward_future)
+                yield {"text": "\n", "status": "reward evaluation complete"}
             get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
@@ -2372,6 +2591,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0:
             yield {"text": '', "status": "saving answer ..."}
             answer += '!ERROR WEB SEARCH FAILED\n'
+            # Process reward evaluation before saving message
+            if reward_future is not None:
+                yield {"text": "\n", "status": "reward evaluation complete"}
+                yield from self._process_reward_evaluation(reward_future)
+                yield {"text": "\n", "status": "reward evaluation complete"}
             get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
@@ -2501,6 +2725,8 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 pass
             elif not isinstance(main_ans_gen, str):
                 main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
+            main_ans_gen = buffer_generator_async(main_ans_gen)
+            
         else:
             
             
@@ -2532,10 +2758,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     # llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
 
-                while len(answer) <= 10 and not isinstance(main_ans_gen, str):
-                    t2y = next(main_ans_gen)
-                    yield {"text": t2y, "status": "answering in progress"}
-                    answer += t2y
+                
             except Exception as e:
                 logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
                 traceback.print_exc()
@@ -2549,10 +2772,14 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     "status": "stage 2 answering in progress"}
                 llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
                 main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-                while len(answer) <= 10 and not isinstance(main_ans_gen, str):
-                    t2y = next(main_ans_gen)
-                    yield {"text": t2y, "status": "answering in progress"}
-                    answer += t2y
+                
+
+        main_ans_gen = buffer_generator_async(main_ans_gen)
+        # Process reward evaluation before saving message
+        if reward_future is not None:
+            yield {"text": "\n", "status": "reward evaluation complete"}
+            yield from self._process_reward_evaluation(reward_future)
+            yield {"text": "\n", "status": "reward evaluation complete"}
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
@@ -2695,6 +2922,9 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 query_results = two_column_list(query_results)
                 answer += (query_results + "</div>")
                 yield {"text": query_results + "</div>", "status": "Showing all results ... "}
+        
+        
+        
         yield {"text": '', "status": "saving message ..."}
         get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
         message_ids = self.get_message_ids(query["messageText"], answer)
@@ -2726,7 +2956,165 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
                     summary_till_now=summary_till_now, domain=self.domain,
                     last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
+
+    def _initiate_reward_evaluation(self, reward_level, query_text, checkboxes, previous_messages_long, summary):
+        """
+        Initiates async reward evaluation if reward level is non-zero.
+        Returns future object or None if reward evaluation is not needed.
+        """
+        if reward_level == 0:
+            return None
+        
+        def sync_reward_evaluation_with_update():
+            """
+            Inner sync function that calls reward LLM and updates persistent context_data
+            """
+            try:
+                # Prepare user info from available data
+                user_info = f"User ID: {self.user_id}, Domain: {self.domain}"
+                if checkboxes.get("permanentText"):
+                    user_info += f", Instructions: {checkboxes['permanentText'][:200]}..."
+                
+                # Get conversation history length
+                messages = self.get_field("messages") or []
+                conversation_length = len(messages)
+                
+                # Call reward decision LLM synchronously with persistent context_data
+                reward_decision = get_reward_decision(
+                    conversation_history=previous_messages_long,
+                    current_user_text=query_text,
+                    reward_level_dialer=reward_level,
+                    conversation_summary=summary,
+                    conversation_length=conversation_length,
+                    user_info=user_info,
+                    keys=self.get_api_keys(),
+                    context_data=self.context_data  # Use persistent context_data
+                )
+                
+                # Update persistent context_data based on reward decision
+                self._update_context_from_reward(reward_decision)
+                
+                return reward_decision
+                
+            except Exception as e:
+                error_logger.error(f"[Reward System] Error in sync reward evaluation: {str(e)}")
+                return {
+                    "reward_type": "none",
+                    "reward_level": "FAIR",
+                    "reward_message": "Evaluation error occurred.",
+                    "overall_assessment": "Error in assessment system",
+                    "reasoning": f"System error: {str(e)}",
+                    "dialer_setting": reward_level,
+                    "judge_personality": "ERROR_STATE",
+                    "evaluation_timestamp": time.time(),
+                    "confidence_level": "low"
+                }
+        
+        # Start async reward evaluation using the inner sync function
+        reward_future = get_async_future(sync_reward_evaluation_with_update)
+        
+        return reward_future
     
+    def _update_context_from_reward(self, reward_decision):
+        """
+        Updates persistent context_data based on reward decision
+        """
+        try:
+            reward_type = reward_decision.get("reward_type", "none")
+            reward_level = reward_decision.get("reward_level", "FAIR")
+            
+            # Map reward levels to point values
+            reward_points = {
+                "EXCELLENT": 10, "VERY_GOOD": 7, "GOOD": 5, "FAIR": 3, "BASIC": 1
+            }
+            penalty_points = {
+                "MINOR": -1, "MODERATE": -3, "SIGNIFICANT": -5, "MAJOR": -7, "CRITICAL": -10
+            }
+            
+            # Update score based on reward/penalty
+            points = 0
+            if reward_type == "reward":
+                points = reward_points.get(reward_level, 1)
+                self.context_data["total_rewards"] += 1
+            elif reward_type == "penalty":
+                points = penalty_points.get(reward_level, -1)
+                self.context_data["total_penalties"] += 1
+            
+            # Update context data
+            updates = {
+                "current_score": self.context_data["current_score"] + points,
+                "last_reward_timestamp": time.time(),
+            }
+            
+            # Add to reward history (keep last 10)
+            reward_history_entry = {
+                "timestamp": time.time(),
+                "reward_type": reward_type,
+                "reward_level": reward_level,
+                "points": points,
+                "message": reward_decision.get("reward_message", "")
+            }
+            
+            self.context_data["reward_history"].append(reward_history_entry)
+            if len(self.context_data["reward_history"]) > 10:
+                self.context_data["reward_history"] = self.context_data["reward_history"][-10:]
+            
+            # Add recent achievements (if reward)
+            if reward_type == "reward" and reward_level in ["EXCELLENT", "VERY_GOOD"]:
+                achievement = f"{reward_level}: {reward_decision.get('reward_message', '')}"
+                self.context_data["recent_achievements"].append(achievement)
+                # Keep only last 5 achievements
+                if len(self.context_data["recent_achievements"]) > 5:
+                    self.context_data["recent_achievements"] = self.context_data["recent_achievements"][-5:]
+            
+            # Update context data
+            self.update_context_data(updates)
+            
+            time_logger.info(f"[Reward System] Context updated - Score: {self.context_data['current_score']}, "
+                           f"Total Rewards: {self.context_data['total_rewards']}, "
+                           f"Total Penalties: {self.context_data['total_penalties']}")
+            
+        except Exception as e:
+            error_logger.error(f"[Reward System] Error updating context from reward: {str(e)}")
+
+    def _process_reward_evaluation(self, reward_future):
+        """
+        Processes completed reward evaluation and yields gamified output.
+        Context data has already been updated by the inner sync function.
+        """
+        if reward_future is None:
+            return
+            
+        try:
+            # Get reward decision result (context_data already updated by inner function)
+            reward_decision = reward_future.result()
+            
+            # Convert to gamified output with context info
+            gamified_reward = apply_reward_gamification(reward_decision)
+            
+            # Add current score info to the gamified output
+            current_score = self.context_data["current_score"]
+            total_rewards = self.context_data["total_rewards"]
+            total_penalties = self.context_data["total_penalties"]
+            
+            score_info = f"\n**Session Progress:** Score: {current_score} | Rewards: {total_rewards} | Penalties: {total_penalties}\n"
+            gamified_reward += score_info
+            
+            # Yield the reward feedback
+            yield {"text": gamified_reward, "status": "reward evaluation complete"}
+            
+            # Log reward decision with context for debugging
+            time_logger.info(f"[Reward System] Applied {reward_decision.get('reward_type', 'none')} "
+                           f"{reward_decision.get('reward_level', 'N/A')} - "
+                           f"{reward_decision.get('judge_personality', 'N/A')} | "
+                           f"Score: {current_score} | Session: R{total_rewards}/P{total_penalties}")
+            
+        except Exception as e:
+            error_logger.error(f"[Reward System] Error processing reward evaluation: {str(e)}")
+            # Yield a neutral message on error
+            yield {"text": "⚙️ **Evaluation Processing** Assessment completed.\n\n", 
+                   "status": "reward evaluation error"}
+
     def delete_last_turn(self):
         messages = self.get_field("messages")
         messages = messages[:-2]
@@ -2735,6 +3123,16 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         memory["running_summary"] = memory["running_summary"][:-1]
         self.running_summary = "".join(memory["running_summary"][-1:])
+        if len(messages) > 3:
+            previous_messages_text = messages[-4]["text"] + "\n\n" + messages[-3]["text"]
+        else:
+            previous_messages_text = ""
+        if len(messages) >= 2:
+            nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], previous_messages_text, "".join(memory["running_summary"][-1:]))
+        else:
+            nqs = []
+        self.set_next_question_suggestions(nqs)
+
         self.set_field("memory", memory, overwrite=True)
 
 
@@ -2966,6 +3364,14 @@ def model_name_to_canonical_name(model_name):
         model_name = "o1"
     elif model_name == "o3":
         model_name = "o3"
+    elif model_name == "o3-mini":
+        model_name = "o3-mini"
+    elif model_name == "o3-pro":
+        model_name = "o3-pro"
+    elif model_name == "o4-mini-high":
+        model_name = "openai/o4-mini-high"
+    elif model_name == "o4-mini-deep-research":
+        model_name = "o4-mini-deep-research"
     elif model_name == "openai/o3":
         model_name = "openai/o3"
     
@@ -3073,6 +3479,12 @@ def model_name_to_canonical_name(model_name):
         model_name = "google/gemini-2.5-flash"
     elif model_name == "google/gemini-2.5-flash-lite-preview-06-17":
         model_name = "google/gemini-2.5-flash-lite-preview-06-17"
+    elif model_name == "google/gemini-2.5-flash-lite":
+        model_name = "google/gemini-2.5-flash-lite"
+    elif model_name == "google/gemini-2.0-flash-lite-001":
+        model_name = "google/gemini-2.0-flash-lite-001"
+    elif model_name == "x-ai/grok-3-mini":
+        model_name = "x-ai/grok-3-mini"
     elif model_name == "minimax/minimax-m1":
         model_name = "minimax/minimax-m1"
     elif model_name == "eva-unit-01/eva-llama-3.33-70b":

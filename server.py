@@ -1361,6 +1361,11 @@ def loader():
 def interface():
     return send_from_directory('interface', 'interface.html', max_age=0)
 
+@app.route('/static/<path:filename>')
+@limiter.limit("1000 per minute")
+def static_files(filename):
+    return send_from_directory(os.path.join(app.root_path, 'static'), filename)
+
 
 @app.route('/interface/<path:path>')  
 @limiter.limit("1000 per minute")  
@@ -1811,6 +1816,196 @@ def list_messages_by_conversation_shareable(conversation_id):
     else:
         return jsonify({'error': 'Conversation not found'}), 404
 
+@app.route('/get_conversation_history/<conversation_id>', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_conversation_history(conversation_id):
+    """Get comprehensive conversation history including summary and recent messages"""
+    try:
+        # Check if user has access to this conversation
+        user_email = session.get('email')
+        keys = keyParser(session)
+        if not checkConversationExists(user_email, conversation_id):
+            logger.warning(f"User {user_email} attempted to access conversation {conversation_id} without permission")
+            return jsonify({"error": "Conversation not found or access denied"}), 403
+        
+        # Load conversation
+        conversation = load_conversation(conversation_id)
+        
+        # Get query parameter if provided
+        query = request.args.get('query', '')
+        
+        # Generate conversation history
+        history_text = conversation.get_conversation_history(query)
+        
+        logger.info(f"Generated conversation history for conversation {conversation_id}, length: {len(history_text)} characters")
+        
+        return jsonify({
+            "conversation_id": conversation_id,
+            "history": history_text,
+            "timestamp": time.time()
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting conversation history for {conversation_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_coding_hint/<conversation_id>', methods=['POST'])
+@limiter.limit("20 per minute")
+@login_required  
+def get_coding_hint_endpoint(conversation_id):
+    """Get a coding hint based on current context and code - streaming response"""
+    keys = keyParser(session)
+    try:
+        # Check if user has access to this conversation
+        user_email = session.get('email')
+        if not checkConversationExists(user_email, conversation_id):
+            logger.warning(f"User {user_email} attempted to access conversation {conversation_id} without permission")
+            return jsonify({"error": "Conversation not found or access denied"}), 403
+        
+        # Get request data
+        data = request.get_json()
+        current_code = data.get('current_code', '')
+        context_text = data.get('context', '')
+        
+        # Load conversation and get history
+        conversation = load_conversation(conversation_id)
+        conversation_history = conversation.get_conversation_history()
+        
+        # Import the function from base.py
+        from base import get_coding_hint
+        
+        def generate_hint_stream():
+            try:
+                # Send initial status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Analyzing your code and generating hint...",
+                    "conversation_id": conversation_id,
+                    "type": "hint"
+                }) + '\n'
+                
+                # Generate hint with streaming
+                hint_generator = get_coding_hint(context_text, conversation_history, current_code, keys, stream=True)
+                
+                accumulated_text = ""
+                for chunk in hint_generator:
+                    if chunk:
+                        accumulated_text += chunk
+                        yield json.dumps({
+                            "text": chunk,
+                            "status": "Generating hint...",
+                            "conversation_id": conversation_id,
+                            "type": "hint",
+                            "accumulated_text": accumulated_text
+                        }) + '\n'
+                
+                # Final status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Hint generated successfully!",
+                    "conversation_id": conversation_id,
+                    "type": "hint",
+                    "completed": True,
+                    "accumulated_text": accumulated_text
+                }) + '\n'
+                
+                logger.info(f"Generated streaming coding hint for conversation {conversation_id}, code length: {len(current_code)} chars")
+                
+            except Exception as e:
+                logger.error(f"Error in hint streaming for {conversation_id}: {str(e)}")
+                yield json.dumps({
+                    "text": "",
+                    "status": f"Error: {str(e)}",
+                    "conversation_id": conversation_id,
+                    "type": "hint",
+                    "error": True
+                }) + '\n'
+        
+        return Response(generate_hint_stream(), content_type='text/plain')
+
+    except Exception as e:
+        logger.error(f"Error getting coding hint for {conversation_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_full_solution/<conversation_id>', methods=['POST'])
+@limiter.limit("10 per minute")  # Lower limit for full solutions
+@login_required
+def get_full_solution_endpoint(conversation_id):
+    """Get a complete solution based on current context and code - streaming response"""
+    keys = keyParser(session)
+    try:
+        # Check if user has access to this conversation
+        user_email = session.get('email')
+        if not checkConversationExists(user_email, conversation_id):
+            logger.warning(f"User {user_email} attempted to access conversation {conversation_id} without permission")
+            return jsonify({"error": "Conversation not found or access denied"}), 403
+        
+        # Get request data
+        data = request.get_json()
+        current_code = data.get('current_code', '')
+        context_text = data.get('context', '')
+        
+        # Load conversation and get history
+        conversation = load_conversation(conversation_id)
+        conversation_history = conversation.get_conversation_history()
+        
+        # Import the function from base.py
+        from base import get_full_solution_code
+        
+        def generate_solution_stream():
+            try:
+                # Send initial status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Analyzing problem and generating complete solution...",
+                    "conversation_id": conversation_id,
+                    "type": "solution"
+                }) + '\n'
+                
+                # Generate solution with streaming
+                solution_generator = get_full_solution_code(context_text, conversation_history, current_code, keys, stream=True)
+                
+                accumulated_text = ""
+                for chunk in solution_generator:
+                    if chunk:
+                        accumulated_text += chunk
+                        yield json.dumps({
+                            "text": chunk,
+                            "status": "Generating complete solution...",
+                            "conversation_id": conversation_id,
+                            "type": "solution",
+                            "accumulated_text": accumulated_text
+                        }) + '\n'
+                
+                # Final status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Complete solution generated successfully!",
+                    "conversation_id": conversation_id,
+                    "type": "solution",
+                    "completed": True,
+                    "accumulated_text": accumulated_text
+                }) + '\n'
+                
+                logger.info(f"Generated streaming full solution for conversation {conversation_id}, code length: {len(current_code)} chars")
+                
+            except Exception as e:
+                logger.error(f"Error in solution streaming for {conversation_id}: {str(e)}")
+                yield json.dumps({
+                    "text": "",
+                    "status": f"Error: {str(e)}",
+                    "conversation_id": conversation_id,
+                    "type": "solution",
+                    "error": True
+                }) + '\n'
+        
+        return Response(generate_solution_stream(), content_type='text/plain')
+
+    except Exception as e:
+        logger.error(f"Error getting full solution for {conversation_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/send_message/<conversation_id>', methods=['POST'])
 @limiter.limit("50 per minute")
 @login_required
@@ -1961,6 +2156,25 @@ def move_messages_up_or_down(conversation_id):
     conversation.move_messages_up_or_down(message_ids, direction)
     return jsonify({'message': f'Messages {message_ids} moved {direction}'})
 
+
+# Lets write a route to get the next question suggestions
+@app.route('/get_next_question_suggestions/<conversation_id>', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def get_next_question_suggestions(conversation_id):
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+    
+    # Get the next question suggestions from the conversation object
+    suggestions = conversation.get_next_question_suggestions()
+    
+    # Return the suggestions as JSON
+    return jsonify({'suggestions': suggestions})
 
 @app.route('/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['POST'])
 @limiter.limit("30 per minute")

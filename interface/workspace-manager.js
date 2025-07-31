@@ -280,6 +280,7 @@ var WorkspaceManager = {
                 // Reload conversations to show the new one
                 this.loadConversationsWithWorkspaces(true).done(() => {
                     ConversationManager.setActiveConversation(conversation.conversation_id);
+                    this.highlightActiveConversation(conversation.conversation_id);
                     this.expandWorkspace(workspaceId, true);
                 });
             }

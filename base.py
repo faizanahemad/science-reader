@@ -14,7 +14,7 @@ from prompts import prompts
 from collections import defaultdict, Counter
 
 import openai
-from typing import Callable, Any, List, Dict, Tuple, Optional, Union
+from typing import Callable, Any, Generator, List, Dict, Tuple, Optional, Union
 from langchain_community.document_loaders import MathpixPDFLoader
 from langchain_text_splitters import TokenTextSplitter
 
@@ -2902,5 +2902,563 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 
+def get_coding_hint(text, conversation_history="", current_code="", keys=None, stream=False) -> Union[str, Generator[str, None, None]]:
+    """Generate a helpful coding hint based on the context, return a generator if stream is True"""
+    try:
+        hint_prompt = f"""
+You are an expert coding mentor providing helpful hints to a student. Analyze the context and provide a targeted hint that guides them toward the solution without giving it away completely.
+
+**Current Context:**
+```
+{text}
+```
+
+**Conversation History:**
+```
+{conversation_history}
+```
+
+**Current Code Attempt:**
+```python
+{current_code}
+```
+
+**Your Task:**
+Provide a helpful hint that:
+1. Identifies what the student is trying to solve
+2. Points out any obvious issues or mistakes in their approach
+3. Suggests the next logical step or concept to consider
+4. Does NOT provide the complete solution
+5. Encourages good coding practices
+
+**Hint Guidelines:**
+- Be encouraging and supportive
+- Focus on one key insight or direction
+- Use examples or analogies when helpful
+- Point toward the right algorithm or data structure if needed
+- Highlight common pitfalls to avoid
+- Provide a small code snippet that might help them, if they are stuck in a particular part of the code.
+- Don't provide the complete solution, just a hint to move them forward.
+
+Provide your hint in a clear, concise manner that helps them learn and progress.
+If the user seems stuck in particular part of the code, provide some code that might help them.
+
+If the user has written bare minimum code, or no code at all, then provide an outline of the code that they should write, along with some logic to help them.
+"""
+
+        llm = CallLLm(keys, CHEAP_LLM[0])
+        hint = llm(hint_prompt, temperature=0.7, stream=stream, system="You are a helpful coding mentor who provides targeted hints without giving away the complete solution.")
+        
+        return hint
+        
+    except Exception as e:
+        logger.error(f"Error generating coding hint: {str(e)}")
+        return f"Unable to generate hint at this time. Try breaking down the problem into smaller steps and consider what data structures or algorithms might be most appropriate for this type of problem."
+
+
+def get_full_solution_code(text, conversation_history="", current_code="", keys=None, stream=False) -> Union[str, Generator[str, None, None]]:
+    """Generate a complete solution with explanation, return a generator if stream is True"""
+    try:
+        solution_prompt = f"""
+You are an expert software engineer providing a complete, well-documented solution to a coding problem.
+
+**Problem Context:**
+```
+{text}
+```
+
+**Conversation History:**
+```
+{conversation_history}
+```
+
+**Current Code Attempt:**
+```python
+{current_code}
+```
+
+**Your Task:**
+Provide a complete, production-ready solution that includes:
+
+1. **Problem Analysis**: Brief explanation of what the problem is asking
+2. **Approach**: Explain the chosen algorithm/approach and why it's optimal
+3. **Complete Solution**: Full, working Python code with proper structure
+4. **Code Explanation**: Line-by-line or section-by-section explanation
+5. **Time & Space Complexity**: Big O analysis
+6. **Test Cases**: Example inputs and expected outputs
+7. **Alternative Approaches**: Mention other valid approaches if applicable
+
+**Code Quality Requirements:**
+- Clean, readable code with meaningful variable names
+- Proper error handling where appropriate
+- Comprehensive comments explaining the logic
+- Follow Python best practices and PEP 8 style
+- Include type hints where helpful
+- Modular functions if the solution is complex
+
+**Format your response as:**
+```
+## Problem Analysis
+[Brief explanation]
+
+## Approach
+[Explanation of chosen approach]
+
+## Complete Solution
+```python
+[Full working code]
+```
+
+## Explanation
+[Detailed code explanation]
+
+## Complexity Analysis
+- Time Complexity: O(...)
+- Space Complexity: O(...)
+
+## Test Cases
+[Example test cases]
+
+## Alternative Approaches
+[Other valid solutions if applicable]
+```
+
+Provide a solution that demonstrates best practices and helps the user learn proper coding techniques.
+"""
+
+        llm = CallLLm(keys, EXPENSIVE_LLM[0])  # Use better model for complete solutions
+        solution = llm(solution_prompt, temperature=0.3, stream=stream, system="You are an expert software engineer providing complete, well-documented solutions with educational explanations in python. Make sure that it is a complete solution self contained and does not require any external libraries or modules to be installed. It should be directly executable and also include test cases")
+        
+        return solution
+        
+    except Exception as e:
+        logger.error(f"Error generating full solution: {str(e)}")
+        return f"Unable to generate complete solution at this time. Please try again or consider breaking down the problem into smaller, more manageable parts."
+
+
+def get_reward_decision(conversation_history: str, current_user_text: str, reward_level_dialer: int, 
+                       conversation_summary: str, conversation_length: int, user_info: str, 
+                       keys=None, context_data: dict = None) -> dict:
+    """
+    Advanced reward decision system that evaluates user performance across multiple dimensions
+    and adjusts feedback based on reward level dialer setting.
+    
+    Args:
+        conversation_history: Full conversation history for context
+        current_user_text: Current user message to evaluate
+        reward_level_dialer: Reward sensitivity (-3 to +3, 0=balanced)
+        conversation_summary: Summary of conversation progress
+        conversation_length: Number of messages in conversation
+        user_info: Additional user information/context
+        keys: API keys for LLM calls
+        context_data: Optional additional context (scores, achievements, etc.)
+    
+    Returns:
+        dict: Structured reward decision with type, level, message, reasoning
+    """
+    try:
+        # Determine judge personality based on reward level dialer
+        dialer_personalities = {
+            -3: {
+                "personality": "EXTREMELY_BRUTAL",
+                "description": "Ruthlessly critical, penalizes even minor imperfections",
+                "tendency": "Heavy penalties for small mistakes, rare rewards only for perfection"
+            },
+            -2: {
+                "personality": "VERY_STRICT", 
+                "description": "Demanding high standards, critical of average performance",
+                "tendency": "Frequent penalties, rewards only exceptional work"
+            },
+            -1: {
+                "personality": "STRICT_BUT_FAIR",
+                "description": "High expectations but recognizes good effort",
+                "tendency": "Moderate penalties for mistakes, modest rewards for good work"
+            },
+            0: {
+                "personality": "BALANCED_JUDGE",
+                "description": "Fair and balanced assessment, phi-like neutrality",
+                "tendency": "Proportional rewards and penalties based on merit"
+            },
+            1: {
+                "personality": "ENCOURAGING",
+                "description": "Supportive while maintaining standards",
+                "tendency": "Frequent small rewards, gentle penalties for learning"
+            },
+            2: {
+                "personality": "VERY_LENIENT",
+                "description": "Highly supportive, rewards effort over perfection",
+                "tendency": "Regular rewards for participation, minimal penalties"
+            },
+            3: {
+                "personality": "EXTREMELY_GENEROUS",
+                "description": "Celebrates all participation, almost never penalizes",
+                "tendency": "Rewards everything, penalties only for complete disengagement"
+            }
+        }
+        
+        # Clamp dialer value to valid range
+        reward_level_dialer = max(-3, min(3, reward_level_dialer))
+        judge_profile = dialer_personalities[reward_level_dialer]
+        
+        # Extract context data if provided
+        current_score = context_data.get("current_score", 0) if context_data else 0
+        recent_achievements = context_data.get("recent_achievements", []) if context_data else []
+        problem_difficulty = context_data.get("problem_difficulty", "medium") if context_data else "medium"
+        
+        reward_decision_prompt = f"""
+You are an advanced performance evaluation AI that assesses user engagement and learning progress. Your task is to determine appropriate rewards or penalties based on comprehensive analysis.
+
+**Current Judge Profile:**
+- Personality: {judge_profile['personality']}
+- Description: {judge_profile['description']}
+- Tendency: {judge_profile['tendency']}
+- Reward Level Dialer: {reward_level_dialer} (Range: -3=brutal to +3=generous)
+
+**Evaluation Context:**
+- Conversation Length: {conversation_length} messages
+- Current User Score: {current_score}
+- Problem Difficulty: {problem_difficulty}
+- Recent Achievements: {recent_achievements}
+
+**Conversation Summary:**
+```
+{conversation_summary}
+```
+
+**Recent Conversation History:**
+```
+{conversation_history[-2000:] if len(conversation_history) > 2000 else conversation_history}
+```
+
+**Current User Message to Evaluate:**
+```
+{current_user_text}
+```
+
+**User Information:**
+```
+{user_info}
+```
+
+**Multi-Dimensional Evaluation Framework:**
+Assess the user across these key dimensions:
+
+1. **Technical Proficiency**
+   - Accuracy of technical knowledge
+   - Depth of understanding
+   - Problem-solving approach quality
+   - Code quality (if applicable)
+
+2. **Learning Curiosity**
+   - Quality of questions asked
+   - Exploration of topics beyond requirements
+   - Intellectual engagement level
+   - Willingness to tackle challenges
+
+3. **Communication Effectiveness**
+   - Clarity of expression
+   - Structured thinking
+   - Articulation of ideas
+   - Professional interaction style
+
+4. **Progress & Growth**
+   - Improvement over conversation
+   - Learning from feedback
+   - Adaptation to guidance
+   - Building on previous knowledge
+
+5. **Engagement Quality**
+   - Active participation
+   - Thoughtful responses
+   - Initiative taking
+   - Persistence through challenges
+
+6. **Critical Thinking**
+   - Analysis depth
+   - Problem decomposition
+   - Alternative solution consideration
+   - Edge case awareness
+
+**Reward/Penalty Levels Available:**
+**REWARDS (Positive):**
+- EXCELLENT: Exceptional performance, major breakthrough (+10 equivalent)
+- VERY_GOOD: Strong performance, notable progress (+7 equivalent)
+- GOOD: Solid performance, good understanding (+5 equivalent)
+- FAIR: Adequate performance, basic progress (+3 equivalent)
+- BASIC: Minimal positive contribution (+1 equivalent)
+
+**PENALTIES (Negative):**
+- MINOR: Small oversight, gentle correction needed (-1 equivalent)
+- MODERATE: Notable mistake, guidance required (-3 equivalent)
+- SIGNIFICANT: Substantial error, re-direction needed (-5 equivalent)
+- MAJOR: Serious misunderstanding, major correction (-7 equivalent)
+- CRITICAL: Fundamental failure, complete reset needed (-10 equivalent)
+
+**Reward Level Dialer Impact:**
+- Level -3: Only reward perfection, penalize heavily for any mistakes
+- Level -2: Reward excellence only, penalize most errors significantly  
+- Level -1: Reward good work, penalize clear mistakes moderately
+- Level 0: Balanced - proportional rewards and penalties
+- Level +1: Reward decent efforts, penalize only notable mistakes
+- Level +2: Reward most attempts, penalize only significant errors
+- Level +3: Reward all engagement, penalize only complete failures
+
+**Response Requirements:**
+1. Provide detailed reasoning for your assessment
+2. Consider the judge personality and dialer setting
+3. Evaluate across all dimensions mentioned
+4. Choose appropriate reward/penalty level and type
+5. NO LaTeX, mathematical notation, or special formatting
+6. Use simple text and standard punctuation only
+
+Respond with JSON format:
+{{
+    "reward_type": "reward" or "penalty" or "none",
+    "reward_level": "EXCELLENT/VERY_GOOD/GOOD/FAIR/BASIC/MINOR/MODERATE/SIGNIFICANT/MAJOR/CRITICAL",
+    "reward_message": "brief/concise specific message explaining the decision",
+    "evaluation_dimensions": {{
+        "technical_proficiency": "score 1-10 and brief assessment",
+        "learning_curiosity": "score 1-10 and brief assessment", 
+        "communication_effectiveness": "score 1-10 and brief assessment",
+        "progress_growth": "score 1-10 and brief assessment",
+        "engagement_quality": "score 1-10 and brief assessment",
+        "critical_thinking": "score 1-10 and brief assessment"
+    }},
+    "overall_assessment": "comprehensive evaluation summary",
+    "dialer_impact": "how the reward level dialer influenced this decision",
+    "improvement_suggestions": ["list", "of", "specific", "suggestions"],
+    "strengths_identified": ["list", "of", "user", "strengths"],
+    "areas_for_growth": ["list", "of", "improvement", "areas"],
+    "confidence_level": "high/medium/low - how confident you are in this assessment",
+    "reasoning": "brief/concise explanation of the decision-making process"
+}}
+
+Focus on being thorough, fair (adjusted by dialer), and educational in your assessment.
+"""
+
+        # Make LLM call with appropriate system message
+        system_message = f"""You are an advanced learning assessment AI with a {judge_profile['personality']} evaluation style. 
+Your role is to provide {judge_profile['description']} feedback that helps users improve while maintaining your designated judgment personality.
+Current reward sensitivity level: {reward_level_dialer} (-3=brutal, 0=balanced, +3=generous).
+Always respond with valid JSON only, no additional text or formatting."""
+
+        llm = CallLLm(keys, CHEAP_LONG_CONTEXT_LLM[0])  # Use better model for nuanced evaluation
+        response = llm(reward_decision_prompt, temperature=0.3, stream=False, system=system_message)
+        
+        # Parse JSON response
+        try:
+            import json
+            import re
+            
+            # Extract JSON from response
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_string = json_match.group()
+                json_string = json_string.replace("```json", "").replace("```", "")
+                reward_decision = json.loads(json_string)
+                
+                # Validate required fields
+                required_fields = ["reward_type", "reward_level", "reward_message", "overall_assessment", "reasoning"]
+                for field in required_fields:
+                    if field not in reward_decision:
+                        reward_decision[field] = f"Missing {field}"
+                
+                # Validate reward_type
+                if reward_decision.get("reward_type") not in ["reward", "penalty", "none"]:
+                    reward_decision["reward_type"] = "none"
+                
+                # Validate reward_level
+                valid_levels = ["EXCELLENT", "VERY_GOOD", "GOOD", "FAIR", "BASIC", 
+                              "MINOR", "MODERATE", "SIGNIFICANT", "MAJOR", "CRITICAL"]
+                if reward_decision.get("reward_level") not in valid_levels:
+                    reward_decision["reward_level"] = "FAIR" if reward_decision["reward_type"] == "reward" else "MINOR"
+                
+                # Add metadata
+                reward_decision["dialer_setting"] = reward_level_dialer
+                reward_decision["judge_personality"] = judge_profile['personality']
+                reward_decision["evaluation_timestamp"] = time.time()
+                
+                return reward_decision
+                
+        except (json.JSONDecodeError, AttributeError, TypeError) as e:
+            logger.warning(f"Failed to parse reward decision JSON: {e}")
+        
+        # Fallback decision based on dialer setting
+        if reward_level_dialer >= 1:
+            # Lenient fallback - give basic reward
+            return {
+                "reward_type": "reward",
+                "reward_level": "BASIC",
+                "reward_message": "Engagement recognized. LLM evaluation unavailable.",
+                "overall_assessment": "Fallback assessment - basic positive recognition",
+                "reasoning": "Fallback mode activated due to parsing error",
+                "dialer_setting": reward_level_dialer,
+                "judge_personality": judge_profile['personality'],
+                "evaluation_timestamp": time.time(),
+                "confidence_level": "low"
+            }
+        elif reward_level_dialer <= -1:
+            # Strict fallback - give minor penalty
+            return {
+                "reward_type": "penalty", 
+                "reward_level": "MINOR",
+                "reward_message": "Assessment incomplete. Minor deduction applied.",
+                "overall_assessment": "Fallback assessment - technical evaluation failed",
+                "reasoning": "Fallback mode with penalty due to assessment failure",
+                "dialer_setting": reward_level_dialer,
+                "judge_personality": judge_profile['personality'],
+                "evaluation_timestamp": time.time(),
+                "confidence_level": "low"
+            }
+        else:
+            # Neutral fallback
+            return {
+                "reward_type": "none",
+                "reward_level": "FAIR",
+                "reward_message": "Neutral assessment. Technical evaluation unavailable.",
+                "overall_assessment": "Fallback assessment - neutral evaluation",
+                "reasoning": "Neutral fallback due to technical issues",
+                "dialer_setting": reward_level_dialer,
+                "judge_personality": judge_profile['personality'],
+                "evaluation_timestamp": time.time(),
+                "confidence_level": "low"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in reward decision system: {str(e)}")
+        return {
+            "reward_type": "none",
+            "reward_level": "FAIR", 
+            "reward_message": "Technical evaluation error occurred.",
+            "overall_assessment": "Error in assessment system",
+            "reasoning": f"System error: {str(e)}",
+            "dialer_setting": reward_level_dialer if 'reward_level_dialer' in locals() else 0,
+            "judge_personality": "ERROR_STATE",
+            "evaluation_timestamp": time.time(),
+            "confidence_level": "low"
+        }
+
+
+def apply_reward_gamification(reward_decision: dict) -> str:
+    """
+    Convert reward decision into gamified output with appropriate styling and feedback.
+    
+    Args:
+        reward_decision: Dictionary from get_reward_decision()
+    
+    Returns:
+        str: Formatted gamification output with audio/animation cues
+    """
+    try:
+        reward_type = reward_decision.get("reward_type", "none")
+        reward_level = reward_decision.get("reward_level", "FAIR")
+        reward_message = reward_decision.get("reward_message", "")
+        judge_personality = reward_decision.get("judge_personality", "BALANCED_JUDGE")
+        
+        if reward_type == "reward":
+            # Map reward levels to points and animations
+            reward_mapping = {
+                "EXCELLENT": {"points": 10, "animation": "celebration_5", "audio": "reward_excellent", "emoji": "🏆"},
+                "VERY_GOOD": {"points": 7, "animation": "celebration_4", "audio": "reward_very_good", "emoji": "🌟"},
+                "GOOD": {"points": 5, "animation": "celebration_3", "audio": "reward_good", "emoji": "🎉"},
+                "FAIR": {"points": 3, "animation": "celebration_2", "audio": "reward_fair", "emoji": "👍"},
+                "BASIC": {"points": 1, "animation": "celebration_1", "audio": "reward_basic", "emoji": "✅"}
+            }
+            
+            reward_info = reward_mapping.get(reward_level, reward_mapping["BASIC"])
+            return f"""<audio style="display: none;">{reward_info['audio']}</audio>
+<animation style="display: none;">{reward_info['animation']}</animation>
+<message style="display: none;">{reward_message}</message>
+{reward_info['emoji']} **{reward_level.title()} Performance!** {reward_message} (+{reward_info['points']} points)
+
+*Judge: {judge_personality}*
+
+"""
+            
+        elif reward_type == "penalty":
+            # Map penalty levels to points and animations
+            penalty_mapping = {
+                "MINOR": {"points": -1, "animation": "disappointment_1", "audio": "penalty_minor", "emoji": "⚠️"},
+                "MODERATE": {"points": -3, "animation": "disappointment_2", "audio": "penalty_moderate", "emoji": "😕"},
+                "SIGNIFICANT": {"points": -5, "animation": "disappointment_3", "audio": "penalty_significant", "emoji": "😞"},
+                "MAJOR": {"points": -7, "animation": "disappointment_4", "audio": "penalty_major", "emoji": "😨"},
+                "CRITICAL": {"points": -10, "animation": "disappointment_5", "audio": "penalty_critical", "emoji": "💥"}
+            }
+            
+            penalty_info = penalty_mapping.get(reward_level, penalty_mapping["MINOR"])
+            return f"""<audio style="display: none;">{penalty_info['audio']}</audio>
+<animation style="display: none;">{penalty_info['animation']}</animation>
+<message style="display: none;">{reward_message}</message>
+{penalty_info['emoji']} **{reward_level.title()} Issue** {reward_message} ({penalty_info['points']} points)
+*Judge: {judge_personality}*
+
+"""
+        else:
+            # Neutral/no reward case
+            return f"""<message style="display: none;">{reward_message}</message>
+ℹ️ **Neutral Assessment** {reward_message}  
+*Judge: {judge_personality}*
+
+"""
+            
+    except Exception as e:
+        logger.error(f"Error in reward gamification: {str(e)}")
+        return f"⚙️ **Assessment Complete** {reward_decision.get('reward_message', 'Evaluation processed.')}\n\n"
+    
+
+
+def buffer_generator_async(generator):
+    """
+    Buffer a generator's output into a queue using a separate thread and return a new generator
+    that yields from the buffered queue.
+    
+    This function exhausts the input generator in a background thread, storing all items
+    in a queue. The returned generator yields items from this queue as they become available,
+    allowing immediate access to the generator's content without blocking the main thread.
+    
+    Args:
+        generator: The input generator to buffer
+        
+    Returns:
+        Generator: A new generator that yields items from the buffered queue
+        
+    Example:
+        >>> def slow_generator():
+        ...     for i in range(3):
+        ...         time.sleep(1)
+        ...         yield i
+        >>> buffered = buffer_generator_async(slow_generator())
+        >>> for item in buffered:
+        ...     print(item)  # Items become available as they're buffered
+    """
+    queue = Queue()
+    finished = threading.Event()
+    
+    def accumulate_items():
+        try:
+            for item in generator:
+                queue.put(item)
+        except Exception as e:
+            queue.put(('__error__', e))
+        finally:
+            finished.set()
+    
+    thread = threading.Thread(target=accumulate_items)
+    thread.daemon = True
+    thread.start()
+    
+    def buffered_generator():
+        while not finished.is_set() or not queue.empty():
+            try:
+                item = queue.get(timeout=0.1)
+                if isinstance(item, tuple) and len(item) == 2 and item[0] == '__error__':
+                    raise item[1]
+                yield item
+            except:
+                if finished.is_set():
+                    break
+                continue
+    
+    return buffered_generator()
 
 

@@ -319,7 +319,7 @@ Include references inline in wikipedia style as your write the answer.
 
     def __call_openrouter_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.base_system
-        system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else (sys_init + "\n" + self.light_system)
+        system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else (sys_init)
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         tok_count = get_gpt3_word_count(system + text)
@@ -354,7 +354,7 @@ Include references inline in wikipedia style as your write the answer.
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(0))
     def __call_openai_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         sys_init = self.light_system
-        system = f"{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
+        system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
         if self.self_hosted_model_url is not None:

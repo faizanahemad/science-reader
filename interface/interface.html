@@ -10,6 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS_HTML"></script>
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
 <!--     <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script> -->
     <script src="https://mozilla.github.io/pdf.js/build/pdf.js"></script>
@@ -546,6 +547,77 @@
       </div>
     </div>
 
+    <!-- Coding Hint Modal -->
+    <div id="hint-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
+        <div class="modal-dialog modal-lg" style="max-width: 800px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="bi bi-lightbulb"></i>&nbsp;💡 Coding Hint
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div id="hint-status" class="mb-2" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm text-primary mr-2" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <small class="text-muted" id="hint-status-text">Generating hint...</small>
+                        </div>
+                    </div>
+                    <div id="hint-content">
+                        <!-- Hint content will be populated here -->
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="bi bi-x-circle"></i>&nbsp;Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Full Solution Modal -->
+    <div id="solution-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
+        <div class="modal-dialog modal-xl" style="max-width: 900px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="bi bi-lightbulb-fill"></i>&nbsp;🎯 Complete Solution
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div id="solution-status" class="mb-2" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm text-primary mr-2" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <small class="text-muted" id="solution-status-text">Generating solution...</small>
+                        </div>
+                    </div>
+                    <div id="solution-content">
+                        <!-- Solution content will be populated here -->
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" id="copy-solution-btn" class="btn btn-primary" style="margin-right: 8px;">
+                        <i class="bi bi-clipboard"></i>&nbsp;Copy to Editor
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="bi bi-x-circle"></i>&nbsp;Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Code Editor Modal -->  
     <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true">  
       <div class="modal-dialog modal-xl"> <!-- Using modal-xl for more space -->  
@@ -564,7 +636,20 @@
               <div class="btn-group" role="group">  
                 <button type="button" id="copy-code-button" class="btn btn-sm btn-outline-primary">  
                   <i class="bi bi-clipboard"></i>&nbsp;Copy Code  
-                </button>  
+                </button> 
+              </div>
+              <div class="btn-group" role="group">  
+
+                <button type="button" id="hint-code-button" class="btn btn-sm btn-outline-info">  
+                  <i class="bi bi-lightbulb-fill"></i></i>&nbsp;Hint  
+                </button> 
+              </div>
+              <div class="btn-group" role="group">  
+                <button type="button" id="full-solution-code-button" class="btn btn-sm btn-outline-warning">  
+                  <i class="bi bi-magic"></i></i>&nbsp;<b>Full Solution</b>  
+                </button> 
+              </div>
+              <div class="btn-group" role="group">  
                  
                 <button type="button" id="clear-code-button" class="btn btn-sm btn-outline-danger">  
                   <i class="bi bi-trash"></i>&nbsp;Clear  
@@ -706,6 +791,71 @@
     }
     .details-close-btn:hover {
         background-color: #e0e0e0;
+    }
+
+    /* Custom styling for hint and solution modals */
+    #hint-modal, #solution-modal {
+        z-index: 1060 !important; /* Above code editor modal */
+    }
+    
+    #hint-modal .modal-content, #solution-modal .modal-content {
+        border: none;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+    
+    #hint-modal .modal-header, #solution-modal .modal-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom: none;
+    }
+    
+    #hint-modal .modal-title, #solution-modal .modal-title {
+        color: white !important;
+        font-weight: 600;
+    }
+    
+    #hint-modal .close, #solution-modal .close {
+        color: white !important;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+    
+    #hint-modal .close:hover, #solution-modal .close:hover {
+        opacity: 1;
+        color: white !important;
+    }
+    
+    #hint-content, #solution-content {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.6;
+    }
+    
+    #hint-content pre, #solution-content pre {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 6px;
+        padding: 1rem;
+        overflow-x: auto;
+    }
+    
+    #hint-content code, #solution-content code {
+        background-color: #f8f9fa;
+        color: #e83e8c;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+    
+    #copy-solution-btn {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        border: none;
+        transition: all 0.2s;
+    }
+    
+    #copy-solution-btn:hover {
+        background: linear-gradient(135deg, #218838 0%, #1da589 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
     </style>
     <script>

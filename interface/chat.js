@@ -174,6 +174,7 @@ function chat_interface_readiness() {
         saveUserPreference(text);
         $('#user-preferences-modal').modal('hide');
     });
+    initializeGamificationSystem();
     
 }
 

@@ -926,8 +926,27 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 </select>
             </div>
         </div>
-
         <!-- History -->
+
+
+        <div class="form-check form-check-inline" id="rewardLevelContainer" style="line-height: 0.9;">
+            <div style="border: 1px solid #ccc; padding: 1px; border-radius: 12px; display: inline-flex; align-items: center;">
+                <div style="margin-left: 0px; margin-right: 5px;">Reward Level</div>
+                <select id="rewardLevelSelector" class="form-control form-control-sm selectpicker" style="width: auto; margin-right: 5px;">
+                    
+                        <option value="-3">-3</option>
+                        <option value="-2">-2</option>
+                        <option value="-1">-1</option>
+                        <option value="0" selected>φ</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    
+                </select>
+            </div>
+        </div>
+
+        
 
         
     
@@ -1008,9 +1027,9 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>openai/chatgpt-4o-latest</option> 
                     <option hidden>x-ai/grok-3-beta</option>
                     <option>x-ai/grok-3</option>
-                    <option>x-ai/grok-4</option>
-                    <option>Opus 4</option>
-                    <option>moonshotai/kimi-k2</option>
+                    <option hidden>x-ai/grok-4</option>
+                    <option hidden>Opus 4</option>
+                    <option hidden>moonshotai/kimi-k2</option>
                     <option>Qwen3-Coder</option>
                     
                     <!-- option>deepseek/deepseek-chat-v3-0324</option -->
@@ -1020,17 +1039,30 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Filler Models">
                     <option>Filler</option>
                 </optgroup>
+
+                <optgroup label="Fast Models">
+                    <option>google/gemini-2.5-flash</option>
+                    <option hidden>google/gemini-2.5-flash-lite</option>
+                    <option>google/gemini-2.0-flash-001</option>
+                    <option hidden>google/gemini-2.0-flash-lite-001</option>
+                    <option hidden>qwen/qwen-turbo</option>
+                    <!-- option>openai/gpt-4o-mini</option -->
+                    <option>openai/gpt-4.1-mini</option>
+                    <option hidden>x-ai/grok-3-mini</option>
+                </optgroup>
+
+                
                 
                 <optgroup label="Reasoning Models">
                     <option>Gemini-2.5-pro</option>
-                    <option>minimax/minimax-m1</option>
-                    <option>o1</option>
+                    <option>o3-pro</option>
+                    <option hidden>minimax/minimax-m1</option>
+                    <option hidden>o1</option>
                     <option>o3</option>
-                    <!-- option>openai/o1-pro</option -->
-                    <option>Claude Sonnet 3.7 Thinking</option>
-                    <option>o1-pro</option>
-                    <!-- option>o1-hard</option -->
-                    <!-- option>o1-preview</option -->
+                    <option>o4-mini-high</option>
+                    <option>o4-mini-deep-research</option>
+                    <option hidden>Claude Sonnet 3.7 Thinking</option>
+                    <option hidden>o1-pro</option>
                 </optgroup>
 
                 <optgroup label="Older Models" hidden>
@@ -1051,7 +1083,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>sao10k/l3.3-euryale-70b</option>
                     
                     <option>thedrummer/anubis-pro-105b-v1</option>
-                    <option>thedrummer/anubis-70b-v1.1</option>
+                    <option hidden>thedrummer/anubis-70b-v1.1</option>
                     
                     <!-- option>eva-unit-01/eva-qwen-2.5-72b</option -->
                     <!-- option>eva-unit-01/eva-llama-3.33-70b</option -->
@@ -1066,17 +1098,10 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <!-- option>openai/gpt-4o-mini-search-preview</option -->
                     <!-- option>openai/gpt-4o-search-preview</option -->
                     <!-- option>perplexity/sonar-deep-research</option -->
+                    <!-- option>o4-mini-deep-research</option -->
                 </optgroup>
 
-                <optgroup label="Fast Models">
-                    <option>google/gemini-2.5-flash</option>
-                    <option>google/gemini-2.0-flash-001</option>
-                    <option>google/gemini-2.5-flash-lite-preview-06-17</option>
-                    <option>google/gemini-2.0-flash-lite-001</option>
-                    <option>qwen/qwen-turbo</option>
-                    <!-- option>openai/gpt-4o-mini</option -->
-                    <option>openai/gpt-4.1-mini</option>
-                </optgroup>
+                
 
                 
                 
@@ -1095,6 +1120,8 @@ function addOptions(parentElementId, type, activeDocId = null) {
             <div style="margin-left: 0px; margin-right: 5px;">Agent</div>
             <select class="form-control" id="field-selector">
                 <option selected>None</option>
+                <option>InterviewSimulator</option>
+                <option>InterviewSimulatorV2</option>
                 <option>NStepCodeAgent</option>
                 <option>CodeSolveAgent</option>
                 <option>MLSystemDesignAgent</option>
@@ -1253,6 +1280,8 @@ function getOptions(parentElementId, type) {
     if (type === "assistant") {
         let historyValue = $("#historySelector").val();
         values['enable_previous_messages'] = historyValue;
+        let rewardLevelValue = $("#rewardLevelSelector").val();
+        values['reward_level'] = rewardLevelValue;
     }
     
     if (type === "assistant") {
@@ -1271,6 +1300,8 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
     $(`#${parentElementId}-${type}-ensemble`).prop('checked', false);
     $(`#${parentElementId}-${type}-persist_or_not`).prop('checked', true);
+    $("#rewardLevelSelector").val(0);
+    $("#rewardLevelValue").text("φ");
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
 
 
@@ -1301,6 +1332,7 @@ function removeOptions(parentElementId, type) {
     $(`[id$="${type}-search-results"]`).remove();
     if (type === "assistant") {
         $('#enablePreviousMessagesContainer').remove();
+        $('#rewardLevelContainer').remove();
         $('#deleteLastTurn').remove();
         $('#sendMessageButton').remove();
     }

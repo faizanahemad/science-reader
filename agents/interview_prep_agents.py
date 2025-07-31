@@ -1,3 +1,4 @@
+import json
 import random
 import traceback
 from typing import Union, List
@@ -1113,6 +1114,7 @@ Guidelines:
 
 ### 1. Discuss about the "Before Writing Code part"
 - What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
+- What ambiguities are there in the problem statement? What kind of ambiguities can be added by interviewers to test a candidates attentiveness and ability to make things concrete and clear?
 - What answers would you assume to the above questions?
 
 ### 2. Suggest improvements in
@@ -2509,4 +2511,5 @@ class MLSystemDesignCandidateAgent(Agent):
 
     def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=False):
         return super().__call__(text, images, temperature, stream, max_tokens, system, web_search)
+
 

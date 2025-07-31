@@ -795,6 +795,14 @@ def extract_code(code_string, relax=False):
         code_to_execute = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
         code_to_execute = [c.strip() for c in code_to_execute]
         code_to_execute = "\n".join(code_to_execute)
+
+        # if code_to_execute is empty, then we need to extract the code from the code_string using regex.
+        if code_to_execute.strip() == "":
+            regex = r"```.*?(.*?)```"
+            code_to_execute = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+            code_to_execute = [c.strip() for c in code_to_execute]
+            code_to_execute = "\n".join(code_to_execute)
+
         if "# execute_code" in code_to_execute.lower() or relax:
             code_string = code_to_execute
         else:

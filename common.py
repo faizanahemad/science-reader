@@ -2794,6 +2794,197 @@ def _getpass(env_var: str):
         os.environ[env_var] = getpass(f"{env_var}=")
     return os.environ.get(env_var)
 
+
+import json
+import re
+from typing import Union, Dict, Any
+
+def fix_broken_json(broken_json: str) -> str:
+    """
+    Fix common JSON parsing errors and return a valid JSON string.
+    
+    Args:
+        broken_json (str): The malformed JSON string
+        
+    Returns:
+        str: A valid JSON string that can be parsed
+        
+    Raises:
+        ValueError: If the JSON cannot be fixed or is fundamentally invalid
+    """
+    
+    def fix_multiline_strings_in_arrays(text: str) -> str:
+        """Fix strings that are broken across multiple lines in arrays."""
+        # Pattern to match array elements that are split across lines
+        # This handles cases where a string starts with a quote but doesn't end on the same line
+        def fix_array_strings(match):
+            array_content = match.group(1)
+            
+            # Split by commas, but be careful about commas within strings
+            lines = array_content.split('\n')
+            fixed_lines = []
+            current_string = ""
+            in_string = False
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Check if we're starting or continuing a string
+                if not in_string:
+                    if line.startswith('"') and not line.endswith('",') and not line.endswith('"'):
+                        # Starting a multi-line string
+                        current_string = line
+                        in_string = True
+                    else:
+                        # Complete single-line string
+                        fixed_lines.append(line)
+                else:
+                    # We're in a multi-line string, continue building it
+                    current_string += " " + line.strip()
+                    if line.endswith('",') or line.endswith('"'):
+                        # End of multi-line string
+                        fixed_lines.append(current_string)
+                        current_string = ""
+                        in_string = False
+            
+            # Handle case where string didn't properly close
+            if current_string:
+                if not current_string.endswith('"'):
+                    current_string += '"'
+                fixed_lines.append(current_string)
+            
+            return '[\n        ' + ',\n        '.join(fixed_lines) + '\n    ]'
+        
+        # Apply to arrays (looking for [ ... ] blocks)
+        pattern = r'\[\s*((?:[^[\]]*(?:\[[^\]]*\])?)*)\s*\]'
+        return re.sub(pattern, fix_array_strings, text, flags=re.DOTALL)
+    
+    def fix_quote_escaping(text: str) -> str:
+        """Fix incorrect quote escaping patterns."""
+        # Replace \' with \" in JSON strings (since JSON uses double quotes)
+        text = text.replace("\\'", '\\"')
+        
+        # Fix cases where single quotes are used instead of double quotes for strings
+        # This is more complex and needs careful handling to avoid breaking valid content
+        
+        return text
+    
+    def fix_over_escaping(text: str) -> str:
+        """Simplify over-escaped characters, particularly in mathematical notation."""
+        # Fix over-escaped parentheses in mathematical notation
+        text = re.sub(r'\\{3,}\\?\(', r'\\(', text)  # \\\\\\( -> \\(
+        text = re.sub(r'\\{3,}\\?\)', r'\\)', text)  # \\\\\\) -> \\)
+        
+        # Fix over-escaped mathematical operators
+        text = re.sub(r'\\{3,}\\?cdot', r'\\cdot', text)  # \\\\\\cdot -> \\cdot
+        text = re.sub(r'\\{3,}\\?times', r'\\times', text)
+        
+        # Fix over-escaped backslashes in general
+        text = re.sub(r'\\{4,}', r'\\\\', text)  # Reduce multiple backslashes
+        
+        return text
+    
+    def clean_formatting(text: str) -> str:
+        """Clean up general formatting issues."""
+        # Remove extra whitespace around JSON structural elements
+        text = re.sub(r'\s*{\s*', '{\n    ', text)  # Opening braces
+        text = re.sub(r'\s*}\s*', '\n}', text)      # Closing braces
+        text = re.sub(r'\s*,\s*', ',\n    ', text)  # Commas
+        
+        # Fix spacing around colons
+        text = re.sub(r'\s*:\s*', ': ', text)
+        
+        return text
+    
+    def merge_broken_strings(text: str) -> str:
+        """Merge strings that are incorrectly split across lines."""
+        lines = text.split('\n')
+        merged_lines = []
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check if this line starts a string but doesn't end it properly
+            if (line.startswith('"') and 
+                line.count('"') == 1 and 
+                not line.endswith('",') and 
+                not line.endswith('"')):
+                
+                # This is likely a broken string, merge with next lines
+                merged_line = line
+                i += 1
+                
+                while i < len(lines):
+                    next_line = lines[i].strip()
+                    merged_line += " " + next_line
+                    
+                    # Stop when we find the end of the string
+                    if (next_line.endswith('",') or 
+                        (next_line.endswith('"') and not next_line.endswith('\\\"'))):
+                        break
+                    i += 1
+                
+                merged_lines.append(merged_line)
+            else:
+                merged_lines.append(line)
+            
+            i += 1
+        
+        return '\n'.join(merged_lines)
+    
+    def validate_and_format_json(text: str) -> str:
+        """Validate the JSON and format it properly."""
+        try:
+            # Try to parse the JSON to validate it
+            parsed = json.loads(text)
+            # If successful, return properly formatted JSON
+            return json.dumps(parsed, indent=4, ensure_ascii=False)
+        except json.JSONDecodeError as e:
+            # If it still fails, try some additional fixes
+            
+            # Fix common trailing comma issues
+            text = re.sub(r',(\s*[}\]])', r'\1', text)
+            
+            # Try parsing again
+            try:
+                parsed = json.loads(text)
+                return json.dumps(parsed, indent=4, ensure_ascii=False)
+            except json.JSONDecodeError:
+                # If it still fails, raise an informative error
+                import traceback
+                traceback.print_exc()
+                raise ValueError(f"Unable to fix JSON. Last error: {str(e)}")
+    
+    try:
+        # Apply all fixes in sequence
+        fixed_json = broken_json
+        
+        # Step 1: Clean up basic formatting
+        fixed_json = fixed_json.strip()
+        
+        # Step 2: Fix over-escaping issues
+        fixed_json = fix_over_escaping(fixed_json)
+        
+        # Step 3: Fix quote escaping
+        fixed_json = fix_quote_escaping(fixed_json)
+        
+        # Step 4: Merge broken strings
+        fixed_json = merge_broken_strings(fixed_json)
+        
+        # Step 5: Fix multi-line strings in arrays
+        fixed_json = fix_multiline_strings_in_arrays(fixed_json)
+        
+        # Step 6: Validate and format
+        return validate_and_format_json(fixed_json)
+        
+    except Exception as e:
+        raise ValueError(f"Failed to fix JSON: {str(e)}")
+
+
+
     
 
     

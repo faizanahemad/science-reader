@@ -3073,6 +3073,61 @@ Writing Instructions:
     def persist_current_turn_prompt(self):
         prompts = self.prompts
         return prompts["persist_current_turn_prompt"]
+    
+    @property
+    def next_question_suggestions_prompt(self):
+        nqs_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
+You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
+The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
+
+The next question/response suggestions can either be a question or a response that the user can tap on in the chat interface to continue the conversation.
+
+Follow the below format for your response:
+
+<next_question_suggestions>
+    <suggestion>question/response suggestion 1</suggestion>
+    <suggestion>question/response suggestion 2</suggestion>
+    <suggestion>question/response suggestion 3</suggestion>
+    ...
+</next_question_suggestions>
+
+
+
+The summary and salient points of the conversation is as follows:
+'''{summary}'''
+
+Previous messages of the conversation are as follows:
+<|previous_messages|>
+'''{previous_messages_text}'''
+<|/previous_messages|>
+
+The last 2 recent messages of the conversation from which we will derive the summary and salient points are as follows:
+
+
+User query: 
+<|user_message|>
+'''{query}'''
+<|/user_message|>
+
+Assistant response: 
+<|assistant_message|>
+'''{response}'''
+<|/assistant_message|>
+
+
+Your response will be in below xml style format:
+<next_question_suggestions>
+    <suggestion>question/response suggestion 1</suggestion>
+    <suggestion>question/response suggestion 2</suggestion>
+    <suggestion>question/response suggestion 3</suggestion>
+    ...
+</next_question_suggestions>
+
+Give 4 suggestions.
+Now write your response in the above xml style format. Only output the xml tags and nothing else. Only write the <next_question_suggestions> tag and the <suggestion> tags inside it.
+
+"""
+        return nqs_prompt
 
 
     @property

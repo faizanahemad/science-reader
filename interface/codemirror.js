@@ -153,6 +153,372 @@ def comprehensive_example():
             showToast("Editor not initialized", "error");  
         }  
     });  
+
+    function getCode(textElem) {
+        if (!textElem) {
+            textElem = codeEditor; // Use global codeEditor if no specific editor passed
+        }
+        
+        let textToCopy = '';
+        if (textElem && typeof textElem.getValue === 'function') {  
+            // CodeMirror 5 API  
+            textToCopy = textElem.getValue();  
+            console.log("📋 Using CodeMirror 5 API for copy");  
+        } else if (textElem && textElem.state && textElem.state.doc) {  
+            // CodeMirror 6 API  
+            textToCopy = textElem.state.doc.toString();  
+            console.log("📋 Using CodeMirror 6 API for copy");  
+        } else {  
+            console.error("❌ Invalid CodeMirror editor instance:", textElem);  
+            showToast("Failed to access editor content", "error");  
+            return null;  
+        }
+        return textToCopy;
+    }
+
+    function getCodingHint(currentCode, context = '') {
+        const conversationId = ConversationManager.activeConversationId;
+        if (!conversationId) {
+            showToast("No active conversation", "error");
+            return;
+        }
+
+        // Show loading state
+        const hintButton = $('#hint-code-button');
+        const originalText = hintButton.text();
+        hintButton.prop('disabled', true).text('Getting Hint...');
+
+        // Show modal immediately with loading state
+        const modal = $('#hint-modal');
+        modal.find('#hint-content').html('');
+        modal.find('#hint-status').show();
+        modal.find('#hint-status-text').text('Analyzing your code and generating hint...');
+        modal.modal('show');
+
+        // Use fetch for streaming
+        fetch(`/get_coding_hint/${conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                current_code: currentCode,
+                context: context
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response;
+        })
+        .then(response => {
+            renderStreamingHint(response, conversationId, modal);
+        })
+        .catch(error => {
+            console.error("❌ Error getting coding hint:", error);
+            modal.find('#hint-status').hide();
+            modal.find('#hint-content').html(`<div class="alert alert-danger">Failed to get coding hint: ${error.message}</div>`);
+            showToast("Failed to get coding hint", "error");
+        })
+        .finally(() => {
+            // Restore button state
+            hintButton.prop('disabled', false).text(originalText);
+        });
+    }
+
+    function getFullSolution(currentCode, context = '') {
+        const conversationId = ConversationManager.activeConversationId;
+        if (!conversationId) {
+            showToast("No active conversation", "error");
+            return;
+        }
+
+        // Show loading state
+        const solutionButton = $('#full-solution-code-button');
+        const originalText = solutionButton.text();
+        solutionButton.prop('disabled', true).text('Generating Solution...');
+
+        // Show modal immediately with loading state
+        const modal = $('#solution-modal');
+        modal.find('#solution-content').html('');
+        modal.find('#solution-status').show();
+        modal.find('#solution-status-text').text('Analyzing problem and generating complete solution...');
+        modal.modal('show');
+
+        // Use fetch for streaming
+        fetch(`/get_full_solution/${conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                current_code: currentCode,
+                context: context
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response;
+        })
+        .then(response => {
+            renderStreamingSolution(response, conversationId, modal);
+        })
+        .catch(error => {
+            console.error("❌ Error getting full solution:", error);
+            modal.find('#solution-status').hide();
+            modal.find('#solution-content').html(`<div class="alert alert-danger">Failed to get full solution: ${error.message}</div>`);
+            showToast("Failed to get full solution", "error");
+        })
+        .finally(() => {
+            // Restore button state
+            solutionButton.prop('disabled', false).text(originalText);
+        });
+    }
+
+    function renderStreamingHint(streamingResponse, conversationId, modal) {
+        const reader = streamingResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulatedText = '';
+        let contentElement = modal.find('#hint-content');
+        let statusElement = modal.find('#hint-status');
+        let statusTextElement = modal.find('#hint-status-text');
+        
+        async function read() {
+            try {
+                const { value, done } = await reader.read();
+                
+                if (done) {
+                    console.log('Hint streaming complete');
+                    // Hide status and show final content
+                    statusElement.hide();
+                    if (accumulatedText) {
+                        renderHintContent(contentElement, accumulatedText);
+                    }
+                    showToast("Hint generated successfully!", "success");
+                    return;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                let boundary = buffer.indexOf('\n');
+                
+                while (boundary !== -1) {
+                    const part = JSON.parse(buffer.slice(0, boundary));
+                    buffer = buffer.slice(boundary + 1);
+                    boundary = buffer.indexOf('\n');
+                    
+                    if (part.error) {
+                        statusElement.hide();
+                        contentElement.html(`<div class="alert alert-danger">Error: ${part.status}</div>`);
+                        showToast("Failed to generate hint", "error");
+                        return;
+                    }
+                    
+                    if (part.text) {
+                        accumulatedText += part.text;
+                        // Update content with streaming text
+                        renderHintContent(contentElement, accumulatedText);
+                    }
+                    
+                    if (part.status) {
+                        statusTextElement.text(part.status);
+                        console.log("Hint status:", part.status);
+                    }
+                    
+                    if (part.completed) {
+                        // Hide status and final render
+                        statusElement.hide();
+                        renderHintContent(contentElement, part.accumulated_text || accumulatedText);
+                        showToast("Hint generated successfully!", "success");
+                        return;
+                    }
+                }
+                
+                // Continue reading
+                setTimeout(read, 10);
+                
+            } catch (error) {
+                console.error("Error in hint streaming:", error);
+                statusElement.hide();
+                contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
+                showToast("Failed to stream hint", "error");
+            }
+        }
+        
+        read();
+    }
+
+    function renderHintContent(element, text) {
+        if (typeof marked !== 'undefined' && marked.parse) {
+            element.html(marked.parse(text));
+        } else {
+            // Fallback: display as preformatted text
+            element.html('<pre>' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>');
+        }
+    }
+
+    function displayHintModal(hintText) {
+        // Use the existing hint modal from HTML
+        const modal = $('#hint-modal');
+        
+        // Set content
+        renderHintContent(modal.find('#hint-content'), hintText);
+        
+        // Show the modal using Bootstrap's modal method
+        modal.modal('show');
+    }
+
+    function renderStreamingSolution(streamingResponse, conversationId, modal) {
+        const reader = streamingResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulatedText = '';
+        let contentElement = modal.find('#solution-content');
+        let statusElement = modal.find('#solution-status');
+        let statusTextElement = modal.find('#solution-status-text');
+        
+        async function read() {
+            try {
+                const { value, done } = await reader.read();
+                
+                if (done) {
+                    console.log('Solution streaming complete');
+                    // Hide status and show final content
+                    statusElement.hide();
+                    if (accumulatedText) {
+                        renderSolutionContent(contentElement, accumulatedText);
+                    }
+                    showToast("Solution generated successfully!", "success");
+                    return;
+                }
+                
+                buffer += decoder.decode(value, { stream: true });
+                let boundary = buffer.indexOf('\n');
+                
+                while (boundary !== -1) {
+                    const part = JSON.parse(buffer.slice(0, boundary));
+                    buffer = buffer.slice(boundary + 1);
+                    boundary = buffer.indexOf('\n');
+                    
+                    if (part.error) {
+                        statusElement.hide();
+                        contentElement.html(`<div class="alert alert-danger">Error: ${part.status}</div>`);
+                        showToast("Failed to generate solution", "error");
+                        return;
+                    }
+                    
+                    if (part.text) {
+                        accumulatedText += part.text;
+                        // Update content with streaming text
+                        renderSolutionContent(contentElement, accumulatedText);
+                    }
+                    
+                    if (part.status) {
+                        statusTextElement.text(part.status);
+                        console.log("Solution status:", part.status);
+                    }
+                    
+                    if (part.completed) {
+                        // Hide status and final render
+                        statusElement.hide();
+                        renderSolutionContent(contentElement, part.accumulated_text || accumulatedText);
+                        showToast("Solution generated successfully!", "success");
+                        return;
+                    }
+                }
+                
+                // Continue reading
+                setTimeout(read, 10);
+                
+            } catch (error) {
+                console.error("Error in solution streaming:", error);
+                statusElement.hide();
+                contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
+                showToast("Failed to stream solution", "error");
+            }
+        }
+        
+        read();
+    }
+
+    function renderSolutionContent(element, text) {
+        if (typeof marked !== 'undefined' && marked.parse) {
+            element.html(marked.parse(text));
+        } else {
+            // Fallback: display as preformatted text
+            element.html('<pre>' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>');
+        }
+    }
+
+    function displaySolutionModal(solutionText) {
+        // Use the existing solution modal from HTML
+        const modal = $('#solution-modal');
+        
+        // Set content
+        renderSolutionContent(modal.find('#solution-content'), solutionText);
+        
+        // Show the modal using Bootstrap's modal method
+        modal.modal('show');
+    }
+
+    function copySolutionToClipboard() {
+        // Extract code blocks from the solution and copy to clipboard
+        const solutionContent = $('#solution-content');
+        const codeBlocks = solutionContent.find('pre code');
+        
+        if (codeBlocks.length > 0) {
+            // Get the largest code block (likely the main solution)
+            let longestCode = '';
+            codeBlocks.each(function() {
+                const code = $(this).text();
+                if (code.length > longestCode.length) {
+                    longestCode = code;
+                }
+            });
+            
+            // Copy to clipboard using the existing copyToClipboard function
+            copyToClipboard(null, longestCode, "text");
+            
+            showToast("Solution copied to clipboard!", "success");
+            $('#solution-modal').modal('hide');
+        } else {
+            showToast("No code found to copy", "error");
+        }
+    }
+
+    $('#hint-code-button').on('click', function() {  
+        if (codeEditor) {  
+            const code = getCode();
+            if (code !== null) {
+                // Get additional context from the conversation if needed
+                const context = "Current coding session - requesting hint";
+                getCodingHint(code, context);
+            }
+        } else {  
+            showToast("Editor not initialized", "error");  
+        }  
+    });
+
+    $('#full-solution-code-button').on('click', function() {  
+        if (codeEditor) {  
+            const code = getCode();
+            if (code !== null) {
+                // Get additional context from the conversation if needed
+                const context = "Current coding session - requesting complete solution";
+                getFullSolution(code, context);
+            }
+        } else {  
+            showToast("Editor not initialized", "error");  
+        }  
+    });
+
+    // Set up copy solution button handler for the existing HTML modal
+    $('#copy-solution-btn').on('click', function() {
+        copySolutionToClipboard();
+    });
     
     
     
