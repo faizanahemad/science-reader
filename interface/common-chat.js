@@ -2798,8 +2798,8 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
             const suggestions = response.suggestions || [];
             
             // If suggestions are empty and we haven't exceeded retry limit
-            if (suggestions.length === 0 && retryCount < 2) {
-                const retryDelay = retryCount === 0 ? 5000 : 10000; // 5s then 10s
+            if (suggestions.length === 0 && retryCount < 3) {
+                const retryDelay = retryCount === 0 ? 3000 : retryCount === 1 ? 7000 : 12000; // 3s then 7s then 12s
                 console.log(`No suggestions found, retrying in ${retryDelay/1000}s (attempt ${retryCount + 1})`);
                 setTimeout(() => {
                     renderNextQuestionSuggestions(conversationId, retryCount + 1);
@@ -3030,8 +3030,8 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
             console.error('Failed to fetch next question suggestions:', error);
             
             // Retry on error if we haven't exceeded retry limit
-            if (retryCount < 2) {
-                const retryDelay = retryCount === 0 ? 5000 : 10000;
+            if (retryCount < 3) {
+                const retryDelay = retryCount === 0 ? 3000 : retryCount === 1 ? 7000 : 12000; // 3s then 7s then 12s
                 setTimeout(() => {
                     renderNextQuestionSuggestions(conversationId, retryCount + 1);
                 }, retryDelay);
