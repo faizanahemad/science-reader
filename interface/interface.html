@@ -581,6 +581,82 @@
         </div>
     </div>
 
+    <!-- Doubts Overview Modal -->
+    <div id="doubts-overview-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1070;">
+        <div class="modal-dialog modal-lg" style="max-width: 900px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="bi bi-question-circle"></i>&nbsp;💭 Message Doubts
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div id="doubts-overview-loading" class="text-center mb-3" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Loading doubts...</p>
+                    </div>
+                    <div id="doubts-overview-content">
+                        <!-- Doubts will be populated here -->
+                    </div>
+                    <div id="doubts-overview-empty" class="text-center text-muted" style="display: none;">
+                        <i class="bi bi-chat-dots" style="font-size: 3rem; opacity: 0.3;"></i>
+                        <p class="mt-2">No doubts yet for this message.</p>
+                        <button class="btn btn-primary btn-sm" id="ask-first-doubt-btn">
+                            <i class="bi bi-plus-circle"></i>&nbsp;Ask First Doubt
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" class="btn btn-success" id="ask-new-doubt-from-overview-btn">
+                        <i class="bi bi-plus-circle"></i>&nbsp;Ask New Doubt
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="bi bi-x-circle"></i>&nbsp;Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Doubt Chat Modal -->
+    <div id="doubt-chat-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1080;">
+        <div class="modal-dialog modal-xl" style="max-width: 1200px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="bi bi-chat-dots"></i>&nbsp;💬 Doubt Conversation
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 0;">
+                    <div id="doubt-chat-container" style="height: 70vh; display: flex; flex-direction: column;">
+                        <div id="doubt-chat-messages" style="flex: 1; overflow-y: auto; padding: 1rem; background-color: #f8f9fa;">
+                            <!-- Doubt conversation messages will appear here -->
+                        </div>
+                        <div id="doubt-chat-input-area" style="border-top: 1px solid #ddd; padding: 1rem; background-color: white;">
+                            <div class="input-group">
+                                <textarea id="doubt-chat-input" class="form-control" placeholder="Ask your doubt or follow-up question..." rows="3" style="resize: none;"></textarea>
+                                <div class="input-group-append">
+                                    <button id="doubt-chat-send-btn" class="btn btn-primary" type="button" style="height: 100%;">
+                                        <i class="bi bi-send"></i>&nbsp;Send
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="text-muted mt-1 d-block">Press Ctrl+Enter to send</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Full Solution Modal -->
     <div id="solution-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
         <div class="modal-dialog modal-xl" style="max-width: 900px;">
@@ -741,6 +817,7 @@
     <script src="interface/common-chat.js"></script>
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
+    <script src="interface/doubt-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
     <link rel="stylesheet" href="interface/workspace-styles.css">
@@ -856,6 +933,240 @@
         background: linear-gradient(135deg, #218838 0%, #1da589 100%);
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    /* Doubt Management Styling */
+    .show-doubts-button, .ask-doubt-button {
+        color: #6c757d;
+        transition: color 0.2s;
+    }
+    
+    .show-doubts-button:hover {
+        color: #007bff !important;
+    }
+    
+    .ask-doubt-button:hover {
+        color: #28a745 !important;
+    }
+    
+    #doubts-overview-modal, #doubt-chat-modal {
+        z-index: 1070 !important;
+    }
+    
+    .doubt-preview-card {
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    
+    .doubt-preview-card:hover {
+        border-color: #007bff;
+        box-shadow: 0 2px 8px rgba(0,123,255,0.15);
+        transform: translateY(-1px);
+    }
+    
+    .doubt-preview-card .card-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #e9ecef;
+        font-size: 0.9rem;
+        padding: 0.5rem 1rem;
+    }
+    
+    .doubt-preview-card .card-body {
+        padding: 1rem;
+        font-size: 0.9rem;
+    }
+    
+    .doubt-conversation-card {
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        max-width: 85%;
+    }
+    
+    .doubt-conversation-card.user-doubt {
+        margin-left: auto;
+        background-color: #e3f2fd;
+        border-color: #2196f3;
+    }
+    
+    .doubt-conversation-card.assistant-doubt {
+        margin-right: auto;
+        background-color: #f1f8e9;
+        border-color: #4caf50;
+    }
+    
+    .doubt-conversation-card .card-header {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
+        font-weight: 600;
+    }
+    
+    .doubt-conversation-card.user-doubt .card-header {
+        background-color: #2196f3;
+        color: white;
+        border-bottom: 1px solid #1976d2;
+    }
+    
+    .doubt-conversation-card.assistant-doubt .card-header {
+        background-color: #4caf50;
+        color: white;
+        border-bottom: 1px solid #388e3c;
+    }
+    
+    .doubt-conversation-card .card-body {
+        padding: 0.8rem;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+    
+    #doubt-chat-input {
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        transition: border-color 0.2s;
+    }
+    
+    #doubt-chat-input:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.25);
+    }
+    
+    #doubt-chat-send-btn {
+        border-radius: 0 8px 8px 0;
+        background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+        border: none;
+        transition: all 0.2s;
+    }
+    
+    #doubt-chat-send-btn:hover {
+        background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    .doubt-delete-btn {
+        color: #dc3545;
+        background: none;
+        border: none;
+        padding: 2px 4px;
+        font-size: 0.8rem;
+        opacity: 0.7;
+        transition: all 0.2s;
+    }
+    
+    .doubt-delete-btn:hover:not(:disabled) {
+        opacity: 1;
+        color: #c82333;
+        background-color: rgba(220,53,69,0.1);
+        border-radius: 3px;
+    }
+    
+    .doubt-delete-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        color: #6c757d !important;
+    }
+    
+    /* Message card header styling */
+    .card-header .dropdown-toggle-no-caret::after {
+        display: none;
+    }
+    
+    .card-header .dropdown-toggle-no-caret {
+        background: none;
+        border: none;
+        color: #6c757d;
+        font-size: 1rem;
+        padding: 2px 4px;
+    }
+    
+    .card-header .dropdown-toggle-no-caret:hover {
+        color: #495057;
+        background-color: rgba(0,0,0,0.05);
+        border-radius: 3px;
+    }
+    
+    .card-header .dropdown-toggle-no-caret:focus {
+        box-shadow: none;
+        outline: none;
+    }
+    
+    /* Copy button in header styling */
+    .card-header .copy-btn-header {
+        background: none;
+        border: none;
+        color: #6c757d;
+        font-size: 1rem;
+        padding: 2px 4px;
+        margin-right: 5px;
+    }
+    
+    .card-header .copy-btn-header:hover {
+        color: #495057;
+        background-color: rgba(0,0,0,0.05);
+        border-radius: 3px;
+    }
+    
+    .card-header .copy-btn-header:focus {
+        box-shadow: none;
+        outline: none;
+    }
+    
+    /* Dropdown menu styling */
+    .dropdown-menu {
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        font-size: 0.875rem;
+        z-index: 1050;
+    }
+    
+    .dropdown-item {
+        padding: 0.5rem 1rem;
+        display: flex;
+        align-items: center;
+    }
+    
+    .dropdown-item:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .dropdown-item.text-danger:hover {
+        background-color: #f5c6cb;
+        color: #721c24;
+    }
+    
+    /* Audio player container styling */
+    .audio-player-container {
+        margin-left: 10px;
+    }
+    
+    .audio-player-container .audio-container {
+        background: rgba(0,0,0,0.05);
+        padding: 5px;
+        border-radius: 5px;
+        margin: 2px 0;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .card-header {
+            padding: 0.5rem;
+        }
+        
+        .dropdown-menu {
+            font-size: 0.8rem;
+        }
+        
+        .dropdown-item {
+            padding: 0.4rem 0.8rem;
+        }
+        
+        .audio-player-container .audio-container audio {
+            max-width: 200px;
+        }
     }
     </style>
     <script>

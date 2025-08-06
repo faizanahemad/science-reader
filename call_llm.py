@@ -826,6 +826,6 @@ Would you like me to dive deeper into any specific area, such as the mathematics
             for line in mock_response.split("\n"):
                 yield line
                 yield "\n"
-                time.sleep(0.05)
+                time.sleep(0.01)
         else:
             return mock_response

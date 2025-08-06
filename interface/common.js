@@ -378,13 +378,24 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             .addClass('refresh-tts-btn')
             .html('<i class="fas fa-sync-alt"></i>')
             .hide();
+            
+        // Close button to restore dropdown
+        let closeBtn = $('<button>')
+            .addClass('vote-btn')
+            .addClass('close-tts-btn')
+            .html('<i class="fas fa-times"></i>')
+            .css({
+                'margin-left': '5px',
+                'color': '#dc3545'
+            })
+            .attr('title', 'Close Audio Player');
 
         // Refresh logic
         refreshBtn.click(() => {
             refreshBtn.hide();
             loadingIndicator.show();
             // Force recompute
-            ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, true, autoPlay)
+            ConversationManager.convertToTTS(text, messageId, messageIndex, cardElem, true, autoPlay, shortTTS, podcastTTS)
                 .then(newUrl => {
                     // Revoke old URL if needed
                     if (audioPlayer.attr('src')) {
@@ -411,7 +422,27 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             loadingIndicator.hide();
         });
 
-        audioContainer.append(loadingIndicator, audioPlayer, refreshBtn);
+        // Close button logic
+        closeBtn.click(() => {
+            // Remove audio player container and restore dropdown
+            let audioPlayerContainer = audioContainer.closest('.audio-player-container');
+            let voteDropdown = audioPlayerContainer.prev('.dropdown');
+            
+            if (voteDropdown.length > 0) {
+                voteDropdown.show();
+                audioPlayerContainer.remove();
+            } else {
+                // Fallback: just remove the audio container
+                audioContainer.remove();
+            }
+            
+            // Revoke URL to free memory
+            if (audioPlayer.attr('src')) {
+                URL.revokeObjectURL(audioPlayer.attr('src'));
+            }
+        });
+
+        audioContainer.append(loadingIndicator, audioPlayer, refreshBtn, closeBtn);
         return audioContainer;
     }
 
@@ -428,39 +459,41 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         let audioContainer = createAudioPlayer('', autoPlay);
         
 
-        if (isPodcast) {
-            if (isShort) {
-                ttsBtn.hide();
-                shortTtsBtn.hide();
-                podcastTtsBtn.hide();
-            } else {
-                ttsBtn.hide();
-                shortTtsBtn.hide();
-                shortPodcastTtsBtn.hide();
-            }
+        // Find the vote dropdown and hide it, then show audio container
+        let voteDropdown = cardElem.find('.vote-dropdown-menu').closest('.dropdown');
+        let audioPlayerContainer = $('<div class="audio-player-container d-inline-block"></div>');
+        audioPlayerContainer.append(audioContainer);
+        
+        if (voteDropdown.length > 0) {
+            // Hide the dropdown and show audio player
+            voteDropdown.hide();
+            voteDropdown.after(audioPlayerContainer);
         } else {
-            if (isShort) {
-                ttsBtn.hide();
-                podcastTtsBtn.hide();
-                shortPodcastTtsBtn.hide();
+            // Fallback for old button structure
+            if (isPodcast) {
+                if (isShort) {
+                    ttsBtn.hide();
+                    shortTtsBtn.hide();
+                    podcastTtsBtn.hide();
+                    shortPodcastTtsBtn.replaceWith(audioContainer);
+                } else {
+                    ttsBtn.hide();
+                    shortTtsBtn.hide();
+                    shortPodcastTtsBtn.hide();
+                    podcastTtsBtn.replaceWith(audioContainer);
+                }
             } else {
-                shortTtsBtn.hide();
-                podcastTtsBtn.hide();
-                shortPodcastTtsBtn.hide();
-            }
-        }
-        if (isPodcast) {
-            if (isShort) {
-                shortPodcastTtsBtn.replaceWith(audioContainer);
-            } else {
-                podcastTtsBtn.replaceWith(audioContainer);
-            }
-        }
-        else {
-            if (isShort) {
-                shortTtsBtn.replaceWith(audioContainer);
-            } else {
-                ttsBtn.replaceWith(audioContainer);
+                if (isShort) {
+                    ttsBtn.hide();
+                    podcastTtsBtn.hide();
+                    shortPodcastTtsBtn.hide();
+                    shortTtsBtn.replaceWith(audioContainer);
+                } else {
+                    shortTtsBtn.hide();
+                    podcastTtsBtn.hide();
+                    shortPodcastTtsBtn.hide();
+                    ttsBtn.replaceWith(audioContainer);
+                }
             }
         }
 
@@ -508,27 +541,85 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     });
 
 
-    // Add the buttons to the vote box
-    let voteBox = $('<div>')
-        .addClass('vote-box')
-        .css({
-            'position': 'absolute',
-            'top': '5px',
-            'right': '30px'
+    // Handle copy button in header
+    let headerCopyBtn = cardElem.find('.copy-btn-header');
+    if (headerCopyBtn.length > 0) {
+        headerCopyBtn.click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            copyBtn.click();
         });
-
-    // Add a check to determine if the screen is narrow (mobile)
-    let isWideScreen = window.innerWidth > 768; // 768px is a common breakpoint for mobile devices
-
-    // Only show podcast buttons on wider screens
-    if (isWideScreen) {
-        voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
-    } else {
-        // On narrow screens, only append standard TTS buttons, not podcast buttons
-        voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
     }
-    cardElem.find('.vote-box').remove();
-    cardElem.append(voteBox);
+    
+    // Find the dropdown menu in the card header
+    let voteDropdown = cardElem.find('.vote-dropdown-menu');
+    
+    if (voteDropdown.length > 0) {
+        // Clear existing content
+        voteDropdown.empty();
+        
+        // Add TTS buttons as dropdown items
+        let shortTtsItem = $('<a class="dropdown-item" href="#"><i class="bi bi-volume-up mr-2"></i>Short TTS</a>');
+        let ttsItem = $('<a class="dropdown-item" href="#"><i class="bi bi-music-note mr-2"></i>Full TTS</a>');
+        let shortPodcastItem = $('<a class="dropdown-item" href="#"><i class="bi bi-broadcast mr-2"></i>Short Podcast</a>');
+        let podcastItem = $('<a class="dropdown-item" href="#"><i class="bi bi-broadcast-pin mr-2"></i>Full Podcast</a>');
+        let editItem = $('<a class="dropdown-item" href="#"><i class="bi bi-pencil mr-2"></i>Edit Message</a>');
+        
+        // Add click handlers
+        shortTtsItem.click(function(e) {
+            e.preventDefault();
+            handleTTSBtnClick(true);
+        });
+        
+        ttsItem.click(function(e) {
+            e.preventDefault();
+            handleTTSBtnClick(false);
+        });
+        
+        shortPodcastItem.click(function(e) {
+            e.preventDefault();
+            handleTTSBtnClick(true, true);
+        });
+        
+        podcastItem.click(function(e) {
+            e.preventDefault();
+            handleTTSBtnClick(false, true);
+        });
+        
+        editItem.click(function(e) {
+            e.preventDefault();
+            editBtn.click();
+        });
+        
+        // Add items to dropdown
+        voteDropdown.append(shortTtsItem, ttsItem);
+        
+        // Add podcast items for wider screens
+        if (window.innerWidth > 768) {
+            voteDropdown.append(shortPodcastItem, podcastItem);
+        }
+        
+        voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem);
+        
+    } else {
+        // Fallback to old vote box if dropdown not found
+        let voteBox = $('<div>')
+            .addClass('vote-box')
+            .css({
+                'position': 'absolute',
+                'top': '5px',
+                'right': '30px'
+            });
+
+        let isWideScreen = window.innerWidth > 768;
+        if (isWideScreen) {
+            voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
+        } else {
+            voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
+        }
+        cardElem.find('.vote-box').remove();
+        cardElem.append(voteBox);
+    }
 
     return;
 }

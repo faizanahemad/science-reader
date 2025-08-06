@@ -3186,6 +3186,133 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         else:
             return message
 
+    def get_message_by_id(self, message_id):
+        """Retrieve a specific message by its message_id"""
+        messages = self.get_field("messages")
+        for i, message in enumerate(messages):
+            if message["message_id"] == message_id:
+                return message, i
+        return None, -1
+
+    def get_context_around_message(self, message_id, context_messages_before=3, context_messages_after=1):
+        """Get context around a specific message including the message itself"""
+        messages = self.get_field("messages")
+        target_message = None
+        target_index = -1
+        
+        # Find the target message
+        for i, message in enumerate(messages):
+            if message["message_id"] == message_id:
+                target_message = message
+                target_index = i
+                break
+        
+        if target_message is None:
+            return None, []
+        
+        # Get context messages
+        start_index = max(0, target_index - context_messages_before)
+        end_index = min(len(messages), target_index + context_messages_after + 1)
+        context_messages = messages[start_index:end_index]
+        
+        return target_message, context_messages
+
+    def clear_doubt(self, message_id, doubt_text="", doubt_history=None):
+        """Clear a doubt about a specific message - streaming response"""
+        from call_llm import CallLLm
+        from common import CHEAP_LLM
+        import traceback
+        
+        try:
+            # Get the target message and surrounding context
+            target_message, context_messages = self.get_context_around_message(message_id, 
+                                                                              context_messages_before=4, 
+                                                                              context_messages_after=2)
+            
+            if target_message is None:
+                yield "Error: Message not found. Please check the message ID and try again."
+                return
+            
+            # Get conversation summary and history
+            conversation_summary = self.running_summary
+            conversation_history = self.get_conversation_history()
+            
+            # Build the context for doubt clearing
+            context_text = ""
+            
+            # Add conversation summary
+            if conversation_summary and len(conversation_summary) > 0:
+                if isinstance(conversation_summary, list):
+                    summary_text = "\n".join(conversation_summary)
+                else:
+                    summary_text = str(conversation_summary)
+                context_text += f"# Conversation Summary\n\n{summary_text}\n\n"
+            
+            # Add doubt history if this is a follow-up
+            if doubt_history and len(doubt_history) > 0:
+                context_text += "# Previous Doubt History\n\n"
+                context_text += "This is a follow-up question. Here's the previous doubt conversation:\n\n"
+                for i, doubt_record in enumerate(doubt_history):
+                    context_text += f"**Previous Doubt {i+1}:**\n"
+                    context_text += f"User asked: {doubt_record['doubt_text']}\n"
+                    context_text += f"Assistant answered: {doubt_record['doubt_answer']}\n\n"
+                context_text += f"**Current Follow-up Question:** {doubt_text}\n\n"
+            
+            # Add context messages
+            if context_messages:
+                context_text += "# Relevant Context Messages\n\n"
+                for i, msg in enumerate(context_messages):
+                    sender_label = "**User**" if msg["sender"] == "user" else "**Assistant**"
+                    is_target = msg["message_id"] == message_id
+                    marker = " ← **[TARGET MESSAGE]**" if is_target else ""
+                    context_text += f"{sender_label}{marker}:\n{msg['text']}\n\n"
+            
+            # Build the doubt clearing prompt
+            doubt_prompt = f"""You are an AI assistant helping to clear doubts about a specific message in a conversation. 
+
+{context_text}
+
+# User's Doubt/Question
+The user has a specific doubt or question about the message marked as **[TARGET MESSAGE]** above:
+
+**User's Doubt:** {doubt_text if doubt_text.strip() else "Please explain this message in more detail."}
+
+# Your Task
+Please provide a clear, comprehensive explanation that addresses the user's doubt. Consider:
+
+1. **Context**: Use the conversation history and surrounding messages to provide relevant context
+2. **Clarity**: Explain any complex concepts, terminology, or reasoning mentioned in the target message
+3. **Completeness**: Address all aspects of the user's doubt thoroughly
+4. **Examples**: Provide examples or analogies where helpful
+5. **Brieffly**: Answer the question in a few sentences.
+
+Please provide your explanation in a clear, structured format that directly addresses the user's doubt."""
+
+            # Initialize the LLM with appropriate model
+            api_keys = self.get_api_keys()
+            llm = CallLLm(api_keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+            
+            # Generate streaming response
+            response_stream = llm(
+                doubt_prompt, 
+                images=[], 
+                temperature=0.3, 
+                stream=True, 
+                max_tokens=2000,
+                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly."
+            )
+            
+            # Stream the response
+            for chunk in response_stream:
+                if chunk:
+                    yield chunk
+                    
+        except Exception as e:
+            error_msg = f"Error clearing doubt: {str(e)}"
+            logger.error(f"Error in clear_doubt for message {message_id}: {error_msg}")
+            logger.error(traceback.format_exc())
+            yield f"I apologize, but I encountered an error while trying to clear your doubt: {error_msg}"
+
 
 class TemporaryConversation(Conversation):
     def __init__(self) -> None:

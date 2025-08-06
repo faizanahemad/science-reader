@@ -1564,8 +1564,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     function setupStreamingCardEventHandlers(cardElement, messageId) {
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
-            // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+            // Don't trigger on button clicks, checkboxes, or dropdown elements
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1574,8 +1574,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
-            // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+            // Don't trigger on button clicks, checkboxes, or dropdown elements
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1590,8 +1590,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
-            // Don't trigger on delete button or checkbox clicks
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+            // Don't trigger on button clicks, checkboxes, or dropdown elements
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1721,9 +1721,19 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // Update the card header with message-id attribute
                 card.find('.card-header').attr('message-id', response_message_id);
                 card.find('.delete-message-button').attr('message-id', response_message_id);
+                card.find('.show-doubts-button').attr('message-id', response_message_id);
+                card.find('.ask-doubt-button').attr('message-id', response_message_id);
+                card.find('.move-message-up-button').attr('message-id', response_message_id);
+                card.find('.move-message-down-button').attr('message-id', response_message_id);
                 
                 // Re-setup event handlers now that we have the message ID
                 setupStreamingCardEventHandlers(card, response_message_id);
+                
+                // Initialize Bootstrap 4.6 dropdowns for the streaming card
+                setTimeout(function() {
+                    // Bootstrap 4.6 dropdowns are initialized automatically with data-toggle="dropdown"
+                    card.find('[data-toggle="dropdown"]').dropdown();
+                }, 25);
             }
         }
 
@@ -2261,12 +2271,53 @@ var ChatManager = {
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
             messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
-            var delMessage = `<small><button class="btn p-0 ms-2 ml-2 delete-message-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-trash-fill"></i></button></small>`
-            var moveMessageUp = `<small><button class="btn p-0 ms-2 ml-2 move-message-up-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-arrow-up"></i></button></small>`
-            var moveMessageDown = `<small><button class="btn p-0 ms-2 ml-2 move-message-down-button" message-index="${index}" message-id=${message.message_id}><i class="bi bi-arrow-down"></i></button></small>`
-            var cardHeader = $(`<div class="card-header text-end" message-index="${index}" message-id=${message.message_id}>
-          <input type="checkbox" class="history-message-checkbox" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
-          <small><strong>` + senderText + `</strong>${delMessage}${moveMessageUp}${moveMessageDown}</small></div>`);
+            // Create action dropdown for left side (doubts, delete, move)
+            var actionDropdown = `
+                <div class="dropdown d-inline-block">
+                    <button class="btn btn-sm p-1 dropdown-toggle-no-caret" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Message Actions">
+                        <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-left">
+                        <a class="dropdown-item show-doubts-button" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-question-circle mr-2"></i>Show Doubts
+                        </a>
+                        <a class="dropdown-item ask-doubt-button" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-plus-circle mr-2"></i>Ask New Doubt
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item move-message-up-button" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-arrow-up mr-2"></i>Move Up
+                        </a>
+                        <a class="dropdown-item move-message-down-button" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-arrow-down mr-2"></i>Move Down
+                        </a>
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item delete-message-button text-danger" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-trash-fill mr-2"></i>Delete Message
+                        </a>
+                    </div>
+                </div>`;
+            
+            var cardHeader = $(`<div class="card-header d-flex justify-content-between align-items-center" message-index="${index}" message-id=${message.message_id}>
+                <div class="d-flex align-items-center">
+                    <input type="checkbox" class="history-message-checkbox mr-2" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
+                    <small><strong>` + senderText + `</strong></small>
+                    ${actionDropdown}
+                </div>
+                <div class="d-flex align-items-center">
+                    <button class="btn btn-sm p-1 copy-btn-header" title="Copy Text">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                    <div class="dropdown d-inline-block">
+                        <button class="btn btn-sm p-1 dropdown-toggle-no-caret vote-menu-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="More Options">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-right vote-dropdown-menu">
+                            <!-- Vote buttons will be inserted here by initialiseVoteBank -->
+                        </div>
+                    </div>
+                </div>
+            </div>`);
             var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
             var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
             textElem.html(message.text.replace(/\n/g, '  \n'))
@@ -2307,7 +2358,7 @@ var ChatManager = {
 
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
             var spinner = $('<div class="spinner-border text-primary" role="status"></div>');
-            var statusText = $('<span class="status-text ms-2"></span>');
+            var statusText = $('<span class="status-text ml-2"></span>');
 
             statusDiv.append(spinner);
             statusDiv.append(statusText);
@@ -2343,8 +2394,8 @@ var ChatManager = {
             
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
-                // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+                // Don't trigger on button clicks, checkboxes, or dropdown elements
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2353,8 +2404,8 @@ var ChatManager = {
             
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
-                // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+                // Don't trigger on button clicks, checkboxes, or dropdown elements
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2369,8 +2420,8 @@ var ChatManager = {
             
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
-                // Don't trigger on delete button or checkbox clicks
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button').length > 0) {
+                // Don't trigger on button clicks, checkboxes, or dropdown elements
+                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2404,25 +2455,46 @@ var ChatManager = {
         $(".delete-message-button").off().on("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
-            var messageId = $(this).closest('[message-id]').attr('message-id');
-            var messageIndex = $(this).closest('[message-index]').attr('message-index');
+            var messageId = $(this).attr('message-id');
+            var messageIndex = $(this).attr('message-index');
             $(this).closest('.card').remove();
             ChatManager.deleteMessage(conversationId, messageId, messageIndex);
         });
         $(".move-message-up-button").off().on("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
-            var messageId = $(this).closest('[message-id]').attr('message-id');
-            var messageIndex = $(this).closest('[message-index]').attr('message-index');
-            moveMessagesUpOrDownCallback("up");
+            var messageId = $(this).attr('message-id');
+            var messageIndex = $(this).attr('message-index');
+            moveMessagesUpOrDownCallback("up", messageId, messageIndex);
         });
         $(".move-message-down-button").off().on("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
-            var messageId = $(this).closest('[message-id]').attr('message-id');
-            var messageIndex = $(this).closest('[message-index]').attr('message-index');
-            moveMessagesUpOrDownCallback("down");
+            var messageId = $(this).attr('message-id');
+            var messageIndex = $(this).attr('message-index');
+            moveMessagesUpOrDownCallback("down", messageId, messageIndex);
         });
+        
+        $(".show-doubts-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).attr('message-id');
+            DoubtManager.showDoubtsOverview(conversationId, messageId);
+        });
+        
+        $(".ask-doubt-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).attr('message-id');
+            DoubtManager.askNewDoubt(conversationId, messageId);
+        });
+        
+        // Initialize Bootstrap 4.6 dropdowns
+        setTimeout(function() {
+            // Bootstrap 4.6 dropdowns are initialized automatically with data-toggle="dropdown"
+            // Just ensure they work properly by triggering any needed setup
+            $('[data-toggle="dropdown"]').dropdown();
+        }, 50);
         // var chatView = $('#chatView');
         // chatView.scrollTop(chatView.prop('scrollHeight'));
         
@@ -2556,7 +2628,7 @@ function activateChatTab() {
     contentCol.removeClass('col-md-10').addClass('col-md-12');
 }
 
-function moveMessagesUpOrDownCallback(direction) {
+function moveMessagesUpOrDownCallback(direction, messageId=null, messageIndex=null) {
     var history_message_ids = []
     $(".history-message-checkbox").each(function () {
         var message_id = $(this).attr('message-id');
@@ -2567,6 +2639,9 @@ function moveMessagesUpOrDownCallback(direction) {
             $(this).prop('checked', false);
         }
     });
+    if (messageId) {
+        history_message_ids.push(messageId);
+    }
     if (history_message_ids.length === 0) {
         return;
     }

@@ -135,6 +135,21 @@ def create_tables():
                                     updated_at text
                                 ); """
     
+    # doubts clearing table
+    sql_create_doubts_clearing_table = """CREATE TABLE IF NOT EXISTS DoubtsClearing (
+                                    doubt_id text PRIMARY KEY,
+                                    conversation_id text,
+                                    user_email text,
+                                    message_id text,
+                                    doubt_text text,
+                                    doubt_answer text,
+                                    parent_doubt_id text,
+                                    is_root_doubt boolean DEFAULT 1,
+                                    created_at text,
+                                    updated_at text,
+                                    FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
+                                ); """
+    
     conn = create_connection(database)
     # delete_table(conn, "ConversationIdToWorkspaceId")
     # delete_table(conn, "WorkspaceMetadata")
@@ -151,6 +166,8 @@ def create_tables():
         create_table(conn, sql_create_conversation_id_to_workspace_id_table)
         # create WorkspaceMetadata table
         create_table(conn, sql_create_workspace_metadata_table)
+        # create DoubtsClearing table
+        create_table(conn, sql_create_doubts_clearing_table)
     else:
         print("Error! cannot create the database connection.")
         
@@ -165,6 +182,13 @@ def create_tables():
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_workspace_id ON WorkspaceMetadata (workspace_id)")
 
+    # create indexes for DoubtsClearing table
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conversation_id ON DoubtsClearing (conversation_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_user_email ON DoubtsClearing (user_email)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_message_id ON DoubtsClearing (message_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conv_msg ON DoubtsClearing (conversation_id, message_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_parent_doubt_id ON DoubtsClearing (parent_doubt_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_is_root ON DoubtsClearing (is_root_doubt)")
     
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
@@ -377,6 +401,360 @@ def createWorkspace(user_email, workspace_id, domain, workspace_name, workspace_
         conn.commit()
     finally:
         conn.close()
+
+def add_doubt(conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id=None):
+    """
+    Add a new doubt clearing record.
+    
+    Args:
+        conversation_id (str): The conversation ID
+        user_email (str): The user's email address
+        message_id (str): The message ID
+        doubt_text (str): The user's doubt/question
+        doubt_answer (str): The AI's answer to the doubt
+        parent_doubt_id (str, optional): Parent doubt ID for follow-ups
+        
+    Returns:
+        str: The generated doubt_id
+    """
+    import hashlib
+    import uuid
+    
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        
+        # Generate doubt_id as hash of conversation_id + message_id + doubt_text + doubt_answer + timestamp + parent_id
+        doubt_content = f"{conversation_id}_{message_id}_{doubt_text}_{doubt_answer}_{now}_{parent_doubt_id or ''}"
+        doubt_id = hashlib.md5(doubt_content.encode()).hexdigest()
+        
+        # Determine if this is a root doubt
+        is_root_doubt = parent_doubt_id is None
+        
+        # Insert new doubt record
+        cur.execute("""
+            INSERT INTO DoubtsClearing
+            (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+             parent_doubt_id, is_root_doubt, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+              parent_doubt_id, is_root_doubt, now, now))
+        
+        conn.commit()
+        
+        doubt_type = "root doubt" if is_root_doubt else f"follow-up to {parent_doubt_id}"
+        logger.info(f"Added {doubt_type} with ID {doubt_id} for conversation {conversation_id}, message {message_id}")
+        
+        return doubt_id
+        
+    except Exception as e:
+        logger.error(f"Error adding doubt clearing: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def delete_doubt(doubt_id):
+    """
+    Delete a doubt clearing record by doubt_id with tree restructuring.
+    When deleting a node, attach its children to its parent (linked list style deletion).
+    
+    Args:
+        doubt_id (str): The doubt ID
+        
+    Returns:
+        bool: True if a record was deleted, False if no record was found
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        # First, get the doubt to be deleted and its parent
+        cur.execute("""
+            SELECT parent_doubt_id FROM DoubtsClearing 
+            WHERE doubt_id = ?
+        """, (doubt_id,))
+        
+        row = cur.fetchone()
+        if not row:
+            logger.warning(f"No doubt clearing found with ID {doubt_id}")
+            return False
+            
+        parent_doubt_id = row[0]
+        
+        # Get all children of the doubt to be deleted
+        cur.execute("""
+            SELECT doubt_id FROM DoubtsClearing 
+            WHERE parent_doubt_id = ?
+        """, (doubt_id,))
+        
+        children = cur.fetchall()
+        child_doubt_ids = [child[0] for child in children]
+        
+        # Update all children to point to the parent of the deleted doubt
+        # This effectively removes the deleted doubt from the chain
+        for child_doubt_id in child_doubt_ids:
+            cur.execute("""
+                UPDATE DoubtsClearing 
+                SET parent_doubt_id = ?, is_root_doubt = ?
+                WHERE doubt_id = ?
+            """, (parent_doubt_id, parent_doubt_id is None, child_doubt_id))
+        
+        # Now delete the original doubt
+        cur.execute("""
+            DELETE FROM DoubtsClearing 
+            WHERE doubt_id = ?
+        """, (doubt_id,))
+        
+        deleted_count = cur.rowcount
+        conn.commit()
+        
+        if deleted_count > 0:
+            logger.info(f"Deleted doubt clearing with ID {doubt_id} and restructured {len(child_doubt_ids)} children")
+            return True
+        else:
+            logger.warning(f"Failed to delete doubt clearing with ID {doubt_id}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error deleting doubt clearing: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def get_doubt(doubt_id):
+    """
+    Retrieve a doubt clearing record by doubt_id.
+    
+    Args:
+        doubt_id (str): The doubt ID
+        
+    Returns:
+        dict or None: Dictionary containing doubt clearing data, or None if not found
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        # Get the doubt clearing record
+        cur.execute("""
+            SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+                   parent_doubt_id, is_root_doubt, created_at, updated_at
+            FROM DoubtsClearing 
+            WHERE doubt_id = ?
+        """, (doubt_id,))
+        
+        row = cur.fetchone()
+        
+        if row:
+            return {
+                "doubt_id": row[0],
+                "conversation_id": row[1],
+                "user_email": row[2],
+                "message_id": row[3],
+                "doubt_text": row[4],
+                "doubt_answer": row[5],
+                "parent_doubt_id": row[6],
+                "is_root_doubt": bool(row[7]),
+                "created_at": row[8],
+                "updated_at": row[9]
+            }
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error getting doubt clearing: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def get_doubts_for_message(conversation_id, message_id, user_email=None):
+    """
+    Retrieve all doubt clearing records for a specific message in hierarchical structure.
+    
+    Args:
+        conversation_id (str): The conversation ID
+        message_id (str): The message ID
+        user_email (str, optional): Filter by user email
+        
+    Returns:
+        list: List of root doubt trees with nested children
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        # First, get only root doubts (is_root_doubt = 1)
+        if user_email:
+            cur.execute("""
+                SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                FROM DoubtsClearing 
+                WHERE conversation_id = ? AND message_id = ? AND user_email = ? AND is_root_doubt = 1
+                ORDER BY created_at DESC
+            """, (conversation_id, message_id, user_email))
+        else:
+            cur.execute("""
+                SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                FROM DoubtsClearing 
+                WHERE conversation_id = ? AND message_id = ? AND is_root_doubt = 1
+                ORDER BY created_at DESC
+            """, (conversation_id, message_id))
+        
+        rows = cur.fetchall()
+        
+        root_doubts = [
+            {
+                "doubt_id": row[0],
+                "conversation_id": row[1],
+                "user_email": row[2],
+                "message_id": row[3],
+                "doubt_text": row[4],
+                "doubt_answer": row[5],
+                "parent_doubt_id": row[6],
+                "is_root_doubt": bool(row[7]),
+                "created_at": row[8],
+                "updated_at": row[9]
+            }
+            for row in rows
+        ]
+        
+        # Build tree structure for each root doubt
+        doubt_trees = []
+        for root_doubt in root_doubts:
+            doubt_tree = build_doubt_tree(root_doubt)
+            doubt_trees.append(doubt_tree)
+        
+        return doubt_trees
+            
+    except Exception as e:
+        logger.error(f"Error getting doubts for message: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def get_doubt_history(doubt_id):
+    """
+    Get the complete history of a doubt thread from root to the specified doubt.
+    
+    Args:
+        doubt_id (str): The doubt ID to trace back from
+        
+    Returns:
+        list: List of doubt records from root to current, ordered chronologically
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        # Traverse up the tree to find all parent doubts
+        doubt_chain = []
+        current_doubt_id = doubt_id
+        
+        while current_doubt_id:
+            cur.execute("""
+                SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                FROM DoubtsClearing 
+                WHERE doubt_id = ?
+            """, (current_doubt_id,))
+            
+            row = cur.fetchone()
+            if not row:
+                break
+                
+            doubt_record = {
+                "doubt_id": row[0],
+                "conversation_id": row[1],
+                "user_email": row[2],
+                "message_id": row[3],
+                "doubt_text": row[4],
+                "doubt_answer": row[5],
+                "parent_doubt_id": row[6],
+                "is_root_doubt": bool(row[7]),
+                "created_at": row[8],
+                "updated_at": row[9]
+            }
+            
+            doubt_chain.append(doubt_record)
+            current_doubt_id = row[6]  # parent_doubt_id
+        
+        # Reverse to get chronological order (root first)
+        doubt_chain.reverse()
+        return doubt_chain
+            
+    except Exception as e:
+        logger.error(f"Error getting doubt history: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def get_doubt_children(doubt_id):
+    """
+    Get all direct children of a doubt.
+    
+    Args:
+        doubt_id (str): The parent doubt ID
+        
+    Returns:
+        list: List of child doubt records
+    """
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
+                   parent_doubt_id, is_root_doubt, created_at, updated_at
+            FROM DoubtsClearing 
+            WHERE parent_doubt_id = ?
+            ORDER BY created_at ASC
+        """, (doubt_id,))
+        
+        rows = cur.fetchall()
+        
+        return [
+            {
+                "doubt_id": row[0],
+                "conversation_id": row[1],
+                "user_email": row[2],
+                "message_id": row[3],
+                "doubt_text": row[4],
+                "doubt_answer": row[5],
+                "parent_doubt_id": row[6],
+                "is_root_doubt": bool(row[7]),
+                "created_at": row[8],
+                "updated_at": row[9]
+            }
+            for row in rows
+        ]
+            
+    except Exception as e:
+        logger.error(f"Error getting doubt children: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+def build_doubt_tree(doubt_record):
+    """
+    Recursively build a tree structure for a doubt and all its descendants.
+    
+    Args:
+        doubt_record (dict): The root doubt record
+        
+    Returns:
+        dict: Doubt record with 'children' array containing nested structure
+    """
+    doubt_tree = doubt_record.copy()
+    children = get_doubt_children(doubt_record["doubt_id"])
+    
+    doubt_tree["children"] = []
+    for child in children:
+        child_tree = build_doubt_tree(child)
+        doubt_tree["children"].append(child_tree)
+    
+    return doubt_tree
 
 
 def collapseWorkspaces(workspace_ids: list[str]):
@@ -2175,6 +2553,213 @@ def get_next_question_suggestions(conversation_id):
     
     # Return the suggestions as JSON
     return jsonify({'suggestions': suggestions})
+
+
+# Lets write API to clear a doubt, it takes conversation_id and message_id, then uses conversation.clear_doubt(message_id), this function call streams text content.
+@app.route('/clear_doubt/<conversation_id>/<message_id>', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def clear_doubt(conversation_id, message_id):
+    """Clear a doubt for a specific message - streaming response"""
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    doubt_text = request.json.get('doubt_text')
+    parent_doubt_id = request.json.get('parent_doubt_id')  # For follow-up questions
+    
+    try:
+        # Check if user has access to this conversation
+        if not checkConversationExists(email, conversation_id):
+            logger.warning(f"User {email} attempted to access conversation {conversation_id} without permission")
+            return jsonify({"error": "Conversation not found or access denied"}), 404
+        
+        # Load conversation and set keys
+        conversation = conversation_cache[conversation_id]
+        conversation = set_keys_on_docs(conversation, keys)
+        
+        def generate_doubt_clearing_stream():
+            accumulated_doubt_answer = ""
+            try:
+                # Send initial status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Analyzing message and clearing doubt...",
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "type": "doubt_clearing"
+                }) + '\n'
+                
+                # Get doubt history if this is a follow-up
+                doubt_history = []
+                if parent_doubt_id:
+                    try:
+                        doubt_history = get_doubt_history(parent_doubt_id)
+                        logger.info(f"Retrieved doubt history with {len(doubt_history)} entries for follow-up")
+                    except Exception as history_error:
+                        logger.error(f"Error retrieving doubt history: {str(history_error)}")
+                        # Continue without history rather than failing
+                
+                # Generate doubt clearing with streaming
+                doubt_generator = conversation.clear_doubt(message_id, doubt_text, doubt_history)
+                
+                accumulated_text = ""
+                for chunk in doubt_generator:
+                    if chunk:
+                        accumulated_text += chunk
+                        accumulated_doubt_answer += chunk
+                        yield json.dumps({
+                            "text": chunk,
+                            "status": "Clearing doubt...",
+                            "conversation_id": conversation_id,
+                            "message_id": message_id,
+                            "type": "doubt_clearing",
+                            "accumulated_text": accumulated_text
+                        }) + '\n'
+                
+                # Save doubt and answer to database/storage
+                try:
+                    # Save to DoubtsClearing table and get doubt_id
+                    doubt_id = add_doubt(
+                        conversation_id=conversation_id,
+                        user_email=email,
+                        message_id=message_id,
+                        doubt_text=doubt_text or "Please explain this message in more detail.",
+                        doubt_answer=accumulated_doubt_answer,
+                        parent_doubt_id=parent_doubt_id
+                    )
+                    logger.info(f"Doubt clearing data saved successfully with ID {doubt_id}: {len(accumulated_doubt_answer)} characters")
+                    
+                except Exception as save_error:
+                    logger.error(f"Error saving doubt clearing data: {str(save_error)}")
+                    doubt_id = None
+                
+                # Final status with doubt_id
+                final_text = f"<doubt_id>{doubt_id}</doubt_id>" if doubt_id else ""
+                yield json.dumps({
+                    "text": final_text,
+                    "status": "Doubt cleared successfully!",
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "type": "doubt_clearing",
+                    "completed": True,
+                    "accumulated_text": accumulated_text,
+                    "doubt_id": doubt_id
+                }) + '\n'
+                
+                logger.info(f"Generated streaming doubt clearing for conversation {conversation_id}, message {message_id}")
+                
+            except Exception as e:
+                logger.error(f"Error in doubt clearing streaming for {conversation_id}, message {message_id}: {str(e)}")
+                yield json.dumps({
+                    "text": "",
+                    "status": f"Error: {str(e)}",
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "type": "doubt_clearing",
+                    "error": True
+                }) + '\n'
+        
+        return Response(generate_doubt_clearing_stream(), content_type='text/plain')
+
+    except Exception as e:
+        logger.error(f"Error clearing doubt for {conversation_id}, message {message_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_doubt/<doubt_id>', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_doubt_endpoint(doubt_id):
+    """Get a specific doubt clearing record by doubt_id"""
+    email, name, loggedin = check_login(session)
+    
+    try:
+        # Get the doubt clearing record
+        doubt_record = get_doubt(doubt_id)
+        
+        if doubt_record:
+            # Check if user has access to this conversation
+            if not checkConversationExists(email, doubt_record["conversation_id"]):
+                logger.warning(f"User {email} attempted to access doubt {doubt_id} without permission")
+                return jsonify({"error": "Access denied"}), 403
+            
+            return jsonify({
+                "success": True,
+                "doubt": doubt_record
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "No doubt clearing found with this ID"
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error getting doubt {doubt_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/delete_doubt/<doubt_id>', methods=['DELETE'])
+@limiter.limit("50 per minute")
+@login_required
+def delete_doubt_endpoint(doubt_id):
+    """Delete a specific doubt clearing record by doubt_id"""
+    email, name, loggedin = check_login(session)
+    
+    try:
+        # First get the doubt to check access permissions
+        doubt_record = get_doubt(doubt_id)
+        
+        if not doubt_record:
+            return jsonify({
+                "success": False,
+                "message": "No doubt clearing found with this ID"
+            }), 404
+        
+        # Check if user has access to this conversation
+        if not checkConversationExists(email, doubt_record["conversation_id"]):
+            logger.warning(f"User {email} attempted to delete doubt {doubt_id} without permission")
+            return jsonify({"error": "Access denied"}), 403
+        
+        # Delete the doubt clearing record
+        deleted = delete_doubt(doubt_id)
+        
+        if deleted:
+            return jsonify({
+                "success": True,
+                "message": "Doubt clearing deleted successfully"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to delete doubt clearing"
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error deleting doubt {doubt_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_doubts/<conversation_id>/<message_id>', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_doubts_for_message_endpoint(conversation_id, message_id):
+    """Get all doubt clearing records for a specific message"""
+    email, name, loggedin = check_login(session)
+    
+    try:
+        # Check if user has access to this conversation
+        if not checkConversationExists(email, conversation_id):
+            logger.warning(f"User {email} attempted to access conversation {conversation_id} without permission")
+            return jsonify({"error": "Conversation not found or access denied"}), 404
+        
+        # Get all doubt clearing records for this message
+        doubts = get_doubts_for_message(conversation_id, message_id, email)
+        
+        return jsonify({
+            "success": True,
+            "doubts": doubts,
+            "count": len(doubts)
+        })
+            
+    except Exception as e:
+        logger.error(f"Error getting doubts for message {conversation_id}/{message_id}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>', methods=['POST'])
 @limiter.limit("30 per minute")
