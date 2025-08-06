@@ -2774,6 +2774,10 @@ function scrollToBottom() {
 
 // Function to render next question suggestions as clickable pills
 function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
+    // CONFIGURATION SWITCHES - Modify these as needed
+    let LAYOUT_MODE = 'two_lines'; // Options: 'single_line', 'two_lines', 'one_per_line'
+    const REDUCED_FONT_SIZE = true; // Set to true to use smaller fonts for better fit
+    
     // Remove any existing suggestions first
     $('#chatView .next-question-suggestions').remove();
     
@@ -2810,33 +2814,117 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
             
             // Determine if mobile or desktop
             const isMobile = window.innerWidth <= 768; // Bootstrap's md breakpoint
-            const maxSuggestions = isMobile ? 2 : 4;
+
+            LAYOUT_MODE = isMobile ? 'two_lines' : LAYOUT_MODE;
+            
+            // Configure layout based on mode and device
+            let containerClasses, maxSuggestions, pillsPerRow;
+            
+            switch (LAYOUT_MODE) {
+                case 'single_line':
+                    containerClasses = 'd-flex flex-nowrap overflow-auto gap-2';
+                    maxSuggestions = isMobile ? 2 : 4;
+                    pillsPerRow = maxSuggestions;
+                    break;
+                    
+                case 'two_lines':
+                    containerClasses = 'd-flex flex-wrap gap-2';
+                    maxSuggestions = isMobile ? 2 : 4;
+                    pillsPerRow = Math.ceil(maxSuggestions / 2);
+                    break;
+                    
+                case 'one_per_line':
+                    containerClasses = 'd-flex flex-column gap-2';
+                    maxSuggestions = isMobile ? 3 : 4;
+                    pillsPerRow = 1;
+                    break;
+                    
+                default:
+                    containerClasses = 'd-flex flex-wrap gap-2';
+                    maxSuggestions = isMobile ? 2 : 4;
+                    pillsPerRow = 2;
+            }
+            
             const displaySuggestions = suggestions.slice(0, maxSuggestions);
             
             // Create the suggestions container
             const suggestionsContainer = $(`
                 <div class="next-question-suggestions mt-3 mb-3 px-2 w-100">
-                    <div class="d-flex flex-wrap gap-2 ${isMobile ? 'justify-content-center' : 'justify-content-start'} w-100">
+                    <div class="${containerClasses} w-100 justify-content-${LAYOUT_MODE === 'one_per_line' ? 'stretch' : 'start'}">
                         
                     </div>
                 </div>
             `);
             
-            const pillsContainer = suggestionsContainer.find('.d-flex');
+            const pillsContainer = suggestionsContainer.find('.d-flex').first();
             
             // Create pills for each suggestion
             displaySuggestions.forEach((suggestion, index) => {
-                // Calculate better sizing for desktop vs mobile
-                // Calculate max width based on device and number of suggestions
-                const maxWidth = isMobile 
-                    ? '45%' 
-                    : (displaySuggestions.length <= 2 ? '400px' : (isMobile ? '280px' : '350px'));
+                // Calculate sizing based on layout mode and device
+                let maxWidth, pillStyle, maxChars;
                 
-                const pillStyle = isMobile 
-                    ? `border-radius: 20px; max-width: ${maxWidth}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.75rem;`
-                    : `border-radius: 20px; flex: 1; min-width: 180px; max-width: ${maxWidth}; margin: 0 4px; font-size: 0.8rem; padding: 8px 16px;`;
-                // Show more text on desktop, less on mobile - allow even more text if fewer pills
-                const maxChars = isMobile ? 25 : (displaySuggestions.length <= 2 ? 120 : 80);
+                // Font size configuration
+                const baseFontSize = REDUCED_FONT_SIZE ? (isMobile ? '0.65rem' : '0.7rem') : (isMobile ? '0.75rem' : '0.8rem');
+                const padding = REDUCED_FONT_SIZE ? (isMobile ? '0.2rem 0.4rem' : '0.3rem 0.6rem') : (isMobile ? '0.25rem 0.5rem' : '0.4rem 0.8rem');
+                
+                switch (LAYOUT_MODE) {
+                    case 'single_line':
+                        maxWidth = isMobile ? '280px' : '400px';
+                        maxChars = isMobile ? 120 : 180;
+                        pillStyle = `
+                            border-radius: 15px; 
+                            max-width: ${maxWidth}; 
+                            min-width: ${isMobile ? '100px' : '120px'};
+                            white-space: nowrap; 
+                            overflow: hidden; 
+                            text-overflow: ellipsis; 
+                            font-size: ${baseFontSize};
+                            padding: ${padding};
+                            flex-shrink: 0;
+                        `;
+                        break;
+                        
+                    case 'two_lines':
+                        maxWidth = isMobile ? '100%' : '48%';
+                        maxChars = isMobile ? 160 : 180;
+                        pillStyle = `
+                            border-radius: 15px; 
+                            width: ${maxWidth}; 
+                            white-space: nowrap; 
+                            overflow: hidden; 
+                            text-overflow: ellipsis; 
+                            font-size: ${baseFontSize};
+                            padding: ${padding};
+                            text-align: center;
+                        `;
+                        break;
+                        
+                    case 'one_per_line':
+                        maxWidth = '100%';
+                        maxChars = isMobile ? 160 : 180;
+                        pillStyle = `
+                            border-radius: 15px; 
+                            width: ${maxWidth}; 
+                            white-space: nowrap; 
+                            overflow: hidden; 
+                            text-overflow: ellipsis; 
+                            font-size: ${baseFontSize};
+                            padding: ${padding};
+                            text-align: left;
+                        `;
+                        break;
+                        
+                    default:
+                        maxWidth = isMobile ? '45%' : '350px';
+                        maxChars = isMobile ? 25 : 40;
+                        pillStyle = `
+                            border-radius: 15px; 
+                            max-width: ${maxWidth}; 
+                            font-size: ${baseFontSize};
+                            padding: ${padding};
+                        `;
+                }
+                
                 const displayText = suggestion.length > maxChars ? suggestion.substring(0, maxChars) + '...' : suggestion;
                 
                 const pill = $('<button>')
@@ -2873,7 +2961,7 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
             // Ensure suggestions are visible after adding them
             ensureSuggestionsVisible();
             
-            // Add some custom CSS for better mobile responsiveness
+            // Add custom CSS for the different layout modes
             if (!$('#suggestion-pills-styles').length) {
                 $('head').append(`
                     <style id="suggestion-pills-styles">
@@ -2887,48 +2975,51 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
                         }
                         .suggestion-pill {
                             transition: all 0.2s ease;
-                            margin: 2px;
-                            white-space: nowrap;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
+                            margin: 1px;
+                            border: 1px solid #007bff;
+                            background-color: #fff;
+                            color: #007bff;
                         }
                         .suggestion-pill:hover {
                             transform: translateY(-1px);
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            box-shadow: 0 2px 6px rgba(0,123,255,0.25);
+                            background-color: #007bff;
+                            color: white;
+                        }
+                        .suggestion-pill:active {
+                            transform: translateY(0);
                         }
                         
-                        /* Desktop styles */
+                        /* Single line mode - horizontal scroll if needed */
+                        .next-question-suggestions .flex-nowrap {
+                            scrollbar-width: thin;
+                            scrollbar-color: #007bff transparent;
+                        }
+                        .next-question-suggestions .flex-nowrap::-webkit-scrollbar {
+                            height: 4px;
+                        }
+                        .next-question-suggestions .flex-nowrap::-webkit-scrollbar-track {
+                            background: transparent;
+                        }
+                        .next-question-suggestions .flex-nowrap::-webkit-scrollbar-thumb {
+                            background-color: #007bff;
+                            border-radius: 2px;
+                        }
+                        
+                        /* Responsive adjustments */
+                        @media (max-width: 768px) {
+                            .next-question-suggestions {
+                                margin-left: -4px;
+                                margin-right: -4px;
+                                padding-left: 4px;
+                                padding-right: 4px;
+                            }
+                        }
+                        
                         @media (min-width: 769px) {
                             .next-question-suggestions {
                                 margin-left: -8px;
                                 margin-right: -8px;
-                            }
-                            .next-question-suggestions .d-flex {
-                                justify-content: flex-start !important;
-                                gap: 6px !important;
-                            }
-                            .suggestion-pill {
-                                flex: 1;
-                                min-width: 180px;
-                                max-width: 350px;
-                                font-size: 0.8rem !important;
-                                padding: 8px 16px !important;
-                                margin: 0 2px !important;
-                                text-align: left;
-                            }
-                        }
-                        
-                        /* Mobile styles */
-                        @media (max-width: 768px) {
-                            .next-question-suggestions .d-flex {
-                                justify-content: space-around !important;
-                                gap: 4px !important;
-                            }
-                            .suggestion-pill {
-                                font-size: 0.75rem !important;
-                                padding: 0.25rem 0.5rem !important;
-                                max-width: 45% !important;
-                                flex: none !important;
                             }
                         }
                     </style>
