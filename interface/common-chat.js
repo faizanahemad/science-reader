@@ -1,3 +1,9 @@
+// Global variables to track streaming controllers
+var currentStreamingController = null;
+var currentHintStreamingController = null;
+var currentSolutionStreamingController = null;
+var currentDoubtStreamingController = null;
+
 var ConversationManager = {
     activeConversationId: null,
     getActiveConversation: function () {
@@ -1511,6 +1517,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     // Remove any existing suggestions when starting a new response
     $('#chatView .next-question-suggestions').remove();
     
+    // Show stop button and hide send button
+    $('#stopResponseButton').show();
+    $('#sendMessageButton').hide();
+    
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -1522,6 +1532,17 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     var rendered_answer = ''
     var response_message_id = null;
     var user_message_id = null;
+    var isCancelled = false;
+    
+    // Store the reader for potential cancellation
+    currentStreamingController = {
+        reader: reader,
+        conversationId: conversationId,
+        cancel: function() {
+            isCancelled = true;
+            reader.cancel();
+        }
+    };
     
     // Timer for URL update (same as in renderMessages)
     let focusTimer = null;
@@ -1608,10 +1629,36 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     var rendered_till_now = ''
 
     async function read() {
-        const { value, done } = await reader.read();
+        try {
+            const { value, done } = await reader.read();
 
-        buffer += decoder.decode(value || new Uint8Array, { stream: !done });
-        let boundary = buffer.indexOf('\n');
+            if (isCancelled || done) {
+                // Reset UI state
+                $('#messageText').prop('working', false);
+                $('#stopResponseButton').hide();
+                $('#sendMessageButton').show();
+                currentStreamingController = null;
+                
+                if (done && !isCancelled) {
+                    // Continue with normal completion logic
+                } else if (isCancelled) {
+                    // Handle cancellation
+                    var statusDiv = card.find('.status-div');
+                    statusDiv.find('.status-text').html('Response cancelled by user');
+                    statusDiv.find('.spinner-border').hide();
+                    
+                    // Hide status after a brief moment to show the cancellation message
+                    setTimeout(function() {
+                        statusDiv.hide();
+                    }, 2000);
+                    
+                    console.log('Stream cancelled by user');
+                    return;
+                }
+            }
+
+            buffer += decoder.decode(value || new Uint8Array, { stream: !done });
+            let boundary = buffer.indexOf('\n');
         // Render server message
         var serverMessage = {
             sender: 'server',
@@ -1739,6 +1786,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
         if (done) {
             $('#messageText').prop('working', false);
+            $('#stopResponseButton').hide();
+            $('#sendMessageButton').show();
+            currentStreamingController = null;
             var statusDiv = card.find('.status-div');
             statusDiv.hide();
             statusDiv.find('.status-text').text('');
@@ -1825,9 +1875,194 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         
         // Recursive call to read next message part
         setTimeout(read, 10);
+        
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('Stream was cancelled');
+                // Update status for cancellation
+                if (card) {
+                    var statusDiv = card.find('.status-div');
+                    statusDiv.find('.status-text').html('Response cancelled by user');
+                    statusDiv.find('.spinner-border').hide();
+                    
+                    // Hide status after a brief moment
+                    setTimeout(function() {
+                        statusDiv.hide();
+                    }, 2000);
+                }
+            } else {
+                console.error('Error reading stream:', error);
+                // Update status for error
+                if (card) {
+                    var statusDiv = card.find('.status-div');
+                    statusDiv.find('.status-text').html('Error occurred during streaming');
+                    statusDiv.find('.spinner-border').hide();
+                    
+                    // Hide status after a brief moment
+                    setTimeout(function() {
+                        statusDiv.hide();
+                    }, 3000);
+                }
+            }
+            
+            // Reset UI state
+            $('#messageText').prop('working', false);
+            $('#stopResponseButton').hide();
+            $('#sendMessageButton').show();
+            currentStreamingController = null;
+        }
     }
 
     read();
+}
+
+// Add stop response function
+function stopCurrentResponse() {
+    if (currentStreamingController) {
+        // Provide immediate visual feedback
+        var card = $('#chatView .card').last();
+        if (card.length > 0) {
+            var statusDiv = card.find('.status-div');
+            statusDiv.find('.status-text').html('Stopping response...');
+            statusDiv.find('.spinner-border').hide();
+        }
+        
+        // Send cancellation request to server
+        fetch(`/cancel_response/${currentStreamingController.conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(response => {
+            if (response.ok) {
+                console.log('Cancellation request sent successfully');
+                // Update status to show successful cancellation
+                if (card.length > 0) {
+                    var statusDiv = card.find('.status-div');
+                    statusDiv.find('.status-text').html('Response cancelled by user');
+                }
+            } else {
+                console.error('Failed to send cancellation request');
+                // Update status to show error
+                if (card.length > 0) {
+                    var statusDiv = card.find('.status-div');
+                    statusDiv.find('.status-text').html('Failed to cancel response');
+                }
+            }
+        }).catch(error => {
+            console.error('Error sending cancellation request:', error);
+            // Update status to show error
+            if (card.length > 0) {
+                var statusDiv = card.find('.status-div');
+                statusDiv.find('.status-text').html('Error cancelling response');
+            }
+        });
+        
+        // Cancel the stream reading
+        currentStreamingController.cancel();
+    }
+}
+
+// Add stop coding hint function
+function stopCodingHint() {
+    if (currentHintStreamingController) {
+        // Provide immediate visual feedback
+        var statusElement = $('#hint-status');
+        var statusTextElement = $('#hint-status-text');
+        statusElement.show();
+        statusTextElement.text('Stopping hint generation...');
+        
+        // Send cancellation request to server
+        fetch(`/cancel_coding_hint/${currentHintStreamingController.conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(response => {
+            if (response.ok) {
+                statusTextElement.text('Hint generation cancelled by user');
+                setTimeout(function() {
+                    statusElement.hide();
+                }, 2000);
+            } else {
+                statusTextElement.text('Failed to cancel hint generation');
+            }
+        }).catch(error => {
+            statusTextElement.text('Error cancelling hint generation');
+        });
+        
+        // Cancel the stream reading
+        currentHintStreamingController.cancel();
+    }
+}
+
+// Add stop coding solution function
+function stopCodingSolution() {
+    if (currentSolutionStreamingController) {
+        // Provide immediate visual feedback
+        var statusElement = $('#solution-status');
+        var statusTextElement = $('#solution-status-text');
+        statusElement.show();
+        statusTextElement.text('Stopping solution generation...');
+        
+        // Send cancellation request to server
+        fetch(`/cancel_coding_solution/${currentSolutionStreamingController.conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(response => {
+            if (response.ok) {
+                statusTextElement.text('Solution generation cancelled by user');
+                setTimeout(function() {
+                    statusElement.hide();
+                }, 2000);
+            } else {
+                statusTextElement.text('Failed to cancel solution generation');
+            }
+        }).catch(error => {
+            statusTextElement.text('Error cancelling solution generation');
+        });
+        
+        // Cancel the stream reading
+        currentSolutionStreamingController.cancel();
+    }
+}
+
+// Add stop doubt clearing function
+function stopDoubtClearing() {
+    if (currentDoubtStreamingController) {
+        // Provide immediate visual feedback - find the assistant card that's currently being streamed
+        var assistantCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
+        if (assistantCard.length > 0) {
+            assistantCard.find('.card-body').html('<div class="text-center text-muted">Stopping doubt clearing...</div>');
+        }
+        
+        // Send cancellation request to server
+        fetch(`/cancel_doubt_clearing/${currentDoubtStreamingController.conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        }).then(response => {
+            if (response.ok) {
+                if (assistantCard.length > 0) {
+                    assistantCard.find('.card-body').html('<div class="text-center text-muted">Doubt clearing cancelled by user</div>');
+                }
+            } else {
+                if (assistantCard.length > 0) {
+                    assistantCard.find('.card-body').html('<div class="alert alert-danger alert-sm">Failed to cancel doubt clearing</div>');
+                }
+            }
+        }).catch(error => {
+            if (assistantCard.length > 0) {
+                assistantCard.find('.card-body').html('<div class="alert alert-danger alert-sm">Error cancelling doubt clearing</div>');
+            }
+        });
+        
+        // Cancel the stream reading
+        currentDoubtStreamingController.cancel();
+    }
 }
 
 function highLightActiveConversation(conversationId) {
@@ -2765,6 +3000,10 @@ function sendMessageCallback() {
     ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search).then(function (response) {
         if (!response.ok) {
             alert('An error occurred: ' + response.status);
+            // Reset UI state on error
+            $('#stopResponseButton').hide();
+            $('#sendMessageButton').show();
+            $('#messageText').prop('working', false);
             return;
         }
         // $('#messageText').val('');  // Clear the messageText field
@@ -2780,6 +3019,13 @@ function sendMessageCallback() {
         ConversationManager.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
         });
+    }).catch(function(error) {
+        // Reset UI state on error
+        $('#stopResponseButton').hide();
+        $('#sendMessageButton').show();
+        $('#messageText').prop('working', false);
+        console.error('Error sending message:', error);
+        alert('Error sending message: ' + error.message);
     });
     var chatView = $('#chatView');
     // chatView.scrollTop(chatView.prop('scrollHeight'));

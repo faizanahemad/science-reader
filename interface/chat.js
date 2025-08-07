@@ -41,6 +41,10 @@ function chat_interface_readiness() {
     $('#messageText').on('input change', textboxCallBack);
     addOptions('chat-options', 'assistant', null);
     $('#sendMessageButton').on('click', sendMessageCallback);
+    $('#stopResponseButton').on('click', stopCurrentResponse);
+    $('#stop-hint-button').on('click', stopCodingHint);
+    $('#stop-solution-button').on('click', stopCodingSolution);
+    $('#stop-doubt-chat-button').on('click', stopDoubtClearing);
     $('.dynamic-textarea').on('input change', function() {
       if ($(this).val().length === 0) {
           // If the textarea is empty, reset to the default height of 30px

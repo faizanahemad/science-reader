@@ -295,19 +295,23 @@
                                                 </label>
                                                 <input id="chat-file-upload" type="file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson" style="display: none;"/>
                                             </span>
-                                            <span class="input-group-text" id="voice-record-span" style="border-right: none; background-color: transparent;">  
+                                            <span class="input-group-text" id="voice-record-span" style="border-right: none; background-color: transparent;" title="Voice Input (Ctrl+K)">  
                                                 <label for="voice-record" class="mb-0" style="cursor: pointer;">  
                                                     <i class="fa fa-microphone"></i>  
                                                 </label>  
                                                 <button id="voice-record" style="display: none;"></button>  
                                             </span>  
                                         </div>
-                                        <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here." style="max-height: 240px; overflow-y: auto; height: 38px; border-left: none;"></textarea>
+                                        <textarea id="messageText" class="dynamic-textarea form-control" placeholder="Type your message here. Press Ctrl+K for voice input." style="max-height: 240px; overflow-y: auto; height: 38px; border-left: none;"></textarea>
                                     </div>
                                     
                                     <div class="input-group-append" style="margin-left: 5px;">
                                         <button id="sendMessageButton" class="btn btn-success">
                                             ➤<!-- i class="fas fa-paper-plane"></i--> <!-- You can also add "Send" text here if needed -->
+                                        </button>
+                                        <button id="stopResponseButton" class="btn btn-danger" style="display: none; margin-left: 5px; position: relative;">
+                                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);"></span>
+                                            ⏹
                                         </button>
                                          <div id="uploadProgressContainer" style="position: relative; display: inline-block; display: none;">
                                               <div id="uploadSpinner" class="spinner-border text-success" role="status">
@@ -573,6 +577,9 @@
                     </div>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" id="stop-hint-button" class="btn btn-danger" style="display: none;">
+                        <i class="bi bi-stop-circle"></i>&nbsp;Stop Hint
+                    </button>
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">
                         <i class="bi bi-x-circle"></i>&nbsp;Close
                     </button>
@@ -642,14 +649,25 @@
                         </div>
                         <div id="doubt-chat-input-area" style="border-top: 1px solid #ddd; padding: 1rem; background-color: white;">
                             <div class="input-group">
-                                <textarea id="doubt-chat-input" class="form-control" placeholder="Ask your doubt or follow-up question..." rows="3" style="resize: none;"></textarea>
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text" id="doubt-voice-record-span" style="border-right: none; background-color: transparent;">  
+                                        <label for="doubt-voice-record" class="mb-0" style="cursor: pointer;">  
+                                            <i class="fa fa-microphone"></i>  
+                                        </label>  
+                                        <button id="doubt-voice-record" style="display: none;"></button>  
+                                    </span>  
+                                </div>
+                                <textarea id="doubt-chat-input" class="form-control" placeholder="Ask your doubt or follow-up question..." rows="3" style="resize: none; border-left: none;"></textarea>
                                 <div class="input-group-append">
                                     <button id="doubt-chat-send-btn" class="btn btn-primary" type="button" style="height: 100%;">
                                         <i class="bi bi-send"></i>&nbsp;Send
                                     </button>
+                                    <button id="stop-doubt-chat-button" class="btn btn-danger" type="button" style="height: 100%; display: none; margin-left: 5px;">
+                                        <i class="bi bi-stop-circle"></i>&nbsp;Stop
+                                    </button>
                                 </div>
                             </div>
-                            <small class="text-muted mt-1 d-block">Press Ctrl+Enter to send</small>
+                            <small class="text-muted mt-1 d-block">Press Ctrl+Enter to send • Press Ctrl+K for voice input</small>
                         </div>
                     </div>
                 </div>
@@ -683,6 +701,9 @@
                     </div>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" id="stop-solution-button" class="btn btn-danger" style="display: none;">
+                        <i class="bi bi-stop-circle"></i>&nbsp;Stop Solution
+                    </button>
                     <button type="button" id="copy-solution-btn" class="btn btn-primary" style="margin-right: 8px;">
                         <i class="bi bi-clipboard"></i>&nbsp;Copy to Editor
                     </button>

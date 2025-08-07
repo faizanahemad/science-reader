@@ -2902,9 +2902,23 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 
-def get_coding_hint(text, conversation_history="", current_code="", keys=None, stream=False) -> Union[str, Generator[str, None, None]]:
+def is_coding_hint_cancelled(conversation_id):
+    """Check if coding hint generation has been cancelled"""
+    if conversation_id in coding_hint_cancellation_requests:
+        return coding_hint_cancellation_requests[conversation_id].get('cancelled', False)
+    return False
+
+def clear_coding_hint_cancellation(conversation_id):
+    """Clear coding hint cancellation flag"""
+    if conversation_id in coding_hint_cancellation_requests:
+        del coding_hint_cancellation_requests[conversation_id]
+
+def get_coding_hint(text, conversation_history="", current_code="", keys=None, stream=False, conversation_id=None) -> Union[str, Generator[str, None, None]]:
     """Generate a helpful coding hint based on the context, return a generator if stream is True"""
     try:
+        # Clear any existing cancellation at the start
+        if conversation_id:
+            clear_coding_hint_cancellation(conversation_id)
         hint_prompt = f"""
 You are an expert coding mentor providing helpful hints to a student. Analyze the context and provide a targeted hint that guides them toward the solution without giving it away completely.
 
@@ -2947,18 +2961,45 @@ If the user has written bare minimum code, or no code at all, then provide an ou
 """
 
         llm = CallLLm(keys, CHEAP_LLM[0])
-        hint = llm(hint_prompt, temperature=0.7, stream=stream, system="You are a helpful coding mentor who provides targeted hints without giving away the complete solution.")
+        hint_generator = llm(hint_prompt, temperature=0.7, stream=stream, system="You are a helpful coding mentor who provides targeted hints without giving away the complete solution.")
         
-        return hint
+        if stream and conversation_id:
+            # Wrap generator with cancellation checks
+            def cancellation_aware_generator():
+                for chunk in hint_generator:
+                    if is_coding_hint_cancelled(conversation_id):
+                        yield "\n\n**Hint generation was cancelled by user**"
+                        break
+                    yield chunk
+                # Clear cancellation flag after completion
+                clear_coding_hint_cancellation(conversation_id)
+            
+            return cancellation_aware_generator()
+        else:
+            return hint_generator
         
     except Exception as e:
         logger.error(f"Error generating coding hint: {str(e)}")
         return f"Unable to generate hint at this time. Try breaking down the problem into smaller steps and consider what data structures or algorithms might be most appropriate for this type of problem."
 
 
-def get_full_solution_code(text, conversation_history="", current_code="", keys=None, stream=False) -> Union[str, Generator[str, None, None]]:
+def is_coding_solution_cancelled(conversation_id):
+    """Check if coding solution generation has been cancelled"""
+    if conversation_id in coding_solution_cancellation_requests:
+        return coding_solution_cancellation_requests[conversation_id].get('cancelled', False)
+    return False
+
+def clear_coding_solution_cancellation(conversation_id):
+    """Clear coding solution cancellation flag"""
+    if conversation_id in coding_solution_cancellation_requests:
+        del coding_solution_cancellation_requests[conversation_id]
+
+def get_full_solution_code(text, conversation_history="", current_code="", keys=None, stream=False, conversation_id=None) -> Union[str, Generator[str, None, None]]:
     """Generate a complete solution with explanation, return a generator if stream is True"""
     try:
+        # Clear any existing cancellation at the start
+        if conversation_id:
+            clear_coding_solution_cancellation(conversation_id)
         solution_prompt = f"""
 You are an expert software engineer providing a complete, well-documented solution to a coding problem.
 
@@ -3027,9 +3068,22 @@ Provide a solution that demonstrates best practices and helps the user learn pro
 """
 
         llm = CallLLm(keys, EXPENSIVE_LLM[0])  # Use better model for complete solutions
-        solution = llm(solution_prompt, temperature=0.3, stream=stream, system="You are an expert software engineer providing complete, well-documented solutions with educational explanations in python. Make sure that it is a complete solution self contained and does not require any external libraries or modules to be installed. It should be directly executable and also include test cases")
+        solution_generator = llm(solution_prompt, temperature=0.3, stream=stream, system="You are an expert software engineer providing complete, well-documented solutions with educational explanations in python. Make sure that it is a complete solution self contained and does not require any external libraries or modules to be installed. It should be directly executable and also include test cases")
         
-        return solution
+        if stream and conversation_id:
+            # Wrap generator with cancellation checks
+            def cancellation_aware_generator():
+                for chunk in solution_generator:
+                    if is_coding_solution_cancelled(conversation_id):
+                        yield "\n\n**Solution generation was cancelled by user**"
+                        break
+                    yield chunk
+                # Clear cancellation flag after completion
+                clear_coding_solution_cancellation(conversation_id)
+            
+            return cancellation_aware_generator()
+        else:
+            return solution_generator
         
     except Exception as e:
         logger.error(f"Error generating full solution: {str(e)}")
@@ -3460,5 +3514,11 @@ def buffer_generator_async(generator):
                 continue
     
     return buffered_generator()
+
+
+cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
+coding_hint_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
+coding_solution_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
+doubt_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
 
 

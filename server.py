@@ -182,12 +182,21 @@ def create_tables():
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_workspace_id ON WorkspaceMetadata (workspace_id)")
 
+    # Add child_doubt_id column if it doesn't exist (for bidirectional pointers)
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN child_doubt_id text")
+        logger.info("Added child_doubt_id column to DoubtsClearing table")
+    except Exception as e:
+        # Column already exists or other error - this is fine
+        pass
+
     # create indexes for DoubtsClearing table
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conversation_id ON DoubtsClearing (conversation_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_user_email ON DoubtsClearing (user_email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_message_id ON DoubtsClearing (message_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conv_msg ON DoubtsClearing (conversation_id, message_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_parent_doubt_id ON DoubtsClearing (parent_doubt_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_child_doubt_id ON DoubtsClearing (child_doubt_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_is_root ON DoubtsClearing (is_root_doubt)")
     
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
@@ -440,6 +449,14 @@ def add_doubt(conversation_id, user_email, message_id, doubt_text, doubt_answer,
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, 
               parent_doubt_id, is_root_doubt, now, now))
+        
+        # If this doubt has a parent, update the parent's child_doubt_id to point to this doubt
+        if parent_doubt_id:
+            cur.execute("""
+                UPDATE DoubtsClearing 
+                SET child_doubt_id = ?, updated_at = ?
+                WHERE doubt_id = ?
+            """, (doubt_id, now, parent_doubt_id))
         
         conn.commit()
         
@@ -1956,6 +1973,113 @@ def cached_get_file(file_url):
         cache.set(file_url, file_data)
 
 
+
+@app.route('/cancel_response/<conversation_id>', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def cancel_response(conversation_id):
+    """Cancel an ongoing streaming response"""
+    from base import cancellation_requests
+    email, name, loggedin = check_login(session)
+    
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    
+    # Set cancellation flag
+    cancellation_requests[conversation_id] = {
+        'cancelled': True, 
+        'timestamp': time.time()
+    }
+    
+    logger.info(f"Cancellation requested for conversation {conversation_id} by user {email}")
+    return jsonify({"message": "Cancellation requested successfully"}), 200
+
+
+
+# Optional: Add cleanup route to remove old cancellation requests
+@app.route('/cleanup_cancellations', methods=['POST'])
+def cleanup_cancellations():
+    """Remove old cancellation requests (older than 1 hour)"""
+    from base import cancellation_requests
+    current_time = time.time()
+    to_remove = []
+    
+    for conv_id, data in cancellation_requests.items():
+        if current_time - data.get('timestamp', 0) > 3600:  # 1 hour
+            to_remove.append(conv_id)
+    
+    for conv_id in to_remove:
+        del cancellation_requests[conv_id]
+    
+    return jsonify({"message": f"Cleaned up {len(to_remove)} old cancellation requests"}), 200
+
+@app.route('/cancel_coding_hint/<conversation_id>', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def cancel_coding_hint(conversation_id):
+    """Cancel an ongoing coding hint generation"""
+    email, name, loggedin = check_login(session)
+    
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    
+    # Import here to avoid circular imports
+    from base import coding_hint_cancellation_requests
+    
+    # Set cancellation flag
+    coding_hint_cancellation_requests[conversation_id] = {
+        'cancelled': True, 
+        'timestamp': time.time()
+    }
+    
+    logger.info(f"Coding hint cancellation requested for conversation {conversation_id} by user {email}")
+    return jsonify({"message": "Coding hint cancellation requested successfully"}), 200
+
+@app.route('/cancel_coding_solution/<conversation_id>', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def cancel_coding_solution(conversation_id):
+    """Cancel an ongoing coding solution generation"""
+    email, name, loggedin = check_login(session)
+    
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    
+    # Import here to avoid circular imports
+    from base import coding_solution_cancellation_requests
+    
+    # Set cancellation flag
+    coding_solution_cancellation_requests[conversation_id] = {
+        'cancelled': True, 
+        'timestamp': time.time()
+    }
+    
+    logger.info(f"Coding solution cancellation requested for conversation {conversation_id} by user {email}")
+    return jsonify({"message": "Coding solution cancellation requested successfully"}), 200
+
+@app.route('/cancel_doubt_clearing/<conversation_id>', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def cancel_doubt_clearing(conversation_id):
+    """Cancel an ongoing doubt clearing"""
+    email, name, loggedin = check_login(session)
+    
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    
+    # Import here to avoid circular imports
+    from base import doubt_cancellation_requests
+    
+    # Set cancellation flag
+    doubt_cancellation_requests[conversation_id] = {
+        'cancelled': True, 
+        'timestamp': time.time()
+    }
+    
+    logger.info(f"Doubt clearing cancellation requested for conversation {conversation_id} by user {email}")
+    return jsonify({"message": "Doubt clearing cancellation requested successfully"}), 200
+
+
 ### chat apis
 @app.route('/list_conversation_by_user/<domain>', methods=['GET'])
 @limiter.limit("500 per minute")
@@ -2264,7 +2388,7 @@ def get_coding_hint_endpoint(conversation_id):
                 }) + '\n'
                 
                 # Generate hint with streaming
-                hint_generator = get_coding_hint(context_text, conversation_history, current_code, keys, stream=True)
+                hint_generator = get_coding_hint(context_text, conversation_history, current_code, keys, stream=True, conversation_id=conversation_id)
                 
                 accumulated_text = ""
                 for chunk in hint_generator:
@@ -2342,7 +2466,7 @@ def get_full_solution_endpoint(conversation_id):
                 }) + '\n'
                 
                 # Generate solution with streaming
-                solution_generator = get_full_solution_code(context_text, conversation_history, current_code, keys, stream=True)
+                solution_generator = get_full_solution_code(context_text, conversation_history, current_code, keys, stream=True, conversation_id=conversation_id)
                 
                 accumulated_text = ""
                 for chunk in solution_generator:
@@ -2413,6 +2537,7 @@ def send_message(conversation_id):
         for chunk in conversation(query, user_details):
             response_queue.put(chunk)
         response_queue.put("<--END-->")
+        conversation.clear_cancellation()
 
     future = get_async_future(generate_response)
 
@@ -2602,35 +2727,40 @@ def clear_doubt(conversation_id, message_id):
                 doubt_generator = conversation.clear_doubt(message_id, doubt_text, doubt_history)
                 
                 accumulated_text = ""
-                for chunk in doubt_generator:
-                    if chunk:
-                        accumulated_text += chunk
-                        accumulated_doubt_answer += chunk
-                        yield json.dumps({
-                            "text": chunk,
-                            "status": "Clearing doubt...",
-                            "conversation_id": conversation_id,
-                            "message_id": message_id,
-                            "type": "doubt_clearing",
-                            "accumulated_text": accumulated_text
-                        }) + '\n'
+                doubt_id = None
                 
-                # Save doubt and answer to database/storage
                 try:
-                    # Save to DoubtsClearing table and get doubt_id
-                    doubt_id = add_doubt(
-                        conversation_id=conversation_id,
-                        user_email=email,
-                        message_id=message_id,
-                        doubt_text=doubt_text or "Please explain this message in more detail.",
-                        doubt_answer=accumulated_doubt_answer,
-                        parent_doubt_id=parent_doubt_id
-                    )
-                    logger.info(f"Doubt clearing data saved successfully with ID {doubt_id}: {len(accumulated_doubt_answer)} characters")
-                    
-                except Exception as save_error:
-                    logger.error(f"Error saving doubt clearing data: {str(save_error)}")
-                    doubt_id = None
+                    for chunk in doubt_generator:
+                        if chunk:
+                            accumulated_text += chunk
+                            accumulated_doubt_answer += chunk
+                            yield json.dumps({
+                                "text": chunk,
+                                "status": "Clearing doubt...",
+                                "conversation_id": conversation_id,
+                                "message_id": message_id,
+                                "type": "doubt_clearing",
+                                "accumulated_text": accumulated_text
+                            }) + '\n'
+                
+                finally:
+                    # Always save doubt and answer to database/storage, even if cancelled
+                    if accumulated_doubt_answer.strip():  # Only save if we have some content
+                        try:
+                            # Save to DoubtsClearing table and get doubt_id
+                            doubt_id = add_doubt(
+                                conversation_id=conversation_id,
+                                user_email=email,
+                                message_id=message_id,
+                                doubt_text=doubt_text or "Please explain this message in more detail.",
+                                doubt_answer=accumulated_doubt_answer,
+                                parent_doubt_id=parent_doubt_id
+                            )
+                            logger.info(f"Doubt clearing data saved successfully with ID {doubt_id}: {len(accumulated_doubt_answer)} characters")
+                            
+                        except Exception as save_error:
+                            logger.error(f"Error saving doubt clearing data: {str(save_error)}")
+                            doubt_id = None
                 
                 # Final status with doubt_id
                 final_text = f"<doubt_id>{doubt_id}</doubt_id>" if doubt_id else ""

@@ -137,14 +137,75 @@ const DoubtManager = {
     },
     
     /**
-     * Ask a new doubt (opens chat modal with empty history)
+     * Ask a new doubt (opens chat modal, loading existing doubts as history)
      */
     askNewDoubt: function(conversationId, messageId) {
         this.currentConversationId = conversationId;
         this.currentMessageId = messageId;
-        this.currentDoubtHistory = [];
         
-        this.openDoubtChatModal();
+        // Load existing doubts to build proper parent-child relationships
+        this.loadExistingDoubtsAsHistory(conversationId, messageId);
+    },
+    
+    /**
+     * Load existing doubts as history for new doubt conversations
+     */
+    loadExistingDoubtsAsHistory: function(conversationId, messageId) {
+        const self = this;
+        
+        // Fetch existing doubts for this message
+        fetch(`/get_doubts/${conversationId}/${messageId}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.doubts && data.doubts.length > 0) {
+                // Flatten and sort all doubts by created_at to build a linear conversation history
+                const allDoubts = self.flattenDoubtTree(data.doubts);
+                allDoubts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                
+                self.currentDoubtHistory = allDoubts;
+                self.openDoubtChatModal();
+                self.renderDoubtHistory(allDoubts);
+            } else {
+                // No existing doubts, start fresh
+                self.currentDoubtHistory = [];
+                self.openDoubtChatModal();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading existing doubts:', error);
+            // Fallback to empty history
+            self.currentDoubtHistory = [];
+            self.openDoubtChatModal();
+        });
+    },
+    
+    /**
+     * Flatten doubt tree into a linear array
+     */
+    flattenDoubtTree: function(doubts) {
+        const flattened = [];
+        
+        function flattenRecursive(doubtList) {
+            for (const doubt of doubtList) {
+                flattened.push(doubt);
+                if (doubt.children && doubt.children.length > 0) {
+                    flattenRecursive(doubt.children);
+                }
+            }
+        }
+        
+        flattenRecursive(doubts);
+        return flattened;
     },
     
     /**
@@ -168,8 +229,21 @@ const DoubtManager = {
         })
         .then(data => {
             if (data.success && data.doubt) {
-                // Get the full history for this doubt thread
-                return self.getDoubtHistory(doubtId);
+                // Get the full tree for this message and find the conversation thread
+                const conversationId = data.doubt.conversation_id;
+                const messageId = data.doubt.message_id;
+                
+                return fetch(`/get_doubts/${conversationId}/${messageId}`)
+                    .then(response => response.json())
+                    .then(treeData => {
+                        if (treeData.success && treeData.doubts) {
+                            // Flatten the tree and sort by created_at
+                            const allDoubts = self.flattenDoubtTree(treeData.doubts);
+                            allDoubts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                            return allDoubts;
+                        }
+                        return [];
+                    });
             } else {
                 throw new Error('Doubt not found');
             }
@@ -226,6 +300,9 @@ const DoubtManager = {
         // Set up chat event handlers
         this.setupChatEventHandlers();
         
+        // Initialize voice transcription for doubt modal
+        this.initializeDoubtVoiceTranscription();
+        
         // Focus on input
         setTimeout(() => {
             input.focus();
@@ -264,18 +341,54 @@ const DoubtManager = {
         // Always create delete button for user messages, even if doubtId is null initially
         const deleteBtn = isUser ? `<button class="doubt-delete-btn float-right" data-doubt-id="${doubtId || ''}" title="Delete Doubt"><i class="bi bi-trash"></i></button>` : '';
         
+        // Render content based on sender type
+        let renderedContent;
+        if (isUser) {
+            // User messages are plain text - just convert line breaks
+            renderedContent = text.replace(/\n/g, '<br>');
+        } else {
+            // Assistant messages should be rendered as markdown
+            if (typeof marked !== 'undefined' && marked.parse) {
+                renderedContent = marked.parse(text);
+            } else {
+                // Fallback if marked is not available
+                renderedContent = text.replace(/\n/g, '<br>');
+            }
+        }
+        
         const card = $(`
             <div class="card doubt-conversation-card ${senderClass}">
                 <div class="card-header">
                     ${senderText} ${deleteBtn}
                 </div>
                 <div class="card-body">
-                    ${text.replace(/\n/g, '<br>')}
+                    ${renderedContent}
                 </div>
             </div>
         `);
         
         return card;
+    },
+    
+    /**
+     * Initialize voice transcription for doubt modal
+     */
+    initializeDoubtVoiceTranscription: function() {
+        // Initialize doubt chat voice transcription if not already done
+        if (typeof doubtChatVoice === 'undefined' || !doubtChatVoice) {
+            // Check if VoiceTranscription class is available
+            if (typeof VoiceTranscription !== 'undefined') {
+                window.doubtChatVoice = new VoiceTranscription(
+                    '#doubt-chat-input', 
+                    '#doubt-voice-record', 
+                    'label[for="doubt-voice-record"] i'
+                );
+                console.log('Doubt chat voice transcription initialized');
+            }
+        } else {
+            // Reinitialize if already exists (in case modal was closed and reopened)
+            doubtChatVoice.reinitialize();
+        }
     },
     
     /**
@@ -342,6 +455,7 @@ const DoubtManager = {
         messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
         
         // Determine parent doubt ID for follow-ups
+        // In a chat conversation, each new question should be a child of the last question
         const parentDoubtId = this.currentDoubtHistory.length > 0 
             ? this.currentDoubtHistory[this.currentDoubtHistory.length - 1].doubt_id 
             : null;
@@ -359,6 +473,9 @@ const DoubtManager = {
         
         // Show loading state
         assistantBody.html('<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div> Thinking...</div>');
+        
+        // Show stop button
+        $('#stop-doubt-chat-button').show();
         
         // Find the user card that was just added (the previous sibling of assistantCard)
         const userCard = assistantCard.prev('.doubt-conversation-card.user-doubt');
@@ -393,7 +510,7 @@ const DoubtManager = {
             assistantBody.html(`<div class="alert alert-danger alert-sm">Failed to get response: ${error.message}</div>`);
         })
         .finally(() => {
-            // Re-enable input
+            // Re-enable input (but don't hide stop button here - it's handled in renderStreamingDoubtResponse)
             $('#doubt-chat-input').prop('disabled', false);
             $('#doubt-chat-send-btn').prop('disabled', false);
             $('#doubt-chat-input').focus();
@@ -410,13 +527,51 @@ const DoubtManager = {
         let buffer = '';
         let accumulatedText = '';
         let doubtId = null;
+        let isCancelled = false;
+        
+        // Set up streaming controller
+        currentDoubtStreamingController = {
+            reader: reader,
+            conversationId: self.currentConversationId,
+            cancel: function() {
+                isCancelled = true;
+                reader.cancel();
+            }
+        };
         
         async function read() {
             try {
                 const { value, done } = await reader.read();
                 
-                if (done) {
+                if (done || isCancelled) {
                     console.log('Doubt streaming complete');
+                    // Reset UI state
+                    $('#stop-doubt-chat-button').hide();
+                    currentDoubtStreamingController = null;
+                    
+                    if (isCancelled) {
+                        console.log('Doubt streaming cancelled by user');
+                        
+                        // Still try to update doubt ID if we have one (partial response was saved)
+                        if (doubtId) {
+                            // Update user card with doubt ID for deletion
+                            if (userCard && userCard.length > 0) {
+                                const userDeleteBtn = userCard.find('.doubt-delete-btn');
+                                userDeleteBtn.data('doubt-id', doubtId);
+                                userDeleteBtn.prop('disabled', false).removeClass('text-muted');
+                            }
+                            
+                            // Update the current doubt history for follow-up questions
+                            if (self.currentDoubtHistory) {
+                                self.currentDoubtHistory.push({
+                                    doubt_id: doubtId,
+                                    doubt_text: userCard ? userCard.find('.card-body').text() : '',
+                                    doubt_answer: accumulatedText + "\n\n**[Cancelled by user]**"
+                                });
+                            }
+                        }
+                        return;
+                    }
                     
                     // Update both user and assistant cards with doubt ID for deletion
                     if (doubtId) {
@@ -493,7 +648,14 @@ const DoubtManager = {
                 
             } catch (error) {
                 console.error("Error in doubt streaming:", error);
-                assistantBody.html(`<div class="alert alert-danger alert-sm">Streaming error: ${error.message}</div>`);
+                $('#stop-doubt-chat-button').hide();
+                currentDoubtStreamingController = null;
+                
+                if (error.name === 'AbortError') {
+                    assistantBody.html(`<div class="alert alert-warning alert-sm">Doubt clearing was cancelled</div>`);
+                } else {
+                    assistantBody.html(`<div class="alert alert-danger alert-sm">Streaming error: ${error.message}</div>`);
+                }
             }
         }
         

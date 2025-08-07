@@ -286,19 +286,40 @@ def comprehensive_example():
         let contentElement = modal.find('#hint-content');
         let statusElement = modal.find('#hint-status');
         let statusTextElement = modal.find('#hint-status-text');
+        let isCancelled = false;
+        
+        // Show stop button and set up streaming controller
+        $('#stop-hint-button').show();
+        currentHintStreamingController = {
+            reader: reader,
+            conversationId: conversationId,
+            cancel: function() {
+                isCancelled = true;
+                reader.cancel();
+            }
+        };
         
         async function read() {
             try {
                 const { value, done } = await reader.read();
                 
-                if (done) {
+                if (done || isCancelled) {
                     console.log('Hint streaming complete');
-                    // Hide status and show final content
-                    statusElement.hide();
-                    if (accumulatedText) {
-                        renderHintContent(contentElement, accumulatedText);
+                    // Reset UI state
+                    $('#stop-hint-button').hide();
+                    currentHintStreamingController = null;
+                    
+                    if (done && !isCancelled) {
+                        // Hide status and show final content
+                        statusElement.hide();
+                        if (accumulatedText) {
+                            renderHintContent(contentElement, accumulatedText);
+                        }
+                        showToast("Hint generated successfully!", "success");
+                    } else if (isCancelled) {
+                        statusElement.hide();
+                        console.log('Hint streaming cancelled by user');
                     }
-                    showToast("Hint generated successfully!", "success");
                     return;
                 }
                 
@@ -343,8 +364,15 @@ def comprehensive_example():
             } catch (error) {
                 console.error("Error in hint streaming:", error);
                 statusElement.hide();
-                contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
-                showToast("Failed to stream hint", "error");
+                $('#stop-hint-button').hide();
+                currentHintStreamingController = null;
+                
+                if (error.name === 'AbortError') {
+                    contentElement.html(`<div class="alert alert-warning">Hint generation was cancelled</div>`);
+                } else {
+                    contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
+                    showToast("Failed to stream hint", "error");
+                }
             }
         }
         
@@ -360,17 +388,6 @@ def comprehensive_example():
         }
     }
 
-    function displayHintModal(hintText) {
-        // Use the existing hint modal from HTML
-        const modal = $('#hint-modal');
-        
-        // Set content
-        renderHintContent(modal.find('#hint-content'), hintText);
-        
-        // Show the modal using Bootstrap's modal method
-        modal.modal('show');
-    }
-
     function renderStreamingSolution(streamingResponse, conversationId, modal) {
         const reader = streamingResponse.body.getReader();
         const decoder = new TextDecoder();
@@ -379,19 +396,40 @@ def comprehensive_example():
         let contentElement = modal.find('#solution-content');
         let statusElement = modal.find('#solution-status');
         let statusTextElement = modal.find('#solution-status-text');
+        let isCancelled = false;
+        
+        // Show stop button and set up streaming controller
+        $('#stop-solution-button').show();
+        currentSolutionStreamingController = {
+            reader: reader,
+            conversationId: conversationId,
+            cancel: function() {
+                isCancelled = true;
+                reader.cancel();
+            }
+        };
         
         async function read() {
             try {
                 const { value, done } = await reader.read();
                 
-                if (done) {
+                if (done || isCancelled) {
                     console.log('Solution streaming complete');
-                    // Hide status and show final content
-                    statusElement.hide();
-                    if (accumulatedText) {
-                        renderSolutionContent(contentElement, accumulatedText);
+                    // Reset UI state
+                    $('#stop-solution-button').hide();
+                    currentSolutionStreamingController = null;
+                    
+                    if (done && !isCancelled) {
+                        // Hide status and show final content
+                        statusElement.hide();
+                        if (accumulatedText) {
+                            renderSolutionContent(contentElement, accumulatedText);
+                        }
+                        showToast("Solution generated successfully!", "success");
+                    } else if (isCancelled) {
+                        statusElement.hide();
+                        console.log('Solution streaming cancelled by user');
                     }
-                    showToast("Solution generated successfully!", "success");
                     return;
                 }
                 
@@ -436,8 +474,15 @@ def comprehensive_example():
             } catch (error) {
                 console.error("Error in solution streaming:", error);
                 statusElement.hide();
-                contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
-                showToast("Failed to stream solution", "error");
+                $('#stop-solution-button').hide();
+                currentSolutionStreamingController = null;
+                
+                if (error.name === 'AbortError') {
+                    contentElement.html(`<div class="alert alert-warning">Solution generation was cancelled</div>`);
+                } else {
+                    contentElement.html(`<div class="alert alert-danger">Streaming error: ${error.message}</div>`);
+                    showToast("Failed to stream solution", "error");
+                }
             }
         }
         
@@ -453,16 +498,7 @@ def comprehensive_example():
         }
     }
 
-    function displaySolutionModal(solutionText) {
-        // Use the existing solution modal from HTML
-        const modal = $('#solution-modal');
-        
-        // Set content
-        renderSolutionContent(modal.find('#solution-content'), solutionText);
-        
-        // Show the modal using Bootstrap's modal method
-        modal.modal('show');
-    }
+    
 
     function copySolutionToClipboard() {
         // Extract code blocks from the solution and copy to clipboard

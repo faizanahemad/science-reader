@@ -714,6 +714,7 @@ Give 4 suggestions.
     
     @timer
     def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
+        self.clear_cancellation()
         if not persist_or_not:
             return
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
@@ -1171,6 +1172,22 @@ Your response will be in below xml style format:
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query, userData):
             yield json.dumps(txt)+"\n"
+
+    # Add this method to the Conversation class
+    def is_cancelled(self):
+        """Check if this conversation has been cancelled"""
+        from base import cancellation_requests  # Import here to avoid circular imports
+        
+        if self.conversation_id in cancellation_requests:
+            return cancellation_requests[self.conversation_id].get('cancelled', False)
+        return False
+
+    def clear_cancellation(self):
+        """Clear cancellation flag for this conversation"""
+        from base import cancellation_requests
+        
+        if self.conversation_id in cancellation_requests:
+            del cancellation_requests[self.conversation_id]
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True):
         messageText = query["messageText"]
@@ -2318,97 +2335,6 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             time_logger.info(f"Time to reach web search links accumulation code: {(qu_st - st):.2f}")
             time_dict["get_web_search_links"] = qu_st - st
 
-            def re_search_if_needed():
-                while len(web_text_accumulator) < 4:
-                    time.sleep(0.5)
-                if not exists_tmp_marker_file(web_search_tmp_marker_name):
-                    yield False
-                    return
-                full_web_string = ""
-                for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
-                    llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and \
-                                                           sleep_and_get_future_exception(llm_future_dict) is None else ""
-                    wta = get_first_last_parts(wta, 200, 200)
-                    llm_text = get_first_last_parts(llm_text, 200, 200)
-                    web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
-                    full_web_string = full_web_string + web_string + "\n\n"
-                    if get_gpt4_word_count(full_web_string) > 3000:
-                        break
-                query_is_answered_by_search, parser_fn = prompts.query_is_answered_by_search
-                st_re_search_llm = time.time()
-                query_is_answered_by_search = query_is_answered_by_search.format(query=query["messageText"],
-                                                                                 context=summary_text,
-                                                                                 previous_web_search_results=query_results,
-                                                                                 previous_web_search_queries=queries,
-                                                                                 previous_web_search_results_text=full_web_string)
-                search_decision = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_16k=True,
-                                         use_gpt4=False)(query_is_answered_by_search, temperature=0.3, stream=False)
-                search_decision = search_decision.strip().lower()
-                search_decision = parser_fn(search_decision)
-                time_logger.info(f"Redo Search Decision: {search_decision}, prompt len = {len(query_is_answered_by_search.split())}, time taken = {(time.time() - qu_st):.2f}, only llm time = {(time.time() - st_re_search_llm):.2f}")
-                if search_decision["web_search_needed"] and len(search_decision["web_search_queries"])>0 and exists_tmp_marker_file(web_search_tmp_marker_name):
-                    yield True
-                    new_queries = search_decision["web_search_queries"]
-                    new_web_results = get_async_future(web_search_queue, user_query,
-                                                       'helpful ai assistant',
-                                                       previous_context,
-                                                       self.get_api_keys(), datetime.now().strftime("%Y-%m"),
-                                                       extra_queries=new_queries,
-                                                       previous_turn_search_results=None,
-                                                       gscholar=google_scholar,
-                                                       provide_detailed_answers=1,
-                                                       web_search_tmp_marker_name=web_search_tmp_marker_name)
-                    search_results = next(new_web_results.result()[0].result())
-                    atext = "\n**Re Web searched with Queries:** <div data-toggle='collapse' href='#re_webSearchedQueries' role='button'></div> <div class='collapse' id='re_webSearchedQueries'>"
-                    yield {"text": atext, "status": "displaying web search queries ... "}
-                    new_queries = two_column_list(search_results['queries'])
-                    message_config["web_search_queries"].append(search_results['queries'])
-                    yield {"text": new_queries + "</div>\n", "status": "displaying web search queries ... "}
-                    cut_off = 6
-                    if len(search_results['search_results']) > 0:
-                        query_results_part1 = search_results['search_results']
-                        seen_query_results = query_results_part1[:max(10, cut_off)]
-                        unseen_query_results = query_results_part1[max(10, cut_off):]
-                        atext = "\n**Search Results:** <div data-toggle='collapse' href='#re_searchResults' role='button'></div> <div class='collapse' id='re_searchResults'>" + "\n"
-                        yield {"text": atext, "status": "displaying web search results ... "}
-                        new_query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
-                        new_query_results = two_column_list(new_query_results)
-                        yield {"text": new_query_results + "</div>\n", "status": "Reading web search results ... "}
-
-                    result_queue = new_web_results.result()[1]
-                    while True:
-                        qu_wait = time.time()
-                        break_condition = len(web_text_accumulator) >= cut_off or (
-                                    (qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2,
-                                                            self.max_time_to_wait_for_web_results * provide_detailed_answers))
-                        if break_condition and result_queue.empty():
-                            break
-                        one_web_result = None
-                        if not result_queue.empty():
-                            one_web_result = result_queue.get()
-                        qu_et = time.time()
-                        if one_web_result is None and break_condition:
-                            break
-                        if one_web_result is None:
-                            time.sleep(0.5)
-                            continue
-                        if one_web_result == TERMINATION_SIGNAL:
-                            break
-
-                        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
-                                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-                            web_text_accumulator.append((one_web_result["text"],
-                                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
-                                                         one_web_result["llm_result_future"]))
-                            yield {"text": '', "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
-                            time_logger.info(
-                                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
-                        time.sleep(0.5)
-                else:
-                    yield False
-                yield False
-
-            # re_search = get_async_future(re_search_if_needed)
             re_search = None
 
             def get_first_few_result_summary(start = 0, end=4):
@@ -2699,9 +2625,15 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
+        if self.is_cancelled():
+            logger.info(f"Response cancelled for conversation {self.conversation_id}")
+            answer += "\n\n**Response was cancelled by user**"
+            yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
-        if model_name == FILLER_MODEL:
+        if self.is_cancelled():
+            main_ans_gen = iter([])  # empty generator of string
+        elif model_name == FILLER_MODEL:
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif agent is not None:
@@ -2808,6 +2740,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         # TODO: create coding env if coding is needed.
         code_session = None
         for dcit in main_ans_gen:
+            if self.is_cancelled():
+                logger.info(f"Response cancelled for conversation {self.conversation_id}")
+                answer += "\n\n**Response was cancelled by user**"
+                yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
+                break
             if isinstance(dcit, dict):
                 txt = dcit["text"]
                 status = dcit["status"]
@@ -2901,6 +2838,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     answer += stderr
 
 
+        self.clear_cancellation()
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
@@ -3217,6 +3155,19 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         
         return target_message, context_messages
 
+    def is_doubt_clearing_cancelled(self):
+        """Check if doubt clearing has been cancelled"""
+        from base import doubt_cancellation_requests
+        if self.conversation_id in doubt_cancellation_requests:
+            return doubt_cancellation_requests[self.conversation_id].get('cancelled', False)
+        return False
+
+    def clear_doubt_clearing_cancellation(self):
+        """Clear doubt clearing cancellation flag"""
+        from base import doubt_cancellation_requests
+        if self.conversation_id in doubt_cancellation_requests:
+            del doubt_cancellation_requests[self.conversation_id]
+
     def clear_doubt(self, message_id, doubt_text="", doubt_history=None):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -3224,6 +3175,8 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         import traceback
         
         try:
+            # Clear any existing cancellation at the start
+            self.clear_doubt_clearing_cancellation()
             # Get the target message and surrounding context
             target_message, context_messages = self.get_context_around_message(message_id, 
                                                                               context_messages_before=4, 
@@ -3285,6 +3238,7 @@ Please provide a clear, comprehensive explanation that addresses the user's doub
 3. **Completeness**: Address all aspects of the user's doubt thoroughly
 4. **Examples**: Provide examples or analogies where helpful
 5. **Brieffly**: Answer the question in a few sentences.
+6. Don't use latex or math notation. We can't render latex and math notation. Use single backticks for single line code blocks and triple backticks for multi-line code blocks.
 
 Please provide your explanation in a clear, structured format that directly addresses the user's doubt."""
 
@@ -3304,8 +3258,16 @@ Please provide your explanation in a clear, structured format that directly addr
             
             # Stream the response
             for chunk in response_stream:
+                # Check for cancellation before processing each chunk
+                if self.is_doubt_clearing_cancelled():
+                    logger.info(f"Doubt clearing cancelled for conversation {self.conversation_id}")
+                    yield "\n\n**Doubt clearing was cancelled by user**"
+                    break
                 if chunk:
                     yield chunk
+            
+            # Clear cancellation flag after completion
+            self.clear_doubt_clearing_cancellation()
                     
         except Exception as e:
             error_msg = f"Error clearing doubt: {str(e)}"

@@ -1,136 +1,197 @@
-$(document).ready(function () {
-    let mediaRecorder;
-    let audioChunks = [];
-    let isRecording = false;
-    const voiceRecordButton = $('#voice-record');
-    const voiceRecordIcon = $('label[for="voice-record"] i');
-    const messageTextarea = $('#messageText');
-
-    function toggleRecording() {
-        if (!isRecording) {
-            startRecording();
-        } else {
-            stopRecording();
+/**
+ * VoiceTranscription - Modular voice recording and transcription class
+ * Can be used with any textarea and voice button combination
+ */
+class VoiceTranscription {
+    constructor(textareaSelector, buttonSelector, iconSelector) {
+        this.mediaRecorder = null;
+        this.audioChunks = [];
+        this.isRecording = false;
+        this.textareaSelector = textareaSelector;
+        this.buttonSelector = buttonSelector;
+        this.iconSelector = iconSelector;
+        
+        // Initialize when elements are available
+        this.init();
+    }
+    
+    init() {
+        // Try to find elements and attach handlers
+        this.attachHandlers();
+    }
+    
+    attachHandlers() {
+        const button = $(this.buttonSelector);
+        const icon = $(this.iconSelector);
+        const textarea = $(this.textareaSelector);
+        
+        if (button.length && icon.length && textarea.length) {
+            // Remove any existing handlers to avoid duplicates
+            button.off('click.voiceTranscription');
+            
+            // Attach click handler
+            button.on('click.voiceTranscription', () => {
+                this.toggleRecording();
+            });
+            
+            console.log(`Voice transcription initialized for ${this.textareaSelector}`);
         }
     }
-
-    async function startRecording() {
+    
+    toggleRecording() {
+        if (!this.isRecording) {
+            this.startRecording();
+        } else {
+            this.stopRecording();
+        }
+    }
+    
+    async startRecording() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.ondataavailable = (event) => {
-                audioChunks.push(event.data);
+            this.mediaRecorder = new MediaRecorder(stream);
+            this.mediaRecorder.ondataavailable = (event) => {
+                this.audioChunks.push(event.data);
             };
-            mediaRecorder.onstop = sendAudioToServer;
-            mediaRecorder.start();
-            isRecording = true;
-            animateRecordingStart();
+            this.mediaRecorder.onstop = () => this.sendAudioToServer();
+            this.mediaRecorder.start();
+            this.isRecording = true;
+            this.animateRecordingStart();
         } catch (err) {
             console.error("Error accessing microphone:", err);
-            showErrorMessage("Failed to access microphone. Please check your permissions and try again.");
+            this.showErrorMessage("Failed to access microphone. Please check your permissions and try again.");
         }
     }
-
-    function stopRecording() {
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop();
-            isRecording = false;
-            animateRecordingStop();
+    
+    stopRecording() {
+        if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+            this.isRecording = false;
+            this.animateRecordingStop();
         }
     }
-
-    function sendAudioToServer() {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    
+    sendAudioToServer() {
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.webm');
-        showLoadingIndicator();
+        this.showLoadingIndicator();
+        
         fetch('/transcribe', {
             method: 'POST',
             body: formData
         })
-            .then(response => response.json())
-            .then(data => {
-                insertTranscribedText(data.transcription);
-                hideLoadingIndicator();
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showErrorMessage("Failed to transcribe audio. Please try again.");
-                hideLoadingIndicator();
-            });
-        audioChunks = [];
+        .then(response => response.json())
+        .then(data => {
+            this.insertTranscribedText(data.transcription);
+            this.hideLoadingIndicator();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            this.showErrorMessage("Failed to transcribe audio. Please try again.");
+            this.hideLoadingIndicator();
+        });
+        this.audioChunks = [];
     }
-
-    function insertTranscribedText(text) {
-        const startPos = messageTextarea[0].selectionStart;
-        const endPos = messageTextarea[0].selectionEnd;
-        const currentValue = messageTextarea.val();
-        const beforeText = currentValue.substring(0, startPos);
-        const afterText = currentValue.substring(endPos);
-
-        messageTextarea.val(beforeText + text + afterText);
-        messageTextarea[0].selectionStart = messageTextarea[0].selectionEnd = startPos + text.length;
-        messageTextarea.focus();
+    
+    insertTranscribedText(text) {
+        const textarea = $(this.textareaSelector);
+        if (textarea.length) {
+            const startPos = textarea[0].selectionStart;
+            const endPos = textarea[0].selectionEnd;
+            const currentValue = textarea.val();
+            const beforeText = currentValue.substring(0, startPos);
+            const afterText = currentValue.substring(endPos);
+            
+            textarea.val(beforeText + text + afterText);
+            textarea[0].selectionStart = textarea[0].selectionEnd = startPos + text.length;
+            textarea.focus();
+        }
     }
-
-    function animateRecordingStart() {
-        voiceRecordIcon
-            .removeClass('fa-microphone')
+    
+    animateRecordingStart() {
+        const icon = $(this.iconSelector);
+        icon.removeClass('fa-microphone')
             .addClass('fa-stop')
             .css({
                 'color': 'red',
                 'animation': 'pulse 1s infinite'
             });
-
-        $('<style>')
-            .prop('type', 'text/css')
-            .html(`  
-                @keyframes pulse {  
-                    0% { transform: scale(1); opacity: 1; }  
-                    50% { transform: scale(1.2); opacity: 0.7; }  
-                    100% { transform: scale(1); opacity: 1; }  
-                }  
-            `)
-            .appendTo('head');
+        
+        // Add pulse animation if not already added
+        if ($('#voice-pulse-animation').length === 0) {
+            $('<style id="voice-pulse-animation">')
+                .prop('type', 'text/css')
+                .html(`  
+                    @keyframes pulse {  
+                        0% { transform: scale(1); opacity: 1; }  
+                        50% { transform: scale(1.2); opacity: 0.7; }  
+                        100% { transform: scale(1); opacity: 1; }  
+                    }  
+                `)
+                .appendTo('head');
+        }
     }
-
-    function animateRecordingStop() {
-        voiceRecordIcon
-            .removeClass('fa-stop')
+    
+    animateRecordingStop() {
+        const icon = $(this.iconSelector);
+        icon.removeClass('fa-stop')
             .addClass('fa-microphone')
             .css({
                 'color': '',
                 'animation': ''
             });
     }
-
-    function showLoadingIndicator() {
-        voiceRecordIcon.addClass('fa-spin fa-spinner').removeClass('fa-microphone fa-stop');
+    
+    showLoadingIndicator() {
+        const icon = $(this.iconSelector);
+        icon.addClass('fa-spin fa-spinner').removeClass('fa-microphone fa-stop');
     }
-
-    function hideLoadingIndicator() {
-        voiceRecordIcon.removeClass('fa-spin fa-spinner').addClass('fa-microphone');
+    
+    hideLoadingIndicator() {
+        const icon = $(this.iconSelector);
+        icon.removeClass('fa-spin fa-spinner').addClass('fa-microphone');
     }
-
-    function showErrorMessage(message) {
+    
+    showErrorMessage(message) {
+        const textarea = $(this.textareaSelector);
         const errorDiv = $('<div>')
             .addClass('alert alert-danger mt-2')
             .text(message)
-            .insertAfter(messageTextarea);
-
+            .insertAfter(textarea);
+        
         setTimeout(() => {
             errorDiv.fadeOut('slow', function () {
                 $(this).remove();
             });
         }, 5000);
     }
+    
+    // Method to reinitialize when elements become available (for dynamic modals)
+    reinitialize() {
+        this.attachHandlers();
+    }
+}
 
-    voiceRecordButton.on('click', toggleRecording);
+// Global instances
+let mainChatVoice = null;
+let doubtChatVoice = null;
 
+$(document).ready(function () {
+    // Initialize main chat voice transcription
+    mainChatVoice = new VoiceTranscription('#messageText', '#voice-record', 'label[for="voice-record"] i');
+    
+    // Global keyboard shortcut for voice transcription (Ctrl+K)
     $(document).on('keydown', (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
             event.preventDefault();
-            toggleRecording();
+            
+            // Determine which voice instance to use based on focus/visible modals
+            if ($('#doubt-chat-modal').is(':visible') && doubtChatVoice) {
+                doubtChatVoice.toggleRecording();
+            } else if (mainChatVoice) {
+                mainChatVoice.toggleRecording();
+            }
         }
     });
 });  
