@@ -2031,38 +2031,37 @@ function stopCodingSolution() {
 
 // Add stop doubt clearing function
 function stopDoubtClearing() {
-    if (currentDoubtStreamingController) {
-        // Provide immediate visual feedback - find the assistant card that's currently being streamed
-        var assistantCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
-        if (assistantCard.length > 0) {
-            assistantCard.find('.card-body').html('<div class="text-center text-muted">Stopping doubt clearing...</div>');
-        }
-        
-        // Send cancellation request to server
-        fetch(`/cancel_doubt_clearing/${currentDoubtStreamingController.conversationId}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        }).then(response => {
-            if (response.ok) {
-                if (assistantCard.length > 0) {
-                    assistantCard.find('.card-body').html('<div class="text-center text-muted">Doubt clearing cancelled by user</div>');
-                }
-            } else {
-                if (assistantCard.length > 0) {
-                    assistantCard.find('.card-body').html('<div class="alert alert-danger alert-sm">Failed to cancel doubt clearing</div>');
-                }
-            }
-        }).catch(error => {
-            if (assistantCard.length > 0) {
-                assistantCard.find('.card-body').html('<div class="alert alert-danger alert-sm">Error cancelling doubt clearing</div>');
-            }
-        });
-        
-        // Cancel the stream reading
-        currentDoubtStreamingController.cancel();
+    // Check if there's actually an active streaming controller
+    if (!currentDoubtStreamingController) {
+        console.log('No active doubt streaming to stop');
+        return;
     }
+    
+    console.log('Stopping doubt clearing...');
+    
+    // Provide immediate visual feedback - find the assistant card that's currently being streamed
+    var assistantCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
+    if (assistantCard.length > 0) {
+        // Append stopping message instead of replacing content
+        assistantCard.find('.card-body').append('<div class="alert alert-warning mt-2 mb-0">Stopping response...</div>');
+    }
+    
+    // Send cancellation request to server
+    fetch(`/cancel_doubt_clearing/${currentDoubtStreamingController.conversationId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    }).then(response => {
+        if (!response.ok) {
+            console.error('Failed to send doubt clearing cancellation request');
+        }
+    }).catch(error => {
+        console.error('Error sending doubt clearing cancellation request:', error);
+    });
+    
+    // Cancel the stream reading - this will trigger the cancellation logic in renderStreamingDoubtResponse
+    currentDoubtStreamingController.cancel();
 }
 
 function highLightActiveConversation(conversationId) {

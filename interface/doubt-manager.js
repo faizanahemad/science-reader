@@ -389,6 +389,11 @@ const DoubtManager = {
             // Reinitialize if already exists (in case modal was closed and reopened)
             doubtChatVoice.reinitialize();
         }
+        
+        // Initialize gamification system if available (for rewards/penalties)
+        if (typeof initializeGamificationSystem !== 'undefined') {
+            initializeGamificationSystem();
+        }
     },
     
     /**
@@ -480,8 +485,12 @@ const DoubtManager = {
         // Find the user card that was just added (the previous sibling of assistantCard)
         const userCard = assistantCard.prev('.doubt-conversation-card.user-doubt');
         
+        // Get reward level from main chat selector (since doubt-specific selector was removed)
+        const rewardLevel = $('#rewardLevelSelector').length > 0 ? parseInt($('#rewardLevelSelector').val()) || 0 : 0;
+        
         const requestBody = {
-            doubt_text: doubtText
+            doubt_text: doubtText,
+            reward_level: rewardLevel
         };
         
         if (parentDoubtId) {
@@ -545,7 +554,7 @@ const DoubtManager = {
                 
                 if (done || isCancelled) {
                     console.log('Doubt streaming complete');
-                    // Reset UI state
+                    // Reset UI state - hide stop button and clear controller
                     $('#stop-doubt-chat-button').hide();
                     currentDoubtStreamingController = null;
                     
@@ -573,7 +582,7 @@ const DoubtManager = {
                         return;
                     }
                     
-                    // Update both user and assistant cards with doubt ID for deletion
+                    // Normal completion - update cards and history
                     if (doubtId) {
                         // Update assistant card (if it has a delete button)
                         assistantCard.find('.doubt-delete-btn').data('doubt-id', doubtId);
@@ -617,15 +626,21 @@ const DoubtManager = {
                     }
                     
                     if (part.text) {
+                        // Parse and handle gamification tags before processing (reuse from common-chat.js)
+                        let processedText = part.text;
+                        if (typeof parseGamificationTags !== 'undefined') {
+                            processedText = parseGamificationTags(part.text, assistantCard);
+                        }
+                        
                         // Check for doubt_id tags
-                        const doubtIdMatch = part.text.match(/<doubt_id>([^<]+)<\/doubt_id>/);
+                        const doubtIdMatch = processedText.match(/<doubt_id>([^<]+)<\/doubt_id>/);
                         if (doubtIdMatch) {
                             doubtId = doubtIdMatch[1];
                             // Remove the tags from display
-                            part.text = part.text.replace(/<doubt_id>[^<]+<\/doubt_id>/, '');
+                            processedText = processedText.replace(/<doubt_id>[^<]+<\/doubt_id>/, '');
                         }
                         
-                        accumulatedText += part.text;
+                        accumulatedText += processedText;
                         // Render markdown if available
                         if (typeof marked !== 'undefined' && marked.parse) {
                             assistantBody.html(marked.parse(accumulatedText));
@@ -639,6 +654,11 @@ const DoubtManager = {
                         if (part.doubt_id) {
                             doubtId = part.doubt_id;
                         }
+                        
+                        // Ensure stop button is hidden on completion
+                        $('#stop-doubt-chat-button').hide();
+                        currentDoubtStreamingController = null;
+                        
                         return;
                     }
                 }
@@ -646,13 +666,14 @@ const DoubtManager = {
                 // Continue reading
                 setTimeout(read, 10);
                 
-            } catch (error) {
+                            } catch (error) {
                 console.error("Error in doubt streaming:", error);
                 $('#stop-doubt-chat-button').hide();
                 currentDoubtStreamingController = null;
                 
                 if (error.name === 'AbortError') {
-                    assistantBody.html(`<div class="alert alert-warning alert-sm">Doubt clearing was cancelled</div>`);
+                    // Don't replace content on cancellation - the cancellation logic above handles it
+                    console.log('Doubt stream was cancelled by user');
                 } else {
                     assistantBody.html(`<div class="alert alert-danger alert-sm">Streaming error: ${error.message}</div>`);
                 }

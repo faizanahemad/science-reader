@@ -1734,6 +1734,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         self.next_question_suggestions = list()
+        self.clear_cancellation()
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
@@ -3015,6 +3016,93 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         except Exception as e:
             error_logger.error(f"[Reward System] Error updating context from reward: {str(e)}")
 
+    def _initiate_doubt_reward_evaluation(self, reward_level, doubt_text, message_id):
+        """
+        Initiates async reward evaluation for doubt questions if reward level is non-zero.
+        Returns future object or None if reward evaluation is not needed.
+        """
+        if reward_level == 0:
+            return None
+        
+        def sync_doubt_reward_evaluation_with_update():
+            """
+            Inner sync function that calls reward LLM for doubt evaluation and updates persistent context_data
+            """
+            try:
+                # Get the target message for context
+                target_message, context_messages = self.get_context_around_message(message_id, 
+                                                                                  context_messages_before=2, 
+                                                                                  context_messages_after=1)
+                
+                # Build context for doubt evaluation
+                doubt_context = ""
+                if target_message:
+                    doubt_context += f"**Target Message Being Asked About:**\n{target_message['text']}\n\n"
+                
+                if context_messages:
+                    doubt_context += "**Surrounding Context:**\n"
+                    for msg in context_messages:
+                        sender_label = "User" if msg["sender"] == "user" else "Assistant"
+                        is_target = msg["message_id"] == message_id
+                        marker = " ← [TARGET]" if is_target else ""
+                        doubt_context += f"{sender_label}{marker}: {msg['text'][:200]}...\n"
+                
+                # Prepare user info from available data
+                user_info = f"User ID: {self.user_id}, Domain: {self.domain}"
+                user_info += f"\nDoubt Context: User is asking about message {message_id}"
+                
+                # Get conversation history length
+                messages = self.get_field("messages") or []
+                conversation_length = len(messages)
+                
+                # Get conversation summary
+                summary = self.running_summary if self.running_summary else "No summary available"
+                if isinstance(summary, list):
+                    summary = "\n".join(summary)
+                
+                # Build conversation history for context (last 1000 chars)
+                conversation_history = doubt_context
+                if len(conversation_history) > 1000:
+                    conversation_history = conversation_history[-1000:]
+                
+                # Call reward decision LLM synchronously with persistent context_data
+                from base import get_reward_decision
+                reward_decision = get_reward_decision(
+                    conversation_history=conversation_history,
+                    current_user_text=doubt_text,
+                    reward_level_dialer=reward_level,
+                    conversation_summary=summary,
+                    conversation_length=conversation_length,
+                    user_info=user_info,
+                    keys=self.get_api_keys(),
+                    context_data=self.context_data  # Use persistent context_data
+                )
+                
+                # Update persistent context_data based on reward decision
+                self._update_context_from_reward(reward_decision)
+                
+                return reward_decision
+                
+            except Exception as e:
+                error_logger.error(f"[Doubt Reward System] Error in sync doubt reward evaluation: {str(e)}")
+                return {
+                    "reward_type": "none",
+                    "reward_level": "FAIR",
+                    "reward_message": "Doubt evaluation error occurred.",
+                    "overall_assessment": "Error in doubt assessment system",
+                    "reasoning": f"System error: {str(e)}",
+                    "dialer_setting": reward_level,
+                    "judge_personality": "ERROR_STATE",
+                    "evaluation_timestamp": time.time(),
+                    "confidence_level": "low"
+                }
+        
+        # Start async reward evaluation using the inner sync function
+        from base import get_async_future
+        reward_future = get_async_future(sync_doubt_reward_evaluation_with_update)
+        
+        return reward_future
+
     def _process_reward_evaluation(self, reward_future):
         """
         Processes completed reward evaluation and yields gamified output.
@@ -3168,15 +3256,22 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         if self.conversation_id in doubt_cancellation_requests:
             del doubt_cancellation_requests[self.conversation_id]
 
-    def clear_doubt(self, message_id, doubt_text="", doubt_history=None):
+    def clear_doubt(self, message_id, doubt_text="", doubt_history=None, reward_level=0):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
         from common import CHEAP_LLM
         import traceback
+        import time
         
         try:
             # Clear any existing cancellation at the start
             self.clear_doubt_clearing_cancellation()
+            
+            # Initialize reward evaluation if reward level is non-zero
+            reward_future = None
+            if reward_level != 0:
+                reward_future = self._initiate_doubt_reward_evaluation(reward_level, doubt_text, message_id)
+            
             # Get the target message and surrounding context
             target_message, context_messages = self.get_context_around_message(message_id, 
                                                                               context_messages_before=4, 
@@ -3265,6 +3360,12 @@ Please provide your explanation in a clear, structured format that directly addr
                     break
                 if chunk:
                     yield chunk
+            
+            # Process reward evaluation if it was initiated
+            if reward_future is not None:
+                yield "\n\n"
+                for reward_chunk in self._process_reward_evaluation(reward_future):
+                    yield reward_chunk.get("text", "")
             
             # Clear cancellation flag after completion
             self.clear_doubt_clearing_cancellation()
@@ -3423,8 +3524,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4.1"
     elif model_name == "gpt-4.1":
         model_name = "gpt-4.1"
-    elif model_name == "anthropic/claude-opus-4" or model_name == "Opus 4":
-        model_name = "anthropic/claude-opus-4"
+    elif model_name == "anthropic/claude-opus-4" or model_name == "anthropic/claude-opus-4.1" or model_name == "Opus 4.1":
+        model_name = "anthropic/claude-opus-4.1"
     elif model_name == "anthropic/claude-sonnet-4" or model_name == "Claude Sonnet 4" or model_name == "Sonnet 4":
         model_name = "anthropic/claude-sonnet-4"
     elif model_name == "anthropic/claude-4-opus-20250522":
@@ -3592,6 +3693,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "deepseek/deepseek-chat-v3-0324"
     elif model_name == "openai/gpt-4.1-mini":
         model_name = "openai/gpt-4.1-mini"
+    elif model_name == "gpt-5":
+        model_name = "gpt-5"
+    elif model_name == "openai/gpt-5-chat":
+        model_name = "openai/gpt-5-chat"
     
     elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM:
         pass
@@ -3621,6 +3726,11 @@ def extract_user_answer(text):
     
     
 def model_hierarchies(model_names: List[str]):
+    if "gpt-5" in model_names:
+        improve_model = "gpt-5"
+    elif "openai/gpt-5-chat" in model_names:
+        improve_model = "openai/gpt-5-chat"
+    
     if "x-ai/grok-3-beta" in model_names:
         improve_model = "x-ai/grok-3-beta"
     elif "x-ai/grok-3" in model_names:

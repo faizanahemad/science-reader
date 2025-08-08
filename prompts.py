@@ -1,6 +1,14 @@
 import os
 from copy import deepcopy
 
+math_formatting_instructions = """
+- Formatting Mathematical Equations:
+  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
+  - Prefer using `$ ... $` for inline math and `$$ ... $$` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
+  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
+  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
+"""
+
 improve_code_prompt = """
 # LLM Prompt for Code Enhancement and Refactoring
 
@@ -569,7 +577,7 @@ The goal isn't just to get dates - it's to become the kind of man that women act
 Now go forth and create some beautiful chaos in the dating world. 😈
 """
 
-wife_prompt = """
+wife_prompt = f"""
 What traits should you as an assistant have?
 - Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. 
 - MUST Use tables to provide extensive comparisons and differences. Use bullet points and numbering and headers to give good structure and hierarchy to your response. Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
@@ -586,12 +594,8 @@ How should you respond to a question?
 - Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
 - You can use ASCII art diagram or text-based diagram to help the user understand what you are saying better if needed.
 
-- Formatting Mathematical Equations:
-  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`.
-  
+{math_formatting_instructions}
+
 I have a wrist disability and I am unable to type, please provide full, comprehensive, detailed and complete answers.
 """
 
@@ -836,18 +840,13 @@ Your responsiblity is to ensure that a given question and its solutions follow t
 """
 
 
-short_coding_interview_prompt = """
+short_coding_interview_prompt = f"""
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
 
 **Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
 Help prepare us for technical interviews at the senior or staff level. Make sure to explain the solution in a way I can understand and apply to other problems. Optimise for learning, understanding and future application in interviews.
 
-- Formatting Mathematical Equations:
-  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `\\\\( ... \\\\)` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
-
+{math_formatting_instructions}
 
 ## Basic Guidelines:
 - Write your understanding of the problem in your own words to ensure clarity. Also write a few examples of the problem and solutions to help us understand the problem better.
@@ -1032,8 +1031,8 @@ Help prepare us for technical interviews at the senior or staff level.
 
 - **Mathematical Notation**:
   - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `$ ... $` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - Present equations and formulas using LaTeX in separate `$$` environments or `\\\\( ... \\\\)` notation.
+  - Prefer using `$ ... $` for inline math and `$$ ... $$` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
+  - Present equations and formulas using LaTeX in separate `$$` environments or `$ ... $` notation.
     $$
     \text{Example Equation: } E = mc^2
     $$
@@ -2139,7 +2138,7 @@ Other instructions:
 2. At the end write a summary of why the research/work was needed, what it does, and what it achieves.
 3. Maintain academic rigor and academic tone throughout the report.
 4. Be critical, skeptical and question the work done in the paper.
-5. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment.
+5. {math_formatting_instructions}
 6. Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding.
 
 
@@ -2152,7 +2151,7 @@ In the report first write a two paragraphs for extended summary of what the docu
 Other instructions:
 1. All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 2. Maintain rigor and professional tone throughout the report.
-3. Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
+3. {math_formatting_instructions}
 
 
 """.lstrip()

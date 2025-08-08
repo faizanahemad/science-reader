@@ -2690,6 +2690,7 @@ def clear_doubt(conversation_id, message_id):
     keys = keyParser(session)
     doubt_text = request.json.get('doubt_text')
     parent_doubt_id = request.json.get('parent_doubt_id')  # For follow-up questions
+    reward_level = int(request.json.get('reward_level', 0))  # Reward level for gamification
     
     try:
         # Check if user has access to this conversation
@@ -2724,7 +2725,7 @@ def clear_doubt(conversation_id, message_id):
                         # Continue without history rather than failing
                 
                 # Generate doubt clearing with streaming
-                doubt_generator = conversation.clear_doubt(message_id, doubt_text, doubt_history)
+                doubt_generator = conversation.clear_doubt(message_id, doubt_text, doubt_history, reward_level)
                 
                 accumulated_text = ""
                 doubt_id = None

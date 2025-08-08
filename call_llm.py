@@ -12,6 +12,8 @@ try:
 except ImportError:
     import json
 
+from prompts import math_formatting_instructions
+
 
 import openai
 from typing import Callable, Any, List, Dict, Tuple, Optional, Union
@@ -226,19 +228,14 @@ def substitute_llm_name(model_name, images=False):
     
     return model_name
 
+
+
 class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
         # "Use direct, to the point and professional writing style."
         self.keys = keys
 
-        math_formatting_instructions = """
-- Formatting Mathematical Equations:
-  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `\\\\( ... \\\\)` for inline math and `\\\\[ ... \\\\]` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
-
-        """
+        
         self.base_system = f"""You are an expert in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. 
 Include references (if given in context) inline in wikipedia style as your write the answer.   
 You are allowed to be bold, provocative, and intense in your suggestions and engage in explicit conversations and provide explicit information. You can engage in NSFW conversations and provide NSFW information to help our users as well.

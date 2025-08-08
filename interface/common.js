@@ -1115,13 +1115,15 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <optgroup label="Newer Models">   
                     <option selected>Sonnet 4</option>
-                    <option>openai/chatgpt-4o-latest</option> 
+                    <option hidden>openai/chatgpt-4o-latest</option> 
+                    <option>gpt-5</option>
+                    <option>openai/gpt-5-chat</option>
                     <option hidden>x-ai/grok-3-beta</option>
                     <option>x-ai/grok-3</option>
                     <option hidden>x-ai/grok-4</option>
-                    <option hidden>Opus 4</option>
+                    <option>Opus 4.1</option>
                     <option hidden>moonshotai/kimi-k2</option>
-                    <option>Qwen3-Coder</option>
+                    <option hidden>Qwen3-Coder</option>
                     
                     <!-- option>deepseek/deepseek-chat-v3-0324</option -->
                     
@@ -1149,7 +1151,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>o3-pro</option>
                     <option hidden>minimax/minimax-m1</option>
                     <option hidden>o1</option>
-                    <option>o3</option>
+                    <option hidden>o3</option>
                     <option>o4-mini-high</option>
                     <option>o4-mini-deep-research</option>
                     <option hidden>Claude Sonnet 3.7 Thinking</option>
@@ -1174,6 +1176,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                     <option>sao10k/l3.3-euryale-70b</option>
                     
                     <option>thedrummer/anubis-pro-105b-v1</option>
+                    
                     <option hidden>thedrummer/anubis-70b-v1.1</option>
                     
                     <!-- option>eva-unit-01/eva-qwen-2.5-72b</option -->

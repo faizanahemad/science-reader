@@ -310,7 +310,6 @@
                                             ➤<!-- i class="fas fa-paper-plane"></i--> <!-- You can also add "Send" text here if needed -->
                                         </button>
                                         <button id="stopResponseButton" class="btn btn-danger" style="display: none; margin-left: 5px; position: relative;">
-                                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);"></span>
                                             ⏹
                                         </button>
                                          <div id="uploadProgressContainer" style="position: relative; display: inline-block; display: none;">
@@ -563,7 +562,7 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
                     <div id="hint-status" class="mb-2" style="display: none;">
                         <div class="d-flex align-items-center">
                             <div class="spinner-border spinner-border-sm text-primary mr-2" role="status">
@@ -600,7 +599,7 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
                     <div id="doubts-overview-loading" class="text-center mb-3" style="display: none;">
                         <div class="spinner-border text-primary" role="status">
                             <span class="sr-only">Loading...</span>
@@ -643,7 +642,7 @@
                     </button>
                 </div>
                 <div class="modal-body" style="padding: 0;">
-                    <div id="doubt-chat-container" style="height: 70vh; display: flex; flex-direction: column;">
+                    <div id="doubt-chat-container" style="height: 80vh; display: flex; flex-direction: column;">
                         <div id="doubt-chat-messages" style="flex: 1; overflow-y: auto; padding: 1rem; background-color: #f8f9fa;">
                             <!-- Doubt conversation messages will appear here -->
                         </div>
@@ -687,7 +686,7 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
                     <div id="solution-status" class="mb-2" style="display: none;">
                         <div class="d-flex align-items-center">
                             <div class="spinner-border spinner-border-sm text-primary mr-2" role="status">
@@ -759,11 +758,11 @@
               </div>  
             </div>  
             <!-- CodeMirror Editor Container -->  
-          <div id="python-code-editor" style="height: 70vh; border: none;"></div>  
+          <div id="python-code-editor" style="height: calc(80vh - 120px); border: none;"></div>  
           </div>  
           <div class="modal-footer">  
             <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>  
-            <button type="button" id="save-code-button" class="btn btn-primary">  
+            <button type="button" id="save-code-button" class="btn btn-primary" hidden>  
               <i class="bi bi-check-lg"></i>&nbsp;Save Code  
             </button>  
 
