@@ -1116,7 +1116,7 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Newer Models">   
                     <option selected>Sonnet 4</option>
                     <option hidden>openai/chatgpt-4o-latest</option> 
-                    <option>gpt-5</option>
+                    <option hidden>gpt-5</option>
                     <option>openai/gpt-5-chat</option>
                     <option hidden>x-ai/grok-3-beta</option>
                     <option>x-ai/grok-3</option>
@@ -1136,11 +1136,11 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <optgroup label="Fast Models">
                     <option>google/gemini-2.5-flash</option>
                     <option hidden>google/gemini-2.5-flash-lite</option>
-                    <option>google/gemini-2.0-flash-001</option>
+                    <option hidden>google/gemini-2.0-flash-001</option>
                     <option hidden>google/gemini-2.0-flash-lite-001</option>
                     <option hidden>qwen/qwen-turbo</option>
                     <!-- option>openai/gpt-4o-mini</option -->
-                    <option>openai/gpt-4.1-mini</option>
+                    <option hidden>openai/gpt-4.1-mini</option>
                     <option hidden>x-ai/grok-3-mini</option>
                 </optgroup>
 
