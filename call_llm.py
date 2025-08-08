@@ -13,7 +13,7 @@ except ImportError:
     import json
 
 from prompts import math_formatting_instructions
-
+from math_formatting import stream_with_math_formatting, process_math_formatting
 
 import openai
 from typing import Callable, Any, List, Dict, Tuple, Optional, Union
@@ -56,69 +56,6 @@ from collections import deque
 from threading import Lock
 
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
-
-def process_math_formatting(text):
-    """
-    Replaces single-backslash math tokens with double-backslash versions.
-    For example:
-      - \\\[   -> \\\\\\\\[
-      - \\\]   -> \\\\\\\\]
-      - \\\(   -> \\\\\\\\(
-      - \\\)   -> \\\\\\\\)
-    If you have additional rules (e.g. checking newlines), put them here.
-    """
-    # Simple replacements:
-    text = text.replace('\\[', '\\\\[')
-    text = text.replace('\\]', '\\\\]')
-    text = text.replace('\\(', '\\\\(')
-    text = text.replace('\\)', '\\\\)')
-    return text
-
-
-def stream_with_math_formatting(response):
-    """
-    A generator that wraps the streaming response from the LLM, buffering
-    partial tokens so we don't break them across chunk boundaries.
-    """
-    buffer = ""
-    # How many characters to keep at the end of each iteration
-    TAIL_LENGTH = 4
-    
-    for chk in response:
-        # 'chk' is the streamed chunk response from the LLM
-        chunk = chk.model_dump()
-        
-        if "choices" not in chunk or len(chunk["choices"]) == 0 or "delta" not in chunk["choices"][0]:
-            continue
-        # Some completions might not have 'content' in the delta:
-        if "content" not in chunk["choices"][0]["delta"]:
-            continue
-        
-        
-        text_content = chunk["choices"][0]["delta"]["content"]
-        if not isinstance(text_content, str):
-            continue
-        
-        # 1. Append new text to our rolling buffer
-        buffer += text_content
-        
-        # 2. If we have enough data in the buffer, process everything
-        #    except for the last TAIL_LENGTH characters to reduce risk
-        #    of chopping partial tokens.
-        if len(buffer) > TAIL_LENGTH:
-            to_process = buffer[:-TAIL_LENGTH]
-            remainder = buffer[-TAIL_LENGTH:]
-            
-            # Process and yield the "safe" portion
-            processed_text = process_math_formatting(to_process)
-            yield processed_text
-            
-            # Keep only the remainder in the buffer
-            buffer = remainder
-    
-    # Once the stream is done, process and yield the final leftover
-    if buffer:
-        yield process_math_formatting(buffer)
 
 
 def call_chat_model(model, text, images, temperature, system, keys):
