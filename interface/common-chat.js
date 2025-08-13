@@ -1553,6 +1553,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     var insideCodeBlock = false;
     // Keep track of sections for rendering
     var sectionCount = 0;
+    // Slide streaming state
+    var slideCollecting = false;
+    var slideBuffer = '';
+    var slideJustCompleted = false;
 
     // Function to handle message focus and URL update (same as in renderMessages)
     function handleMessageFocus(messageId, convId) {
@@ -1679,8 +1683,56 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             let processedText = parseGamificationTags(part['text'], card);
             part['text'] = processedText.replace(/\n/g, '  \n');
             
+            // Accumulate the full answer for final use
             answer = answer + part['text'];
-            rendered_answer = rendered_answer + part['text'];
+            // Append to rendered_answer while buffering slide content until closing tag arrives
+            (function appendWithSlideBuffering(chunk) {
+                var startTag = '<slide-presentation>';
+                var endTag = '</slide-presentation>';
+                var pos = 0;
+                while (pos < chunk.length) {
+                    if (slideCollecting) {
+                        var endIdx = chunk.indexOf(endTag, pos);
+                        if (endIdx === -1) {
+                            // keep buffering until we find closing tag in future chunks
+                            slideBuffer += chunk.slice(pos);
+                            pos = chunk.length;
+                            break;
+                        } else {
+                            // complete the slide buffer and append it to renderable text
+                            slideBuffer += chunk.slice(pos, endIdx + endTag.length);
+                            rendered_answer = rendered_answer + slideBuffer;
+                            slideBuffer = '';
+                            slideCollecting = false;
+                            slideJustCompleted = true;
+                            pos = endIdx + endTag.length;
+                        }
+                    } else {
+                        var startIdx = chunk.indexOf(startTag, pos);
+                        if (startIdx === -1) {
+                            rendered_answer = rendered_answer + chunk.slice(pos);
+                            pos = chunk.length;
+                            break;
+                        } else {
+                            // append text before slide, then start collecting slide
+                            if (startIdx > pos) {
+                                rendered_answer = rendered_answer + chunk.slice(pos, startIdx);
+                            }
+                            slideCollecting = true;
+                            slideBuffer = startTag;
+                            pos = startIdx + startTag.length;
+                        }
+                    }
+                }
+            })(part['text']);
+
+            // If a slide block was just completed in this chunk, force an immediate render
+            if (slideJustCompleted) {
+                renderInnerContentAsMarkdown(elem_to_render, null, true, rendered_answer);
+                content_length = rendered_answer.length;
+                rendered_till_now = rendered_till_now + rendered_answer;
+                slideJustCompleted = false;
+            }
 
             if (!answerParagraph) {
                 answerParagraph = card.find('.actual-card-text').last();
@@ -1815,9 +1867,16 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     textElem = card.find('#message-render-space-md-render');
                     text = card.find('#message-render-space-md-render').html();
                 }
-                toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true, server_side = {
-                    'message_id': response_message_id,
-                }); // index >= array.length - 2
+                const hasSlides = (
+                    !!card.find('.slide-presentation-wrapper').length ||
+                    !!card.find('.slide-external-link').length ||
+                    (textElem && textElem.attr('data-has-slides') === 'true')
+                );
+                if (!hasSlides) {
+                    toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true, server_side = {
+                        'message_id': response_message_id,
+                    }); // index >= array.length - 2
+                }
                 // textElem.find('.show-more').click(toggle);
                 // textElem.find('.show-more').click(toggle);
             }
@@ -2553,7 +2612,7 @@ var ChatManager = {
                 </div>
             </div>`);
             var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
-            var textElem = $('<p id="message-render-space" class="card-text actual-card-text"></p>');
+            var textElem = $('<div id="message-render-space" class="card-text actual-card-text"></div>');
             textElem.html(message.text.replace(/\n/g, '  \n'))
 
             cardBody.append(textElem);
@@ -2582,7 +2641,20 @@ var ChatManager = {
             
             if (message.text.trim().length > 0) {
                 renderInnerContentAsMarkdown(textElem, immediate_callback=function () {
-                    if ((textElem.text().length > 300)) { // && (index < array.length - 2)
+                    const hasSlides = (
+                        !!textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
+                        !!textElem.closest('.card-body').find('.slide-external-link').length ||
+                        (textElem && textElem.attr('data-has-slides') === 'true')
+                    );
+                    if (hasSlides) {
+                        // Ensure historic messages with slides resize properly
+                        setTimeout(function() {
+                            var slideWrapper = textElem.closest('.card-body').find('.slide-presentation-wrapper');
+                            if (slideWrapper.length > 0) {
+                                adjustCardHeightForSlides(slideWrapper);
+                            }
+                        }, 100);
+                    } else if (textElem.text().length > 300) { // && (index < array.length - 2)
                         showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
                             'message_id': message.message_id
                         }); // index >= array.length - 2
@@ -2959,8 +3031,8 @@ function sendMessageCallback() {
     $('#messageText').val('');  // Clear the messageText field
     $('#messageText').trigger('change');
     $('#messageText').prop('working', true);
-    var links = $('#linkInput').val().split('\n');
-    var search = $('#searchInput').val().split('\n');
+    var links = $('#linkInput').length ? $('#linkInput').val().split('\n') : [];
+    var search = $('#searchInput').length ? $('#searchInput').val().split('\n') : [];
     let parsed_message = parseMessageForCheckBoxes(messageText);
 
     var history_message_ids = []
@@ -3050,17 +3122,8 @@ function scrollToBottom() {
         is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
 
         if (distanceFromBottom > 400 && is_chat_visible) {
-            var $toggleChatControls = $('#toggleChatControls');
-            if ($toggleChatControls.text().trim() === '▼') {
-                var textareaOffset = $messageText.offset().top + $messageText.outerHeight();
-                var fromBottom = $(window).height() - textareaOffset;
-                var additionalSpace = 50;
-                // If the text is a down arrow, set the bottom position to 180px
-                $scrollToBottomBtn.css('bottom', fromBottom + additionalSpace + 'px');
-            } else {
-                // Otherwise, set the bottom position to 80px
-                $scrollToBottomBtn.css('bottom', '80px');
-            }
+            // Set the bottom position to 80px (no longer dependent on toggle state)
+            $scrollToBottomBtn.css('bottom', '80px');
             $scrollToBottomBtn.show();
         } else {
             $scrollToBottomBtn.hide();
@@ -3392,10 +3455,10 @@ function ensureSuggestionsVisible() {
 
 // Initialize chat controls toggle handler (call this once when page loads)
 function initializeChatControlsToggleHandler() {
-    // Only bind if not already bound
-    if (!$('#toggleChatControls').data('suggestions-handler-bound')) {
-        $('#toggleChatControls').on('click', function() {
-            // Small delay to allow toggle animation to complete
+    // Only bind if not already bound - updated for settings modal
+    if (!$('#chatSettingsButton').data('suggestions-handler-bound')) {
+        $('#chatSettingsButton').on('click', function() {
+            // Small delay to allow modal to open
             setTimeout(function() {
                 ensureSuggestionsVisible();
             }, 150);
@@ -3408,7 +3471,7 @@ function initializeChatControlsToggleHandler() {
             }, 150);
         });
         
-        $('#toggleChatControls').data('suggestions-handler-bound', true);
+        $('#chatSettingsButton').data('suggestions-handler-bound', true);
     }
     
     // Also handle window resize events

@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS_HTML"></script>
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
 <!--     <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script> -->
     <script src="https://mozilla.github.io/pdf.js/build/pdf.js"></script>
@@ -25,6 +25,17 @@
     
     <!-- mermaid.initialize({ startOnLoad: true }); -->
     <script src="https://laingsimon.github.io/render-diagram/drawio-renderer.js"></script>
+    
+    <!-- Reveal.js for slide presentations -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/theme/white.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/monokai.css">
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/notes/notes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/markdown/markdown.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/highlight.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/math/math.js"></script>
+    
     <!-- BULLETPROOF: CodeMirror 5 -->  
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>  
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>  
@@ -312,21 +323,13 @@
                                           </div>
                                     </div>
                                     <div class="input-group-append" style="margin-right: -25px;margin-left: 5px;">
-                                      <button id="toggleChatControls" class="btn btn-secondary rounded-pill">▲</button>
+                                      <button id="chatSettingsButton" class="btn btn-secondary rounded-pill" title="Chat Settings">
+                                        <i class="fa fa-cogs"></i>
+                                      </button>
                                     </div>
                                 </div>
                                 
-                                <div class="row mb-1 d-none" id="chat-search-links-input"> <!-- Reduced margin bottom -->
-                                    <div class="col p-0" style="padding-right: 10px !important;"> <!-- Removed padding -->
-                                        <textarea id="linkInput" class="dynamic-textarea form-control" placeholder="Links to Visit, each in a new line"></textarea>
-                                    </div>
-                                    <div class="col p-0"> <!-- Removed padding -->
-                                        <textarea id="searchInput" class="dynamic-textarea form-control" placeholder="Search Phrases, each in a new line"></textarea>
-                                    </div>
-                                </div>
-                                <div id="chat-options" class="mt-0 mb-0 d-none container-fluid"> <!-- Removed top and bottom margin -->
-                                    
-                                </div>
+                                <!-- Old slide-up controls removed - now using settings modal -->
                               </div>
                           </div>
                         </div>
@@ -425,7 +428,7 @@
     </div>
 
     <!-- Memory Pad Modal -->
-    <div class="modal fade" id="memory-pad-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="memory-pad-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -445,7 +448,7 @@
     </div>
 
     <!-- User Details Modal -->
-    <div class="modal fade" id="user-details-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="user-details-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -465,7 +468,7 @@
     </div>
 
     <!-- User Preferences Modal -->
-    <div class="modal fade" id="user-preferences-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade" id="user-preferences-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -664,6 +667,535 @@
         </div>
     </div>
 
+    <!-- Chat Settings Modal -->
+    <div id="chat-settings-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1055;">
+        <div class="modal-dialog modal-xl" style="max-width: 1400px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); position: relative; z-index: 1056;">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="fa fa-cogs"></i>&nbsp;⚙️ Chat Settings
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding: 1.5rem;">
+                    <div id="settings-content">
+                        <!-- Basic Options Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-check-square"></i> Basic Options</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-perform-web-search-checkbox" type="checkbox">
+                                            <label class="form-check-label" for="settings-perform-web-search-checkbox">Search</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-search-exact" type="checkbox">
+                                            <label class="form-check-label" for="settings-search-exact">Search Exact</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-persist_or_not" type="checkbox" checked>
+                                            <label class="form-check-label" for="settings-persist_or_not">Persist</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-ppt-answer" type="checkbox">
+                                            <label class="form-check-label" for="settings-ppt-answer">PPT Answer</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-use_memory_pad" type="checkbox">
+                                            <label class="form-check-label" for="settings-use_memory_pad">Use Memory Pad</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2" style="display:none;">
+                                            <input class="form-check-input" id="settings-enable_planner" type="checkbox">
+                                            <label class="form-check-label" for="settings-enable_planner">Planner</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced Settings Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-sliders-h"></i> Advanced Settings</h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-depthSelector" class="form-label"><strong>Depth Level</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
+                                                <select id="settings-depthSelector" class="form-control form-control-sm" style="width: 100%; border: none;">
+                                                    <option value="1">1</option>
+                                                    <option value="2" selected>2</option>
+                                                    <option value="3">3</option>
+                                                    <option value="4">4</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-historySelector" class="form-label"><strong>History</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
+                                                <select id="settings-historySelector" class="form-control form-control-sm selectpicker" style="width: 100%; border: none;">
+                                                    <option value="-1">∅</option>
+                                                    <option value="0">0</option>
+                                                    <option value="1">1</option>
+                                                    <option value="2" selected>2</option>
+                                                    <option value="3">3</option>
+                                                    <option value="4">4</option>
+                                                    <option value="5">5</option>
+                                                    <option value="infinite">∞</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-rewardLevelSelector" class="form-label"><strong>Reward Level</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
+                                                <select id="settings-rewardLevelSelector" class="form-control form-control-sm selectpicker" style="width: 100%; border: none;">
+                                                    <option value="-3">-3</option>
+                                                    <option value="-2">-2</option>
+                                                    <option value="-1">-1</option>
+                                                    <option value="0" selected>φ</option>
+                                                    <option value="1">1</option>
+                                                    <option value="2">2</option>
+                                                    <option value="3">3</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Model and Agent Selection Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-robot"></i> Model & Agent Selection</h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-preamble-selector" class="form-label"><strong>Preamble Options</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control selectpicker" id="settings-preamble-selector" multiple>
+                                                    <option>No Links</option>
+                                                    <option selected>Wife Prompt</option>
+                                                    <option>Short</option>
+                                                    <option>Short Coding Interview</option>
+                                                    <option>Relationship</option>
+                                                    <option>Dating Maverick</option>
+                                                    <option>Argumentative</option>
+                                                    <option selected>Blackmail</option>
+                                                    <option>Is Coding Request</option>
+                                                    <option>More Related Coding Questions</option>
+                                                    <option>CoT</option>
+                                                    <option>Diagram</option>
+                                                    <option>Easy Copy</option>
+                                                    <option>Creative</option>
+                                                    <option>No Lazy</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-main-model-selector" class="form-label"><strong>Main Model</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-main-model-selector" multiple>
+                                                    <optgroup label="Newer Models">   
+                                                        <option selected>Sonnet 4</option>
+                                                        <option hidden>openai/chatgpt-4o-latest</option> 
+                                                        <option hidden>gpt-5</option>
+                                                        <option>openai/gpt-5-chat</option>
+                                                        <option hidden>x-ai/grok-3-beta</option>
+                                                        <option>x-ai/grok-3</option>
+                                                        <option hidden>x-ai/grok-4</option>
+                                                        <option>Opus 4.1</option>
+                                                        <option hidden>moonshotai/kimi-k2</option>
+                                                        <option hidden>Qwen3-Coder</option>
+                                                    </optgroup>
+                                                    <optgroup label="Filler Models">
+                                                        <option>Filler</option>
+                                                    </optgroup>
+                                                    <optgroup label="Fast Models">
+                                                        <option>google/gemini-2.5-flash</option>
+                                                        <option hidden>google/gemini-2.5-flash-lite</option>
+                                                        <option hidden>google/gemini-2.0-flash-001</option>
+                                                        <option hidden>google/gemini-2.0-flash-lite-001</option>
+                                                        <option hidden>qwen/qwen-turbo</option>
+                                                        <option hidden>openai/gpt-4.1-mini</option>
+                                                        <option hidden>x-ai/grok-3-mini</option>
+                                                    </optgroup>
+                                                    <optgroup label="Reasoning Models">
+                                                        <option>Gemini-2.5-pro</option>
+                                                        <option>o3-pro</option>
+                                                        <option hidden>minimax/minimax-m1</option>
+                                                        <option hidden>o1</option>
+                                                        <option hidden>o3</option>
+                                                        <option>o4-mini-high</option>
+                                                        <option>o4-mini-deep-research</option>
+                                                        <option hidden>Claude Sonnet 3.7 Thinking</option>
+                                                        <option hidden>o1-pro</option>
+                                                    </optgroup>
+                                                    <optgroup label="Creative Models">
+                                                        <option>sao10k/l3.3-euryale-70b</option>
+                                                        <option>thedrummer/anubis-pro-105b-v1</option>
+                                                        <option hidden>thedrummer/anubis-70b-v1.1</option>
+                                                        <option>nousresearch/hermes-3-llama-3.1-405b</option>
+                                                        <option>raifle/sorcererlm-8x22b</option>
+                                                    </optgroup>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-field-selector" class="form-label"><strong>Agent</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-field-selector">
+                                                    <option selected>None</option>
+                                                    <option>InterviewSimulator</option>
+                                                    <option>InterviewSimulatorV2</option>
+                                                    <option>NStepCodeAgent</option>
+                                                    <option>CodeSolveAgent</option>
+                                                    <option>MLSystemDesignAgent</option>
+                                                    <option>NStepAgent</option>
+                                                    <option>NResponseAgent</option>
+                                                    <option>PerplexitySearch</option>
+                                                    <option>JinaSearchAgent</option>
+                                                    <option>WebSearch</option>
+                                                    <option>MultiSourceSearch</option>
+                                                    <option>BroadSearch</option>
+                                                    <option>WhatIf</option>
+                                                    <option>LiteratureReview</option>
+                                                    <option>ToCGenerationAgent</option>
+                                                    <option>BookCreatorAgent</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Actions Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-tools"></i> Actions</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
+                                            <i class="fa fa-trash"></i> Delete Last Turn
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
+                                            <i class="bi bi-pen"></i> Memory Pad
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button">
+                                            <i class="bi bi-pen"></i> User Details
+                                        </button>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-preferences-modal-open-button">
+                                            <i class="bi bi-pen"></i> User Preferences
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-md-4">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
+                                            <i class="bi bi-code-slash"></i> Code Editor  
+                                        </button>  
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Permanent Instructions Section -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-sticky-note"></i> Permanent Instructions</h6>
+                                <div class="form-group">
+                                    <textarea id="settings-permanentText" class="form-control" rows="4" placeholder="Enter permanent instructions that will be included with every message..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search Links Section -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-search"></i> Search & Links</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="settings-linkInput" class="form-label"><strong>Links to Visit</strong></label>
+                                            <textarea id="settings-linkInput" class="form-control" rows="3" placeholder="Links to visit, each in a new line"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="settings-searchInput" class="form-label"><strong>Search Phrases</strong></label>
+                                            <textarea id="settings-searchInput" class="form-control" rows="3" placeholder="Search phrases, each in a new line"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <button type="button" id="settings-reset-button" class="btn btn-warning">
+                        <i class="fa fa-undo"></i> Reset to Defaults
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fa fa-times"></i> Close
+                    </button>
+                    <small class="text-muted mr-auto">Settings are automatically applied when you close this dialog</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Z-Index CSS Fix -->
+    <style>
+        /* Chat Settings Modal - Base level */
+        #chat-settings-modal.modal {
+            z-index: 1055 !important;
+        }
+        #chat-settings-modal .modal-backdrop {
+            z-index: 1054 !important;
+        }
+        #chat-settings-modal .modal-dialog {
+            z-index: 1056 !important;
+            position: relative;
+        }
+        #chat-settings-modal .modal-content {
+            z-index: 1057 !important;
+            position: relative;
+        }
+
+        /* Secondary Modals - Higher level to appear above chat settings */
+        #memory-pad-modal.modal,
+        #user-details-modal.modal,
+        #user-preferences-modal.modal,
+        #code-editor-modal.modal {
+            z-index: 1065 !important;
+        }
+        
+        #memory-pad-modal .modal-backdrop,
+        #user-details-modal .modal-backdrop,
+        #user-preferences-modal .modal-backdrop,
+        #code-editor-modal .modal-backdrop {
+            z-index: 1064 !important;
+        }
+
+        #memory-pad-modal .modal-dialog,
+        #user-details-modal .modal-dialog,
+        #user-preferences-modal .modal-dialog,
+        #code-editor-modal .modal-dialog {
+            z-index: 1066 !important;
+            position: relative;
+        }
+
+        #memory-pad-modal .modal-content,
+        #user-details-modal .modal-content,
+        #user-preferences-modal .modal-content,
+        #code-editor-modal .modal-content {
+            z-index: 1067 !important;
+            position: relative;
+        }
+        
+        /* Slide Presentation Styles */
+        .slide-presentation-wrapper {
+            width: 100%;
+            margin: 20px 0;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .slide-presentation-wrapper .reveal {
+            width: 100%;
+            height: 500px; /* Fixed height for embedded slides */
+            background: #ffffff;
+        }
+        
+        .slide-presentation-wrapper .reveal .slides {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .slide-presentation-wrapper .reveal .slides section {
+            height: 100%;
+            max-height: 450px;
+            overflow: hidden;
+            padding: 20px !important;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            font-size: 0.9em;
+        }
+        
+        /* Slide content styling */
+        .slide-presentation-wrapper .reveal h1,
+        .slide-presentation-wrapper .reveal h2,
+        .slide-presentation-wrapper .reveal h3 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            color: #2c3e50;
+        }
+        
+        .slide-presentation-wrapper .reveal h2 {
+            font-size: 1.5em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }
+        
+        .slide-presentation-wrapper .reveal h3 {
+            font-size: 1.2em;
+            color: #34495e;
+        }
+        
+        .slide-presentation-wrapper .reveal p {
+            margin: 0.5em 0;
+            line-height: 1.4;
+        }
+        
+        .slide-presentation-wrapper .reveal ul,
+        .slide-presentation-wrapper .reveal ol {
+            margin: 0.5em 0;
+        }
+        
+        .slide-presentation-wrapper .reveal li {
+            margin: 0.2em 0;
+            line-height: 1.3;
+        }
+        
+        /* Code block styling for slides */
+        .slide-presentation-wrapper .reveal pre {
+            width: 100%;
+            margin: 10px 0;
+            box-shadow: 0px 3px 10px rgba(0, 0, 0, 0.15);
+            border-radius: 5px;
+            background: #f8f8f8;
+            border: 1px solid #e1e1e8;
+        }
+        
+        .slide-presentation-wrapper .reveal pre code {
+            max-height: 300px;
+            font-size: 0.8em;
+            line-height: 1.3;
+            padding: 15px;
+            overflow-y: auto;
+            display: block;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: #f8f8f8;
+        }
+        
+        .slide-presentation-wrapper .reveal code {
+            font-size: 0.85em;
+            padding: 2px 6px;
+            background: #f4f4f4;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            color: #c7254e;
+            border: 1px solid #e1e1e8;
+        }
+        
+        /* Special coding elements */
+        .slide-presentation-wrapper .complexity-analysis {
+            background: #ecf0f1;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+        }
+        
+        .slide-presentation-wrapper .algorithm-step {
+            background: #e8f6f3;
+            padding: 8px;
+            border-left: 4px solid #1abc9c;
+            margin: 6px 0;
+            font-size: 0.8em;
+        }
+        
+        /* Navigation controls styling */
+        .slide-controls {
+            padding: 15px;
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+        }
+        
+        .slide-controls .btn {
+            font-size: 0.85em;
+            padding: 6px 12px;
+        }
+        
+        .slide-counter-display {
+            font-weight: 500;
+            color: #495057;
+        }
+        
+        /* Responsive design for slides */
+        @media (max-width: 768px) {
+            .slide-presentation-wrapper .reveal {
+                height: 400px;
+            }
+            
+            .slide-presentation-wrapper .reveal .slides section {
+                max-height: 350px;
+                padding: 15px !important;
+                font-size: 0.8em;
+            }
+            
+            .slide-presentation-wrapper .reveal pre code {
+                font-size: 0.7em;
+                max-height: 200px;
+            }
+            
+            .slide-controls {
+                padding: 10px;
+            }
+            
+            .slide-controls .btn {
+                font-size: 0.8em;
+                padding: 4px 8px;
+            }
+        }
+        
+        /* Hide default Reveal.js controls since we have custom ones */
+        .slide-presentation-wrapper .reveal .controls {
+            display: none;
+        }
+        
+        .slide-presentation-wrapper .reveal .progress {
+            height: 3px;
+            color: #3498db;
+        }
+    </style>
+
     <!-- Full Solution Modal -->
     <div id="solution-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
         <div class="modal-dialog modal-xl" style="max-width: 900px;">
@@ -705,7 +1237,7 @@
     </div>
 
     <!-- Code Editor Modal -->  
-    <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true">  
+    <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">  
       <div class="modal-dialog modal-xl"> <!-- Using modal-xl for more space -->  
         <div class="modal-content">  
           <div class="modal-header">  
@@ -1176,6 +1708,34 @@
         
         .audio-player-container .audio-container audio {
             max-width: 200px;
+        }
+        
+        /* Global inline code styling for proper text wrapping and appearance */
+        code.inline-code,
+        code:not(.hljs):not([class*="language-"]):not([class*="hljs"]) {
+            background-color: #f8f9fa !important;
+            color: #e83e8c !important;
+            padding: 2px 4px !important;
+            border-radius: 3px !important;
+            font-size: 0.9em !important;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+            word-wrap: break-word !important;
+            white-space: pre-wrap !important;
+            display: inline !important;
+            border: 1px solid #e1e1e8 !important;
+        }
+        
+        /* Ensure inline code doesn't break layout in paragraphs */
+        p code.inline-code,
+        p code:not(.hljs):not([class*="language-"]):not([class*="hljs"]) {
+            line-height: 1.4 !important;
+            vertical-align: baseline !important;
+        }
+        
+        /* Prevent highlight.js from interfering with inline code */
+        code.inline-code * {
+            color: inherit !important;
+            background: transparent !important;
         }
     }
     </style>

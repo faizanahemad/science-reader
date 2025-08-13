@@ -1637,6 +1637,23 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             pass
         if field == "DocQnA":
             pass
+        if field == "SlideAgent":
+            from agents.slide_agent import GenericSlideAgent
+            agent = GenericSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+        if field == "CodingSlideAgent":
+            from agents.slide_agent import CodingQuestionSlideAgent
+            agent = CodingQuestionSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+        # Handle PPT answer mode - override agent selection if ppt_answer is enabled
+        ppt_answer = kwargs.get("ppt_answer", False)
+        if ppt_answer:
+            # Select appropriate slide agent based on preamble options
+            if "Short Coding Interview" in preamble_options:
+                from agents.slide_agent import CodingQuestionSlideAgent
+                agent = CodingQuestionSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+            else:
+                from agents.slide_agent import GenericSlideAgent
+                agent = GenericSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+        
         final_preamble = preamble
         if final_preamble.strip() == "":
             final_preamble = None
@@ -1761,6 +1778,11 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             message_lookback = provide_detailed_answers * 4
         else:
             message_lookback = int(enablePreviousMessages) * 2
+        checkboxes["ppt_answer"] = checkboxes["ppt_answer"] if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"]) else False
+        if checkboxes["ppt_answer"]:
+            # permanent_instructions += "User has requested to receive the answer in PowerPoint slide format.\n"
+            # reduce message lookback to 2
+            message_lookback = 2
 
         prior_context_future = get_async_future(self.retrieve_prior_context,
                                                 query["messageText"], past_message_ids=past_message_ids,
@@ -1789,6 +1811,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         time_dict["before_planner_time"] = time.time() - st
         checkboxes["need_diagram"] = checkboxes["draw"] if "draw" in checkboxes and bool(checkboxes["draw"]) else False
         checkboxes["code_execution"] = checkboxes["execute"] if "execute" in checkboxes and bool(checkboxes["execute"]) else False
+        
+
         if checkboxes["code_execution"]:
             permanent_instructions += "User has requested to execute the code and write executable code which we can run.\n"
         if checkboxes["need_diagram"]:
@@ -2026,7 +2050,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix)
+                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix, ppt_answer=checkboxes["ppt_answer"])
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
@@ -2632,12 +2656,15 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
+        from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
+        is_slide_agent = agent is not None and (isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent))
         if self.is_cancelled():
             main_ans_gen = iter([])  # empty generator of string
         elif model_name == FILLER_MODEL:
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
-        elif agent is not None:
+        elif agent is not None and not is_slide_agent:
+            
             if isinstance(agent, (NResponseAgent, ReflectionAgent)):
                 if hasattr(agent, "n_responses"):
                     agent.n_responses = 5 if provide_detailed_answers >= 3 else 3
@@ -2651,14 +2678,17 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 agent.detail_level = provide_detailed_answers
             if hasattr(agent, "timeout"):
                 agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
-            main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-            if isinstance(main_ans_gen, dict):
-                main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
-            elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
-                pass
-            elif not isinstance(main_ans_gen, str):
-                main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
-            main_ans_gen = buffer_generator_async(main_ans_gen)
+            
+            
+            else:
+                main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                if isinstance(main_ans_gen, dict):
+                    main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
+                elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
+                    pass
+                elif not isinstance(main_ans_gen, str):
+                    main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
+                main_ans_gen = buffer_generator_async(main_ans_gen)
             
         else:
             
@@ -2708,6 +2738,39 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 
 
         main_ans_gen = buffer_generator_async(main_ans_gen)
+        if is_slide_agent:
+            # For slide agents, get the complete HTML response at once
+            context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+            context_prompt = f"""
+The conversation history is:
+{previous_messages}
+
+Conversation summary is:
+{summary}
+
+The user's question is:
+{query["messageText"]}
+
+Now please re-contextualize the user's question based on the conversation history and summary. Please make it more detailed, with more context and specific details.
+
+This will be used to generate slides using an LLM. Please write what the user is asking without writing much about the history or like saying "user asked this, conversation was about that and blah blah".
+The slides made will help us learn and grasp the topic better.
+
+User's question:
+{query["messageText"]}
+
+Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
+
+At the end write what we must make slides about as well.
+"""
+            # context_response_future = get_async_future(context_llm, context_prompt, images=images, system=preamble, temperature=0.3, stream=False)
+            
+
+            yield {"text": '', "status": "Preparing Slides ..."}
+            # slide_html_future = get_async_future(agent, prompt, images=images, system=preamble, temperature=0.3, stream=False)
+            
+
+
         # Process reward evaluation before saving message
         if reward_future is not None:
             yield {"text": "\n", "status": "reward evaluation complete"}
@@ -2840,6 +2903,16 @@ Write the extracted user preferences and user memory below in bullet points. Wri
 
 
         self.clear_cancellation()
+
+        if is_slide_agent:
+            # "User's question:\n" + context_response_future.result() + 
+            slide_html_future = get_async_future(agent, "\n\nOur answer to the above question which we need to convert to slides is: \n\n<main-content>\n" + answer + "\n</main-content>", images=images, system=preamble, temperature=0.3, stream=False)
+            slide_html = slide_html_future.result()
+            # Wrap the slide HTML with a special marker for UI detection
+            slide_response = f"\n\n<slide-presentation>\n{slide_html}\n</slide-presentation>\n\n"
+            yield {"text": slide_response, "status": "answering in progress"}
+            answer += slide_response
+
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")

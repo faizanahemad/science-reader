@@ -173,7 +173,7 @@ function interface_readiness() {
         $("#chat-options-assistant-ensemble").prop('checked', false);
         $("#user-preferences-modal-open-button").parent().hide();
         $("#user-details-modal-open-button").parent().hide();
-        // $('#toggleChatControls').click();
+        // Settings modal replaced the old toggle functionality
         
     });
     

@@ -55,14 +55,117 @@ function chat_interface_readiness() {
           this.style.height = (this.scrollHeight) + 'px'; // Set the new height based on content
       }
     });
-    $('#toggleChatControls').click(function () {
-        $('#chat-search-links-input').toggleClass('d-none');
-        $('#chat-options').toggleClass('d-none');
-        // ▲ ▼
-        // change inner content of the button based on current content
-        var currentContent = $(this).text();
-        var newContent = currentContent === '▲' ? '▼' : '▲';
-        $(this).text(newContent);
+    // Chat Settings Modal Handler
+    $('#chatSettingsButton').click(function () {
+        console.log('Chat settings button clicked');
+        // Ensure modal reflects latest saved state (if any)
+        loadSettingsIntoModal();
+        // Show the modal with proper configuration
+        $('#chat-settings-modal').modal({
+            backdrop: true,
+            keyboard: true,
+            focus: true,
+            show: true
+        });
+        
+        // Ensure modal is properly focused and clickable
+        setTimeout(function() {
+            $('#chat-settings-modal').focus();
+            console.log('Chat settings modal should be visible');
+        }, 100);
+    });
+
+    // Handle modal events for debugging and auto-apply
+    $('#chat-settings-modal').on('shown.bs.modal', function () {
+        console.log('Chat settings modal shown');
+        $(this).focus();
+    });
+
+    $('#chat-settings-modal').on('hidden.bs.modal', function () {
+        console.log('Chat settings modal hidden - auto-applying settings');
+        // Auto-apply settings when modal closes and persist to state/localStorage
+        applySettingsFromModal();
+        persistSettingsStateFromModal();
+    });
+
+    // Apply button removed - settings auto-apply when modal closes
+
+    // Settings Modal Reset Button Handler
+    $('#settings-reset-button').click(function () {
+        resetSettingsToDefaults();
+        persistSettingsStateFromModal();
+    });
+
+    // Settings Modal Button Handlers (delegate to original buttons)
+    $('#settings-deleteLastTurn').click(function () {
+        if (ConversationManager.activeConversationId) {
+            ChatManager.deleteLastMessage(ConversationManager.activeConversationId);
+        }
+    });
+
+    $('#settings-memory-pad-text-open-button').click(function () {
+        // Directly open Memory Pad modal
+        // Load memory pad content first
+        if (typeof ConversationManager !== 'undefined' && ConversationManager.loadMemoryPadText) {
+            ConversationManager.loadMemoryPadText();
+        }
+        $('#memory-pad-modal').modal('show');
+    });
+
+    $('#settings-user-details-modal-open-button').click(function () {
+        // Directly open User Details modal
+        fetchUserDetail().then(function() {
+            $('#user-details-modal').modal('show');
+        });
+    });
+
+    $('#settings-user-preferences-modal-open-button').click(function () {
+        // Directly open User Preferences modal
+        fetchUserPreference().then(function() {
+            $('#user-preferences-modal').modal('show');
+        });
+    });
+
+    $('#settings-code-editor-modal-open-button').click(function () {
+        // Directly open Code Editor modal
+        $('#code-editor-modal').modal('show');
+        if (typeof setupCodeEditor === 'function') {
+            setupCodeEditor();
+        }
+    });
+
+    // Ensure modal close buttons work
+    $('#chat-settings-modal .close, #chat-settings-modal [data-dismiss="modal"]').click(function() {
+        console.log('Closing chat settings modal');
+        $('#chat-settings-modal').modal('hide');
+    });
+
+    // Handle escape key
+    $(document).keydown(function(e) {
+        if (e.keyCode === 27 && $('#chat-settings-modal').hasClass('show')) { // ESC key
+            $('#chat-settings-modal').modal('hide');
+        }
+    });
+
+    // Listen for tab changes to reset settings to that tab's defaults
+    $('#assistant-tab, #search-tab, #finchat-tab').on('shown.bs.tab', function () {
+        const tab = getCurrentActiveTab();
+        const defaultsForTab = computeDefaultStateForTab(tab);
+        window.chatSettingsState = defaultsForTab;
+        try { localStorage.setItem('chatSettingsState', JSON.stringify(defaultsForTab)); } catch (e) {}
+        // Apply defaults to modal controls if open
+        if ($('#chat-settings-modal').hasClass('show')) {
+            setModalFromState(defaultsForTab);
+            if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
+        }
+        // Also apply to inline controls if present
+        if ($('#depthSelector').length) { $('#depthSelector').val(defaultsForTab.depth); }
+        if ($('#historySelector').length) { $('#historySelector').val(defaultsForTab.history); }
+        if ($('#rewardLevelSelector').length) { $('#rewardLevelSelector').val(defaultsForTab.reward); }
+        if ($('#chat-options-assistant-perform-web-search-checkbox').length) { $('#chat-options-assistant-perform-web-search-checkbox').prop('checked', !!defaultsForTab.perform_web_search); }
+        if ($('#chat-options-assistant-search-exact').length) { $('#chat-options-assistant-search-exact').prop('checked', !!defaultsForTab.search_exact); }
+        if ($('#chat-options-assistant-persist_or_not').length) { $('#chat-options-assistant-persist_or_not').prop('checked', defaultsForTab.persist_or_not !== false); }
+        if ($('#use_memory_pad').length) { $('#use_memory_pad').prop('checked', !!defaultsForTab.use_memory_pad); }
     });
 
     $('#toggleChatDocsView').click(function () {
@@ -186,5 +289,268 @@ $(document).ready(function() {
     chat_interface_readiness();
     interface_readiness();
     setupCodeEditor();
+    // Load persisted settings state on boot and apply to modal controls (and inline if present)
+    initializeSettingsState();
 });
+
+// Settings Modal Functions
+function loadSettingsIntoModal() {
+    // Prefer persisted state if available; otherwise initialize from controls/defaults
+    const state = getPersistedSettingsState() || buildSettingsStateFromControlsOrDefaults();
+    setModalFromState(state);
+    // Refresh select pickers after loading values
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('#settings-preamble-selector, #settings-main-model-selector').selectpicker('refresh');
+    }
+}
+
+function applySettingsFromModal() {
+    // Apply settings from modal back to the original controls (only if they exist)
+    
+    // Basic Options
+    if ($('#chat-options-assistant-perform-web-search-checkbox').length) {
+        $('#chat-options-assistant-perform-web-search-checkbox').prop('checked', $('#settings-perform-web-search-checkbox').is(':checked'));
+    }
+    if ($('#chat-options-assistant-search-exact').length) {
+        $('#chat-options-assistant-search-exact').prop('checked', $('#settings-search-exact').is(':checked'));
+    }
+    if ($('#chat-options-assistant-persist_or_not').length) {
+        $('#chat-options-assistant-persist_or_not').prop('checked', $('#settings-persist_or_not').is(':checked'));
+    }
+    if ($('#use_memory_pad').length) {
+        $('#use_memory_pad').prop('checked', $('#settings-use_memory_pad').is(':checked'));
+    }
+    if ($('#enable_planner').length) {
+        $('#enable_planner').prop('checked', $('#settings-enable_planner').is(':checked'));
+    }
+    
+    // Advanced Settings
+    if ($('#depthSelector').length) {
+        $('#depthSelector').val($('#settings-depthSelector').val());
+    }
+    if ($('#historySelector').length) {
+        $('#historySelector').val($('#settings-historySelector').val());
+    }
+    if ($('#rewardLevelSelector').length) {
+        $('#rewardLevelSelector').val($('#settings-rewardLevelSelector').val());
+    }
+    
+    // Model and Agent Selection
+    if ($('#preamble-selector').length) {
+        $('#preamble-selector').val($('#settings-preamble-selector').val());
+    }
+    if ($('#main-model-selector').length) {
+        $('#main-model-selector').val($('#settings-main-model-selector').val());
+    }
+    if ($('#field-selector').length) {
+        $('#field-selector').val($('#settings-field-selector').val());
+    }
+    
+    // Permanent Instructions
+    if ($('#permanentText').length) {
+        $('#permanentText').val($('#settings-permanentText').val());
+    }
+    
+    // Search & Links
+    if ($('#linkInput').length) {
+        $('#linkInput').val($('#settings-linkInput').val());
+    }
+    if ($('#searchInput').length) {
+        $('#searchInput').val($('#settings-searchInput').val());
+    }
+    
+    // Refresh any select pickers if they exist
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('.selectpicker').selectpicker('refresh');
+    }
+    
+    console.log('Settings applied from modal');
+}
+
+// ---------- Settings State Persistence ----------
+function buildSettingsStateFromControlsOrDefaults() {
+    // Fallback builder used on first run when no state exists
+    const currentTab = getCurrentActiveTab();
+    const state = {
+        perform_web_search: $('#chat-options-assistant-perform-web-search-checkbox').length ? $('#chat-options-assistant-perform-web-search-checkbox').is(':checked') : ($('#settings-perform-web-search-checkbox').is(':checked') || false),
+        search_exact: $('#chat-options-assistant-search-exact').length ? $('#chat-options-assistant-search-exact').is(':checked') : ($('#settings-search-exact').is(':checked') || false),
+        persist_or_not: $('#chat-options-assistant-persist_or_not').length ? $('#chat-options-assistant-persist_or_not').is(':checked') : ($('#settings-persist_or_not').is(':checked') || true),
+        use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : ($('#settings-use_memory_pad').is(':checked') || false),
+        enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
+        ppt_answer: $('#settings-ppt-answer').is(':checked') || false,
+        depth: $('#depthSelector').length ? $('#depthSelector').val() : ($('#settings-depthSelector').val() || '2'),
+        history: $('#historySelector').length ? $('#historySelector').val() : ($('#settings-historySelector').val() || '2'),
+        reward: $('#rewardLevelSelector').length ? $('#rewardLevelSelector').val() : ($('#settings-rewardLevelSelector').val() || '0'),
+        preamble_options: $('#preamble-selector').length ? $('#preamble-selector').val() : (getDefaultPreambleForTab(currentTab)),
+        main_model: $('#main-model-selector').length ? $('#main-model-selector').val() : (getDefaultModelForTab(currentTab)),
+        field: $('#field-selector').length ? $('#field-selector').val() : (getDefaultAgentForTab(currentTab)),
+        permanentText: $('#permanentText').length ? $('#permanentText').val() : ($('#settings-permanentText').val() || ''),
+        links: $('#linkInput').length ? $('#linkInput').val() : ($('#settings-linkInput').val() || ''),
+        search: $('#searchInput').length ? $('#searchInput').val() : ($('#settings-searchInput').val() || '')
+    };
+    return state;
+}
+
+function setModalFromState(state) {
+    if (!state) { return; }
+    $('#settings-perform-web-search-checkbox').prop('checked', !!state.perform_web_search);
+    $('#settings-search-exact').prop('checked', !!state.search_exact);
+    $('#settings-persist_or_not').prop('checked', state.persist_or_not !== false);
+    $('#settings-use_memory_pad').prop('checked', !!state.use_memory_pad);
+    $('#settings-enable_planner').prop('checked', !!state.enable_planner);
+    $('#settings-ppt-answer').prop('checked', !!state.ppt_answer);
+    $('#settings-depthSelector').val(state.depth || '2');
+    $('#settings-historySelector').val(state.history || '2');
+    $('#settings-rewardLevelSelector').val(state.reward || '0');
+    $('#settings-preamble-selector').val(state.preamble_options || []);
+    $('#settings-main-model-selector').val(state.main_model || []);
+    $('#settings-field-selector').val(state.field || 'None');
+    $('#settings-permanentText').val(state.permanentText || '');
+    $('#settings-linkInput').val(state.links || '');
+    $('#settings-searchInput').val(state.search || '');
+}
+
+function collectSettingsFromModal() {
+    return {
+        perform_web_search: $('#settings-perform-web-search-checkbox').is(':checked'),
+        search_exact: $('#settings-search-exact').is(':checked'),
+        persist_or_not: $('#settings-persist_or_not').is(':checked'),
+        use_memory_pad: $('#settings-use_memory_pad').is(':checked'),
+        enable_planner: $('#settings-enable_planner').is(':checked'),
+        ppt_answer: $('#settings-ppt-answer').is(':checked'),
+        depth: $('#settings-depthSelector').val() || '2',
+        history: $('#settings-historySelector').val() || '2',
+        reward: $('#settings-rewardLevelSelector').val() || '0',
+        preamble_options: $('#settings-preamble-selector').val() || [],
+        main_model: $('#settings-main-model-selector').val() || [],
+        field: $('#settings-field-selector').val() || 'None',
+        permanentText: $('#settings-permanentText').val() || '',
+        links: $('#settings-linkInput').val() || '',
+        search: $('#settings-searchInput').val() || ''
+    };
+}
+
+function persistSettingsStateFromModal() {
+    const state = collectSettingsFromModal();
+    window.chatSettingsState = state;
+    try { localStorage.setItem('chatSettingsState', JSON.stringify(state)); } catch (e) { /* ignore */ }
+}
+
+function getPersistedSettingsState() {
+    if (window.chatSettingsState) { return window.chatSettingsState; }
+    try {
+        const raw = localStorage.getItem('chatSettingsState');
+        if (raw) { window.chatSettingsState = JSON.parse(raw); }
+    } catch (e) { /* ignore */ }
+    return window.chatSettingsState || null;
+}
+
+function initializeSettingsState() {
+    const state = getPersistedSettingsState();
+    if (state) {
+        // Ensure modal controls reflect persisted state now
+        setModalFromState(state);
+        // Also apply to inline controls if present
+        if ($('#depthSelector').length) { $('#depthSelector').val(state.depth || '2'); }
+        if ($('#historySelector').length) { $('#historySelector').val(state.history || '2'); }
+        if ($('#rewardLevelSelector').length) { $('#rewardLevelSelector').val(state.reward || '0'); }
+        if ($('#chat-options-assistant-perform-web-search-checkbox').length) { $('#chat-options-assistant-perform-web-search-checkbox').prop('checked', !!state.perform_web_search); }
+        if ($('#chat-options-assistant-search-exact').length) { $('#chat-options-assistant-search-exact').prop('checked', !!state.search_exact); }
+        if ($('#chat-options-assistant-persist_or_not').length) { $('#chat-options-assistant-persist_or_not').prop('checked', state.persist_or_not !== false); }
+        if ($('#use_memory_pad').length) { $('#use_memory_pad').prop('checked', !!state.use_memory_pad); }
+        if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
+    }
+}
+
+function resetSettingsToDefaults() {
+    // Reset all settings to their default values
+    
+    // Basic Options
+    $('#settings-perform-web-search-checkbox').prop('checked', false);
+    $('#settings-search-exact').prop('checked', false);
+    $('#settings-persist_or_not').prop('checked', true);
+    $('#settings-ppt-answer').prop('checked', false);
+    $('#settings-use_memory_pad').prop('checked', false);
+    $('#settings-enable_planner').prop('checked', false);
+    
+    // Advanced Settings
+    $('#settings-depthSelector').val('2');
+    $('#settings-historySelector').val('2');
+    $('#settings-rewardLevelSelector').val('0');
+    
+    // Model and Agent Selection - use tab-based defaults
+    var currentTab = getCurrentActiveTab();
+    var defaultPreamble = getDefaultPreambleForTab(currentTab);
+    var defaultModel = getDefaultModelForTab(currentTab);
+    var defaultAgent = getDefaultAgentForTab(currentTab);
+    
+    $('#settings-preamble-selector').val(defaultPreamble);
+    $('#settings-main-model-selector').val(defaultModel);
+    $('#settings-field-selector').val(defaultAgent);
+    
+    // Permanent Instructions
+    $('#settings-permanentText').val('');
+    
+    // Search & Links
+    $('#settings-linkInput').val('');
+    $('#settings-searchInput').val('');
+    
+    // Refresh any select pickers if they exist
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('.selectpicker').selectpicker('refresh');
+    }
+    
+    console.log('Settings reset to defaults');
+}
+
+// Helper functions for tab-based defaults
+function getCurrentActiveTab() {
+    if ($('#chat-tab').hasClass('active')) return 'chat';
+    if ($('#search-tab').hasClass('active')) return 'search';
+    if ($('#finchat-tab').hasClass('active')) return 'finchat';
+    return 'chat'; // default
+}
+
+function getDefaultPreambleForTab(tab) {
+    switch(tab) {
+        case 'chat':
+        case 'search':
+            return ['Wife Prompt'];
+        case 'finchat':
+            return ['Short Coding Interview'];
+        default:
+            return ['Wife Prompt'];
+    }
+}
+
+function getDefaultModelForTab(tab) {
+    // All tabs use the same default model
+    return ['Sonnet 4'];
+}
+
+function getDefaultAgentForTab(tab) {
+    // All tabs default to None
+    return 'None';
+}
+
+// Build a full default state object for a given tab
+function computeDefaultStateForTab(tab) {
+    return {
+        perform_web_search: false,
+        search_exact: false,
+        persist_or_not: true,
+        use_memory_pad: false,
+        enable_planner: false,
+        ppt_answer: false,
+        depth: '2',
+        history: '2',
+        reward: '0',
+        preamble_options: getDefaultPreambleForTab(tab),
+        main_model: getDefaultModelForTab(tab),
+        field: getDefaultAgentForTab(tab),
+        permanentText: '',
+        links: '',
+        search: ''
+    };
+}
 

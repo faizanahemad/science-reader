@@ -642,8 +642,129 @@ marked.setOptions({
     smartypants: true,
     xhtml: true
 });
+/**
+ * Build a standalone HTML document string that renders the given slides HTML
+ * inside a Reveal.js deck.
+ * The provided slidesHtml must include <section> elements only.
+ */
+function buildStandaloneSlidesPage(slidesHtml) {
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Slides</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/theme/white.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/monokai.css">
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; }
+        .reveal { height: 100%; background: #fff; }
+        .reveal .slides section { text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+            ${slidesHtml}
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/notes/notes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/highlight.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/math/math.js"></script>
+    <script>
+        (function() {
+            const deck = new Reveal(document.querySelector('.reveal'), {
+                embedded: false,
+                // IMPORTANT: Disable hash/history for blob/about pages to avoid SecurityError
+                hash: false,
+                controls: true,
+                progress: true,
+                center: false,
+                transition: 'slide',
+                backgroundTransition: 'fade',
+                plugins: [RevealHighlight, RevealMath.KaTeX]
+            });
+            try { deck.initialize(); } catch (e) { console.error('Reveal init error:', e); }
+        })();
+    </script>
+  </body>
+</html>`;
+}
+
+/**
+ * Detect if provided HTML is a full HTML document (has <!DOCTYPE html> or <html> root)
+ */
+function isFullHtmlDocument(htmlString) {
+    if (!htmlString || typeof htmlString !== 'string') return false;
+    var s = htmlString.trim();
+    return (/^<!DOCTYPE\s+html/i.test(s) || /^<html[\s>]/i.test(s));
+}
+
+/**
+ * If given embedded Reveal markup, extract only the direct <section>…</section> nodes
+ * contained inside the first <div class="slides">…</div>. If not found, returns input.
+ */
+function extractSectionsFromReveal(htmlString) {
+    if (!htmlString || typeof htmlString !== 'string') return htmlString;
+    var match = htmlString.match(/<div[^>]*class=["']?slides["']?[^>]*>([\s\S]*?)<\/div>/i);
+    if (match && match[1]) {
+        return match[1].trim();
+    }
+    return htmlString;
+}
+
+/**
+ * Split content into an ordered list of parts around <slide-presentation>…</slide-presentation> blocks.
+ * Returns { parts: Array<{type: 'text'|'slide', content: string}>, incomplete: boolean }
+ * If a closing tag is missing (streaming), 'incomplete' is true and only text before the
+ * opening tag will be returned in parts.
+ */
+function splitSlidePresentationParts(htmlString) {
+    var parts = [];
+    var i = 0;
+    var startTag = '<slide-presentation>';
+    var endTag = '</slide-presentation>';
+    while (i < htmlString.length) {
+        var startIdx = htmlString.indexOf(startTag, i);
+        if (startIdx === -1) {
+            // remaining text
+            parts.push({ type: 'text', content: htmlString.slice(i) });
+            break;
+        }
+        // text before slide
+        if (startIdx > i) {
+            parts.push({ type: 'text', content: htmlString.slice(i, startIdx) });
+        }
+        var endIdx = htmlString.indexOf(endTag, startIdx + startTag.length);
+        if (endIdx === -1) {
+            // Incomplete slide block (streaming). Stop here; don't include partial slide
+            return { parts: parts, incomplete: true };
+        }
+        // Extract inner slide content
+        var inner = htmlString.slice(startIdx + startTag.length, endIdx);
+        parts.push({ type: 'slide', content: inner });
+        i = endIdx + endTag.length;
+    }
+    return { parts: parts, incomplete: false };
+}
+
+/**
+ * Create a blob URL for the provided HTML string so it can be opened in a new window.
+ */
+function createSlidesBlobUrl(htmlString) {
+    try {
+        const blob = new Blob([htmlString], { type: 'text/html;charset=utf-8' });
+        return URL.createObjectURL(blob);
+    } catch (e) {
+        console.error('Failed to create slides blob URL', e);
+        return 'about:blank';
+    }
+}
+
 markdownParser.codespan = function (text) {
-    return '<code>' + text + '</code>';
+    return '<code class="inline-code">' + text + '</code>';
 };
 markdownParser.code = function (code, language) {
     const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
@@ -705,7 +826,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (continuous) {
         brother_elem = parent.find('#' + brother_elem_id);
         if (!brother_elem.length) {
-            var brother_elem = $('<p/>', { id: brother_elem_id })
+            var brother_elem = $('<div/>', { id: brother_elem_id })
             parent.append(brother_elem);
         }
         jqelem.hide();
@@ -731,8 +852,59 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // check html has </answer> tag
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
-    var htmlChunk = marked.marked(html, { renderer: markdownParser });
-    htmlChunk = removeEmTags(htmlChunk);
+    
+    // Check if this input contains slide presentation tags at all
+    var hasSlideTags = html.includes('<slide-presentation>');
+    var isSlidePresentation = hasSlideTags; // Backward-compatible flag used below
+    var htmlChunk;
+
+    if (hasSlideTags) {
+        var split = splitSlidePresentationParts(html);
+        var combined = '';
+        var foundSlide = false;
+        for (var pi = 0; pi < split.parts.length; pi++) {
+            var part = split.parts[pi];
+            if (part.type === 'text') {
+                var renderedText = marked.marked(part.content, { renderer: markdownParser });
+                renderedText = removeEmTags(renderedText);
+                combined += renderedText;
+            } else if (part.type === 'slide') {
+                foundSlide = true;
+                var rawSlideInnerHtml = part.content.trim();
+                var fullDocument = isFullHtmlDocument(rawSlideInnerHtml);
+                var htmlForBlob;
+                if (fullDocument) {
+                    htmlForBlob = rawSlideInnerHtml;
+                } else {
+                    var cleaned = rawSlideInnerHtml
+                        .replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/<div[^>]*class=["']?slide-controls[^>]*>[\s\S]*?<\/div>/gi, '');
+                    var sectionsOnly = extractSectionsFromReveal(cleaned);
+                    htmlForBlob = buildStandaloneSlidesPage(sectionsOnly);
+                }
+                var blobUrl = createSlidesBlobUrl(htmlForBlob);
+                var linkId = 'slide-link-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                combined += `
+                    <div class="slide-external-link" data-has-slides="true">
+                        <a id="${linkId}" href="${blobUrl}" target="_blank" rel="noopener noreferrer">Click here to see slides</a>
+                        <small class="text-muted" style="margin-left: 8px;">(opens in a new window)</small>
+                    </div>
+                `;
+            }
+        }
+        if (split.incomplete) {
+            // For streaming with an open but not yet closed slide block, render only the text parts before
+            // the opening tag. When the closing tag arrives, a subsequent call will render the full content.
+        }
+        if (foundSlide) {
+            try { elem_to_render_in.attr('data-has-slides', 'true'); } catch (e) {}
+        }
+        htmlChunk = combined;
+    } else {
+        // Normal markdown processing
+        htmlChunk = marked.marked(html, { renderer: markdownParser });
+        htmlChunk = removeEmTags(htmlChunk);
+    }
     try {
         elem_to_render_in.empty();
     } catch (error) {
@@ -755,6 +927,32 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         mathjax_elem = jqelem
     }
     MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+    // After MathJax finishes, if slides are present, re-adjust card height for accurate layout
+    if (isSlidePresentation) {
+        MathJax.Hub.Queue(function() {
+            try {
+                var slideWrapperAfterMath = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                if (slideWrapperAfterMath.length > 0) {
+                    setTimeout(function() {
+                        adjustCardHeightForSlides(slideWrapperAfterMath);
+                    }, 50);
+                }
+            } catch (e) { console.warn('Post-MathJax slide height adjust failed', e); }
+        });
+    }
+    // After MathJax typesetting completes, re-adjust slide/card height if needed
+    if (isSlidePresentation) {
+        MathJax.Hub.Queue(function() {
+            try {
+                var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                if (slideWrapper && slideWrapper.length) {
+                    adjustCardHeightForSlides(slideWrapper);
+                }
+            } catch (e) {
+                console.log('MathJax post-typeset height adjustment failed:', e);
+            }
+        });
+    }
     // Use Process instead of Queue for immediate execution
     // MathJax.Hub.Process(mathjax_elem);
     // MathJax.Hub.Typeset(mathjax_elem);
@@ -771,6 +969,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (immediate_callback) {
         immediate_callback()
     }
+
+    // Slides are now opened in a new window via link; no in-card Reveal init
 
     mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag
     code_rendering_needed = $(elem_to_render_in).find('code').length > 0
@@ -833,7 +1033,9 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
     if (code_rendering_needed) {
         MathJax.Hub.Queue(function() {
-            code_elems = $(elem_to_render_in).find('code')
+            // Only highlight code elements that are inside pre tags or have language classes
+            // Exclude inline code elements (those with class 'inline-code' or not in pre tags)
+            code_elems = $(elem_to_render_in).find('pre code, code[class*="language-"], code.hljs').not('.inline-code')
             Array.from(code_elems).forEach(function (code_elem) {
                 hljs.highlightBlock(code_elem);
             });
@@ -1359,30 +1561,31 @@ function getOptions(parentElementId, type) {
     optionOneChecked = $(type === "assistant" ? `#${parentElementId}-${type}-use-google-scholar` : `#${parentElementId}-${type}-use-references-and-citations-checkbox`).is(':checked');
     slow_fast = `${parentElementId}-${type}-provide-detailed-answers-checkbox`
     values = {
-        perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked'),
-        use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked'),
-        tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked'),
-        use_memory_pad: $('#use_memory_pad').is(':checked'),
-        enable_planner: $('#enable_planner').is(':checked'),
-        search_exact: $(`#${parentElementId}-${type}-search-exact`).is(':checked'),
-        ensemble: $(`#${parentElementId}-${type}-ensemble`).is(':checked'),
-        persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).is(':checked'),
+        perform_web_search: $(`#${parentElementId}-${type}-perform-web-search-checkbox`).length ? $(`#${parentElementId}-${type}-perform-web-search-checkbox`).is(':checked') : $('#settings-perform-web-search-checkbox').is(':checked'),
+        use_multiple_docs: $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).length ? $(`#${parentElementId}-${type}-use-multiple-docs-checkbox`).is(':checked') : false,
+        tell_me_more: $(`#${parentElementId}-${type}-tell-me-more-checkbox`).length ? $(`#${parentElementId}-${type}-tell-me-more-checkbox`).is(':checked') : false,
+        use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : $('#settings-use_memory_pad').is(':checked'),
+        enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : $('#settings-enable_planner').is(':checked'),
+        search_exact: $(`#${parentElementId}-${type}-search-exact`).length ? $(`#${parentElementId}-${type}-search-exact`).is(':checked') : $('#settings-search-exact').is(':checked'),
+        ensemble: $(`#${parentElementId}-${type}-ensemble`).length ? $(`#${parentElementId}-${type}-ensemble`).is(':checked') : false,
+        persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).length ? $(`#${parentElementId}-${type}-persist_or_not`).is(':checked') : $('#settings-persist_or_not').is(':checked'),
+        ppt_answer: $('#settings-ppt-answer').is(':checked'),
     };
-    let speedValue = $("#depthSelector").val();
+    let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;
     values[checkBoxOptionOne] = optionOneChecked;
     if (type === "assistant") {
-        let historyValue = $("#historySelector").val();
+        let historyValue = $("#historySelector").length ? $("#historySelector").val() : ($("#settings-historySelector").val() || '2');
         values['enable_previous_messages'] = historyValue;
-        let rewardLevelValue = $("#rewardLevelSelector").val();
+        let rewardLevelValue = $("#rewardLevelSelector").length ? $("#rewardLevelSelector").val() : ($("#settings-rewardLevelSelector").val() || '0');
         values['reward_level'] = rewardLevelValue;
     }
     
     if (type === "assistant") {
-        values['preamble_options'] = $('#preamble-selector').val();
-        values['main_model'] = $('#main-model-selector').val();
-        values['field'] = $('#field-selector').val();
-        values["permanentText"] = $("#permanentText").val();
+        values['preamble_options'] = $('#preamble-selector').length ? $('#preamble-selector').val() : $('#settings-preamble-selector').val();
+        values['main_model'] = $('#main-model-selector').length ? $('#main-model-selector').val() : $('#settings-main-model-selector').val();
+        values['field'] = $('#field-selector').length ? $('#field-selector').val() : $('#settings-field-selector').val();
+        values["permanentText"] = $("#permanentText").length ? $("#permanentText").val() : $("#settings-permanentText").val();
     }
     return values
 }
@@ -1394,6 +1597,7 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
     $(`#${parentElementId}-${type}-ensemble`).prop('checked', false);
     $(`#${parentElementId}-${type}-persist_or_not`).prop('checked', true);
+    $('#settings-ppt-answer').prop('checked', false);
     $("#rewardLevelSelector").val(0);
     $("#rewardLevelValue").text("φ");
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
@@ -1575,5 +1779,216 @@ function pdfTabIsActive() {
         $("#hide-navbar").parent().hide();
         $("#toggle-tab-content").parent().hide();
         $("#details-tab").parent().hide();
+    }
+}
+
+/**
+ * Initialize Reveal.js for slide presentations within a container
+ * @param {jQuery} container - The container element containing the slide presentation
+ */
+function initializeSlidePresentation(container) {
+    try {
+        // Find the slide presentation wrapper
+        var slideWrapper = container.find('.slide-presentation-wrapper');
+        if (slideWrapper.length === 0) {
+            console.error('Slide presentation wrapper not found');
+            return;
+        }
+        
+        var slideId = slideWrapper.attr('id');
+        if (!slideId) {
+            console.error('Slide presentation wrapper has no ID');
+            return;
+        }
+        // Already initialized
+        if (slideWrapper.data('revealInstance')) {
+            return;
+        }
+        
+        // Check if Reveal.js is available
+        if (typeof Reveal === 'undefined') {
+            console.error('Reveal.js is not loaded');
+            return;
+        }
+        
+        // Find the reveal container within the slide wrapper
+        var revealContainer = slideWrapper.find('.reveal');
+        if (revealContainer.length === 0) {
+            console.error('Reveal container not found in slide presentation');
+            return;
+        }
+        
+        // Initialize Reveal.js for this specific container
+        // Create a new Reveal instance for this specific container
+        var revealInstance = new Reveal(revealContainer[0], {
+            embedded: true,
+            hash: false,
+            controls: true,
+            progress: true,
+            center: false,
+            transition: 'slide',
+            backgroundTransition: 'fade',
+            plugins: [RevealHighlight, RevealMath.KaTeX]
+        });
+        
+        revealInstance.initialize().then(function() {
+            console.log('Reveal.js initialized successfully for slide presentation');
+            
+            // Add navigation controls if they don't exist
+            addSlideNavigationControls(slideWrapper);
+            
+            // Update slide counter on slide change
+            revealInstance.on('slidechanged', function(event) {
+                updateSlideCounter(slideWrapper, event.indexh + 1);
+                // Re-adjust card height if slide content changes
+                setTimeout(function() {
+                    adjustCardHeightForSlides(slideWrapper);
+                }, 50);
+            });
+            
+            // Initialize slide counter
+            var totalSlides = revealInstance.getTotalSlides();
+            updateSlideCounter(slideWrapper, 1, totalSlides);
+            
+            // Store the reveal instance on the wrapper for later use
+            slideWrapper.data('revealInstance', revealInstance);
+            
+            // Ensure the Bootstrap card grows enough to contain the slides
+            setTimeout(function() {
+                adjustCardHeightForSlides(slideWrapper);
+                console.log('Initial card height adjustment completed');
+            }, 100);
+            
+            // Also adjust on window resize
+            var resizeHandler = function() { 
+                setTimeout(function() {
+                    adjustCardHeightForSlides(slideWrapper);
+                }, 100);
+            };
+            slideWrapper.data('resizeHandler', resizeHandler);
+            $(window).on('resize', resizeHandler);
+            
+        }).catch(function(error) {
+            console.error('Error initializing Reveal.js:', error);
+        });
+        
+    } catch (error) {
+        console.error('Error in initializeSlidePresentation:', error);
+    }
+}
+
+/**
+ * Add navigation controls to slide presentation
+ * @param {jQuery} slideWrapper - The slide wrapper element
+ */
+function addSlideNavigationControls(slideWrapper) {
+    // Check if controls already exist
+    if (slideWrapper.find('.slide-controls').length > 0) {
+        return;
+    }
+    
+    var controlsHtml = `
+        <div class="slide-controls mt-3 d-flex justify-content-between align-items-center">
+            <button class="btn btn-sm btn-outline-primary slide-prev-btn">
+                <i class="bi bi-chevron-left"></i> Previous
+            </button>
+            <span class="slide-counter-display mx-3">
+                <span class="current-slide">1</span> / <span class="total-slides">1</span>
+            </span>
+            <button class="btn btn-sm btn-outline-primary slide-next-btn">
+                Next <i class="bi bi-chevron-right"></i>
+            </button>
+        </div>
+    `;
+    
+    slideWrapper.append(controlsHtml);
+    
+    // Add event listeners for navigation buttons
+    slideWrapper.find('.slide-prev-btn').on('click', function() {
+        var revealInstance = slideWrapper.data('revealInstance');
+        if (revealInstance) {
+            revealInstance.prev();
+        }
+    });
+    
+    slideWrapper.find('.slide-next-btn').on('click', function() {
+        var revealInstance = slideWrapper.data('revealInstance');
+        if (revealInstance) {
+            revealInstance.next();
+        }
+    });
+}
+
+/**
+ * Update slide counter display
+ * @param {jQuery} slideWrapper - The slide wrapper element
+ * @param {number} current - Current slide number (1-based)
+ * @param {number} total - Total number of slides (optional)
+ */
+function updateSlideCounter(slideWrapper, current, total) {
+    var currentSlideSpan = slideWrapper.find('.current-slide');
+    var totalSlidesSpan = slideWrapper.find('.total-slides');
+    
+    if (currentSlideSpan.length > 0) {
+        currentSlideSpan.text(current);
+    }
+    
+    if (total !== undefined && totalSlidesSpan.length > 0) {
+        totalSlidesSpan.text(total);
+    }
+}
+
+/**
+ * Ensure the Bootstrap card is tall enough to fully display slides
+ * @param {jQuery} slideWrapper - The slide wrapper element
+ */
+function adjustCardHeightForSlides(slideWrapper) {
+    try {
+        var cardBody = slideWrapper.closest('.card-body');
+        if (!cardBody.length) { 
+            console.log('No card-body found for slide adjustment');
+            return; 
+        }
+        
+        // Mark the message card as having slides
+        var messageCard = cardBody.closest('.card.message-card');
+        if (messageCard.length) {
+            messageCard.addClass('has-slides');
+            console.log('Added has-slides class to message card');
+        }
+        
+        // Calculate desired height: slide container height + controls + padding
+        var wrapperHeight = slideWrapper.outerHeight(true) || 560;
+        var controls = slideWrapper.find('.slide-controls');
+        var controlsHeight = controls.length ? controls.outerHeight(true) : 40;
+        var desired = Math.max(600, wrapperHeight + controlsHeight + 40);
+        
+        console.log('Adjusting card height - wrapper:', wrapperHeight, 'controls:', controlsHeight, 'desired:', desired);
+        
+        // Apply min-height and ensure no clipping
+        cardBody.css({ 
+            'min-height': desired + 'px', 
+            'overflow': 'visible',
+            'height': 'auto'
+        });
+        
+        // Also ensure the message container allows growth
+        if (messageCard.length) {
+            messageCard.css({ 
+                'overflow': 'visible',
+                'min-height': (desired + 20) + 'px',
+                'height': 'auto'
+            });
+        }
+        
+        // Force a layout recalculation
+        setTimeout(function() {
+            if (slideWrapper.data('revealInstance')) {
+                slideWrapper.data('revealInstance').layout();
+            }
+        }, 100);
+        
+    } catch (error) {
+        console.error('Error adjusting card height for slides:', error);
     }
 }

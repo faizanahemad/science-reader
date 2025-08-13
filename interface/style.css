@@ -355,6 +355,37 @@ bi bi-trash-fill {
 .chat-card-body {
     padding: 0.5rem;
     margin-top: 5px;
+    /* Allow slide decks to grow the card */
+    overflow: visible;
+    min-height: auto;
+}
+
+/* Ensure slide decks have room inside cards */
+.card .slide-presentation-wrapper {
+    display: block;
+    min-height: 560px; /* fits 500px reveal + padding/controls */
+    width: 100%;
+    margin: 10px 0;
+}
+
+/* Allow message cards to grow for slides */
+.message-card {
+    overflow: visible !important;
+    min-height: auto;
+}
+
+.message-card .card-body {
+    overflow: visible !important;
+    min-height: auto;
+}
+
+/* Ensure slide containers don't get clipped */
+.message-card.has-slides {
+    min-height: 600px;
+}
+
+.message-card.has-slides .card-body {
+    min-height: 580px;
 }
 
 .card-header {

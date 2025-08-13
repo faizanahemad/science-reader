@@ -5,3 +5,4 @@ from .toc_book_agent import *
 from .interview_prep_agents import *
 from .interview_simulator_agent import *
 from .interview_simulator_agent_v2 import *
+from .slide_agent import *
