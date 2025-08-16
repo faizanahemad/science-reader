@@ -1400,109 +1400,196 @@ function initializeGamificationSystem() {
 /**
  * Detects the last valid breakpoint in text and returns sections before and after it.
  * 
- * A valid breakpoint is either:
- * - Two consecutive empty lines (\n\n)
- * - A horizontal rule preceded by an empty line (\n---\n)
- * 
- * Breakpoints are ignored if they appear inside:
- * - Code blocks (between triple backticks ```, including language specifiers)
+ * Protected environments (no breaks inside):
+ * - Code blocks (between triple backticks ```)
+ * - Math display blocks (between $$ delimiters)
  * - Details elements (between <details> and </details> tags)
+ * - Inline math ($...$) within paragraphs
  * 
- * This function only analyzes the text for breakpoints - it does not modify the content
- * of code blocks, details elements, or any other text. All original formatting and syntax
- * is preserved in the returned text segments.
+ * Valid breakpoints (in priority order):
+ * - Before markdown headers (# ## ###)
+ * - After horizontal rules (---)
+ * - Between paragraphs (double newlines)
+ * - After lists and blockquotes
  * 
  * @param {string} text - The text to analyze for breakpoints
- * @returns {Object} Result containing:
- *   - hasBreakpoint {boolean}: Whether a valid breakpoint was found
- *   - textAfterBreakpoint {string}: Text after the last breakpoint (or full text if no breakpoint)
- *   - textBeforeBreakpoint {string}: Text before and including the last breakpoint (undefined if no breakpoint)
+ * @returns {Object} Result containing breakpoint information
  */
 function getTextAfterLastBreakpoint(text) {
     // Split text into lines for analysis
     let lines = text.split('\n');
     let lastBreakpointIndex = -1;
-    let breakpointType = null; // "double-newline" or "horizontal-rule"
+    let breakpointType = null;
     
-    // Track special regions where breakpoints should be ignored
+    // Track protected environments
     let inCodeBlock = false;
+    let inMathBlock = false;
     let inDetailsBlock = false;
-    let detailsDepth = 0; // To handle nested details elements
+    let detailsDepth = 0;
     
-    // Analyze each line to find the last valid breakpoint
+    // Track context for better breakpoint decisions
+    let inList = false;
+    let inBlockquote = false;
+    let mathBlockStart = -1;
+    
+    // Analyze each line to find valid breakpoints
     for (let i = 0; i < lines.length - 1; i++) {
-        const currentLine = lines[i].trim();
-        const nextLine = lines[i+1].trim();
+        const currentLine = lines[i];
+        const trimmedLine = currentLine.trim();
+        const nextLine = lines[i + 1] || '';
+        const trimmedNext = nextLine.trim();
         
-        // Check for code block boundaries - including language specifiers
-        if (currentLine.startsWith('```')) {
+        // Check for code block boundaries
+        if (trimmedLine.startsWith('```')) {
             inCodeBlock = !inCodeBlock;
             continue;
         }
         
+        // Skip if we're inside a code block
+        if (inCodeBlock) continue;
+        
+        // Check for math block boundaries ($$)
+        // Count $$ occurrences in the line
+        const doubleDollarCount = (trimmedLine.match(/\$\$/g) || []).length;
+        
+        // Handle math blocks that span multiple lines
+        if (doubleDollarCount % 2 === 1) {
+            // Odd number means we're toggling math block state
+            inMathBlock = !inMathBlock;
+            if (inMathBlock) {
+                mathBlockStart = i;
+            }
+        } else if (doubleDollarCount > 0 && doubleDollarCount % 2 === 0) {
+            // Even number of $$ means complete math expressions on one line
+            // This line contains complete math, safe to break after it
+        }
+        
+        // Skip if we're inside a math block
+        if (inMathBlock) continue;
+        
         // Check for details element boundaries
-        if (currentLine.includes('<details')) {
+        if (trimmedLine.includes('<details')) {
             detailsDepth++;
             inDetailsBlock = detailsDepth > 0;
         }
-        
-        if (currentLine.includes('</details>')) {
-            detailsDepth = Math.max(0, detailsDepth - 1); // Prevent negative depth
+        if (trimmedLine.includes('</details>')) {
+            detailsDepth = Math.max(0, detailsDepth - 1);
             inDetailsBlock = detailsDepth > 0;
         }
         
-        // Only check for breakpoints if not in a special region
-        if (!inCodeBlock && !inDetailsBlock) {
-            // Check for double newline (empty line followed by empty line)
-            if (currentLine === '' && nextLine === '') {
-                lastBreakpointIndex = i;
-                breakpointType = "double-newline";
+        // Skip if we're inside a details block
+        if (inDetailsBlock) continue;
+        
+        // Track list context
+        const isListItem = /^[\s]*[-*+]\s/.test(currentLine) || /^[\s]*\d+\.\s/.test(currentLine);
+        const isIndentedLine = /^[\s]{2,}/.test(currentLine) && trimmedLine !== '';
+        
+        if (isListItem) {
+            inList = true;
+        } else if (trimmedLine === '' && inList && !isIndentedLine) {
+            // Empty line after list (and not indented continuation) ends the list
+            inList = false;
+            // This is a good breakpoint - after a list
+            lastBreakpointIndex = i;
+            breakpointType = "after-list";
+        }
+        
+        // Track blockquote context
+        const wasInBlockquote = inBlockquote;
+        inBlockquote = trimmedLine.startsWith('>');
+        
+        // Only look for breakpoints if not in any protected environment
+        if (!inCodeBlock && !inMathBlock && !inDetailsBlock && !inList) {
+            
+            // Priority 1: Before headers (most significant break)
+            if (trimmedLine === '' && 
+                (trimmedNext.startsWith('# ') || 
+                 trimmedNext.startsWith('## ') || 
+                 trimmedNext.startsWith('### '))) {
+                // Only use as breakpoint if we have enough content before it
+                if (i > 2) {
+                    lastBreakpointIndex = i;
+                    breakpointType = "before-header";
+                }
             }
-            // Check for horizontal rule (empty line followed by ---)
-            else if (currentLine === '' && nextLine === '---') {
-                lastBreakpointIndex = i;
-                breakpointType = "horizontal-rule";
+            
+            // Priority 2: After horizontal rules
+            else if (trimmedLine === '---' && i > 0 && lines[i - 1].trim() === '') {
+                lastBreakpointIndex = i + 1;
+                breakpointType = "after-horizontal-rule";
             }
-            // Optional: check for newline and then markdown header pattern
-            // else if (currentLine === '' && (nextLine.startsWith('# ') || nextLine.startsWith('## ') || nextLine.startsWith('### '))) {
-            //     lastBreakpointIndex = i;
-            //     breakpointType = "markdown-header";
-            // }
+            
+            // Priority 3: After blockquotes
+            else if (wasInBlockquote && !inBlockquote && trimmedLine === '') {
+                lastBreakpointIndex = i;
+                breakpointType = "after-blockquote";
+            }
+            
+            // Priority 4: Between paragraphs (double newline)
+            else if (trimmedLine === '' && trimmedNext === '') {
+                // Additional check: make sure the previous line isn't math or code
+                const prevLine = i > 0 ? lines[i - 1].trim() : '';
+                const isAfterMath = prevLine.includes('$$') || prevLine.endsWith('$');
+                const isBeforeMath = i + 2 < lines.length && 
+                    (lines[i + 2].trim().startsWith('$$') || lines[i + 2].trim().startsWith('$'));
+                
+                // Don't break right before or after math blocks
+                if (!isAfterMath && !isBeforeMath && i < lines.length - 3) {
+                    lastBreakpointIndex = i;
+                    breakpointType = "paragraph-break";
+                }
+            }
         }
     }
     
-    // Check for unclosed structures in the text
-    // For code blocks: We need to check if there's an odd number of ``` markers
-    const codeBlockRegex = /```(?:\w*)/g; // Match ``` followed by optional language specifier
-    let codeBlockMatches = [...text.matchAll(codeBlockRegex)];
-    const hasUnclosedCodeBlock = codeBlockMatches.length % 2 !== 0;
+    // Validate unclosed structures
+    const codeBlockCount = (text.match(/```/g) || []).length;
+    const hasUnclosedCodeBlock = codeBlockCount % 2 !== 0;
     
-    // For details elements: Check if opening and closing tags are balanced
-    const detailsOpenRegex = /<details[^>]*>/g;
-    const detailsCloseRegex = /<\/details>/g;
-    const detailsOpenCount = (text.match(detailsOpenRegex) || []).length;
-    const detailsCloseCount = (text.match(detailsCloseRegex) || []).length;
+    // More sophisticated math block detection
+    const mathBlockMatches = text.match(/\$\$/g) || [];
+    const hasUnclosedMathBlock = mathBlockMatches.length % 2 !== 0;
+    
+    const detailsOpenCount = (text.match(/<details[^>]*>/g) || []).length;
+    const detailsCloseCount = (text.match(/<\/details>/g) || []).length;
     const hasUnclosedDetails = detailsOpenCount > detailsCloseCount;
     
-    // If we have unclosed structures, don't identify breakpoints
-    if (hasUnclosedCodeBlock || hasUnclosedDetails) {
+    // Don't create breakpoints if we have unclosed structures
+    if (hasUnclosedCodeBlock || hasUnclosedMathBlock || hasUnclosedDetails) {
         return { 
             hasBreakpoint: false, 
-            textAfterBreakpoint: text 
+            textAfterBreakpoint: text,
+            reason: `Unclosed structure: ${hasUnclosedCodeBlock ? 'code' : hasUnclosedMathBlock ? 'math' : 'details'}`
         };
     }
     
+    // If we found a valid breakpoint
     if (lastBreakpointIndex !== -1) {
-        // Found a breakpoint - now handle placement of the breakpoint itself
+        const beforeLines = lines.slice(0, lastBreakpointIndex);
+        const afterLines = lines.slice(lastBreakpointIndex);
         
-        // Put ALL breakpoint text in the "after" section
-        const beforeLines = lines.slice(0, lastBreakpointIndex);  // exclude the first empty line
-        const afterLines = lines.slice(lastBreakpointIndex);      // include both lines of the breakpoint
+        // Minimum content requirements
+        const MIN_CHARS_BEFORE = 100;  // At least 100 characters before break
+        const MIN_CHARS_AFTER = 50;    // At least 50 characters after break
+        
+        const textBefore = beforeLines.join('\n').trim();
+        const textAfter = afterLines.join('\n').trim();
+        
+        if (textBefore.length < MIN_CHARS_BEFORE || textAfter.length < MIN_CHARS_AFTER) {
+            return {
+                hasBreakpoint: false,
+                textAfterBreakpoint: text,
+                reason: 'Insufficient content for breakpoint'
+            };
+        }
+        
+        console.log(`Found breakpoint at line ${lastBreakpointIndex} (type: ${breakpointType})`);
         
         return {
             hasBreakpoint: true,
             textBeforeBreakpoint: beforeLines.join('\n'),
-            textAfterBreakpoint: afterLines.join('\n')
+            textAfterBreakpoint: afterLines.join('\n'),
+            breakpointType: breakpointType
         };
     }
     
@@ -1631,6 +1718,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     }
 
     var rendered_till_now = ''
+    var math_elems_to_render = new Set();
+    var beforeElem = null;
+    var afterElem = null;
 
     async function read() {
         try {
@@ -1746,6 +1836,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
                 elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`)
+                beforeElem = elem_to_render;
                 content_length = 0;
                 rendered_answer = '';
                 
@@ -1757,25 +1849,27 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             if (breakpointResult.hasBreakpoint) {
                 // Render the current section one last time with complete content
-                renderInnerContentAsMarkdown(elem_to_render,
+                mathjax_elem = renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
                 rendered_till_now = rendered_till_now + breakpointResult.textBeforeBreakpoint;
                 
                 // Create a new section for content after the breakpoint
-                sectionCount++;
                 const newElem = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(newElem);
                 elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`)
+                beforeElem = elem_to_render;
                 
                 // Reset rendering for the new section
                 content_length = 0;
                 rendered_answer = breakpointResult.textAfterBreakpoint;
+                sectionCount++;
             }
             
             // elem_to_render.append(part['text']);
             
             if ((rendered_answer.length > content_length + 50 || breakpointResult.hasBreakpoint) && !rendered_till_now.includes(rendered_answer)) {
-                renderInnerContentAsMarkdown(elem_to_render,
+                mathjax_elem = renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
                 rendered_till_now = rendered_till_now + rendered_answer;
@@ -1784,7 +1878,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             if ((part['text'].includes('</answer>')) && card.find("#message-render-space-md-render").length > 0) {
                 if (elem_to_render && elem_to_render.length > 0 && rendered_answer.length > 0 && !rendered_till_now.includes(rendered_answer)) {
-                    renderInnerContentAsMarkdown(elem_to_render, 
+                    mathjax_elem = renderInnerContentAsMarkdown(elem_to_render, 
                         immediate_callback = function() {
                             elem_to_render.attr('data-fully-rendered', 'true');
                         }, 
@@ -1793,11 +1887,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
                     rendered_till_now = rendered_till_now + rendered_answer;
                     
-                }
-                sectionCount++;
+                }    
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
                 card.find("#message-render-space-md-render").append(elem_to_render);
                 elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`).html('');
+                elem_to_render = card.find(`#actual-answer-rendering-space-${sectionCount}`)
+                beforeElem = elem_to_render;
+                sectionCount++;
+
                 content_length = 0;
                 rendered_answer = '';
                 
@@ -1881,16 +1978,25 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // textElem.find('.show-more').click(toggle);
             }
 
-            if (last_elem_to_render && last_elem_to_render.length > 0 && !rendered_till_now.includes(last_rendered_answer)) {
-                renderInnerContentAsMarkdown(last_elem_to_render, immediate_callback=function() {
-                        last_elem_to_render.attr('data-fully-rendered', 'true');
-                        show_more();
-                        // show_more_called.value = true;
-                        // set the last_elem_to_render as the active message
-                        handleMessageFocus(response_message_id, conversationId);
-                    }, 
-                    false, // Use false for final rendering to ensure proper display
-                    last_rendered_answer);
+            if (last_elem_to_render && last_elem_to_render.length > 0) {
+                const alreadyRendered = rendered_till_now.includes(last_rendered_answer);
+                
+                if (!alreadyRendered) {
+                    renderInnerContentAsMarkdown(last_elem_to_render, 
+                        immediate_callback=function() {
+                            last_elem_to_render.attr('data-fully-rendered', 'true');
+                            show_more();
+                            handleMessageFocus(response_message_id, conversationId);
+                        }, 
+                        false, // Use false for final rendering
+                        last_rendered_answer);
+                    
+                    rendered_till_now = rendered_till_now + last_rendered_answer;
+                } else {
+                    // Content was already rendered, just call show_more
+                    show_more();
+                    handleMessageFocus(response_message_id, conversationId);
+                }
             }
             else {
                 if (!show_more_called.value) {

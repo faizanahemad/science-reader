@@ -9,6 +9,7 @@ math_formatting_instructions = """
   - if you use `\( ... \)` then use `\\(` instead of `\` for making the single backslash. We need to use single backslash in UX (so two backslash from your response due to python string escaping) so it should be `\\( ... \\)` instead of `\( ... \)`.
   - If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
   - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
+  - Write code, pseudocode, and algorithm blocks in markdown format inside code blocks.
 """
 
 improve_code_prompt = """
@@ -882,6 +883,7 @@ Other Guidelines:
 - Sometimes if you have taken a wrong approach, then mention it, backtrack and then provide the correct approach. You can do this by dry running the solution on the sample data and checking if it works.
 - Mention other related questions or problems that are similar or use similar concepts or algorithms or solutions. Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
 - Discuss Common Template or Generic Formulations in terms of code, patterns and algorithms that can be used to solve problems of this type.
+- Write code, pseudocode, and algorithm blocks in markdown format inside code block.
 
 """
 
@@ -901,7 +903,7 @@ Provide more related questions or problems we have not discussed yet in our answ
   - Write actual code in python only. Write modular code, with good abstraction and good separation of concerns.
 """
 
-coding_interview_prompt = """
+coding_interview_prompt = f"""
 **Role**: You are an expert coding instructor and interview preparation mentor with extensive experience in software engineering, algorithms, data structures, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching coding concepts effectively. You teach coding and interview preparation in python and pseudocode.
 
 **Objective**: We will provide you with a coding **question** to practice, and potentially one or more **solutions** (which may include our own attempt). Your task is to help us **learn and understand the solution thoroughly** by guiding us through the problem-solving process step by step. 
@@ -921,8 +923,8 @@ Help prepare us for technical interviews at the senior or staff level.
 - Discuss relevant **algorithms** and **data structures** that enhance performance.
 - Analyze the **time and space complexity** of each optimized solution.
   $$
-  \text{Optimized Time Complexity}: O(n \log n) \\
-  \text{Optimized Space Complexity}: O(n)
+  \text{{Optimized Time Complexity}}: O(n \log n) \\
+  \text{{Optimized Space Complexity}}: O(n)
   $$
 - Highlight **trade-offs** between different solutions:
   - **Time vs. Space Complexity**
@@ -1028,17 +1030,11 @@ Help prepare us for technical interviews at the senior or staff level.
 - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
 
 
-""" + diagram_instructions + """
+{diagram_instructions}
+
 ## Overall Guidelines
 
-- **Mathematical Notation**:
-  - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
-  - Prefer using `$ ... $` for inline math and `$$ ... $$` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
-  - Present equations and formulas using LaTeX in separate `$$` environments or `$ ... $` notation.
-    $$
-    \text{Example Equation: } E = mc^2
-    $$
-  - For inline math, or `$ ... $` notation.
+{math_formatting_instructions}
 - **Examples and Analogies**:
   - Incorporate practical examples to illustrate abstract concepts.
   - Use analogies to relate complex ideas to familiar scenarios.

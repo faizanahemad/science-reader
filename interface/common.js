@@ -1,3 +1,4 @@
+window.katex = katex;
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -647,6 +648,13 @@ markdownParser.text = function(text) {
     // This prevents marked from interfering with $ signs
     return text;
 };
+
+const options = {
+    throwOnError: false
+  };
+  
+marked.use(markedKatex(options));
+
 /**
  * Build a standalone HTML document string that renders the given slides HTML
  * inside a Reveal.js deck.
@@ -1069,6 +1077,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             })
         })
     }
+
+    return mathjax_elem;
 }
 
 
