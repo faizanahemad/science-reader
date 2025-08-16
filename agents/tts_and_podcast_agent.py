@@ -78,7 +78,34 @@ tts_friendly_format_instructions = """
   - Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs.  
   - If you are writing code, then write pseudocode or very small python code snippets which are less than 4096 characters.  
   - Ensure that each individual semantic chunk of text is small and less than 4096 characters.  
+  - If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocod, ensuring a small recap at the end in a few sentences.
 """  
+
+
+stts_prompt = """  
+Further TTS Formatting Instructions (shortTTS = True or shortTTS instructions are enabled):  
+- Our reader is a busy person and has limited time to read. We need to shorten the text and give a concise response.  
+- Summarize the text to keep it concise, use TTS friendly format.  
+- Omit extraneous details while maintaining coherence and continuity in the flow.  
+- Keep sentences short for easier spoken delivery.  
+- Give a very short response while adhering to the TTS friendly format.  
+- Preserve essential context so the meaning remains clear.  
+- Make it shorter, brief and concise. 
+- If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode.
+- No recaps and no summaries. 
+"""
+
+stts_podcast_prompt = stts_prompt + """  
+Further Podcast Formatting Instructions (shortTTS = True):  
+- Our podcast is concise and to the point.  
+- Keep the dialogue natural but brief.  
+- Focus on the most important points while maintaining an engaging conversation.  
+- Use short sentences and clear transitions between speakers.  
+- Make it sound like a real conversation but keep it brief.  
+- Get straight to the point and don't waste time on introductions or background information.
+- If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode.
+- No recaps and no summaries.
+"""
   
 # Define podcast templates  
 @dataclass  
@@ -415,16 +442,7 @@ class TTSAgent(Agent):
             self.provider = "elevenlabs"  
   
         # Set up prompts  
-        shortTTS_prompt = """  
-Further TTS Formatting Instructions (shortTTS = True or shortTTS instructions are enabled):  
-- Our reader is a busy person and has limited time to read. We need to shorten the text and give a concise response.  
-- Summarize the text to keep it concise, use TTS friendly format.  
-- Omit extraneous details while maintaining coherence and continuity in the flow.  
-- Keep sentences short for easier spoken delivery.  
-- Give a very short response while adhering to the TTS friendly format.  
-- Preserve essential context so the meaning remains clear.  
-- Make it shorter, brief and concise.  
-""" if self.shortTTS else ""  
+        shortTTS_prompt = stts_prompt if self.shortTTS else ""  
   
         self.system = f"""  
 You are an expert TTS (Text To Speech) agent.  
@@ -1386,15 +1404,7 @@ class PodcastAgent(TTSAgent):
         self.sound_effect_volume = sound_effect_volume  
   
         # Update the system prompt for podcast format  
-        shortTTS_prompt = """  
-Further Podcast Formatting Instructions (shortTTS = True):  
-- Our podcast is concise and to the point.  
-- Keep the dialogue natural but brief.  
-- Focus on the most important points while maintaining an engaging conversation.  
-- Use short sentences and clear transitions between speakers.  
-- Make it sound like a real conversation but keep it brief.  
-- Get straight to the point and don't waste time on introductions.
-""" if self.shortTTS else ""  
+        shortTTS_prompt = stts_podcast_prompt if self.shortTTS else ""  
   
         # Create a more detailed prompt based on the selected template  
         self.system = f"""  
