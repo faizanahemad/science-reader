@@ -1390,10 +1390,21 @@
     <script type="text/x-mathjax-config">
       MathJax.Hub.Config({
         tex2jax: {
-          inlineMath: [['$', '$'], ['$', '$'], ['$$', '$$'], ['$$', '$$'], ['\\(', '\\)'], ['\\[', '\\]']],
-          displayMath: [['\\[', '\\]'], ['\\(', '\\)'], ['$$', '$$'], ['$$', '$$'], ['\[', '\]']],  
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']],
           processEscapes: true,
-          skipTags: ["code", "pre"],
+          skipTags: ["code", "pre", "math", "script"],
+        },
+        
+        extensions: ["tex2jax.js", "MathMenu.js", "MathZoom.js", "AssistiveMML.js"],
+        TeX: {
+          extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js"],
+          Macros: {
+            
+            RR: "\\mathbb{R}",
+            bold: ["\\mathbf{#1}", 1],
+            red: ["\\color{red}{#1}", 1]
+          }
         }
       });
   </script>

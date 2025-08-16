@@ -639,9 +639,14 @@ marked.setOptions({
     breaks: false,
     sanitize: false,
     smartLists: true,
-    smartypants: true,
+    smartypants: false,
     xhtml: true
 });
+markdownParser.text = function(text) {
+    // Preserve math delimiters from being processed
+    // This prevents marked from interfering with $ signs
+    return text;
+};
 /**
  * Build a standalone HTML document string that renders the given slides HTML
  * inside a Reveal.js deck.
