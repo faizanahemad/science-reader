@@ -187,6 +187,15 @@ class SlideAgent(Agent):
         
         return html_content
 
+    def _storyboard_to_context(self, storyboard: List[tuple]) -> str:
+        """
+        Convert storyboard to context string.
+        """
+        return "\n".join([
+            f"{i+1}. {title}: {desc}" 
+            for i, (title, desc) in enumerate(storyboard)
+        ])
+    
     def _generate_slide_content_two_stage(self, content: str, slide_count: Union[int, str]) -> Dict:
         """
         Generate slide content using a two-stage approach:
@@ -205,6 +214,10 @@ class SlideAgent(Agent):
         # Stage 1: Generate storyboard
         storyboard = self._generate_storyboard(content, slide_count)
         print(f"[SlideAgent] Stage 1 complete: {len(storyboard)} slides planned")
+
+        storyboard_context = self._storyboard_to_context(storyboard)
+
+        
         
         # Stage 2: Generate slides in parallel
         slides = self._generate_slides_parallel(content, storyboard)
@@ -404,10 +417,7 @@ CRITICAL:
             Dictionary with slide data
         """
         # Create storyboard context
-        storyboard_context = "\n".join([
-            f"{i+1}. {title}: {desc}" 
-            for i, (title, desc) in enumerate(full_storyboard)
-        ])
+        storyboard_context = self._storyboard_to_context(full_storyboard)
         
         if self.content_mode == 'markdown':
             prompt = f"""
@@ -1851,7 +1861,7 @@ Format your response with the slide content between <slide> tags:
                 processRefs: true
             }},
             TeX: {{
-                extensions: ["AMSmath.js", "AMSsymbols.js", "autoload-all.js"],
+                extensions: ["AMSmath.js", "AMSsymbols.js", "autoload-all.js",  "cases.js"],
                 equationNumbers: {{
                     autoNumber: "AMS"
                 }},

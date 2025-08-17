@@ -922,12 +922,46 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                 }
                 var blobUrl = createSlidesBlobUrl(htmlForBlob);
                 var linkId = 'slide-link-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-                combined += `
-                    <div class="slide-external-link" data-has-slides="true">
-                        <a id="${linkId}" href="${blobUrl}" target="_blank" rel="noopener noreferrer">Click here to see slides</a>
-                        <small class="text-muted" style="margin-left: 8px;">(opens in a new window)</small>
-                    </div>
-                `;
+                
+                // Check if inline rendering is enabled
+                var renderInline = false;
+                try {
+                    // Get the current options to check if inline rendering is enabled
+                    var options = getOptions('chat-controls', 'assistant');
+                    renderInline = options.render_slides_inline || false;
+                } catch (e) {
+                    console.log('Could not get inline rendering option:', e);
+                }
+                
+                if (renderInline) {
+                    // Render both iframe inline and external link
+                    var iframeId = 'slide-iframe-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+                    combined += `
+                        <div class="slide-presentation-container" data-has-slides="true">
+                            <div class="slide-external-link mb-3">
+                                <a id="${linkId}" href="${blobUrl}" target="_blank" rel="noopener noreferrer">
+                                    <i class="bi bi-box-arrow-up-right"></i> Click here to view slides in new window
+                                </a>
+                            </div>
+                            <div class="slide-iframe-wrapper" style="width: 100%; border: 1px solid #dee2e6; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);">
+                                <iframe id="${iframeId}" 
+                                        src="${blobUrl}" 
+                                        style="width: 100%; height: 600px; border: none; background: #fff;"
+                                        allowfullscreen="true"
+                                        sandbox="allow-scripts allow-same-origin">
+                                </iframe>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Only show external link
+                    combined += `
+                        <div class="slide-external-link" data-has-slides="true">
+                            <a id="${linkId}" href="${blobUrl}" target="_blank" rel="noopener noreferrer">Click here to see slides</a>
+                            <small class="text-muted" style="margin-left: 8px;">(opens in a new window)</small>
+                        </div>
+                    `;
+                }
             }
         }
         if (split.incomplete) {
@@ -1610,6 +1644,7 @@ function getOptions(parentElementId, type) {
         ensemble: $(`#${parentElementId}-${type}-ensemble`).length ? $(`#${parentElementId}-${type}-ensemble`).is(':checked') : false,
         persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).length ? $(`#${parentElementId}-${type}-persist_or_not`).is(':checked') : $('#settings-persist_or_not').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
+        render_slides_inline: $('#settings-render-slides-inline').is(':checked'),
     };
     let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;
@@ -1638,6 +1673,7 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-ensemble`).prop('checked', false);
     $(`#${parentElementId}-${type}-persist_or_not`).prop('checked', true);
     $('#settings-ppt-answer').prop('checked', false);
+    $('#settings-render-slides-inline').prop('checked', true);
     $("#rewardLevelSelector").val(0);
     $("#rewardLevelValue").text("φ");
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);
