@@ -748,7 +748,7 @@ Your response will be in below xml style format:
                 "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
                 {"message_id": message_ids["response_message_id"], "text": response, "show_hide": "show", "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
             
-            if past_message_ids and len(past_message_ids) > 0:
+            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
                 messages = get_async_future(self.get_field, "messages")
             else:
                 msg_set = get_async_future(self.set_messages_field, preserved_messages)
@@ -758,7 +758,7 @@ Your response will be in below xml style format:
             if memory is None:
                 memory = dict(running_summary=[])
 
-            if past_message_ids and len(past_message_ids) > 0:
+            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
                 messages = messages.result()
                 # Find index of last message in past_message_ids
                 last_msg_idx = -1
@@ -791,7 +791,7 @@ Your response will be in below xml style format:
             if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
                 memory["title"] = title
 
-            if past_message_ids and len(past_message_ids) > 0:
+            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
                 summary_index = (last_msg_idx+1)//2
                 # list.insert() increases the length of the list by 1
                 # If index > len(list), insert() will append the item at the end (equivalent to index=len(list))
@@ -1780,6 +1780,8 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             message_lookback = int(enablePreviousMessages) * 2
         checkboxes["ppt_answer"] = checkboxes["ppt_answer"] if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"]) else False
         only_slides = checkboxes["only_slides"] if "only_slides" in checkboxes and bool(checkboxes["only_slides"]) else False
+        render_close_to_source = checkboxes["render_close_to_source"] if "render_close_to_source" in checkboxes and bool(checkboxes["render_close_to_source"]) else False
+        checkboxes["render_close_to_source"] = render_close_to_source
         if checkboxes["ppt_answer"]:
             # permanent_instructions += "User has requested to receive the answer in PowerPoint slide format.\n"
             # reduce message lookback to 2

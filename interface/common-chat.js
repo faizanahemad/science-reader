@@ -2771,11 +2771,12 @@ var ChatManager = {
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
             var spinner = $('<div class="spinner-border text-primary" role="status"></div>');
             var statusText = $('<span class="status-text ml-2"></span>');
+            var renderCloseToSource = $('#settings-render-close-to-source').is(':checked');
 
             statusDiv.append(spinner);
             statusDiv.append(statusText);
             messageElement.append(statusDiv);
-            if (history_message_ids.length > 0) {
+            if (history_message_ids.length > 0 && renderCloseToSource) {
                 // get all the "card message-card" and their message-id , then append the messageElement (new card) after the last card of the history_message_ids, if skip_one is true then skip one card further and then append the messageElement
                 var cards = $('#chatView').find('.card.message-card');
                     var lastCard = null;
