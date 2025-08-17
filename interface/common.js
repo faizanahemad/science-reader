@@ -1645,6 +1645,7 @@ function getOptions(parentElementId, type) {
         persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).length ? $(`#${parentElementId}-${type}-persist_or_not`).is(':checked') : $('#settings-persist_or_not').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
         render_slides_inline: $('#settings-render-slides-inline').is(':checked'),
+        only_slides: $('#settings-only-slides').is(':checked'),
     };
     let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;
@@ -1674,6 +1675,7 @@ function resetOptions(parentElementId, type) {
     $(`#${parentElementId}-${type}-persist_or_not`).prop('checked', true);
     $('#settings-ppt-answer').prop('checked', false);
     $('#settings-render-slides-inline').prop('checked', true);
+    $('#settings-only-slides').prop('checked', false);
     $("#rewardLevelSelector").val(0);
     $("#rewardLevelValue").text("φ");
     // $(`#${parentElementId}-${type}-search-exact`).prop('checked', false);

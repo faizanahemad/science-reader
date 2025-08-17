@@ -43,6 +43,31 @@ ENABLE_SERVER_SIDE_MATH = True  # try KaTeX server-side; keep client fallback
 REPAIR_CODE_INDENTATION = False
 
 
+def create_md():
+    from markdown_it import MarkdownIt
+    from mdit_py_plugins.tasklists import tasklists_plugin
+    from mdit_py_plugins.deflist import deflist_plugin
+    from mdit_py_plugins.footnote import footnote_plugin
+    # Math support (two-stage): render via texmath (KaTeX) if enabled
+    math_plugin = None
+    if ENABLE_SERVER_SIDE_MATH:
+        try:
+            from mdit_py_plugins.texmath import texmath_plugin
+            # texmath_plugin doesn't take engine parameter directly
+            math_plugin = texmath_plugin
+        except Exception as e:
+            print(f"[SlideAgent] Math plugin not available: {e}")
+            math_plugin = None
+
+    md = MarkdownIt('commonmark', {'html': False, 'linkify': True}) \
+        .use(tasklists_plugin) \
+        .use(deflist_plugin) \
+        .use(footnote_plugin)
+    if math_plugin:
+        md = md.use(math_plugin)
+    
+    return md
+
 class SlideAgent(Agent):
     """
     Base class for slide generation agents using Reveal.js.
@@ -196,7 +221,7 @@ class SlideAgent(Agent):
             for i, (title, desc) in enumerate(storyboard)
         ])
     
-    def _generate_slide_content_two_stage(self, content: str, slide_count: Union[int, str]) -> Dict:
+    def _generate_slide_content_two_stage(self, content: str, slide_count: Union[int, str], storyboard: List[tuple] = None) -> Dict:
         """
         Generate slide content using a two-stage approach:
         Stage 1: Generate structured storyboard 
@@ -212,7 +237,8 @@ class SlideAgent(Agent):
         print(f"[SlideAgent] Starting two-stage slide generation...")
         
         # Stage 1: Generate storyboard
-        storyboard = self._generate_storyboard(content, slide_count)
+        if storyboard is None:
+            storyboard = self._generate_storyboard(content, slide_count)
         print(f"[SlideAgent] Stage 1 complete: {len(storyboard)} slides planned")
 
         storyboard_context = self._storyboard_to_context(storyboard)
@@ -256,9 +282,10 @@ Your task:
 1. Break down the content into logical, engaging slide topics
 2. Create MORE slides with LESS content per slide for better readability
 3. Each slide should focus on ONE specific concept or idea
-4. Aim for 12-20 slides total to ensure content is well-distributed
+4. Aim for approximately {slide_count} slides total to ensure content is well-distributed
 5. Cover the content within <main-content> tags if present
 6. Ignore conversation history, focus only on the main content
+7. If the content is a user question or ask, then create storyboard for the answer part only.
 
 Respond with ONLY a Python list of tuples in this EXACT format:
 [
@@ -271,9 +298,10 @@ CRITICAL:
 - Output must be valid Python syntax that can be parsed with eval()
 - Use double quotes for strings
 - Each tuple has exactly 2 elements: (title, description)
-- Keep titles concise (1-4 words)
+- Keep titles concise (2-5 words)
 - Keep descriptions brief but informative (1-2 sentences)
 - PRIORITIZE creating more slides with focused, bite-sized content
+- Ensure that the slides provide a good broad coverage and also depth of content.
 """
         
         response = self.get_model_response(prompt, temperature=0.3)
@@ -685,27 +713,7 @@ Format your response with the slide content between <slide> tags:
         if markdown-it-py is not available.
         """
         try:
-            from markdown_it import MarkdownIt
-            from mdit_py_plugins.tasklists import tasklists_plugin
-            from mdit_py_plugins.deflist import deflist_plugin
-            from mdit_py_plugins.footnote import footnote_plugin
-            # Math support (two-stage): render via texmath (KaTeX) if enabled
-            math_plugin = None
-            if ENABLE_SERVER_SIDE_MATH:
-                try:
-                    from mdit_py_plugins.texmath import texmath_plugin
-                    # texmath_plugin doesn't take engine parameter directly
-                    math_plugin = texmath_plugin
-                except Exception as e:
-                    print(f"[SlideAgent] Math plugin not available: {e}")
-                    math_plugin = None
-
-            md = MarkdownIt('commonmark', {'html': False, 'linkify': True}) \
-                .use(tasklists_plugin) \
-                .use(deflist_plugin) \
-                .use(footnote_plugin)
-            if math_plugin:
-                md = md.use(math_plugin)
+            md = create_md()
 
             for slide in slide_data.get('slides', []):
                 content = slide.get('content', '')
@@ -724,6 +732,21 @@ Format your response with the slide content between <slide> tags:
         return slide_data
     
     def _convert_markdown_to_html_comprehensive(self, content: str) -> str:
+        try:
+            return self._convert_markdown_to_html_comprehensive_fallback(content)
+            md = create_md()
+
+            html = md.render(content)
+            # If server-side math not enabled or plugin missing, leave $...$ for client
+            # Normalize code language classes for highlight.js
+            html = re.sub(r'<code class="language-([^"]+)"', r'<code class="\1"', html)
+            return html
+        except Exception as e:
+            print(f"Error converting markdown to html: {e}")
+            return self._convert_markdown_to_html_comprehensive_fallback(content)
+    
+    
+    def _convert_markdown_to_html_comprehensive_fallback(self, content: str) -> str:
         """
         Comprehensive markdown to HTML conversion with extensible pattern system.
         
@@ -2016,7 +2039,7 @@ Format your response with the slide content between <slide> tags:
 
     def __call__(self, text: str, images: List = None, temperature: float = 0.7, 
                  stream: bool = True, max_tokens: Optional[int] = None, 
-                 system: Optional[str] = None, web_search: bool = False) -> str:
+                 system: Optional[str] = None, web_search: bool = False, storyboard: List[tuple] = None) -> str:
         """
         Generate slides from the given text content.
         
@@ -2028,6 +2051,7 @@ Format your response with the slide content between <slide> tags:
             max_tokens: Maximum tokens for generation
             system: Optional system message
             web_search: Whether to use web search (not applicable for slides)
+            storyboard: Optional storyboard for the slides
             
         Returns:
             HTML content for the slides
@@ -2041,7 +2065,7 @@ Format your response with the slide content between <slide> tags:
             print(f"[SlideAgent] Demo mode: {self.demo_mode}")
             
             # Generate slide content using two-stage approach
-            slide_data = self._generate_slide_content_two_stage(text, slide_count_hint)
+            slide_data = self._generate_slide_content_two_stage(text, slide_count_hint, storyboard)
             print(f"[SlideAgent] Generated slide data with {len(slide_data.get('slides', []))} slides")
             
             # Generate final HTML

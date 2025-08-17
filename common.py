@@ -56,10 +56,10 @@ OPENROUTER_LLM = ["google/gemini-2.5-flash", "google/gemini-pro-1.5", "openai/gp
             
 VERY_CHEAP_LLM = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-preview","google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["gpt-4o", "openai/gpt-5-mini", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
-EXPENSIVE_LLM = ["anthropic/claude-sonnet-4", "gpt-5", "openai/gpt-5", "anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
+EXPENSIVE_LLM = ["anthropic/claude-sonnet-4", "gpt-5", "x-ai/grok-3", "openai/gpt-5", "anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
                  "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
-                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder", "x-ai/grok-3"]
+                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder", ]
 
 
 CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "gpt-4.1-mini", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]

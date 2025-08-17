@@ -1779,6 +1779,7 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
         else:
             message_lookback = int(enablePreviousMessages) * 2
         checkboxes["ppt_answer"] = checkboxes["ppt_answer"] if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"]) else False
+        only_slides = checkboxes["only_slides"] if "only_slides" in checkboxes and bool(checkboxes["only_slides"]) else False
         if checkboxes["ppt_answer"]:
             # permanent_instructions += "User has requested to receive the answer in PowerPoint slide format.\n"
             # reduce message lookback to 2
@@ -2658,6 +2659,41 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
         is_slide_agent = agent is not None and (isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent))
+        storyboard_context = None
+        if is_slide_agent:
+            # For slide agents, get the complete HTML response at once
+            context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+            context_prompt = f"""
+The conversation history is:
+{previous_messages}
+
+Conversation summary is:
+{summary}
+
+The user's question is:
+{query["messageText"]}
+
+Now please re-contextualize the user's question based on the conversation history and summary. Please make it more detailed, with more context and specific details.
+
+This will be used to generate slides using an LLM. Please write what the user is asking without writing much about the history or like saying "user asked this, conversation was about that and blah blah".
+The slides made will help us learn and grasp the topic better.
+
+User's question:
+{query["messageText"]}
+
+Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
+
+At the end write what we must make slides about as well.
+"""
+            context_response_future = get_async_future(context_llm, context_prompt, images=images, system=preamble, temperature=0.3, stream=False)
+            
+
+            yield {"text": '', "status": "Preparing Slides ..."}
+            # slide_html_future = get_async_future(agent, prompt, images=images, system=preamble, temperature=0.3, stream=False)
+
+            storyboard = agent._generate_storyboard("<main-content>\n" + prompt + "\n</main-content>", "8-20")
+            storyboard_context = agent._storyboard_to_context(storyboard)
+            
         if self.is_cancelled():
             main_ans_gen = iter([])  # empty generator of string
         elif model_name == FILLER_MODEL:
@@ -2691,25 +2727,20 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 main_ans_gen = buffer_generator_async(main_ans_gen)
             
         else:
+            if is_slide_agent and storyboard_context is not None:
+                prompt = prompt + "\n\nUse the below outline to write your answer. \n\n" + storyboard_context + "\n"
+
+                context_response = context_response_future.result()
+
+                slide_html_future = get_async_future(agent, "\n\nUser ask is: \n\n<main-content>\n" + context_response + "\n</main-content>", images=images, system=preamble, temperature=0.3, stream=False, storyboard=storyboard)
+            if not only_slides:
             
-            
-            try:
                 if ensemble:
                     if isinstance(model_name, (list, tuple)):
                         model_names = model_name
                         improve_model = model_hierarchies(model_names)
                     else:
-                        model_names = (["gpt-4o", "gpt-4-turbo", "anthropic/claude-3.5-sonnet:beta", "anthropic/claude-3.7-sonnet",
-                                    "openai/o1-mini",
-                                    "cohere/command-r-plus-08-2024",
-                                    "google/gemini-pro-1.5",
-
-                                    # "anthropic/claude-3-opus:beta",
-                                    # "mistralai/mistral-large",
-                                    # "deepseek/deepseek-chat",
-                                    # "meta-llama/llama-3.1-405b-instruct",
-                                    # "nousresearch/hermes-3-llama-3.1-405b",
-                                    ] + [model_name])
+                        model_names = (EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1] + [model_name])
                         improve_model = model_name
                     
                     llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
@@ -2720,54 +2751,15 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     # llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+            else:
+                main_ans_gen =  iter([])  # empty generator of string
 
                 
-            except Exception as e:
-                logger.error(f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
-                traceback.print_exc()
-                # answer += f"We had an exception in answering using model - {model_name}"
-                yield {"text": f"We had an exception in answering using model - {model_name}\n\n", "status": "stage 2 answering in progress"}
-                traceback.print_exc()
-                logger.error(
-                    f"Exception in answering using model - {model_name}: {e}, stack: \n\n{traceback.format_exc()}")
-                # answer += f"We had an exception in answering using model - {model_name}"
-                yield {"text": f"We had an exception in answering using model - {model_name}\n\n",
-                    "status": "stage 2 answering in progress"}
-                llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-                main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+
                 
 
         main_ans_gen = buffer_generator_async(main_ans_gen)
-        if is_slide_agent:
-            # For slide agents, get the complete HTML response at once
-            context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-            context_prompt = f"""
-The conversation history is:
-{previous_messages}
-
-Conversation summary is:
-{summary}
-
-The user's question is:
-{query["messageText"]}
-
-Now please re-contextualize the user's question based on the conversation history and summary. Please make it more detailed, with more context and specific details.
-
-This will be used to generate slides using an LLM. Please write what the user is asking without writing much about the history or like saying "user asked this, conversation was about that and blah blah".
-The slides made will help us learn and grasp the topic better.
-
-User's question:
-{query["messageText"]}
-
-Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
-
-At the end write what we must make slides about as well.
-"""
-            # context_response_future = get_async_future(context_llm, context_prompt, images=images, system=preamble, temperature=0.3, stream=False)
-            
-
-            yield {"text": '', "status": "Preparing Slides ..."}
-            # slide_html_future = get_async_future(agent, prompt, images=images, system=preamble, temperature=0.3, stream=False)
+        
             
 
 
@@ -2906,7 +2898,7 @@ At the end write what we must make slides about as well.
 
         if is_slide_agent:
             # "User's question:\n" + context_response_future.result() + 
-            slide_html_future = get_async_future(agent, "\n\nOur answer to the above question which we need to convert to slides is: \n\n<main-content>\n" + answer + "\n</main-content>", images=images, system=preamble, temperature=0.3, stream=False)
+            
             slide_html = slide_html_future.result()
             # Wrap the slide HTML with a special marker for UI detection
             slide_response = f"\n\n<slide-presentation>\n{slide_html}\n</slide-presentation>\n\n"
