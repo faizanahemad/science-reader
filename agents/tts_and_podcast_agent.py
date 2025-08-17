@@ -78,7 +78,8 @@ tts_friendly_format_instructions = """
   - Put new paragraphs in double new lines (2 or more newlines) and separate different topics and information into different paragraphs.  
   - If you are writing code, then write pseudocode or very small python code snippets which are less than 4096 characters.  
   - Ensure that each individual semantic chunk of text is small and less than 4096 characters.  
-  - If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocod, ensuring a small recap at the end in a few sentences.
+  - If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode. Focus on question and solution mainly.
+  - For coding questions, mention the examples in a visualised way and explain the algorithm in a top down speaking manner. Then explain the pseudocode or solution in a step by step manner.
 """  
 
 
@@ -91,8 +92,9 @@ Further TTS Formatting Instructions (shortTTS = True or shortTTS instructions ar
 - Give a very short response while adhering to the TTS friendly format.  
 - Preserve essential context so the meaning remains clear.  
 - Make it shorter, brief and concise. 
-- If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode.
+- If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode. Focus on question and solution mainly.
 - No recaps and no summaries. 
+- For coding questions, mention the examples in a visualised way and explain the algorithm in a top down speaking manner. Then explain the pseudocode or solution in a step by step manner.
 """
 
 stts_podcast_prompt = stts_prompt + """  
@@ -103,8 +105,7 @@ Further Podcast Formatting Instructions (shortTTS = True):
 - Use short sentences and clear transitions between speakers.  
 - Make it sound like a real conversation but keep it brief.  
 - Get straight to the point and don't waste time on introductions or background information.
-- If the question is a leetcode or coding interview question, then explain the question and then the solution in a step by step manner with details and verbalised psedocode.
-- No recaps and no summaries.
+
 """
   
 # Define podcast templates  

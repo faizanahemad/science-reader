@@ -626,6 +626,31 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
 }
 
 const markdownParser = new marked.Renderer();
+
+// Create a marked extension for math
+const mathExtension = {
+    name: 'math',
+    level: 'block',
+    start(src) { return src.match(/^\$\$/)?.index; },
+    tokenizer(src, tokens) {
+        const rule = /^\$\$([\s\S]*?)\$\$/;
+        const match = rule.exec(src);
+        if (match) {
+            return {
+                type: 'math',
+                raw: match[0],
+                text: match[1].trim()
+            };
+        }
+    },
+    renderer(token) {
+        return `$$${token.text}$$`;
+    }
+};
+
+// Configure marked with the math extension
+marked.use({ extensions: [mathExtension] });
+
 marked.setOptions({
     renderer: markdownParser,
     highlight: function (code, language) {
