@@ -814,15 +814,13 @@ markdownParser.code = function (code, language) {
     
     // var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
 
-    return '<div class="code-block">' +
-        '<div class="code-header">' +
-        '<span class="code-language">' + (language || 'plaintext') + '</span>' +
-        '<button class="copy-code-btn">Copy</button>' +
-        '</div>' +
-        '<pre><code class="hljs ' + (language || '') + '">' +
-        highlighted +
-        '</code></pre>' +
-        '</div>';
+    return `<div class="code-block">
+        <div class="code-header" style="height: 18px; min-height: 16px; padding: 1px 4px; display: flex; align-items: center; justify-content: space-between;">
+            
+            <button class="copy-code-btn" style="padding: 2px 2px; padding-bottom: 4px; font-size: 12px; height: 20px;">Copy</button>
+        </div>
+        <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
+    </div>`;
 };
 
 function hasUnclosedMermaidTag(htmlString) {

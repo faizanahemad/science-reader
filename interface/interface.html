@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.5/lib/index.umd.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css" id="highlight-theme">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
@@ -32,7 +32,7 @@
     <!-- Reveal.js for slide presentations -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/theme/white.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/monokai.css">
+    
     <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/notes/notes.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/markdown/markdown.js"></script>
@@ -919,29 +919,27 @@
                             <div class="col-12">
                                 <h6 class="text-primary mb-3"><i class="fa fa-tools"></i> Actions</h6>
                                 <div class="row">
-                                    <div class="col-md-3">
+                                    <div class="col">
                                         <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
                                             <i class="fa fa-trash"></i> Delete Last Turn
                                         </button>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
                                             <i class="bi bi-pen"></i> Memory Pad
                                         </button>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button">
                                             <i class="bi bi-pen"></i> User Details
                                         </button>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-preferences-modal-open-button">
                                             <i class="bi bi-pen"></i> User Preferences
                                         </button>
                                     </div>
-                                </div>
-                                <div class="row mt-2">
-                                    <div class="col-md-4">
+                                    <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
                                             <i class="bi bi-code-slash"></i> Code Editor  
                                         </button>  
@@ -960,8 +958,61 @@
                             </div>
                         </div>
 
-                        <!-- Search Links Section -->
+                        <!-- Code Theme Section -->
                         <div class="row mb-3">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-code"></i> Code Theme</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="settings-code-theme-selector" class="form-label"><strong>Highlight.js Theme</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-code-theme-selector">
+                                                    <option value="default">Default</option>
+                                                    <option value="github">GitHub</option>
+                                                    <option value="github-dark">GitHub Dark</option>
+                                                    <option value="monokai">Monokai</option>
+                                                    <option value="monokai-sublime">Monokai Sublime</option>
+                                                    <option value="dracula">Dracula</option>
+                                                    <option value="atom-one-dark">Atom One Dark</option>
+                                                    <option value="atom-one-light">Atom One Light</option>
+                                                    <option value="vs">Visual Studio</option>
+                                                    <option value="vs2015">VS 2015 (Dark)</option>
+                                                    <option value="nord">Nord</option>
+                                                    <option value="tokyo-night-dark">Tokyo Night Dark</option>
+                                                    <option value="tokyo-night-light">Tokyo Night Light</option>
+                                                    <option value="solarized-dark">Solarized Dark</option>
+                                                    <option value="solarized-light">Solarized Light</option>
+                                                    <option value="hybrid">Hybrid</option>
+                                                    <option value="tomorrow-night">Tomorrow Night</option>
+                                                    <option value="tomorrow-night-bright">Tomorrow Night Bright</option>
+                                                    <option value="obsidian">Obsidian</option>
+                                                    <option value="agate">Agate</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label class="form-label"><strong>Preview</strong></label>
+                                            <div class="code-theme-preview" style="border: 1px solid #ccc; border-radius: 8px; overflow: hidden;">
+                                                <pre><code class="hljs javascript">// Code theme preview
+function greet(name) {
+    const message = `Hello, ${name}!`;
+    console.log(message);
+    return message;
+}
+
+greet("World");</code></pre>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Search Links Section -->
+                        <div class="row mb-3" style="display: none;">
                             <div class="col-12">
                                 <h6 class="text-primary mb-3"><i class="fa fa-search"></i> Search & Links</h6>
                                 <div class="row">
@@ -1785,6 +1836,96 @@
                 // Scroll to the summary
                 details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
             }
+        }
+    });
+    </script>
+    
+    <script>
+    // Code Theme Switching Functionality
+    $(document).ready(function() {
+        // Initialize theme from localStorage
+        var savedTheme = localStorage.getItem('highlightTheme') || 'default';
+        $('#settings-code-theme-selector').val(savedTheme);
+        applyHighlightTheme(savedTheme);
+        
+        // Handle theme change
+        $('#settings-code-theme-selector').on('change', function() {
+            var selectedTheme = $(this).val();
+            applyHighlightTheme(selectedTheme);
+            localStorage.setItem('highlightTheme', selectedTheme);
+            
+            // Update preview in the settings modal
+            updatePreviewHighlight();
+            
+            // Re-highlight all existing code blocks
+            reHighlightAllCode();
+        });
+        
+        // Function to apply highlight.js theme
+        function applyHighlightTheme(theme) {
+            var themeLink = document.getElementById('highlight-theme');
+            if (themeLink) {
+                themeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/' + theme + '.min.css';
+            }
+        }
+        
+        // Function to update preview in settings modal
+        function updatePreviewHighlight() {
+            $('.code-theme-preview pre code').each(function() {
+                // Remove existing highlighting classes
+                $(this).removeClass();
+                $(this).addClass('hljs javascript');
+                
+                // Re-apply highlighting
+                if (typeof hljs !== 'undefined') {
+                    hljs.highlightElement(this);
+                }
+            });
+        }
+        
+        // Function to re-highlight all code blocks in the chat
+        function reHighlightAllCode() {
+            // Find all code blocks in messages
+            $('#messages-container pre code, .message-card pre code').each(function() {
+                var element = this;
+                var language = $(element).attr('class');
+                
+                // Skip if it's inline code
+                if ($(element).hasClass('inline-code')) {
+                    return;
+                }
+                
+                // Extract language from class if present
+                if (language) {
+                    var langMatch = language.match(/language-(\w+)|hljs\s+(\w+)/);
+                    if (langMatch) {
+                        var lang = langMatch[1] || langMatch[2];
+                        
+                        // Re-highlight with the detected language
+                        if (typeof hljs !== 'undefined' && hljs.getLanguage(lang)) {
+                            // Store the original code
+                            var originalCode = element.textContent || element.innerText;
+                            
+                            // Clear and re-highlight
+                            $(element).removeClass();
+                            $(element).addClass('hljs ' + lang);
+                            element.innerHTML = hljs.highlight(originalCode, { language: lang }).value;
+                        }
+                    }
+                }
+            });
+        }
+        
+        // When settings modal opens, update the preview
+        $('#chat-settings-modal').on('shown.bs.modal', function() {
+            updatePreviewHighlight();
+        });
+        
+        // Apply saved theme on page load
+        if (savedTheme !== 'default') {
+            setTimeout(function() {
+                reHighlightAllCode();
+            }, 500);
         }
     });
     </script>
