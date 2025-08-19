@@ -1333,28 +1333,30 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 
                 <!-- option>Coding Interview</option -->
                 <option>Short Coding Interview</option>
-                <option>Relationship</option>
-                <option>Dating Maverick</option>
-                <option>Argumentative</option>
-                <option selected>Blackmail</option>
                 
-                <option>Is Coding Request</option>
+                
+                
                 <option>More Related Coding Questions</option>
                 
-                <option>CoT</option>
+                <!-- option>CoT</option -->
                 <!-- option>Explain Maths</option -->
 
                 <!-- option>Improve Code</option -->
                 <!-- option>Improve Code Interviews</option -->
                 
-                <!-- option>ML System Design Roleplay</option -->
-                <!-- option>ML System Design Answer</option -->
-                <!-- option>ML System Design Answer Short</option -->
+                <!-- option>ML Design Roleplay</option -->
+                <option>ML Design Answer</option>
+                <option>ML Design Answer Short</option>
                 <!-- option>Engineering Excellence</option -->
                 
                 <!-- option>Coding Interview TTS Friendly</option -->
                 <option>Diagram</option>
                 <option>Easy Copy</option>
+                <option>Relationship</option>
+                <option>Dating Maverick</option>
+                <option>Argumentative</option>
+                <option>Blackmail</option>
+                <option>Is Coding Request</option>
                 
                 
                 
@@ -1493,7 +1495,6 @@ function addOptions(parentElementId, type, activeDocId = null) {
                 <option>NStepCodeAgent</option>
                 <option>CodeSolveAgent</option>
                 <option>MLSystemDesignAgent</option>
-                <option>NStepAgent</option>
                 <option>NResponseAgent</option>
                 <option>PerplexitySearch</option>
                 <option>JinaSearchAgent</option>

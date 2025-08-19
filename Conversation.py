@@ -11,7 +11,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
 from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -1353,13 +1353,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         if "Paper Summary" in preamble_options:
             preamble += prompts.paper_summary_prompt
-        if "ML System Design Roleplay" in preamble_options:
+        if "ML Design Roleplay" in preamble_options:
             preamble += prompts.ml_system_design_role
             
-        if "ML System Design Answer" in preamble_options:
+        if "ML Design Answer" in preamble_options:
             preamble += prompts.ml_system_design_answer
             
-        if "ML System Design Answer Short" in preamble_options:
+        if "ML Design Answer Short" in preamble_options:
             preamble += prompts.ml_system_design_answer_short
             
         if "Comparison" in preamble_options:
@@ -1611,8 +1611,6 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
 
         if field == "NResponseAgent":
             agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
-        if field == "NStepAgent":
-            agent = NStepAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 2))
         if field == "NStepCodeAgent":
             agent = NStepCodeAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
         if field == "CodeSolveAgent":

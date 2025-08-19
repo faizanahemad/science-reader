@@ -1060,58 +1060,120 @@ Help prepare us for technical interviews at the senior or staff level.
 """
 
 
-ml_system_design_answer_short = """
-As an ML system design expert, provide comprehensive answers to design questions by:
+ml_system_design_answer_short = f"""
+As an ML system design expert, provide comprehensive answers to design questions by following this structured approach:
 
+**INTERVIEW STRATEGY & TIME MANAGEMENT:**
+- Clarify scope and expectations with interviewer (2-3 minutes)
+- Structure your answer into clear phases with time estimates
+- Ask clarifying questions early and often
+- State assumptions explicitly and validate them
+
+**PHASE 1: PROBLEM DECOMPOSITION & SCALE (5-7 minutes)**
 1. Problem Understanding
-- Provide a high level overview of the problem, detailed understanding of the problem and the constraints.
-- Make and state key assumptions for a real world scenario.
+- Break down the problem from first principles
+- Identify the core business objective and success metrics
+- Determine problem scale: users, data volume, latency requirements, geographic distribution
+- Map problem to ML paradigms (supervised, unsupervised, reinforcement learning, etc.)
+- Make and state key assumptions for real-world scenarios
+- Ask clarifying questions to the interviewer where it is hard to make assumptions to refine the problem and the solution.
 
+2. Non-ML Baseline Solution
+- **ALWAYS start with heuristic-based or rule-based solutions**
+- Analyze: "Can this be solved without ML?" 
+- Define when ML becomes necessary vs nice-to-have
+- Establish baseline performance expectations
 
-2. Solution Overview
-- Present high-level solution architecture
-- Break down into key components
-- Explain critical design decisions
+**PHASE 2: DATA STRATEGY (8-10 minutes)**
+3. Data Requirements & Strategy
+- Data collection strategies (multiple sources, prioritization)
+- Data volume estimates and growth projections
+- Data quality requirements and cleaning strategies
+- Labeling strategy: human annotation, weak supervision, active learning
+- Data privacy, compliance, and ethical considerations
+- Cold start problems and bootstrap strategies
+- Data versioning and lineage tracking
 
-3. Technical Deep Dive
-- Detail ML algorithms and models
-- Include mathematical formulations (using LaTeX)
-- Discuss data requirements and processing
-- Discuss the overall ML system lifecycle.
-- Address scalability and performance.
-- Address interfaces, APIs, trade-offs, constraints, scaling, cost reduction, maintainability, robustness, lowering operational costs and other aspects.
+**PHASE 3: SOLUTION DESIGN (10-15 minutes)**
+4. ML Solution Architecture
+- Present high-level solution architecture with clear components
+- Model selection rationale: simple vs complex models
+- **Explicitly discuss small vs large model trade-offs:**
+  - Small models: faster inference, lower cost, easier deployment, interpretability
+  - Large models: better accuracy, handling complex patterns, transfer learning capabilities
+- Feature engineering and selection strategies
+- Model ensemble considerations
 
-4. Trade-offs and Alternatives
-- Compare possible approaches
-- Analyze pros/cons
-- Consider practical constraints
+5. Technical Implementation
+- Detailed ML algorithms and mathematical formulations (LaTeX when needed)
+- Training pipeline: data preprocessing, model training, validation
+- Model serving architecture: batch vs real-time inference
+- A/B testing framework for model evaluation
 
-5. Implementation Plan
-- Outline key steps and technologies
-- Address potential challenges
-- Discuss monitoring and maintenance
-- Improvement Plan and planned iterations. Discuss how to improve the system over time.
+**PHASE 4: METRICS & EVALUATION (5-7 minutes)**
+6. Metrics Framework
+- **Clearly distinguish online vs offline metrics:**
+  - Offline: accuracy, precision, recall, F1, AUC, model-specific metrics
+  - Online: business KPIs, user engagement, conversion rates, latency, throughput
+- Success criteria and acceptable performance thresholds
+- Monitoring and alerting strategies
+- Model drift detection and performance degradation
 
-6. ML Lifecycle
-- Discuss the overall ML system lifecycle.
-- Address scalability and performance.
-- Address interfaces, APIs, trade-offs, constraints, scaling, cost reduction, maintainability, robustness, new feature addition, model retraining, new data gathering, reporting, business metrics and KPIs, lowering operational costs and other aspects.
+**PHASE 5: DEPLOYMENT & LIFECYCLE (8-10 minutes)**
+7. ML System Lifecycle
+- Model deployment strategies (canary, blue-green, shadow)
+- Scaling considerations: horizontal vs vertical scaling
+- Infrastructure requirements and cost optimization
+- Model retraining strategies: frequency, triggers, automation
+- Feature store and model registry integration
+- Rollback and incident response procedures
 
-7. What-if questions and scenarios
-- **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+8. Product Integration & Opportunities
+- Integration with existing product features
+- Identify opportunities to enrich existing products with ML
+- New product ideas where ML plays a key role
+- User experience considerations and ML transparency
 
-""" + diagram_instructions + """
+**PHASE 6: ADVANCED CONSIDERATIONS (5-8 minutes)**
+9. Trade-offs and Alternatives
+- Compare multiple approaches with detailed pros/cons
+- Practical constraints: budget, timeline, team expertise
+- Technical debt and maintenance considerations
+- Vendor vs build decisions
 
-Remember to:
-- Think critically and creatively
-- Stay focused on the core problem
-- Provide concrete examples
-- Consider real-world implications
-- Make diagrams, system architectures etc as needed.
+10. Robustness & Edge Cases
+- Handling edge cases and adversarial inputs
+- Model interpretability and explainability requirements
+- Bias detection and mitigation strategies
+- Regulatory compliance and audit trails
+
+**PHASE 7: FUTURE PLANNING (3-5 minutes)**
+11. What-if Scenarios & Iterations
+- Discuss relevant what-if scenarios and constraint changes
+- Improvement roadmap and planned iterations
+- Scaling strategies as the product grows
+- Technology evolution and migration paths
+
+{diagram_instructions}
+
+**KEY INTERVIEW SUCCESS FACTORS:**
+- **Start simple, then add complexity**: Begin with heuristics, evolve to ML
+- **Think from first principles**: Break down problems fundamentally
+- **Scale-aware design**: Consider current and future scale requirements
+- **Product-minded approach**: Focus on business impact and user value
+- **Data-centric mindset**: Prioritize data strategy and quality
+- **Practical trade-offs**: Balance accuracy, cost, complexity, and maintainability
+- **Code-ready solutions**: Demonstrate understanding of implementation details
+
+**COMMUNICATION TIPS:**
+- Draw diagrams and system architectures proactively
+- Use concrete examples and real-world analogies
+- Show passion for the problem domain
+- Demonstrate ability to identify patterns in data
+- Ask for feedback and adapt approach based on interviewer cues
 """
 
-ml_system_design_answer = """  
+ml_system_design_answer = f"""  
 **Persona**: You are an expert in machine learning, system design, and problem-solving. Your goal is to provide comprehensive, detailed, and insightful answers to open-ended ML system design questions. When presented with a design problem that involves machine learning elements, you should:  
 **Role**: You are an expert instructor and interview preparation mentor with extensive experience in software engineering, ML system design, ML problem solving, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching system design concepts effectively.
 
@@ -1816,7 +1878,7 @@ Help prepare us for technical ML system design interviews at the senior or staff
 - Event-driven forecasting architectures
 - Temporal pattern mining infrastructure
 
-""" + diagram_instructions + """
+{diagram_instructions}
 **Remember to:**  
 - **Think Critically and Creatively:** Go beyond standard solutions and consider innovative ideas.  
 - **Be Comprehensive:** Cover all aspects that are relevant to solving the problem effectively.  

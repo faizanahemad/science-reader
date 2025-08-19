@@ -5,7 +5,7 @@ from typing import Union, List
 import uuid
 
 
-from common import VERY_CHEAP_LLM, collapsible_wrapper
+from common import LONG_CONTEXT_LLM, VERY_CHEAP_LLM, collapsible_wrapper
 from prompts import tts_friendly_format_instructions
 
 
@@ -24,7 +24,7 @@ try:
     import sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).parent.parent))
-    from prompts import tts_friendly_format_instructions, diagram_instructions
+    from prompts import tts_friendly_format_instructions, diagram_instructions, ml_system_design_answer_short
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
         CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
@@ -1297,18 +1297,20 @@ class MLSystemDesignAgent(Agent):
         self.n_steps = n_steps
         
         # ML System Design prompt based on the prompt template
-        self.ml_system_design_prompt = """
+        self.ml_system_design_prompt = f"""
 **Persona**: You are an expert in machine learning, system design, and problem-solving. Your goal is to provide comprehensive, detailed, and insightful answers to open-ended ML system design questions. When presented with a design problem that involves machine learning elements, you should:  
 **Role**: You are an expert instructor and interview preparation mentor with extensive experience in software engineering, ML system design, ML problem solving, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching system design concepts effectively.
 
 **Objective**: We will provide you with a ML system design **question** to practice. You will provide comprehensive, detailed, and insightful solutions to the problem. Your task is to help us **learn and understand the solutions thoroughly** by guiding us through the problem-solving process step by step. 
 Help prepare us for technical ML system design interviews at the senior or staff level for FAANG and other top ML and AI companies.
 
-{more_instructions}
+{{more_instructions}}
+
+
 
 Query:
 <user_query>
-{query}
+{{query}}
 </user_query>
 
 Provide a comprehensive solution to this ML system design problem, following the framework above. Include specific approaches, architectural diagrams, and tips that would impress an interviewer at top ML companies.
@@ -1364,9 +1366,6 @@ Provide a comprehensive solution to this ML system design problem, following the
 - Discuss caching strategies and optimization techniques
 - Address high availability and fault tolerance
 - Plan for geographical distribution if needed
-"""
-
-        self.ml_system_design_prompt_3 = """
 
 **Remember to:**  
 - **Think Critically and Creatively:** Go beyond standard solutions and consider innovative ideas.  
@@ -1379,15 +1378,123 @@ Provide a comprehensive solution to this ML system design problem, following the
 - Design for maintainability
 - Account for operational costs
 - Plan for future growth
-- Document design decisions
-- Consider team structure
-- Plan for knowledge sharing
 - Make diagrams, system architecture, flow diagrams etc as needed.
 - Prefer ASCII art diagrams and mermaid diagrams.
-
-
-
 """
+
+
+        self.ml_system_design_prompt_3 = f"""
+As an ML system design expert, provide comprehensive answers to design questions by following this structured approach:
+
+**INTERVIEW STRATEGY & TIME MANAGEMENT:**
+- Clarify scope and expectations with interviewer (2-3 minutes)
+- Structure your answer into clear phases with time estimates
+- Ask clarifying questions early and often
+- State assumptions explicitly and validate them
+
+**PHASE 1: PROBLEM DECOMPOSITION & SCALE (5-7 minutes)**
+1. Problem Understanding
+- Break down the problem from first principles
+- Identify the core business objective and success metrics
+- Determine problem scale: users, data volume, latency requirements, geographic distribution
+- Map problem to ML paradigms (supervised, unsupervised, reinforcement learning, etc.)
+- Make and state key assumptions for real-world scenarios
+
+2. Non-ML Baseline Solution
+- **ALWAYS start with heuristic-based or rule-based solutions**
+- Analyze: "Can this be solved without ML?" 
+- Define when ML becomes necessary vs nice-to-have
+- Establish baseline performance expectations
+
+**PHASE 2: DATA STRATEGY (8-10 minutes)**
+3. Data Requirements & Strategy
+- Data collection strategies (multiple sources, prioritization)
+- Data volume estimates and growth projections
+- Data quality requirements and cleaning strategies
+- Labeling strategy: human annotation, weak supervision, active learning
+- Data privacy, compliance, and ethical considerations
+- Cold start problems and bootstrap strategies
+- Data versioning and lineage tracking
+
+**PHASE 3: SOLUTION DESIGN (10-15 minutes)**
+4. ML Solution Architecture
+- Present high-level solution architecture with clear components
+- Model selection rationale: simple vs complex models
+- **Explicitly discuss small vs large model trade-offs:**
+  - Small models: faster inference, lower cost, easier deployment, interpretability
+  - Large models: better accuracy, handling complex patterns, transfer learning capabilities
+- Feature engineering and selection strategies
+- Model ensemble considerations
+
+5. Technical Implementation
+- Detailed ML algorithms and mathematical formulations (LaTeX when needed)
+- Training pipeline: data preprocessing, model training, validation
+- Model serving architecture: batch vs real-time inference
+- A/B testing framework for model evaluation
+
+**PHASE 4: METRICS & EVALUATION (5-7 minutes)**
+6. Metrics Framework
+- **Clearly distinguish online vs offline metrics:**
+  - Offline: accuracy, precision, recall, F1, AUC, model-specific metrics
+  - Online: business KPIs, user engagement, conversion rates, latency, throughput
+- Success criteria and acceptable performance thresholds
+- Monitoring and alerting strategies
+- Model drift detection and performance degradation
+
+**PHASE 5: DEPLOYMENT & LIFECYCLE (8-10 minutes)**
+7. ML System Lifecycle
+- Model deployment strategies (canary, blue-green, shadow)
+- Scaling considerations: horizontal vs vertical scaling
+- Infrastructure requirements and cost optimization
+- Model retraining strategies: frequency, triggers, automation
+- Feature store and model registry integration
+- Rollback and incident response procedures
+
+8. Product Integration & Opportunities
+- Integration with existing product features
+- Identify opportunities to enrich existing products with ML
+- New product ideas where ML plays a key role
+- User experience considerations and ML transparency
+
+**PHASE 6: ADVANCED CONSIDERATIONS (5-8 minutes)**
+9. Trade-offs and Alternatives
+- Compare multiple approaches with detailed pros/cons
+- Practical constraints: budget, timeline, team expertise
+- Technical debt and maintenance considerations
+- Vendor vs build decisions
+
+10. Robustness & Edge Cases
+- Handling edge cases and adversarial inputs
+- Model interpretability and explainability requirements
+- Bias detection and mitigation strategies
+- Regulatory compliance and audit trails
+
+**PHASE 7: FUTURE PLANNING (3-5 minutes)**
+11. What-if Scenarios & Iterations
+- Discuss relevant what-if scenarios and constraint changes
+- Improvement roadmap and planned iterations
+- Scaling strategies as the product grows
+- Technology evolution and migration paths
+
+{diagram_instructions}
+
+**KEY INTERVIEW SUCCESS FACTORS:**
+- **Start simple, then add complexity**: Begin with heuristics, evolve to ML
+- **Think from first principles**: Break down problems fundamentally
+- **Scale-aware design**: Consider current and future scale requirements
+- **Product-minded approach**: Focus on business impact and user value
+- **Data-centric mindset**: Prioritize data strategy and quality
+- **Practical trade-offs**: Balance accuracy, cost, complexity, and maintainability
+- **Code-ready solutions**: Demonstrate understanding of implementation details
+
+**COMMUNICATION TIPS:**
+- Draw diagrams and system architectures proactively
+- Use concrete examples and real-world analogies
+- Show passion for the problem domain
+- Demonstrate ability to identify patterns in data
+- Ask for feedback and adapt approach based on interviewer cues
+"""
+        
 
         # Combiner prompt to synthesize outputs from different models
         self.combiner_prompt = """
@@ -1431,7 +1538,7 @@ Combined Solution:
 </combined_solution>
 
 Suggest what questions we should ask the interviewer in the beginning of the interview to refine the understanding of the problem before we start discussing the solution.
-Also suggest what assumptions we should make to simplify the problem and the solution before we start discussing the solution.
+Also suggest what assumptions (or kinds or areas of assumptions) we should make to simplify the problem and the solution before we start discussing the solution.
 """
 
         self.other_areas_prompt_1 = """
@@ -2299,27 +2406,15 @@ Now provide a continuation of the solution focusing on the above areas mentioned
 """
 
         
-        self.critic_prompt = """
-You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
-Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
+        
 
-
-
-"""
-
-        self.combined_critic_prompt = """
-You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
-Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
-
-
-
-"""
+        
        
         self.tips_prompt = """You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
 Some tips for the candidate to impress the interviewer:
 
 1. **Structure is key** - Following a clear framework helps interviewers follow your thought process
-2. **Clarify requirements early** - Don't rush into solutions before understanding what's needed
+2. **Clarify requirements early** - Don't rush into solutions before understanding what's needed, make assumptions and ask clarifying questions where making assumptions is hard.
 3. **Focus on trade-offs** - Highlight the pros and cons of different approaches
 4. **Draw system diagrams** - Visual representations demonstrate your ability to communicate complex ideas
 5. **Connect theory to practice** - Mention real-world examples from your experience when possible
@@ -2330,7 +2425,7 @@ Some tips for the candidate to impress the interviewer:
 10. **Interaction with the interviewer** - Always interact with the interviewer and ask questions to understand the requirements better.
 11. **Keep Interviewer engaged** - Keep the interviewer engaged and interested in the solution. Keep checking if the interviewer is following you or not. Keep asking for feedback and if you are on the right track or not.
 12. **Use the time wisely** - Use the time wisely and don't spend too much time on one thing.
-
+13. Think of additional tips and tricks which maybe specific to this problem and can impress the interviewer.
 
 The original query was:
 <user_query>
@@ -2358,20 +2453,20 @@ Now provide structured and detailed tips for the candidate to impress the interv
 
     def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
         # Define the models to use
-        multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet:beta", 
-                            "anthropic/claude-3.5-sonnet:beta", 
-                            "google/gemini-2.5-pro-preview-03-25",
-                            "o1", "anthropic/claude-3.7-sonnet:thinking"]
+        multiple_llm_models = EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1]
         
         
         # Use provided models or fallback to default list
         if isinstance(self.writer_model, list):
             models_to_use = self.writer_model
-        else:
+        elif self.n_steps >= 4:
             # Add writer_model to the list if it's not already there
             models_to_use = multiple_llm_models
             if isinstance(self.writer_model, str) and self.writer_model not in models_to_use:
                 models_to_use.append(self.writer_model)
+
+        else:
+            models_to_use = [self.writer_model] * 3
 
         # random shuffle the models
         random.shuffle(models_to_use)
@@ -2386,11 +2481,10 @@ Now provide structured and detailed tips for the candidate to impress the interv
         web_search_response_future = None
         if self.n_steps >= 4 and web_search:
             # we will perform web search as well.
-            web_search_agent = MultiSourceSearchAgent(self.keys, model_name=CHEAP_LLM[0], detail_level=2, timeout=90)
+            web_search_agent = MultiSourceSearchAgent(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], detail_level=2, timeout=120)
             web_search_response_future = get_async_future(web_search_agent.get_answer, text, images, temperature, stream, max_tokens, system, web_search)
             
-        # Stream results as they come in
-        yield "# ML System Design Interview Preparation\n\n"
+        
         
         # Stream from multiple models
         model_responses = yield from stream_multiple_models(
@@ -2401,39 +2495,18 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="Response from {model}"
         )
         
-        # Combine all model responses
-        yield "## Combined Analysis\n\n"
+        
         
         # Prepare the combiner prompt with all model responses
         model_solutions_text = ""
         for model_name, response in model_responses.items():
             model_solutions_text += f"### Solution from {model_name}\n{response}\n\n"
-        
-        combiner_prompt = self.combiner_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text)
-        
-        
-        
-        
-        # Call the combiner model
-        combiner_model = VERY_CHEAP_LLM[0] # "openai/chatgpt-4o-latest"
         combined_response = ""
-        try:
-            combiner_llm = CallLLm(self.keys, combiner_model)
-            combiner_response = combiner_llm(combiner_prompt, images, temperature, stream=True, max_tokens=max_tokens, system=system)
-            
-            # Stream the combined response inside a collapsible wrapper
-            for chunk in collapsible_wrapper(combiner_response, header="Comprehensive ML System Design Solution", show_initially=False):
-                yield chunk
-                combined_response += chunk
-                
-        except Exception as e:
-            error_msg = f"Error combining responses: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_msg)
-            yield f"\nError in combining responses: {error_msg}\n"
+        
 
         if self.n_steps <= 1:
             return
@@ -2454,7 +2527,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=False,
+            collapsible_headers=True,
             header_template="First Phase of Insights from {model}"
         ):
             yield chunk
@@ -2484,7 +2557,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=False,
+            collapsible_headers=True,
             header_template="More Insights from {model}"
         ):
             yield chunk
