@@ -1295,6 +1295,26 @@ class MLSystemDesignAgent(Agent):
         super().__init__(keys)
         self.writer_model = writer_model
         self.n_steps = n_steps
+
+        self.system_prompt = """
+You are an expert in machine learning, system design, and problem-solving. Your goal is to provide comprehensive, detailed, and insightful answers to open-ended ML system design questions. 
+**Role**: You are an expert instructor and interview preparation mentor with extensive experience in software engineering, ML system design, ML problem solving, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching system design concepts effectively.
+
+Do's and Dont's:
+- Do's:
+    - Provide a comprehensive solution to the problem.
+    - Provide a detailed and insightful solution to the problem.
+    - Provide a solution that is easy to understand and follow.
+    - Provide a solution that is easy to implement and test.
+    - Provide a solution that is easy to deploy and scale.
+    - Discuss the overall ML system lifecycle.
+    - Think of additional tips and tricks which maybe specific to this problem and can impress the interviewer.
+    - Think outside the box and provide innovative solutions.
+
+- Dont's:
+    - Do not repeat the same things that are already covered in the solution.
+    - Do not write code unless asked to do so. Instead convey using diagrams, ASCII art, mermaid diagrams, or using markdown text.
+"""
         
         # ML System Design prompt based on the prompt template
         self.ml_system_design_prompt = f"""
@@ -2343,7 +2363,7 @@ Here are the solutions from different models:
 
 {{model_solutions}}
 
-Combined Solution:
+Combined Solution (if any):
 <combined_solution>
 {{combined_solution}}
 </combined_solution>
@@ -2355,7 +2375,7 @@ More information about side areas:
 </more_information>
 
 
-Now provide a continuation of the solution focusing making diagrams, system architecture, flow diagrams etc only.
+Now provide a continuation of the solution focusing making diagrams, system architecture, flow diagrams etc only. These diagrams should be ASCII art or mermaid diagrams and enhance our understanding of the solution.
 """
 
         self.what_if_questions_prompt = """
@@ -2453,6 +2473,8 @@ Now provide structured and detailed tips for the candidate to impress the interv
 
     def __call__(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
         # Define the models to use
+        if system is None:
+            system = self.system_prompt
         multiple_llm_models = EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1]
         
         

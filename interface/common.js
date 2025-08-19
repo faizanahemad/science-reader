@@ -1050,7 +1050,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         possible_mermaid_elem = elem_to_render_in.find(".mermaid")
         // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
         render_or_not = possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')
-        if (render_or_not) {
+        if (!render_or_not) {
             mermaid_text = possible_mermaid_elem[0].textContent
             mermaid_elem = $("<pre class='mermaid'></div>")
             mermaid_elem.text(mermaid_text)
@@ -1097,9 +1097,6 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             }).catch(err => {
                 console.error('Mermaid Error:', err);
             });
-            
-        }
-        if (render_or_not && !elem_to_render_in.querySelector('svg')) {
             
         }
     }
