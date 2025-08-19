@@ -2495,7 +2495,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=False,
+            collapsible_headers=True,
             header_template="Response from {model}"
         )
         
@@ -2527,7 +2527,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="First Phase of Insights from {model}"
         ):
             yield chunk
@@ -2557,7 +2557,7 @@ Now provide structured and detailed tips for the candidate to impress the interv
             temperature, 
             max_tokens, 
             system,
-            collapsible_headers=True,
+            collapsible_headers=False,
             header_template="More Insights from {model}"
         ):
             yield chunk
