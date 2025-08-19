@@ -622,6 +622,8 @@ diagram_instructions = """
 - For Draw.io or Diagrams.net diagrams, draw only one diagram per answer. Tell the user that only one diagram is allowed per answer if they ask for more than one.
 - Make high quality plots with clear and extensive labels and explanations. Always save your python or matplotlib plots to the directory {output_directory} with filename prefix as {plot_prefix}.
 - When you make plots and graphs in python or matplotlib, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
+
+- Prefer ASCII art diagrams and text art diagrams over mermaid diagrams and draw.io diagrams. ASCII art diagrams are easier to render.
 """
 
 tts_friendly_format_instructions = """
