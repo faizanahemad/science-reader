@@ -1047,58 +1047,61 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0
 
     if (mermaid_rendering_needed) {
-        MathJax.Hub.Queue(function() {
-            // determine if html above has an open <pre class='mermaid'> tag that isn't closed.
-            if (mermaid_rendering_needed) {
-                possible_mermaid_elem = elem_to_render_in.find(".mermaid")
-                // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
-                if (possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')) {
-                    mermaid_text = possible_mermaid_elem[0].textContent
-                    mermaid_elem = $("<pre class='mermaid'></div>")
-                    mermaid_elem.text(mermaid_text)
-                    // append as sibling to the possible_mermaid_elem
-                    possible_mermaid_elem.after(mermaid_elem)
+        possible_mermaid_elem = elem_to_render_in.find(".mermaid")
+        // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
+        render_or_not = possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')
+        if (render_or_not) {
+            mermaid_text = possible_mermaid_elem[0].textContent
+            mermaid_elem = $("<pre class='mermaid'></div>")
+            mermaid_elem.text(mermaid_text)
+            // append as sibling to the possible_mermaid_elem
+            possible_mermaid_elem.after(mermaid_elem)
+        }
+        const mermaidBlocks = elem_to_render_in.find('pre.mermaid');  
+        function cleanMermaidCode(mermaidCode) {  
+            return mermaidCode  
+                .split('\n')  
+                .map(line => line.trimRight())  
+                .filter(line => line.length > 0 && !line.includes('pre class="mermaid"') && !line.includes('pre class=\'mermaid'))  
+                .join('\n');  
+        }
+        
+        if (elem_to_render_in.find(".mermaid").length > 0) {
+            mermaidBlocks.each(function(index, block) {  
+                // Get and clean the mermaid code  
+                let code = block.textContent || block.innerText;  
+                // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
+                if (!block.querySelector('svg')) {
+                    code = cleanMermaidCode(code);
+                    // Update the content directly  
+                    block.textContent = code;  
                 }
-                const mermaidBlocks = document.querySelectorAll('pre.mermaid');  
-                function cleanMermaidCode(mermaidCode) {  
-                    return mermaidCode  
-                      .split('\n')  
-                      .map(line => line.trimRight())  
-                      .filter(line => line.length > 0 && !line.includes('pre class="mermaid"'))  
-                      .join('\n');  
-                }
+
                 
-                if (elem_to_render_in.find(".mermaid").length > 0) {
-                    mermaidBlocks.forEach(block => {  
-                        // Get and clean the mermaid code  
-                        let code = block.textContent || block.innerText;  
-                        // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
-                        if (!block.querySelector('svg')) {
-                            code = cleanMermaidCode(code);
-                            // Update the content directly  
-                            block.textContent = code;  
-                        }
-                      
-                        
-                    });  
-                }
-                mermaid.run({
-                    querySelector: 'pre.mermaid',
-                    useMaxWidth: false,
-                    suppressErrors: false,
-    
-                }).then(() => {
-                    // find all svg inside .mermaid class pre elements.
-                    var svgs = $(document).find('pre.mermaid svg');
-                    // iterate over each svg element and unset its height attribute
-                    svgs.each(function (index, svg) {
-                        $(svg).attr('height', null);
-                    });
-                }).catch(err => {
-                    console.error('Mermaid Error:', err);
+                
+                
+            });  
+
+            mermaid.run({
+                nodes: mermaidBlocks,
+                useMaxWidth: false,
+                suppressErrors: false,
+
+            }).then(() => {
+                // find all svg inside .mermaid class pre elements.
+                var svgs = $(elem_to_render_in).find('pre.mermaid svg');
+                // iterate over each svg element and unset its height attribute
+                svgs.each(function (index, svg) {
+                    $(svg).attr('height', null);
                 });
-            }
-        })
+            }).catch(err => {
+                console.error('Mermaid Error:', err);
+            });
+            
+        }
+        if (render_or_not && !elem_to_render_in.querySelector('svg')) {
+            
+        }
     }
 
     if (code_rendering_needed) {

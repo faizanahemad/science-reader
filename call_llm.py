@@ -487,268 +487,18 @@ $$E[X] = \sum_{i} x_i \cdot P(X = x_i)$$
   
 **Variance:**  
 $$\text{Var}(X) = E[X^2] - (E[X])^2$$  
-  
-### **4. Linear Algebra: Data and Transformations**  
-  
-**Applications:**  
-- **Computer graphics** (3D transformations)  
-- **Machine learning** (neural networks, PCA)  
-- **Computer vision** (image processing)  
-- **Quantum computing**  
-  
-**Key Operations:**  
-  
-**Matrix Multiplication:**  
-$$(AB)_{ij} = \sum_{k=1}^{n} A_{ik} B_{kj}$$  
-  
-**Eigenvalues and Eigenvectors:**  
-$$A\mathbf{v} = \lambda\mathbf{v}$$  
-  
-**Principal Component Analysis:**  
-$$\mathbf{Y} = \mathbf{W}^T \mathbf{X}$$  
-Where $\mathbf{W}$ contains eigenvectors of covariance matrix.  
-  
-### **5. Calculus: Optimization and Learning**  
-  
-**Applications:**  
-- **Machine learning** optimization  
-- **Computer graphics** (curves and surfaces)  
-- **Numerical analysis**  
-- **Signal processing**  
-  
-**Gradient Descent:**  
-$$\theta_{t+1} = \theta_t - \alpha \nabla_\theta J(\theta)$$  
-  
-**Backpropagation in Neural Networks:**  
-$$\frac{\partial J}{\partial w_{ij}} = \frac{\partial J}{\partial a_j} \cdot \frac{\partial a_j}{\partial z_j} \cdot \frac{\partial z_j}{\partial w_{ij}}$$  
-  
-### **6. Number Theory: Cryptography and Security**  
-  
-**Applications:**  
-- **Public-key cryptography**  
-- **Hash functions**  
-- **Digital signatures**  
-- **Blockchain technology**  
-  
-**RSA Algorithm:**  
-$$c = m^e \bmod n \text{ (Encryption)}$$  
-$$m = c^d \bmod n \text{ (Decryption)}$$  
-  
-Where $ed \equiv 1 \pmod{\phi(n)}$ and $n = pq$ for primes $p, q$.  
-  
-**Modular Arithmetic:**  
-$$a \equiv b \pmod{n} \text{ if } n | (a-b)$$  
-  
-**Fermat's Little Theorem:**  
-$$a^{p-1} \equiv 1 \pmod{p} \text{ for prime } p \text{ and } \gcd(a,p) = 1$$  
-  
-## **Mathematics by Computer Science Subfield**  
-  
-| **CS Area** | **Primary Mathematics** | **Key Concepts** |  
-|-------------|------------------------|------------------|  
-| **Algorithms** | Discrete math, Calculus, Probability | Big-O notation, Recurrence relations |  
-| **Machine Learning** | Linear algebra, Calculus, Statistics | Gradient descent, Probability distributions |  
-| **Computer Graphics** | Linear algebra, Calculus, Geometry | Matrix transformations, Bezier curves |  
-| **Cryptography** | Number theory, Algebra | Modular arithmetic, Group theory |  
-| **Database Systems** | Set theory, Logic | Relational algebra, Query optimization |  
-| **Computer Networks** | Graph theory, Probability | Routing algorithms, Queuing theory |  
-| **Theoretical CS** | Logic, Set theory, Combinatorics | Computability, Complexity theory |  
-  
-## **Detailed Examples: Math in Action**  
-  
-### **Example 1: Algorithm Analysis**  
-  
-**Problem:** Analyze the time complexity of merge sort.  
-  
-**Mathematical Solution:**  
-  
-**Recurrence Relation:**  
-$$T(n) = 2T(n/2) + O(n)$$  
-  
-**Using Master Theorem:**  
-For $T(n) = aT(n/b) + f(n)$ where $a = 2$, $b = 2$, $f(n) = n$:  
-  
-$$n^{\log_b a} = n^{\log_2 2} = n^1 = n$$  
-  
-Since $f(n) = \Theta(n^{\log_b a})$, we have:  
-$$T(n) = \Theta(n \log n)$$  
-  
-### **Example 2: Machine Learning - Linear Regression**  
-  
-**Problem:** Find the best-fit line for data points using least squares.  
-  
-**Mathematical Solution:**  
-  
-**Cost Function:**  
-$$J(\theta_0, \theta_1) = \frac{1}{2m} \sum_{i=1}^{m} (h_\theta(x^{(i)}) - y^{(i)})^2$$  
-  
-Where $h_\theta(x) = \theta_0 + \theta_1 x$  
-  
-**Normal Equation:**  
-$$\theta = (X^T X)^{-1} X^T y$$  
-  
-**Gradient Descent Update:**  
-$$\theta_0 := \theta_0 - \alpha \frac{1}{m} \sum_{i=1}^{m} (h_\theta(x^{(i)}) - y^{(i)})$$  
-$$\theta_1 := \theta_1 - \alpha \frac{1}{m} \sum_{i=1}^{m} (h_\theta(x^{(i)}) - y^{(i)}) x^{(i)}$$  
-  
-### **Example 3: Graph Algorithm - Shortest Path**  
-  
-**Problem:** Find shortest path in a weighted graph using Dijkstra's algorithm.  
-  
-**Mathematical Solution:**  
-  
-**Algorithm Steps:**  
-1. Initialize distances: $d[s] = 0$, $d[v] = \infty$ for all $v \neq s$  
-2. While unvisited vertices exist:  
-   - Select $u$ with minimum $d[u]$  
-   - For each neighbor $v$ of $u$:  
-     $$d[v] = \min(d[v], d[u] + w(u,v))$$  
-  
-**Time Complexity:** $O((V + E) \log V)$ with binary heap  
-  
-## **Advanced Mathematical Concepts**  
-  
-### **1. Computational Complexity Theory**  
-  
-**Big-O Notation:**  
-$$f(n) = O(g(n)) \text{ if } \exists c, n_0 \text{ such that } f(n) \leq c \cdot g(n) \text{ for } n \geq n_0$$  
-  
-**Complexity Classes:**  
-- **P:** Problems solvable in polynomial time  
-- **NP:** Problems verifiable in polynomial time  
-- **NP-Complete:** Hardest problems in NP  
-  
-### **2. Information Theory**  
-  
-**Shannon Entropy:**  
-$$H(X) = -\sum_{i} P(x_i) \log_2 P(x_i)$$  
-  
-**Mutual Information:**  
-$$I(X;Y) = \sum_{x,y} P(x,y) \log_2 \frac{P(x,y)}{P(x)P(y)}$$  
-  
-### **3. Formal Logic and Verification**  
-  
-**Propositional Logic:**  
-$$\vdash \phi \text{ (phi is provable)}$$  
-$$\models \phi \text{ (phi is valid)}$$  
-  
-**Hoare Logic** for program correctness:  
-$$\{P\} \text{ S } \{Q\}$$  
-Where $P$ is precondition, $S$ is statement, $Q$ is postcondition.  
-  
-### **4. Quantum Computing**  
-  
-**Quantum States:**  
-$$|\psi\rangle = \alpha|0\rangle + \beta|1\rangle$$  
-Where $|\alpha|^2 + |\beta|^2 = 1$  
-  
-**Quantum Gates as Unitary Matrices:**  
-$$\text{Hadamard: } H = \frac{1}{\sqrt{2}}\begin{pmatrix} 1 & 1 \\ 1 & -1 \end{pmatrix}$$  
-  
-## **Learning Path for Computer Science Mathematics**  
-  
-### **Foundation Level (Introductory CS)**  
-1. **Discrete Mathematics** - Logic, sets, functions, proof techniques  
-2. **Basic Probability** - Random variables, distributions  
-3. **Linear Algebra** - Vectors, matrices, basic operations  
-4. **Calculus** - Derivatives, integrals, optimization  
-  
-### **Intermediate Level (Core CS)**  
-5. **Graph Theory** - Graph algorithms, network analysis  
-6. **Statistics** - Hypothesis testing, regression analysis  
-7. **Number Theory** - Modular arithmetic, cryptographic applications  
-8. **Combinatorics** - Advanced counting, generating functions  
-  
-### **Advanced Level (Specialized Areas)**  
-9. **Real Analysis** - For theoretical computer science  
-10. **Abstract Algebra** - For cryptography and coding theory  
-11. **Topology** - For computational geometry  
-12. **Stochastic Processes** - For performance modeling  
-  
-## **Practical Applications: Where Math Meets Computing**  
-  
-### **Artificial Intelligence**  
-- **Neural Networks:** Matrix operations, calculus for backpropagation  
-- **Natural Language Processing:** Probability models, linear algebra  
-- **Computer Vision:** Linear algebra, signal processing  
-  
-### **Computer Graphics**  
-- **3D Transformations:** Matrix multiplication, quaternions  
-- **Ray Tracing:** Vector geometry, calculus  
-- **Animation:** Interpolation, differential equations  
-  
-### **Cybersecurity**  
-- **Encryption:** Number theory, abstract algebra  
-- **Network Security:** Graph theory, probability  
-- **Blockchain:** Hash functions, digital signatures  
-  
-### **Data Science**  
-- **Statistical Analysis:** Probability, hypothesis testing  
-- **Machine Learning:** Linear algebra, optimization  
-- **Big Data:** Algorithms, complexity analysis  
-  
-## **The Evolution of Mathematical Sophistication**  
-  
-### **Introductory Programming**  
-- **Basic Logic:** Boolean operations, conditionals  
-- **Arithmetic:** Integer and floating-point operations  
-- **Simple Algorithms:** Searching, sorting  
-  
-### **Data Structures and Algorithms**  
-- **Complexity Analysis:** Big-O notation, recurrence relations  
-- **Graph Algorithms:** BFS, DFS, shortest paths  
-- **Dynamic Programming:** Optimization, memoization  
-  
-### **Advanced Computer Science**  
-- **Machine Learning:** Multivariable calculus, linear algebra  
-- **Cryptography:** Number theory, abstract algebra  
-- **Theoretical CS:** Mathematical logic, computability theory  
-  
-## **Why Computer Science Math is Unique**  
-  
-### **Compared to Physics:**  
-- **Constructive** rather than **descriptive** - We build systems rather than discover laws  
-- **Discrete** rather than **continuous** - Digital vs. analog  
-- **Algorithmic** - Focus on step-by-step procedures  
-  
-### **Compared to Chemistry:**  
-- **Abstract** rather than **physical** - Pure information processing  
-- **Deterministic** with controlled **randomness**  
-- **Scalable** - Same principles work from small to massive systems  
-  
-### **Compared to Mathematics:**  
-- **Applied** and **constructive** - Must actually compute answers  
-- **Resource-conscious** - Time and space matter  
-- **Empirical validation** - Performance testing and benchmarking  
-  
-## **Modern Frontiers: Mathematics Driving New Computing**  
-  
-### **Quantum Computing**  
-- **Linear Algebra:** Quantum states and operations  
-- **Group Theory:** Quantum error correction  
-- **Number Theory:** Quantum cryptography  
-  
-### **Machine Learning and AI**  
-- **Deep Learning:** Advanced calculus, optimization theory  
-- **Reinforcement Learning:** Probability theory, game theory  
-- **Explainable AI:** Logic, formal methods  
-  
-### **Blockchain and Cryptocurrencies**  
-- **Cryptographic Hash Functions:** Number theory  
-- **Consensus Algorithms:** Game theory, probability  
-- **Smart Contracts:** Formal verification methods  
-  
-### **Computational Biology**  
-- **Bioinformatics:** String algorithms, dynamic programming  
-- **Systems Biology:** Differential equations, network theory  
-- **Drug Discovery:** Optimization, machine learning  
-  
-**The Bottom Line**: Mathematics in computer science serves as both the **theoretical foundation** and **practical toolkit** for solving computational problems. From the basic logic gates that form computer hardware to the sophisticated algorithms that power modern AI, mathematics provides the **precision**, **rigor**, and **analytical power** needed to design, analyze, and optimize computational systems.  
-  
-Unlike other sciences that use mathematics to describe existing phenomena, computer science uses mathematics to **create new realities** - algorithms that didn't exist before, systems that solve previously unsolvable problems, and digital worlds that extend human capabilities.  
-  
-The mathematical sophistication required varies greatly depending on the area of computer science, but the fundamental principle remains: **computation is applied mathematics**, where abstract mathematical concepts become concrete, executable solutions to real-world problems.  
-  
+
+```mermaid
+graph TD
+    A[User Input] --> B[Memory Retrieval System]
+    B --> C[Dossier Injection]
+    C --> D[Context Window Assembly]
+    D --> E[LLM Processing]
+    E --> F[Response Generation]
+    F --> G[Memory Update]
+    G --> H[Dossier Refinement]
+```
+
 Would you like me to dive deeper into any specific area, such as the mathematics behind a particular machine learning algorithm, or explore how graph theory is used in social network analysis?</answer>  
 
 
@@ -756,10 +506,10 @@ Would you like me to dive deeper into any specific area, such as the mathematics
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         mock_response = self.mock_response + " " + "".join(random.choices(string.ascii_letters + string.digits, k=100))
-        if stream:
+        if False:
             for line in mock_response.split("\n"):
                 yield line
                 yield "\n"
                 time.sleep(0.01)
         else:
-            return mock_response
+            yield mock_response
