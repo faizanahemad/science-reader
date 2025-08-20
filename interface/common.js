@@ -825,27 +825,23 @@ markdownParser.code = function (code, language) {
 
 function hasUnclosedMermaidTag(htmlString) {
     // Regular expression to identify all relevant mermaid tags
-    const tagRegex = /<pre class='mermaid'>|<\/pre>|```mermaid|```(?!\w)/g;
+    // Updated to handle both single and double quotes, and flexible whitespace
+    const tagRegex = /<pre\s+class=["']mermaid["']>|<\/pre>|```mermaid|```(?!\w)/g;
     let stack = [];
     let match;
 
     while ((match = tagRegex.exec(htmlString)) !== null) {
-        switch (match[0]) {
-            case "<pre class='mermaid'>":
-                // Push the expected closing tag for <pre class='mermaid'>
-                stack.push("</pre>");
-                break;
-            case "```mermaid":
-                // Push the expected closing tag for ```mermaid
-                stack.push("```");
-                break;
-            case "</pre>":
-            case "```":
-                // Check if the closing tag matches the expected one from the stack
-                if (stack.length === 0 || stack.pop() !== match[0]) {
-                    return true; // Mismatch found or stack is empty (unmatched closing tag)
-                }
-                break;
+        if (match[0].startsWith("<pre")) {
+            // Push the expected closing tag for <pre class='mermaid'> or <pre class="mermaid">
+            stack.push("</pre>");
+        } else if (match[0] === "```mermaid") {
+            // Push the expected closing tag for ```mermaid
+            stack.push("```");
+        } else if (match[0] === "</pre>" || match[0] === "```") {
+            // Check if the closing tag matches the expected one from the stack
+            if (stack.length === 0 || stack.pop() !== match[0]) {
+                return true; // Mismatch found or stack is empty (unmatched closing tag)
+            }
         }
     }
 
