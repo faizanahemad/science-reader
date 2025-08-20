@@ -396,7 +396,7 @@ class MockCallLLm:
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
         self.mock_response = """
-<answer>  
+
 # **Mathematics in Computer Science: The Logic of Computation**  
   
 Following our exploration of mathematics in physics and chemistry, let's dive into how computer science uses mathematics as its **foundational language**. Unlike physics (which describes nature) or chemistry (which studies matter), computer science uses mathematics to **create abstract systems**, **solve computational problems**, and **design algorithms**.  
@@ -499,6 +499,94 @@ graph TD
     G --> H[Dossier Refinement]
 ```
 
+*Another example of a mermaid diagram:*
+
+```mermaid
+graph TB  
+    subgraph "Load Balancer Layer"  
+        LB[Load Balancer]  
+    end  
+      
+    subgraph "API Gateway Layer"  
+        AG1[API Gateway 1]  
+        AG2[API Gateway 2]  
+        AG3[API Gateway 3]  
+    end  
+      
+    subgraph "Memory Service Layer"  
+        MS1[Memory Service 1]  
+        MS2[Memory Service 2]  
+        MS3[Memory Service 3]  
+        MS4[Memory Service 4]  
+    end  
+      
+    subgraph "Database Layer"  
+        VDB1[Vector DB Shard 1]  
+        VDB2[Vector DB Shard 2]  
+        VDB3[Vector DB Shard 3]  
+          
+        SQL1[PostgreSQL 1]  
+        SQL2[PostgreSQL 2]  
+        SQL3[PostgreSQL 3]  
+    end  
+      
+    subgraph "Cache Layer"  
+        C1[Redis Cluster 1]  
+        C2[Redis Cluster 2]  
+        C3[Redis Cluster 3]  
+    end  
+      
+    LB --> AG1  
+    LB --> AG2  
+    LB --> AG3  
+      
+    AG1 --> MS1  
+    AG1 --> MS2  
+    AG2 --> MS3  
+    AG2 --> MS4  
+    AG3 --> MS1  
+    AG3 --> MS3  
+      
+    MS1 --> VDB1  
+    MS2 --> VDB2  
+    MS3 --> VDB3  
+    MS4 --> VDB1  
+      
+    MS1 --> SQL1  
+    MS2 --> SQL2  
+    MS3 --> SQL3  
+    MS4 --> SQL1  
+      
+    MS1 --> C1  
+    MS2 --> C2  
+    MS3 --> C3  
+    MS4 --> C1  
+```
+
+*Another example of a mermaid diagram:*
+
+```mermaid
+graph LR
+    X1[x₁] --> H1[h₁]
+    X1 --> H2[h₂]
+    X1 --> H3[h₃]
+    X2[x₂] --> H1
+    X2 --> H2
+    X2 --> H3
+    X3[x₃] --> H1
+    X3 --> H2
+    X3 --> H3
+    H1 --> Y1[y₁]
+    H2 --> Y1
+    H3 --> Y1
+    H1 --> Y2[y₂]
+    H2 --> Y2
+    H3 --> Y2
+```
+
+
+
+
 Would you like me to dive deeper into any specific area, such as the mathematics behind a particular machine learning algorithm, or explore how graph theory is used in social network analysis?</answer>  
 
 
@@ -506,10 +594,13 @@ Would you like me to dive deeper into any specific area, such as the mathematics
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
         mock_response = self.mock_response + " " + "".join(random.choices(string.ascii_letters + string.digits, k=100))
-        if False:
+        if stream:
             for line in mock_response.split("\n"):
-                yield line
+                for word in line.split(" "):
+                    yield word + " "
+                    
                 yield "\n"
                 time.sleep(0.01)
+                
         else:
             yield mock_response

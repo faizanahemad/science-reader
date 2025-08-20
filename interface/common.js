@@ -1053,7 +1053,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             // append as sibling to the possible_mermaid_elem
             possible_mermaid_elem.after(mermaid_elem)
         }
-        const mermaidBlocks = elem_to_render_in.find('pre.mermaid');  
+        const mermaidBlocks = elem_to_render_in.parent().find('pre.mermaid');  
         function cleanMermaidCode(mermaidCode) {  
             return mermaidCode  
                 .split('\n')  
@@ -1062,7 +1062,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                 .join('\n');  
         }
         
-        if (elem_to_render_in.find(".mermaid").length > 0) {
+        if (mermaidBlocks.length > 0) {
             mermaidBlocks.each(function(index, block) {  
                 // Get and clean the mermaid code  
                 let code = block.textContent || block.innerText;  
@@ -1072,9 +1072,6 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     // Update the content directly  
                     block.textContent = code;  
                 }
-
-                
-                
                 
             });  
 

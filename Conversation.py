@@ -12,7 +12,7 @@ from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
 from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
-from code_runner import code_runner_with_retry, extract_code, extract_drawio, extract_mermaid, \
+from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
 from prompts import prompts, xml_to_dict, diagram_instructions, wife_prompt
@@ -114,7 +114,7 @@ class Conversation:
 
     def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
         # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
-        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and system response.
+        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and system response. You will write in a compact manner using bullet points.
 
 Previous messages: '''{previous_messages}'''
 
@@ -126,7 +126,8 @@ User query: '''{queryText}'''
 
 Response: '''{responseText}'''
 
-Only add new details, facts, numbers, metrics from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
+Only add new details, facts, numbers, metrics, short summarised code, from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
+Also extract user preference and behavior and goals, and any other information that will be useful to the user later.
 Refrain from adding any information that is already present in the older memory.
 Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
 Write the new extracted information below in bullet points.
@@ -134,14 +135,14 @@ Write the new extracted information below in bullet points.
 ## New Information:
 
 """
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
         new_memory = llm(prompt, temperature=0.2, stream=False)
         new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
         # remove double \n
         memory_parts = self.memory_pad.split("\n")
 
-        if len(self.memory_pad.split()) > 8000 and len(memory_parts) > 64:
+        if len(self.memory_pad.split()) > 12000 and len(memory_parts) > 128:
             # split menmory pad into 8 equal parts using \n separator and then merging them back
 
             part_size = len(memory_parts)//8
@@ -161,7 +162,7 @@ Compact list of bullet points:
 
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 2):
-                llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
+                llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
                 if i + 1 < len(memory_parts):
                     memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
                 else:
@@ -1295,7 +1296,7 @@ For certain type of information, like code, tables, equations, etc, extract them
 Extract information in a concise and short manner suitable for a recap.
 Write the useful information extracted from the above conversation messages and summary below in a brief, concise and short manner:
 """
-        final_information = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False,
+        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False,
                                 use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
         # We return a string
         final_information = " ".join(final_information.split()[:4000])
@@ -1821,13 +1822,13 @@ Provide detailed and in-depth explanation of the mathematical concepts and equat
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
         if enable_planner:
             # TODO: use gpt4o with planner. Don't execute code unless user has asked to explicitly execute code.
-            planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True)(planner_prompt,
+            planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)(planner_prompt,
                                                                                           temperature=0.2, stream=True)
         elif checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
             planner_text_gen = ""
         else:
             planner_text_gen = ""
-            # planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
+            # planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
 
 
         google_scholar = checkboxes["googleScholar"]
@@ -2385,7 +2386,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                                                                doc_answer='', web_text="\n"+full_web_string,
                                                                link_result_text='',
                                                                conversation_docs_answer='')
-                answer_summary = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_16k=True,
+                answer_summary = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_16k=True,
                                          use_gpt4=True)(prompt, temperature=0.3, stream=False)
                 # web_text_accumulator.append((answer_summary, f"[Generated Answer from {start + 1} to {end + 1}](No Link)", answer_summary))
                 et = time.time()
@@ -2749,8 +2750,10 @@ At the end write what we must make slides about as well.
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
                     main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                 else:
-                    llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                    # llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                    if "Debug LLM" in preambles:
+                        llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                    else:
+                        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
             else:
                 main_ans_gen =  iter([])  # empty generator of string
@@ -2841,12 +2844,14 @@ At the end write what we must make slides about as well.
                 download_link = f"\n[Download XML File]({file_path})\n"
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
-            mermaid_to_execute = extract_mermaid(answer)
+            mermaid_to_execute = extract_last_mermaid(answer)
             if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:
                 already_executed_mermaid.append(mermaid_to_execute)
                 mermaid_text = f"\n<pre class='mermaid'>{mermaid_to_execute}</pre>\n"
-                yield {"text": mermaid_text, "status": "answering in progress"}
-                answer += mermaid_text
+                yield {"text": "\n\n", "status": "answering in progress"}
+                yield {"text": mermaid_to_execute, "status": "answering in progress"}
+                yield {"text": "\n\n", "status": "answering in progress"}
+                answer += ("\n\n" + mermaid_to_execute + "\n\n")
             code_to_execute = extract_code(answer)
             if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
                 if code_session is None:
@@ -2855,7 +2860,7 @@ At the end write what we must make slides about as well.
 
                 success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],
                                                                                               coding_rules,
-                                                                                              CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0], use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True),
+                                                                                              CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0], use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True),
                                                                                               code_to_execute, session=code_session)
                 if success:
                     successfull_code = code_string
@@ -3325,7 +3330,7 @@ At the end write what we must make slides about as well.
     def clear_doubt(self, message_id, doubt_text="", doubt_history=None, reward_level=0):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
-        from common import CHEAP_LLM
+        
         import traceback
         import time
         

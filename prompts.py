@@ -624,7 +624,7 @@ diagram_instructions = """
 - When you make plots and graphs in python or matplotlib, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
 
 - Prefer ASCII art diagrams and mermaid diagrams.
-- When you make a mermaid diagram, make sure to write the mermaid code inside "```mermaid" and "```" triple ticks. And with full mermaid code. And then write a description of the diagram in the answer after it as well.
+- When you make a mermaid diagram, make sure to write the mermaid code inside "```mermaid" and "```" triple ticks. And with full mermaid code. And then write a description of the diagram in the answer after it as well. Make simple diagrams.
 """
 
 tts_friendly_format_instructions = """

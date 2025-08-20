@@ -838,14 +838,180 @@ def extract_drawio(code_string):
                 return drawio
     return ''
 
+
+mermaid_diagram_wrapping_str = '<pre class="mermaid">\n{cleaned_content}\n</pre>'
 def extract_mermaid(code_string):
+    """
+    Extract Mermaid diagrams from markdown code blocks and wrap in HTML pre tags.
+    
+    Args:
+        code_string (str): String that may contain ```mermaid code blocks
+        
+    Returns:
+        str: Extracted Mermaid diagrams, each wrapped in <pre class="mermaid"> tags
+        
+    Purpose:
+        Extracts Mermaid diagrams from markdown-style code blocks and formats them
+        as HTML pre elements for consistent rendering with other Mermaid sources.
+    """
     regex = r"```mermaid(.*?)```"
-    mermaid = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
-    mermaid = [c.strip() for c in mermaid]
-    mermaid = "\n".join(mermaid)
-    if mermaid.strip() != "" and "graph" in mermaid.lower():
-        return mermaid
-    return ''
+    mermaid_matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
+    # Process and wrap each match in pre tags
+    mermaid_blocks = []
+    for match in mermaid_matches:
+        # Strip whitespace from content
+        cleaned_content = match.strip()
+        if cleaned_content:
+            # Check if it contains valid Mermaid content (expanded detection)
+            if ("graph" in cleaned_content.lower() or 
+                "flowchart" in cleaned_content.lower() or
+                "sequencediagram" in cleaned_content.lower() or
+                "gitgraph" in cleaned_content.lower() or
+                "classDiagram" in cleaned_content.lower() or
+                "stateDiagram" in cleaned_content.lower() or
+                "pie" in cleaned_content.lower() or
+                "journey" in cleaned_content.lower() or
+                "erDiagram" in cleaned_content.lower()):
+                
+                # Wrap each diagram in its own pre tags
+                wrapped_diagram = mermaid_diagram_wrapping_str.format(cleaned_content=cleaned_content)
+                mermaid_blocks.append(wrapped_diagram)
+    
+    # Join all mermaid blocks with double newlines for separation
+    return "\n\n".join(mermaid_blocks)
+
+
+def extract_last_mermaid(code_string):
+    """
+    Extract the last mermaid diagram from the code string.
+    
+    Args:
+        code_string (str): String that may contain ```mermaid code blocks or <pre class="mermaid"> tags
+        
+    Returns:
+        str: Extracted Mermaid diagram content (without wrapper tags)
+        
+    Purpose:
+        Extracts the most recent/last Mermaid diagram from a string that may contain
+        multiple diagrams in either markdown code blocks or HTML pre tags. This is
+        useful for getting the latest diagram when content is being streamed or updated.
+    """
+    # First try to extract from markdown code blocks
+    markdown_regex = r"```mermaid(.*?)```"
+    markdown_matches = re.findall(markdown_regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
+    # Then try to extract from HTML pre tags
+    pre_tag_regex = r'<pre\s+class=["\']\s*mermaid\s*["\']\s*>(.*?)</pre>'
+    pre_tag_matches = re.findall(pre_tag_regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
+    # Combine all matches and get positions to find the last one
+    all_matches = []
+    
+    # Find positions of markdown matches
+    for match in re.finditer(markdown_regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE):
+        all_matches.append((match.start(), match.group(1).strip()))
+    
+    # Find positions of pre tag matches
+    for match in re.finditer(pre_tag_regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE):
+        all_matches.append((match.start(), match.group(1).strip()))
+    
+    # Sort by position and get the last match
+    if all_matches:
+        all_matches.sort(key=lambda x: x[0])
+        last_match_content = all_matches[-1][1]
+        
+        # Validate that it contains Mermaid content
+        if (last_match_content and 
+            ("graph" in last_match_content.lower() or 
+             "flowchart" in last_match_content.lower() or
+             "sequencediagram" in last_match_content.lower() or
+             "gitgraph" in last_match_content.lower() or
+             "classDiagram" in last_match_content.lower() or
+             "stateDiagram" in last_match_content.lower() or
+             "pie" in last_match_content.lower() or
+             "journey" in last_match_content.lower() or
+             "erDiagram" in last_match_content.lower())):
+            
+            return mermaid_diagram_wrapping_str.format(cleaned_content=last_match_content)
+    
+    return ""
+
+def extract_mermaid_from_pre_tags(html_string):
+    """
+    Extract Mermaid diagram content from HTML <pre class="mermaid"> tags.
+    
+    Args:
+        html_string (str): HTML string that may contain <pre class="mermaid"> tags
+        
+    Returns:
+        str: Extracted Mermaid diagrams, each wrapped in <pre class="mermaid"> tags
+        
+    Purpose:
+        This function complements extract_mermaid() by handling Mermaid diagrams
+        embedded in HTML pre tags instead of markdown code blocks. It preserves
+        the HTML structure by keeping each diagram wrapped in pre tags.
+    """
+    # Regex to match complete <pre class="mermaid"> tags and their content
+    # Handles both single and double quotes, flexible whitespace
+    regex = r'<pre\s+class=["\']\s*mermaid\s*["\']\s*>(.*?)</pre>'
+    
+    mermaid_matches = re.findall(regex, html_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+    
+    # Process and wrap each match in pre tags
+    mermaid_blocks = []
+    for match in mermaid_matches:
+        # Strip whitespace from content
+        cleaned_content = match.strip()
+        if cleaned_content:
+            # Check if it contains valid Mermaid content
+            if ("graph" in cleaned_content.lower() or 
+                "flowchart" in cleaned_content.lower() or
+                "sequencediagram" in cleaned_content.lower() or
+                "gitgraph" in cleaned_content.lower() or
+                "classDiagram" in cleaned_content.lower() or
+                "stateDiagram" in cleaned_content.lower() or
+                "pie" in cleaned_content.lower() or
+                "journey" in cleaned_content.lower() or
+                "erDiagram" in cleaned_content.lower()):
+                
+                # Wrap each diagram in its own pre tags
+                wrapped_diagram = mermaid_diagram_wrapping_str.format(cleaned_content=cleaned_content)
+                mermaid_blocks.append(wrapped_diagram)
+    
+    # Join all mermaid blocks with double newlines for separation
+    return "\n\n".join(mermaid_blocks)
+
+
+def extract_all_mermaid(content_string):
+    """
+    Extract Mermaid diagrams from both markdown code blocks and HTML pre tags.
+    
+    Args:
+        content_string (str): Content that may contain Mermaid in various formats
+        
+    Returns:
+        str: Combined Mermaid diagram content, pre-tag diagrams wrapped in HTML,
+             markdown diagrams as raw content
+        
+    Purpose:
+        Unified function to extract Mermaid content regardless of format,
+        preserving appropriate formatting for each source type.
+    """
+    # Extract from markdown code blocks (returns raw content)
+    mermaid_from_code = extract_mermaid(content_string)
+    
+    # Extract from HTML pre tags (returns wrapped in pre tags)
+    mermaid_from_pre = extract_mermaid_from_pre_tags(content_string)
+    
+    # Combine results
+    all_mermaid = []
+    if mermaid_from_code.strip():
+        all_mermaid.append(mermaid_from_code.strip())
+    if mermaid_from_pre.strip():
+        all_mermaid.append(mermaid_from_pre.strip())
+    
+    return "\n\n".join(all_mermaid)
 
 
 mem_and_cpu_limit_str = """
