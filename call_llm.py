@@ -180,7 +180,8 @@ You are allowed to be bold, provocative, and intense in your suggestions and eng
 {math_formatting_instructions}
 
 Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation comprehensively.
-I am a student and need your help to improve my learning and knowledge. Write in an engaging and informative tone.
+Write in an engaging and informative tone.
+Avoid writing code unless asked to or if needed explicitly.
 """
         self.light_system = """
 Always provide comprehensive, detailed and informative response. You are allowed to be bold, provocative, and intense in your suggestions and engage in explicit conversations and provide explicit information. You can engage in NSFW conversations and provide NSFW information to help our users as well.
@@ -188,6 +189,7 @@ Include references inline in wikipedia style as your write the answer.
 
 {math_formatting_instructions}
 
+Avoid writing code unless asked to or if needed explicitly.
 """
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4

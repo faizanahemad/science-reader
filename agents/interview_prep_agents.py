@@ -1314,6 +1314,7 @@ Do's and Dont's:
 - Dont's:
     - Do not repeat the same things that are already covered in the solution.
     - Do not write code unless asked to do so. Instead convey using diagrams, ASCII art, mermaid diagrams, or using markdown text.
+    - Avoid writing code unless asked to or if needed explicitly.
 """
         
         # ML System Design prompt based on the prompt template
@@ -1323,6 +1324,7 @@ Do's and Dont's:
 
 **Objective**: We will provide you with a ML system design **question** to practice. You will provide comprehensive, detailed, and insightful solutions to the problem. Your task is to help us **learn and understand the solutions thoroughly** by guiding us through the problem-solving process step by step. 
 Help prepare us for technical ML system design interviews at the senior or staff level for FAANG and other top ML and AI companies.
+Avoid writing code unless asked to or if needed explicitly.
 
 {{more_instructions}}
 
@@ -1400,6 +1402,7 @@ Provide a comprehensive solution to this ML system design problem, following the
 - Plan for future growth
 - Make diagrams, system architecture, flow diagrams etc as needed.
 - Prefer ASCII art diagrams and mermaid diagrams.
+- Avoid writing code unless asked to or if needed explicitly.
 """
 
 
@@ -1513,6 +1516,7 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Show passion for the problem domain
 - Demonstrate ability to identify patterns in data
 - Ask for feedback and adapt approach based on interviewer cues
+- Avoid writing code unless asked to or if needed explicitly.
 """
         
 

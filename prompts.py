@@ -1196,6 +1196,7 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Show passion for the problem domain
 - Demonstrate ability to identify patterns in data
 - Ask for feedback and adapt approach based on interviewer cues
+- Avoid writing code unless asked to or if needed explicitly.
 """
 
 ml_system_design_answer = f"""  
