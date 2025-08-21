@@ -198,8 +198,8 @@
             if (details) {
                 // Close the details element
                 details.removeAttribute('open');
-                // Scroll to the summary
-                details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
+                // REMOVED: Auto-scroll to summary - was interrupting user reading
+                // details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
             }
         }
     });

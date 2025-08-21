@@ -99,6 +99,7 @@ function addNewlineToTextbox(textboxId) {
     messageText.val(textBefore + '\n' + textAfter);
     messageText.prop('selectionStart', cursorPos + 1);
     messageText.prop('selectionEnd', cursorPos + 1);
+    // Auto-scroll textarea to bottom when adding newline at end
     if (textAfter.length === 0) {
         var scrollHeight = messageText.prop('scrollHeight');
         messageText.scrollTop(scrollHeight);

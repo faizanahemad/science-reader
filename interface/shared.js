@@ -28,11 +28,12 @@ function loadSharedConversation(conversationId) {
         ChatManager.setupDownloadChatButton(conversationId);
         ChatManager.setupShareChatButton(conversationId);
         highLightActiveConversation(conversationId);
-        var chatView = $('#chatView');
-        chatView.scrollTop(chatView.prop('scrollHeight'));
-        setTimeout(function () {
-            chatView.scrollTop(chatView.prop('scrollHeight'));
-        }, 150);
+        // REMOVED: Auto-scroll to bottom on shared conversation load - was interrupting user reading
+        // var chatView = $('#chatView');
+        // chatView.scrollTop(chatView.prop('scrollHeight'));
+        // setTimeout(function () {
+        //     chatView.scrollTop(chatView.prop('scrollHeight'));
+        // }, 150);
     });
 }
 
@@ -52,7 +53,8 @@ $(document).ready(function () {
         var newContent = currentContent === '▲' ? '▼' : '▲';
         $(this).text(newContent);
     });
-    $(window).scrollTop(0);
-    scrollToBottom();
+    // REMOVED: Auto-scroll on page initialization - was interrupting user reading
+    // $(window).scrollTop(0);
+    // scrollToBottom();
     $("#chat-pdf-content").addClass('d-none');
 });

@@ -360,9 +360,10 @@ var ConversationManager = {
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function (messages) {
             ChatManager.renderMessages(conversationId, messages, true);
-            $(document).scrollTop(0);
-            $(window).scrollTop(0);
-            // $('#messageText').focus();
+            // REMOVED: Auto-scroll to top when loading conversation - was interrupting user reading
+            // $(document).scrollTop(0);
+            // $(window).scrollTop(0);
+            $('#messageText').focus();
             $("#show-sidebar").focus();
             if (window.innerWidth < 768) { // Only trigger on mobile screens
                 $('#show-sidebar').click();
@@ -401,11 +402,12 @@ var ConversationManager = {
         ChatManager.setupDownloadChatButton(conversationId);
         ChatManager.setupShareChatButton(conversationId);
         highLightActiveConversation(conversationId);
-        var chatView = $('#chatView');
-        chatView.scrollTop(chatView.prop('scrollHeight'));
-        setTimeout(function () {
-            chatView.scrollTop(chatView.prop('scrollHeight'));
-        }, 150);
+        // REMOVED: Auto-scroll to bottom on conversation loading - was interrupting user reading
+        // var chatView = $('#chatView');
+        // chatView.scrollTop(chatView.prop('scrollHeight'));
+        // setTimeout(function () {
+        //     chatView.scrollTop(chatView.prop('scrollHeight'));
+        // }, 150);
     }
 
 };
@@ -2293,6 +2295,7 @@ var ChatManager = {
                 ChatManager.listMessages(conversationId).done(function (messages) {
                     ChatManager.renderMessages(conversationId, messages, true);
                     $('#loader').hide(); 
+                    // Auto-scroll after deleting last message 
                     var $chatView = $('#chatView');
                     $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
                     $('#messageText').focus();
@@ -2919,13 +2922,13 @@ var ChatManager = {
                 const targetMessageElement = $(`[message-id="${messageIdFromUrl}"]`);
                 const targetMessageCard = targetMessageElement.length > 0 ? targetMessageElement.closest('.card') : $();
                 if (targetMessageCard && targetMessageCard.length > 0) {
-                    // Scroll to the target message card
-                    targetMessageCard[0].scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center'
-                    });
+                    // REMOVED: Auto-scroll to target message - was interrupting user reading
+                    // targetMessageCard[0].scrollIntoView({
+                    //     behavior: 'smooth',
+                    //     block: 'center'
+                    // });
                     
-                    // Optional: Add a temporary highlight effect
+                    // Optional: Add a temporary highlight effect (keeping this for visual feedback)
                     targetMessageCard.addClass('highlight-message');
                     setTimeout(function() {
                         targetMessageCard.removeClass('highlight-message');
@@ -3024,8 +3027,9 @@ function activateChatTab() {
     $('#references-view').hide();
     $('#pdf-view').hide();
     $('#chat-assistant-view').show();
-    var chatView = $('#chatView');
-    chatView.scrollTop(chatView.prop('scrollHeight'));
+    // REMOVED: Auto-scroll to bottom on chat tab activation - was interrupting user reading
+    // var chatView = $('#chatView');
+    // chatView.scrollTop(chatView.prop('scrollHeight'));
     $('#messageText').focus();
     $("#chat-pdf-content").addClass('d-none');
     $("#chat-content").removeClass('d-none');
@@ -3228,7 +3232,7 @@ function scrollToBottom() {
         // if chat area is visible
         is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
 
-        if (distanceFromBottom > 400 && is_chat_visible) {
+        if (distanceFromBottom > 100 && is_chat_visible) {
             // Set the bottom position to 80px (no longer dependent on toggle state)
             $scrollToBottomBtn.css('bottom', '80px');
             $scrollToBottomBtn.show();
@@ -3530,34 +3534,36 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
     });
 }
 
-// Function to ensure suggestions remain visible when layout changes
+// REMOVED: Function to ensure suggestions remain visible when layout changes
+// This was causing unwanted auto-scrolling that interrupted user reading
 function ensureSuggestionsVisible() {
-    const suggestionsElement = $('#chatView .next-question-suggestions');
-    if (suggestionsElement.length > 0) {
-        // Small delay to ensure DOM is updated
-        setTimeout(function() {
-            // Scroll chatView to show the suggestions
-            const chatView = $('#chatView');
-            const suggestionsOffset = suggestionsElement.offset();
-            const chatViewOffset = chatView.offset();
-            const chatViewHeight = chatView.height();
-            const suggestionsHeight = suggestionsElement.outerHeight();
-            
-            // Check if suggestions are visible within the chatView bounds
-            if (suggestionsOffset && chatViewOffset) {
-                const relativeTop = suggestionsOffset.top - chatViewOffset.top;
-                const isVisible = relativeTop >= 0 && (relativeTop + suggestionsHeight) <= chatViewHeight;
-                
-                if (!isVisible) {
-                    // Scroll to make suggestions visible with smooth animation
-                    const newScrollTop = chatView.scrollTop() + relativeTop - (chatViewHeight - suggestionsHeight - 20);
-                    chatView.animate({
-                        scrollTop: newScrollTop
-                    }, 300, 'swing');
-                }
-            }
-        }, 100);
-    }
+    // DISABLED: Auto-scroll to show suggestions - was interrupting user reading
+    // const suggestionsElement = $('#chatView .next-question-suggestions');
+    // if (suggestionsElement.length > 0) {
+    //     // Small delay to ensure DOM is updated
+    //     setTimeout(function() {
+    //         // Scroll chatView to show the suggestions
+    //         const chatView = $('#chatView');
+    //         const suggestionsOffset = suggestionsElement.offset();
+    //         const chatViewOffset = chatView.offset();
+    //         const chatViewHeight = chatView.height();
+    //         const suggestionsHeight = suggestionsElement.outerHeight();
+    //         
+    //         // Check if suggestions are visible within the chatView bounds
+    //         if (suggestionsOffset && chatViewOffset) {
+    //             const relativeTop = suggestionsOffset.top - chatViewOffset.top;
+    //             const isVisible = relativeTop >= 0 && (relativeTop + suggestionsHeight) <= chatViewHeight;
+    //             
+    //             if (!isVisible) {
+    //                 // Scroll to make suggestions visible with smooth animation
+    //                 const newScrollTop = chatView.scrollTop() + relativeTop - (chatViewHeight - suggestionsHeight - 20);
+    //                 chatView.animate({
+    //                     scrollTop: newScrollTop
+    //                 }, 300, 'swing');
+    //             }
+    //         }
+    //     }, 100);
+    // }
 }
 
 // Initialize chat controls toggle handler (call this once when page loads)

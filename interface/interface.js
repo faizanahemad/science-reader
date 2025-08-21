@@ -35,10 +35,10 @@ function interface_readiness() {
 
             // Adjust the width of the content column
             contentCol.removeClass('col-md-10').addClass('col-md-12');
-            // scroll to the top of the page
-            $(document).scrollTop(0);
-            // scroll to the top of the page for the window
-            $(window).scrollTop(0);
+            // REMOVED: Auto-scroll to top when hiding sidebar - was interrupting user reading
+            // $(document).scrollTop(0);
+            // // scroll to the top of the page for the window
+            // $(window).scrollTop(0);
         } else {
             // If the sidebar is currently hidden, show it
             sidebar.removeClass('d-none');

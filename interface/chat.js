@@ -29,13 +29,14 @@ function chat_interface_readiness() {
             addNewlineToTextbox(this_id);
             return false; // Prevents the default action
         }
-        if ((e.which != 13) && (e.which != 8) && (e.which != 46) && (e.which != 37) && (e.which != 38) && (e.which != 39) && (e.which != 40)) {
-            var scrollHeight = $(this).prop('scrollHeight');
-            var maxHeight = parseFloat($(this).css('max-height'));
-            if(scrollHeight > maxHeight) {
-                $(this).scrollTop(scrollHeight);
-            }
-        }
+        // REMOVED: Auto-scroll textarea to bottom - was causing unwanted scrolling in main chat view
+        // if ((e.which != 13) && (e.which != 8) && (e.which != 46) && (e.which != 37) && (e.which != 38) && (e.which != 39) && (e.which != 40)) {
+        //     var scrollHeight = $(this).prop('scrollHeight');
+        //     var maxHeight = parseFloat($(this).css('max-height'));
+        //     if(scrollHeight > maxHeight) {
+        //         $(this).scrollTop(scrollHeight);
+        //     }
+        // }
     }
     $('#messageText').keypress(textboxCallBack);
     $('#messageText').on('input change', textboxCallBack);
@@ -176,7 +177,8 @@ function chat_interface_readiness() {
         var newContent = currentContent === '▲' ? '▼' : '▲';
         $(this).text(newContent);
     });
-    $(window).scrollTop(0);
+    // REMOVED: Auto-scroll on page initialization - was interrupting user reading
+    // $(window).scrollTop(0);
     scrollToBottom();
 
     $('#memory-pad-text-open-button').click(function() {
