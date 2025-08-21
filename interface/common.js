@@ -152,6 +152,10 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
     if (as_html) {
 
+        // FIXED: Preserve scroll position when rebuilding content
+        var $chatView = $('#chatView');
+        
+
         var moreText = $('<span class="more-text" style="display:none;"></span>')
         moreText.html(text)
         moreText.find('.show-more').each(function () { $(this).remove(); })
@@ -159,6 +163,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         var lessText = $(`<span class="less-text" style="display:block;">${shortText}</span>`)
         previous_sm = textElem.find('.show-more').length
         var smClick = $(' <a href="#" class="show-more">[show]</a> ')
+        var originalScrollTop = $chatView.scrollTop();
         textElem.empty()
         textElem.append(lessText)
         textElem.append(smClick)
@@ -166,6 +171,14 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         textElem.append(moreText)
 
         moreText.append(smClick.clone())
+
+        // Restore scroll position after rebuilding content
+        // $chatView.scrollTop(originalScrollTop);
+
+        // FIXED: Restore scroll position after DOM changes
+        requestAnimationFrame(function() {
+            $chatView.scrollTop(originalScrollTop);
+        });
     }
     else {
         var moreText = text.slice(20);
