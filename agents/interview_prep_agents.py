@@ -1338,7 +1338,12 @@ Query:
 Provide a comprehensive solution to this ML system design problem, following the framework above. Include specific approaches, architectural diagrams, and tips that would impress an interviewer at top ML companies.
 """
 
-        self.ml_system_design_prompt_2 = """
+        self.ml_system_design_prompt_2 = f"""You are an expert ML system design interview coach. You will be provided with a ML system design problem.
+Help prepare us for technical ML system design interviews at the senior or staff level for FAANG and other top ML and AI companies.
+Avoid writing code unless asked to or if needed explicitly.
+
+{diagram_instructions}
+
 ## Framework for ML System Design Solution:
 
 ### 1. Problem Understanding and Requirements
@@ -1403,6 +1408,11 @@ Provide a comprehensive solution to this ML system design problem, following the
 - Make diagrams, system architecture, flow diagrams etc as needed.
 - Prefer ASCII art diagrams and mermaid diagrams.
 - Avoid writing code unless asked to or if needed explicitly.
+
+Query:
+<user_query>
+{{query}}
+</user_query>
 """
 
 
@@ -1517,52 +1527,81 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Demonstrate ability to identify patterns in data
 - Ask for feedback and adapt approach based on interviewer cues
 - Avoid writing code unless asked to or if needed explicitly.
+
+Query:
+<user_query>
+{{query}}
+</user_query>
+
 """
         
 
-        # Combiner prompt to synthesize outputs from different models
-        self.combiner_prompt = """
-You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models. Your task is to synthesize these solutions into a single, comprehensive response that:
-
-1. Combines the best ideas and approaches from each solution
-2. Eliminates redundancy while preserving unique insights
-3. Ensures complete coverage of all important ML system design aspects
-4. Organizes the information in a logical, interview-friendly structure
-5. Highlights the most important points that would impress an interviewer.
-6. While comparing the solutions to the ML system design problem, compare the solutions rather than the models from which they came.
+        
+        self.clarifications_assumptions_prompt = f"""
+You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models. 
+Your task is to suggest what questions were to be asked and what assumptions to clarify with the interviewer to refine the understanding of the problem.
+{diagram_instructions}
 
 The original query was:
 <user_query>
-{query}
+{{query}}
 </user_query>
 
 Here are the solutions from different models:
 
-{model_solutions}
-
-Contrast and compare the solutions and provide an analysis of the differences, pros and cons of each solution.
-Then, create a comprehensive final solution synthesis that combines the all elements from all solutions. Focus on providing a well-structured approach that would help someone ace an ML system design interview.
-"""
-
-        self.clarifications_assumptions_prompt = """
-You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models. Your task is to suggest what questions to ask and what assumptions to clarify with the interviewer to refine the understanding of the problem and the solution.
-
-The original query was:
-<user_query>
-{query}
-</user_query>
-
-Here are the solutions from different models:
-
-{model_solutions}
+{{model_solutions}}
 
 Combined Solution:
 <combined_solution>
-{combined_solution}
+{{combined_solution}}
 </combined_solution>
 
-Suggest what questions we should ask the interviewer in the beginning of the interview to refine the understanding of the problem before we start discussing the solution.
+Suggest what questions we should ask the interviewer in the beginning and middle of the interview to refine the understanding of the problem (or the solution).
 Also suggest what assumptions (or kinds or areas of assumptions) we should make to simplify the problem and the solution before we start discussing the solution.
+
+There are four types of suggestions we want from you:
+1. Questions to ask the interviewer in the beginning of the interview to refine the understanding of the problem before we start discussing the solution.
+2. Assumptions to make to simplify the problem and the solution before we start discussing the solution.
+3. Questions to ask the interviewer in the middle of the interview to refine the understanding of the problem and how we can refine the solution or elaborate on the solution.
+4. Other assumptions and questions that are not covered in the above three types, to be asked or discussed with the interviewer.
+5. Finally make a diagram of how we should proceed with the interview from the start with a process flow diagram with branching if-else etc which would be dependent on the answers to the questions and assumptions.
+
+
+"""
+
+        self.top_down_design_prompt = f"""
+You are an expert ML system design interview coach. You will be provided with a ML system design problem.
+You will be provided with multiple solutions to an ML system design problem from different AI models. 
+Your task is to provide a top-down design of the solution to the problem. We need to think of solving this problem in a top-down manner with gradual increasing complexity and expanding each component of the solution.
+{diagram_instructions}
+
+
+The original query was:
+<user_query>
+{{query}}
+</user_query>
+
+Here are the solutions from different models:
+
+{{model_solutions}}
+
+Combined Solution:
+<combined_solution>
+{{combined_solution}}
+</combined_solution>
+
+Now provide a top-down design of the solution to the problem (with diagrams and 3 levels of complexity). We need to think of solving this problem in a top-down manner with gradual increasing complexity and expanding each component of the solution.
+So first we will discuss the problem and the solution in a high level manner. Use a high level diagram here as well.
+
+Then next we will go deeper into the solution and discuss the components of the solution in a detailed manner. In this second level of discussion, make a much larger and elaborate diagram.
+
+In the third level of discussion, we will go deeper into individual components of the solution and discuss each of them in a detailed manner. In this third level of discussion, make individual component diagrams.
+
+There are 3 levels of complexity to discuss the solution:
+1. High level or generic level. With one high level diagram.
+2. Mid/Low level Design with one diagram but with much more details and steps and components and sub-components and with just one diagram.
+3. Detailed component design with individual component diagrams. Here we can also include flow charts, process diagrams, etc. In this level of discussion, specifics like training, model update, data sources, online experimentation, etc. can be discussed.
+
 """
 
         self.other_areas_prompt_1 = """
@@ -1576,17 +1615,13 @@ Now focus on the following areas and provide a more details and a continuation o
 - Model selection criteria
 - Framework selection justification
 - Infrastructure requirements
-- Capacity planning
 - Performance benchmarking
-- Technical debt considerations
+- Technical debt considerations (How will we integrate newer models and features without breaking the existing system?)
 - Feature engineering strategies
 - Model selection criteria
 - Evaluation metrics selection
 - Validation strategies
-- Performance optimization
-- Resource utilization
-- System boundaries
-- Integration points
+- Integration points (imagine if a heuristic system is already in place, how will we integrate the new ML system with the existing system?)
 
   
 **2. Explore Multiple Approaches and Trade-Offs:**  
@@ -1605,7 +1640,7 @@ Now focus on the following areas and provide a more details and a continuation o
 
   
 **4. Discuss Design Choices at Various Points:**  
-- At each stage of your proposed solution, explain the decisions you make.  
+- At each stage of your proposed solution, explain the decisions you make, what alternatives you considered and why you chose the one you did.  
 - Justify why you choose one approach over another based on the context.  
   
 **5. Consider Practical Implementation Aspects:**  
@@ -1614,18 +1649,9 @@ Now focus on the following areas and provide a more details and a continuation o
 - Mention tools, frameworks, or technologies that could be used.  
 - DevOps integration points
 - Monitoring setup
-- Alerting thresholds
-- Backup strategies
-- Disaster recovery plans
-- Documentation requirements
-- Infrastructure requirements
 - Deployment strategies
-- Monitoring setup
-- Alerting mechanisms
-- Scaling policies
-- Resource management
 - Performance optimization
-- Operational procedures
+- Edge cases like data drift, new users, cold start, wrong labelling, etc.
 
 
 **6. Consider Other Software Engineering, Design and Architecture Aspects:**  
@@ -1712,41 +1738,35 @@ Now focus on the following areas and provide a more details and a continuation o
 - Compliance requirements (GDPR, CCPA, etc.)
 
 **4. Cost and Resource Optimization:**
-- Training cost analysis
-- Inference cost optimization
-- Resource allocation strategies
-- Hardware acceleration options
+- Training and inference cost analysis and optimization
 - Cost-performance tradeoffs
-- Budget considerations
+- Inference time vs accuracy tradeoffs
 
 **5. Data Quality and Management:**
-- Data validation pipelines
 - Quality monitoring systems
 - Data drift detection
 - Schema evolution handling
-- Data governance
 - Data augmentation strategies
+- Data Drift Detection and Handling
+- Labelling and Active Learning strategies
 
 **6. Error Handling and Recovery:**
 - Failure modes analysis
 - Fallback strategies
 - Recovery procedures
-- Circuit breakers
 - Graceful degradation approaches
 - SLA considerations
 
-**7. Performance Optimization:**
+**7. Performance Optimization and Scalability:**
 - Model optimization techniques
 - Inference optimization
 - Batch processing strategies
 - Caching strategies
-- Load balancing approaches
-- Autoscaling policies
-
 
 **8. Model Governance and Compliance:**
 - Model documentation requirements
 - Model cards implementation
+- Model Explainability and Interpretability for internal understanding and for the actual users
 - Regulatory compliance frameworks
 - Audit trails and logging
 - Version control for models and data
@@ -1754,37 +1774,19 @@ Now focus on the following areas and provide a more details and a continuation o
 - Compliance testing procedures
 - Documentation standards
 
-**9. System Reliability Engineering:**
+**9. Model and System Reliability Engineering:**
 - Reliability metrics and SLOs
 - Fault tolerance mechanisms
-- Chaos engineering practices
 - Disaster recovery procedures
-- Backup and restore strategies
 - High availability design
-- Load balancing approaches
-- Circuit breaker patterns
 
-**10. Infrastructure and Platform Design:**
-- Container orchestration
-- Service mesh architecture
-- API gateway design
-- Load balancing strategies
-- Auto-scaling policies
-- Resource allocation
-- Infrastructure as Code (IaC)
-- Platform security measures
-
-**11. Data Engineering Pipeline:**
-- Data ingestion patterns
-- ETL/ELT workflows
-- Stream processing
-- Batch processing
+**10. Data Engineering Pipeline:**
 - Data validation
 - Data quality checks
+- Anomaly detection and handling
 - Schema evolution
-- Data partitioning strategies
 
-**12. Model Serving Architecture:**
+**11. Model Serving Architecture:**
 - Serving infrastructure
 - Model serving patterns
 - Batch vs. Real-time inference
@@ -1794,15 +1796,10 @@ Now focus on the following areas and provide a more details and a continuation o
 - Serving scalability
 - Load balancing strategies
 
-**13. Monitoring and Observability:**
+**12. Monitoring and Observability:**
 - Metrics collection
-- Logging infrastructure
-- Tracing systems
-- Alerting mechanisms
-- Dashboarding
-- Performance monitoring
-- Resource utilization
-- System health checks
+- Online and Offline metrics collection
+- Model and System health checks
 
 The original query was:
 <user_query>
@@ -2391,13 +2388,13 @@ Only cover the below guidelines suggested items. Limit your response to the belo
 Guidelines:
 ### 1. What-if questions and scenarios
 - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-- Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+- Ask and hint on how to solve the problem if some constraints, data, assumptions, or other conditions are changed as per the above what-if questions and scenarios.
 - Verbalize the solutions first and then also mention their time and space complexities. 
 
 
 ### 2. **More What-if questions and scenarios**:
   - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
-  - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
+  - Ask and hint on how to solve the problem if some constraints, data, assumptions, or other conditions are changed as per the above what-if questions and scenarios.
   - Verbalize the solutions first and then also mention their time and space complexities. 
 
 ### 3. **Mind Bending Questions**:
@@ -2471,7 +2468,7 @@ More information about side areas:
 {more_information}
 </more_information>
 
-Provide tips on how we can ace such an interview. Tips should range from general interview tips to ML system design interview tips to specific tips for this problem as well.
+Provide tips on how we can ace such an interview. How to structure and lead the interview, how to manage time etc. Tips should range from general interview tips to ML system design interview tips to specific tips for this problem as well.
 Now provide structured and detailed tips for the candidate to impress the interviewer based on the above information. Tips should be general tips as well as specific tips for this problem and how we can improve the interview performance on this problem.
 """
 
@@ -2499,8 +2496,9 @@ Now provide structured and detailed tips for the candidate to impress the interv
         
         # Format ML system design prompt with user query
         ml_design_prompts = [
-            self.ml_system_design_prompt.replace("{query}", text).replace("{more_instructions}", 
-            self.ml_system_design_prompt_2 if i % 3 == 0 else self.ml_system_design_prompt_3 if i % 3 == 1 else "") 
+            self.ml_system_design_prompt.replace("{query}", text) if i % 3 == 0 else 
+            self.ml_system_design_prompt_2.replace("{query}", text) if i % 3 == 1 else 
+            self.ml_system_design_prompt_3.replace("{query}", text) if i % 3 == 2 else ""
             for i in range(len(models_to_use))
         ]
 
@@ -2537,9 +2535,11 @@ Now provide structured and detailed tips for the candidate to impress the interv
         if self.n_steps <= 1:
             return
         other_prompts = [
+            self.clarifications_assumptions_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
             self.other_areas_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
             self.other_areas_prompt_2.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
-            self.other_areas_prompt_3.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
+            # self.other_areas_prompt_3.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
+            self.top_down_design_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response),
         ]
 
         
@@ -2554,7 +2554,11 @@ Now provide structured and detailed tips for the candidate to impress the interv
             max_tokens, 
             system,
             collapsible_headers=False,
-            header_template="First Phase of Insights from {model}"
+            header_template=["Clarifications and Assumptions from {model}", 
+                             "Other Areas from {model}", 
+                             "Other Areas from {model}", 
+                            #  "Other Areas from {model}", 
+                             "Top-down Design from {model}"]
         ):
             yield chunk
             other_insights += chunk
@@ -2566,13 +2570,12 @@ Now provide structured and detailed tips for the candidate to impress the interv
         phase_2_prompts = [
             self.other_areas_diagrams_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
             self.what_if_questions_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
-            self.other_areas_phase_2_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
-            self.other_areas_phase_2_prompt_2.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
+            # self.other_areas_phase_2_prompt_1.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
+            # self.other_areas_phase_2_prompt_2.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
             self.tips_prompt.replace("{query}", text).replace("{model_solutions}", model_solutions_text).replace("{combined_solution}", combined_response).replace("{other_insights}", other_insights).replace("{more_information}", other_insights),
         ]
 
-        if self.n_steps <= 3:
-            phase_2_prompts = phase_2_prompts[:2]
+        
 
         phase_2_insights = ""
         for chunk in stream_multiple_models(
@@ -2584,7 +2587,11 @@ Now provide structured and detailed tips for the candidate to impress the interv
             max_tokens, 
             system,
             collapsible_headers=False,
-            header_template="More Insights from {model}"
+            header_template=["Diagrams from {model}", 
+                             "What-if Questions from {model}", 
+                            #  "Other Areas from {model}", 
+                            #  "Other Areas from {model}", 
+                             "Tips from {model}"]
         ):
             yield chunk
             phase_2_insights += chunk

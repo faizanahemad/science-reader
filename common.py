@@ -18,6 +18,7 @@ import types
 import pickle
 import dill
 import threading
+from typing import Union, List
 
 from multiprocessing import Process, Queue
 from functools import partial
@@ -205,7 +206,7 @@ document.addEventListener('click', function(event) {
 
 
 def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.7, max_tokens=None, system=None, 
-                           collapsible_headers=True, header_template="Response from {model}"):
+                           collapsible_headers=True, header_template: Union[str, List[str]]="Response from {model}"):
     """
     Streams responses from multiple LLM models sequentially in a coordinated fashion, ensuring one complete
     model response is shown at a time while running all models in parallel for efficiency.
@@ -287,8 +288,8 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
         System prompt to use with the models
     collapsible_headers : bool, optional
         Whether to wrap responses in collapsible sections (default: True)
-    header_template : str, optional
-        Template string for headers, must contain {model} placeholder
+    header_template : Union[str, List[str]], optional
+        Template string for headers, must contain {model} placeholder. If a list, must be of the same length as prompts.
     
     Yields:
     -------
@@ -318,7 +319,13 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     if len(prompts) > len(model_names):
         model_names = model_names * (len(prompts) // len(model_names)) + model_names[:len(prompts) % len(model_names)]
     elif len(prompts) < len(model_names):
-        model_names = model_names[:len(prompts)]    
+        model_names = model_names[:len(prompts)]  
+
+    if isinstance(header_template, str):
+        header_template = [header_template] * len(prompts)
+    elif isinstance(header_template, list):
+        if len(header_template) != len(prompts):
+            raise ValueError("Number of headers must match number of prompts")
     
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
@@ -327,9 +334,9 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     model_instances = []
     model_id_to_name = {}  # Mapping from unique ID to display name
     
-    for i, (model, prompt) in enumerate(zip(model_names, prompts)):
+    for i, (model, prompt, header) in enumerate(zip(model_names, prompts, header_template)):
         model_id = f"{model}_{i}"  # Create unique identifier
-        model_instances.append((model_id, model, prompt))
+        model_instances.append((model_id, model, prompt, header))
         model_id_to_name[model_id] = model  # Store mapping for display purposes
     
     # Create a queue for communication between threads
@@ -340,14 +347,14 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     model_responses = {}
     
     # Function to run a single LLM and collect its response
-    def run_llm(model_id, model_name, prompt):
+    def run_llm(model_id, model_name, prompt, header):
         try:
             llm = CallLLm(keys, model_name)  # Use original model name for API call
             response = llm(prompt, images, temperature, stream=True, max_tokens=max_tokens, system=system)
             
             # Collect the response chunks without additional wrapping
             model_response = ""
-            for chunk in collapsible_wrapper(response, header=header_template.format(model=model_name), show_initially=collapsible_headers):
+            for chunk in collapsible_wrapper(response, header=header.format(model=model_name), show_initially=collapsible_headers):
                 model_response += chunk
                 response_queue.put(("model", model_id, chunk))
             response_queue.put(("model", model_id, "\n\n"))
@@ -364,15 +371,15 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     
     # Start a thread for each model instance
     futures = []
-    for model_id, model_name, prompt in model_instances:
-        future = get_async_future(lambda id=model_id, name=model_name, p=prompt: run_llm(id, name, p))
+    for model_id, model_name, prompt, header in model_instances:
+        future = get_async_future(lambda id=model_id, name=model_name, p=prompt, h=header: run_llm(id, name, p, h))
         futures.append(future)
     
     # Track which models have completed using model_id
     completed_models = set()
     
     # Create buffers to store chunks from each model using model_id
-    model_buffers = {model_id: [] for model_id, _, _ in model_instances}
+    model_buffers = {model_id: [] for model_id, _, _, _ in model_instances}
     streaming_order = []  # List to track the order in which models started streaming
     currently_streaming = None  # Which model is currently being streamed
     started_models = set()
