@@ -1341,7 +1341,7 @@ Query:
 {{query}}
 </user_query>
 
-Provide a comprehensive solution to this ML system design problem, following the framework above. Include specific approaches, architectural diagrams, and tips that would impress an interviewer at top ML companies.
+Provide a comprehensive solution to this ML system design problem. Include specific approaches, architectural diagrams, and tips that would impress an interviewer at top ML companies for staff or principal level positions.
 """
 
         self.ml_system_design_prompt_2 = f"""You are an expert ML system design interview coach. You will be provided with a ML system design problem.
