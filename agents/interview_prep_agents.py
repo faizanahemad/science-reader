@@ -957,6 +957,7 @@ You are an expert coding instructor and interview preparation mentor with extens
 You are given a query about a coding problem, please help us learn and understand the problem and then solve it step by step.
 If multiple solutions are provided, please help us understand the pros and cons of each solution and then solve the problem step by step.
 {mathematical_notation}
+{diagram_instructions}
 
 ### 1. Breaking Down Solutions by patterns and concepts
 - If no reference solutions are provided, develop the solution yourself and **guide us through it** and also mention that you are developing the solution yourself without any reference.
@@ -967,6 +968,7 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 - Write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
+- Discuss the fundamental principles and concepts used in the solution.
 
 
 ### 2. Diagrams (if needed and possible)
@@ -1015,11 +1017,12 @@ Don't repeat the same information or details that are already provided in the cu
   - Ask questions that would need this solution.
   - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
 
-2. Other related questions or problems we have not discussed yet in our answer:
+2. Other related questions or problems we have not discussed yet in our answer (3 questions and their solutions at max):
   - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
-  - Give a verbal solution and then pseudocode solution to the related questions or problems.
-  - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
+  - Give a verbal solution and then full python code solution to the related questions or problems.
+  - Relate the new questions or problems to the older problem and solution we already discussed and how they are similar or different. 
+  - Give questions at easy or medium level (don't give hard level questions).
 
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
@@ -1055,6 +1058,8 @@ Code is not needed. Do not write code.
 
 {mathematical_notation}
 
+{diagram_instructions}
+
 Code is not needed. Do not write code. Focus only on the below guidelines.
 
 You will expand upon the current answer and provide more new information and details based on the below framework and guidelines. 
@@ -1064,10 +1069,10 @@ Don't repeat the same information or details that are already provided in the cu
 
 ## Guidelines:
 
-1. More related questions or problems we have not discussed yet in our answer:
+1. More related questions or problems we have not discussed yet in our answer (3 questions and their solutions at max):
   - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
-  - Give a verbal solution and then pseudocode solution to the related questions or problems.
+  - Give a verbal solution and then full python code solution to the related questions or problems.
   - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
   - Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
   - Focus on medium or hard level problems which require more thinking, innovation and reasoning and application of concepts/algorithms.
@@ -1299,6 +1304,7 @@ class MLSystemDesignAgent(Agent):
         self.system_prompt = """
 You are an expert in machine learning, system design, and problem-solving. Your goal is to provide comprehensive, detailed, and insightful answers to open-ended ML system design questions. 
 **Role**: You are an expert instructor and interview preparation mentor with extensive experience in software engineering, ML system design, ML problem solving, system design, and technical interviews at top tech companies. You possess deep knowledge of platforms like LeetCode, HackerRank, CodeSignal, and others, along with proven expertise in teaching system design concepts effectively.
+For each task we have given an outline on how to do the task, but feel free to deviate from the outline and provide a more holistic answer without repeating the same things that are already covered.
 
 Do's and Dont's:
 - Do's:
@@ -1606,7 +1612,7 @@ There are 3 levels of complexity to discuss the solution:
 
         self.other_areas_prompt_1 = """
 You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
-Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
+Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details. Justify your choices and decisions.
 
 **1. Cover Breadth and Depth:**  
 - **Breadth:** Provide a broad perspective by discussing all relevant aspects of the problem.  
@@ -1614,14 +1620,11 @@ Now focus on the following areas and provide a more details and a continuation o
 - Discuss the overall ML system lifecycle. Cover each aspect of the system lifecycle in detail.
 - Model selection criteria
 - Framework selection justification
-- Infrastructure requirements
-- Performance benchmarking
+- ML model Performance benchmarking
 - Technical debt considerations (How will we integrate newer models and features without breaking the existing system?)
 - Feature engineering strategies
-- Model selection criteria
 - Evaluation metrics selection
-- Validation strategies
-- Integration points (imagine if a heuristic system is already in place, how will we integrate the new ML system with the existing system?)
+- ML model and system validation strategies
 
   
 **2. Explore Multiple Approaches and Trade-Offs:**  
@@ -1647,47 +1650,32 @@ Now focus on the following areas and provide a more details and a continuation o
 - Talk about scalability, reliability, and performance.  
 - Address data requirements, data processing, and model training considerations.  
 - Mention tools, frameworks, or technologies that could be used.  
-- DevOps integration points
-- Monitoring setup
-- Deployment strategies
+- ML metrics Monitoring setup
 - Performance optimization
 - Edge cases like data drift, new users, cold start, wrong labelling, etc.
 
 
-**6. Consider Other Software Engineering, Design and Architecture Aspects:**  
-- Consider maintainability, long term impact, and scalability.  
-- Consider how flexible the system is, how easy it is to modify, and how easy it is to understand.  
-- Consider other leadership and management aspects.  
-
-**7. ML Lifecycle:**
+**6. ML Lifecycle:**
 - Discuss the overall ML system lifecycle.
 - Address scalability and performance.
 - Address interfaces, APIs, trade-offs, constraints, scaling, cost reduction, maintainability, robustness, new feature addition, model retraining, new data gathering, reporting, business metrics and KPIs, lowering operational costs and other aspects.
 - Data collection strategies
 - Feature engineering pipeline
 - Model evaluation metrics
-- Deployment strategies
-- Monitoring setup
-- Feedback loops
 - Data collection and validation
-- Feature engineering pipeline
 - Model development workflow
 - Training infrastructure
 - Evaluation framework
-- Deployment strategy
-- Monitoring system
-- Feedback loops
 - Retraining triggers
-- Version control
-- Documentation requirements
 - Quality assurance
 
-**8. Address Potential Challenges and Mitigation Strategies:**  
-- Identify possible issues or obstacles that might arise.  
+**7. Address Potential Challenges and Mitigation Strategies:**  
+- Identify possible issues or obstacles that might arise from an ML system design perspective.  
+- Think of challenges in different areas of the ML system design, data, model, training, deployment, monitoring, iterative improvement, safety, and any other unforeseen areas, etc.
 - Propose solutions or alternatives to overcome these challenges.  
-- Improvement Plan and planned iterations. Discuss how to improve the system over time.
+- Improvement Plan and planned iterations. Discuss how to improve the ML system over time.
   
-**9. Provide Examples and Analogies (if helpful):**  
+**8. Provide Examples and Analogies (if helpful):**  
 - Use examples to illustrate complex concepts.  
 - Draw parallels with similar well-known systems or problems.  
   
@@ -1711,7 +1699,7 @@ Now provide a continuation of the solution focusing on the above areas.
 """
         self.other_areas_prompt_2 = """
 You are an expert ML system design interview coach. You will be provided with multiple solutions to an ML system design problem from different AI models.
-Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details.
+Now focus on the following areas and provide a more details and a continuation of the solution. Don't repeat the same things that are already covered in the solution. Only add new insights and details. Justify your choices and decisions.
 
 **1. Model Development and Training Pipeline:**
 - Discuss model versioning and experiment tracking
@@ -1722,15 +1710,13 @@ Now focus on the following areas and provide a more details and a continuation o
 - Address training/serving skew
 
 **2. MLOps and Production Considerations:**
-- Model deployment strategies (canary, blue-green, shadow)
+- Model deployment strategies (canary, blue-green, shadow, why to use which one)
 - Monitoring and observability setup
-- Feature store architecture and management
-- Model registry and artifact management
-- CI/CD pipeline for ML models
 - A/B testing infrastructure
+- Online model testing and performance/accuracy monitoring and drift detection
 
 **3. Ethics and Responsible AI:**
-- Discuss bias detection and mitigation
+- Discuss bias detection and mitigation (how to detect and mitigate bias)
 - Address fairness considerations
 - Consider privacy implications
 - Explain model interpretability approaches
@@ -1738,68 +1724,44 @@ Now focus on the following areas and provide a more details and a continuation o
 - Compliance requirements (GDPR, CCPA, etc.)
 
 **4. Cost and Resource Optimization:**
-- Training and inference cost analysis and optimization
+- Training and inference cost optimization
 - Cost-performance tradeoffs
 - Inference time vs accuracy tradeoffs
+- Reducing cost and time through clever algorithms, ML modelling at different levels, and other techniques.
 
 **5. Data Quality and Management:**
 - Quality monitoring systems
-- Data drift detection
-- Schema evolution handling
+- Data drift detection and handling
 - Data augmentation strategies
-- Data Drift Detection and Handling
 - Labelling and Active Learning strategies
+- Anomaly detection and handling
 
-**6. Error Handling and Recovery:**
-- Failure modes analysis
-- Fallback strategies
-- Recovery procedures
-- Graceful degradation approaches
-- SLA considerations
 
-**7. Performance Optimization and Scalability:**
+**6. Performance Optimization and Scalability:**
 - Model optimization techniques
 - Inference optimization
 - Batch processing strategies
 - Caching strategies
 
-**8. Model Governance and Compliance:**
-- Model documentation requirements
-- Model cards implementation
+**7. Model Governance and Compliance (How to enforce these in the system):**
 - Model Explainability and Interpretability for internal understanding and for the actual users
 - Regulatory compliance frameworks
-- Audit trails and logging
-- Version control for models and data
-- Model lineage tracking
-- Compliance testing procedures
-- Documentation standards
 
-**9. Model and System Reliability Engineering:**
+**8. Model and System Reliability Engineering:**
 - Reliability metrics and SLOs
 - Fault tolerance mechanisms
 - Disaster recovery procedures
 - High availability design
+- Cold start, new user, new region, new language and other types of edge cases.
 
-**10. Data Engineering Pipeline:**
-- Data validation
-- Data quality checks
-- Anomaly detection and handling
-- Schema evolution
-
-**11. Model Serving Architecture:**
-- Serving infrastructure
+**9. Model Serving Architecture:**
 - Model serving patterns
 - Batch vs. Real-time inference
 - Model compression techniques
-- Hardware acceleration
-- Inference optimization
-- Serving scalability
-- Load balancing strategies
 
-**12. Monitoring and Observability:**
+**10. Monitoring and Observability:**
 - Metrics collection
 - Online and Offline metrics collection
-- Model and System health checks
 
 The original query was:
 <user_query>
@@ -2482,14 +2444,14 @@ Now provide structured and detailed tips for the candidate to impress the interv
         # Use provided models or fallback to default list
         if isinstance(self.writer_model, list):
             models_to_use = self.writer_model
-        elif self.n_steps >= 4:
+        else: # if self.n_steps >= 4:
             # Add writer_model to the list if it's not already there
             models_to_use = multiple_llm_models
             if isinstance(self.writer_model, str) and self.writer_model not in models_to_use:
                 models_to_use.append(self.writer_model)
 
-        else:
-            models_to_use = [self.writer_model] * 3
+        # else:
+        #     models_to_use = [self.writer_model] * 3
 
         # random shuffle the models
         random.shuffle(models_to_use)
@@ -2597,10 +2559,13 @@ Now provide structured and detailed tips for the candidate to impress the interv
             phase_2_insights += chunk
         yield "\n\n"
 
-        if self.n_steps >= 4 and web_search_response_future is not None:
-            web_search_response = web_search_response_future.result()
-            yield from collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
-            
+        if self.n_steps <= 3:
+            return
+
+        web_search_response = web_search_response_future.result()
+        yield from collapsible_wrapper(web_search_response, header="Web Search Results", show_initially=False, add_close_button=True)
+        yield "\n\n"
+        return
 
 
 class MLSystemDesignInterviewerAgent(Agent):
