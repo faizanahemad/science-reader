@@ -284,6 +284,8 @@ function chat_interface_readiness() {
         $('#user-preferences-modal').modal('hide');
     });
     initializeGamificationSystem();
+
+    renderMermaidIfDetailsTagOpened();
     
 }
 

@@ -1146,6 +1146,66 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 }
 
 
+function renderMermaidIfDetailsTagOpened() {
+    // when a <details> tag is opened, we need to run `mermaid.run({querySelector: "pre.mermaid"})`
+    // Handle details element toggle events with multiple detection methods for robustness
+    $(document).on('toggle', 'details', function() {
+        const isOpen = this.hasAttribute('open');
+        console.log('details toggled via toggle event, open:', isOpen);
+        
+        if (isOpen) {
+            // Small delay to ensure DOM is updated before running mermaid
+            setTimeout(function() {
+                mermaid.run({querySelector: "pre.mermaid"});
+            }, 50);
+        }
+    });
+
+    // Fallback: Listen for click events on details/summary elements
+    $(document).on('click', 'details summary', function() {
+        const details = $(this).parent('details')[0];
+        const willBeOpen = !details.hasAttribute('open');
+        console.log('details clicked, will be open:', willBeOpen);
+        
+        if (willBeOpen) {
+            // Delay to allow the details to open first
+            setTimeout(function() {
+                mermaid.run({querySelector: "pre.mermaid"});
+            }, 100);
+        }
+    });
+
+    // Additional fallback: Use MutationObserver to detect attribute changes
+    if (typeof MutationObserver !== 'undefined') {
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'open') {
+                    const target = mutation.target;
+                    if (target.tagName.toLowerCase() === 'details' && target.hasAttribute('open')) {
+                        console.log('details opened via MutationObserver');
+                        setTimeout(function() {
+                            mermaid.run({querySelector: "pre.mermaid"});
+                        }, 50);
+                    }
+                }
+            });
+        });
+
+        // Observe all details elements for attribute changes
+        $(document).on('DOMNodeInserted', function(e) {
+            if (e.target.tagName && e.target.tagName.toLowerCase() === 'details') {
+                observer.observe(e.target, { attributes: true, attributeFilter: ['open'] });
+            }
+        });
+
+        // Also observe existing details elements
+        $('details').each(function() {
+            observer.observe(this, { attributes: true, attributeFilter: ['open'] });
+        });
+    }
+}
+
+
 
 function copyToClipboard(textElem, textToCopy, mode = "text") {  
     // Handle CodeMirror editor specifically  
