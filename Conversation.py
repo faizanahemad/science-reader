@@ -2899,7 +2899,7 @@ At the end write what we must make slides about as well.
                     answer += stderr
 
 
-        answer_temp = copy.deepcopy(answer)
+        answer_temp = answer
         while True:
             mermaid_to_execute = extract_last_mermaid(answer_temp)
             if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:

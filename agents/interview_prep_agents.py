@@ -1079,6 +1079,11 @@ Don't repeat the same information or details that are already provided in the cu
   - Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
   - Focus on medium or hard level problems which require more thinking, innovation and reasoning and application of concepts/algorithms.
 
+2. Discuss about the "Before Writing Code part"
+- What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
+- What ambiguities are there in the problem statement? What kind of ambiguities can be added by interviewers to test a candidates attentiveness and ability to make things concrete and clear?
+- What answers would you assume to the above questions?
+
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
 
@@ -1181,7 +1186,7 @@ Guidelines:
 ### 3. **Mind Bending Questions**:
   - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
   - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
-  - Provide verbal hints and clues to solve or approach the mind bending questions.
+  - Provide verbal hints and clues to solve or approach the mind bending questions, then write partial python code and then also mention their time and space complexities.
 
 
 Query:
@@ -1253,8 +1258,7 @@ Next Step or answer extension or continuation following the above guidelines:
         yield "\n\n---\n\n"
         current_answer += "\n\n---\n\n"
 
-        if self.n_steps == 2:
-            return
+        
         
         multiple_llm_models = EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1]
         if isinstance(self.writer_model, list):
@@ -1275,6 +1279,10 @@ Next Step or answer extension or continuation following the above guidelines:
             yield "\n\n---\n\n"
             current_answer += "\n\n---\n\n"
 
+        
+        if self.n_steps == 2:
+            return
+        
         if self.n_steps == 3:
             return
         
@@ -1293,6 +1301,7 @@ Next Step or answer extension or continuation following the above guidelines:
 
         if self.n_steps == 4:
             return
+        return
         
         
 
