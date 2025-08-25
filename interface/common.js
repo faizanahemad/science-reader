@@ -1057,16 +1057,23 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0
 
     if (mermaid_rendering_needed) {
+        // last_mermaid = extractLastMermaid(html)
+        // if (last_mermaid) {
+        //     mermaid_elem = $("<pre class='mermaid'></pre>")
+        //     mermaid_elem.text(last_mermaid)
+        //     // append as sibling to the possible_mermaid_elem
+        //     possible_mermaid_elem.after(mermaid_elem)
+        // }
         possible_mermaid_elem = elem_to_render_in.find(".mermaid")
         // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
         render_or_not = possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')
-        if (render_or_not) {
-            mermaid_text = possible_mermaid_elem[0].textContent
-            mermaid_elem = $("<pre class='mermaid'></div>")
-            mermaid_elem.text(mermaid_text)
-            // append as sibling to the possible_mermaid_elem
-            possible_mermaid_elem.after(mermaid_elem)
-        }
+        // if (render_or_not) {
+        //     mermaid_text = possible_mermaid_elem[0].textContent
+        //     mermaid_elem = $("<pre class='mermaid'></pre>")
+        //     mermaid_elem.text(mermaid_text)
+        //     // append as sibling to the possible_mermaid_elem
+        //     possible_mermaid_elem.after(mermaid_elem)
+        // }
         const mermaidBlocks = elem_to_render_in.parent().find('pre.mermaid');  
         function cleanMermaidCode(mermaidCode) {  
             return mermaidCode  
@@ -1145,6 +1152,77 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     return mathjax_elem;
 }
 
+
+function extractLastMermaid(html) {
+    /**
+     * Extract the last mermaid diagram from the HTML string.
+     * 
+     * @param {string} html - HTML string that may contain ```mermaid code blocks or <pre class="mermaid"> tags
+     * @returns {string} - Extracted Mermaid diagram content (without wrapper tags)
+     * 
+     * Purpose:
+     * Extracts the most recent/last Mermaid diagram from a string that may contain
+     * multiple diagrams in either markdown code blocks or HTML pre tags. This is
+     * useful for getting the latest diagram when content is being streamed or updated.
+     */
+    
+    // First try to extract from markdown code blocks
+    const markdownRegex = /```mermaid(.*?)```/gis;
+    const markdownMatches = [];
+    let match;
+    
+    // Find positions of markdown matches
+    while ((match = markdownRegex.exec(html)) !== null) {
+        markdownMatches.push({
+            position: match.index,
+            content: match[1].trim()
+        });
+    }
+    
+    // Then try to extract from HTML pre tags
+    const preTagRegex = /<pre\s+class=["']\s*mermaid\s*["']\s*>(.*?)<\/pre>/gis;
+    const preTagMatches = [];
+    
+    // Reset regex lastIndex for second search
+    preTagRegex.lastIndex = 0;
+    
+    // Find positions of pre tag matches
+    while ((match = preTagRegex.exec(html)) !== null) {
+        preTagMatches.push({
+            position: match.index,
+            content: match[1].trim()
+        });
+    }
+    
+    // Combine all matches and sort by position
+    const allMatches = [...markdownMatches, ...preTagMatches];
+    
+    if (allMatches.length === 0) {
+        return "";
+    }
+    
+    // Sort by position and get the last match
+    allMatches.sort((a, b) => a.position - b.position);
+    const lastMatchContent = allMatches[allMatches.length - 1].content;
+    
+    // Validate that it contains Mermaid content (expanded detection)
+    if (lastMatchContent && 
+        (lastMatchContent.toLowerCase().includes("graph") ||
+         lastMatchContent.toLowerCase().includes("flowchart") ||
+         lastMatchContent.toLowerCase().includes("sequencediagram") ||
+         lastMatchContent.toLowerCase().includes("gitgraph") ||
+         lastMatchContent.toLowerCase().includes("classdiagram") ||
+         lastMatchContent.toLowerCase().includes("statediagram") ||
+         lastMatchContent.toLowerCase().includes("pie") ||
+         lastMatchContent.toLowerCase().includes("journey") ||
+         lastMatchContent.toLowerCase().includes("erdiagram"))) {
+        
+        // Clean up content by removing any remaining markdown markers
+        return lastMatchContent.replace(/```mermaid/gi, "").replace(/```/g, "").trim();
+    }
+    
+    return "";
+}
 
 function renderMermaidIfDetailsTagOpened() {
     // when a <details> tag is opened, we need to run `mermaid.run({querySelector: "pre.mermaid"})`

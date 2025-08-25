@@ -933,7 +933,7 @@ def extract_last_mermaid(code_string):
              "journey" in last_match_content.lower() or
              "erDiagram" in last_match_content.lower())):
             
-            return mermaid_diagram_wrapping_str.format(cleaned_content=last_match_content)
+            return mermaid_diagram_wrapping_str.format(cleaned_content=last_match_content.replace("```mermaid", "").replace("```", "").strip())
     
     return ""
 

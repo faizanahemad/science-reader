@@ -2026,6 +2026,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            mermaid.run({querySelector: "pre.mermaid"});
             
             // Final setup of event handlers with the complete message ID (if available)
             if (response_message_id) {

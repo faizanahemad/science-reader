@@ -632,7 +632,7 @@ diagram_instructions_old = """
 diagram_instructions = """
 **Diagramming and Plotting Instructions**
 - First Decide if you need to make a diagram or not. If you need to make a diagram, then decide if you need to make a mermaid diagram or ASCII art diagram / text-based diagram.
-- Mermaid diagrams can be made using mermaid js library syntax. Write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
+- Mermaid diagrams can be made using mermaid js library syntax. Write the mermaid diagram code inside "```mermaid" and "```" triple ticks.
 - When you make a mermaid diagram, make sure to write the mermaid code inside "```mermaid" and "```" triple ticks. And with full mermaid code. And then write a description of the diagram in the answer after it as well. Make simple diagrams.
 - Mermaid Formatting:
   - Text containing special characters ([], (), <>, etc.) must be wrapped in double quotes
@@ -645,7 +645,7 @@ diagram_instructions = """
   - For mermaid diagrams use `<br>` for line breaks. Inside diagram use plain text only.
   - Write in plain text inside the diagram.
 - ASCII art diagram or text-based diagram can be made using text-based diagram syntax written in a plaintext code block. These diagrams are faster to make and more preferred unless the user asks for a mermaid diagram or a draw.io diagram or a matplotlib or seaborn plot.
-- You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
+- You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. 
 - Diagrams, charts, flow diagrams, sequence diagrams, Gantt diagrams, class diagrams, and other graphic representations are very effective in helping the user understand the problem and solution, as well as in helping the user learn the solution.
 """
 
@@ -3261,9 +3261,9 @@ Now write your response in the above xml style format. Only output the xml tags 
 - Only execute code when user told to execute code. 
 
 **Diagramming and Plotting Instructions**
-- Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside <pre class="mermaid"> and </pre> tags.
+- Certain diagrams can be made using mermaid js library as well. First write the mermaid diagram code inside "```mermaid" and "```" triple ticks.
 - When you make plots and graphs, save them to the output directory with filename prefix as {plot_prefix} and extension as jpg.
-- You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. Write the diagram code inside <pre class="mermaid"> and </pre> tags so that our mermaid parser can pick it and draw it.
+- You can also make diagrams using mermaid js library. You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart.
 - You are allowed to make diagrams using draw.io or diagrams.net xml format. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```).
 - Use draw.io or diagrams.net to make diagrams like System design diagrams, complex scientific processes, flowcharts, network diagrams, architecture diagrams etc. Always Write the draw.io xml code inside triple ticks like (```xml <Drawio xml code> ```). so that our drawio parser can pick it and draw it.
 - Make high quality plots with clear and extensive labels and explanations. Always save your plots to the directory {output_directory} with filename prefix as {plot_prefix}.
