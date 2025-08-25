@@ -2845,9 +2845,8 @@ At the end write what we must make slides about as well.
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
             mermaid_to_execute = extract_last_mermaid(answer)
-            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and "\n" in txt:
+            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and ("\n" in txt and txt.endswith("\n")):
                 already_executed_mermaid.append(mermaid_to_execute)
-                mermaid_text = f"\n<pre class='mermaid'>{mermaid_to_execute}</pre>\n"
                 yield {"text": "\n\n", "status": "answering in progress"}
                 yield {"text": mermaid_to_execute, "status": "answering in progress"}
                 yield {"text": "\n\n", "status": "answering in progress"}
@@ -2900,6 +2899,19 @@ At the end write what we must make slides about as well.
                     answer += stderr
 
 
+        answer_temp = copy.deepcopy(answer)
+        while True:
+            mermaid_to_execute = extract_last_mermaid(answer_temp)
+            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:
+                already_executed_mermaid.append(mermaid_to_execute)
+                yield {"text": "\n\n", "status": "answering in progress"}
+                yield {"text": mermaid_to_execute, "status": "answering in progress"}
+                yield {"text": "\n\n", "status": "answering in progress"}
+                answer += ("\n\n" + mermaid_to_execute + "\n\n")
+                answer_temp = answer_temp.replace(mermaid_to_execute, "")
+            else:
+                break
+        
         self.clear_cancellation()
 
         if is_slide_agent:

@@ -969,13 +969,14 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - Write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
 - When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
 - Discuss the fundamental principles and concepts used in the solution.
+- Give all possible solutions to the problem.
 
 
 ### 2. Diagrams (if needed and possible)
     - Create diagrams to help us understand the solution and the problem.
-    - Use ASCII art to help us understand each solution by running them step by step.
-    - Use ASCII art diagrams mainly to help illustrate the solution (or multiple solutions) and the problem. 
-    - Step by step running example of the solutions can be written in a plaintext code block.
+    - Use markdown tables to help us understand each solution by running them step by step.
+    - Use ASCII art diagrams (or prefer mermaid diagrams if flowcharts are needed) mainly to help illustrate the solution (or multiple solutions) and the problem. 
+    - Step by step running example of the solutions can be written in a plaintext code block or markdown table as needed.
 
 - We program in python, so write the code in python only.
 
@@ -1003,7 +1004,7 @@ Code is not needed. Do not write code.
 
 {mathematical_notation}
 
-Code is not needed. Do not write code. Focus only on the below guidelines.
+Focus only on the below guidelines.
 
 You will expand upon the current answer and provide more information and details based on the below framework and guidelines. 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
@@ -1017,12 +1018,13 @@ Don't repeat the same information or details that are already provided in the cu
   - Ask questions that would need this solution.
   - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
 
-2. Other related questions or problems we have not discussed yet in our answer (3 questions and their solutions at max):
+2. Other related questions or problems we have not discussed yet in our answer (5 questions and their solutions - (3 easy/medium and 2 hard)):
   - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
   - Give a verbal solution and then full python code solution to the related questions or problems.
   - Relate the new questions or problems to the older problem and solution we already discussed and how they are similar or different. 
-  - Give questions at easy or medium level (don't give hard level questions).
+  - Give important part of python code solution to each new question or problem.
+  
 
 
 Follow the above framework and guidelines to help us learn and understand the problem and then solve it in an interview setting.
@@ -1060,7 +1062,7 @@ Code is not needed. Do not write code.
 
 {diagram_instructions}
 
-Code is not needed. Do not write code. Focus only on the below guidelines.
+Focus only on the below guidelines. Do not repeat problems and solutions that are already discussed in the current answer.
 
 You will expand upon the current answer and provide more new information and details based on the below framework and guidelines. 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
@@ -1130,9 +1132,6 @@ Guidelines:
   - Designing scalable systems which might tackle this problem at a much larger scale.
   - Designing systems which use this algorithm or concept but in a much larger scale or a constrained environment.
   - How to make this solution distributed or useful in a distributed environment.
-  - How to use this problem (and its various solutions or variations) in real-time systems, or systems with high availability, or other constraints. 
-  - Focus on algorithms and solution paradigms rather than software or packages or libraries.
-  - What changes might be needed to be made to the solution to make it scalable or realtime or distributed or high availability or fault tolerant or secure or in a constrained environment.
 
 
 Query:
@@ -1166,16 +1165,18 @@ Suggest new things, don't repeat what is already in the current answer.
 
 Only cover the below guidelines suggested items. Limit your response to the below guidelines and items.
 
+Add only new information that is not already in the current answer.
+
 Guidelines:
 ### 1. What-if questions and scenarios
 - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
 - Ask and hint on how to solve the problem if some constraints, data, or other conditions are changed as per the above what-if questions and scenarios.
-- Verbalize the solutions first and then also mention their time and space complexities. 
+- Verbalize the solutions first, write partial python code and then also mention their time and space complexities. 
 
 ### 2. **More What-if questions and scenarios**:
   - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
   - Ask and hint on how to solve the problem if some constraints, data, or other conditions  are changed as per the above what-if questions and scenarios.
-  - Verbalize the solutions first and then also mention their time and space complexities. 
+  - Verbalize the solutions first, write partial python code and then also mention their time and space complexities. 
 
 ### 3. **Mind Bending Questions**:
   - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
@@ -1231,7 +1232,7 @@ Next Step or answer extension or continuation following the above guidelines:
         prompt2 = self.prompt_2.replace("{query}", text).replace("{current_answer}", current_answer)
         response2 = llm2(prompt2, images, temperature, stream=stream, max_tokens=max_tokens, system=system)
         
-        for chunk in collapsible_wrapper(response2, header=f"Similar problems and Real world examples from {llm2.model_name}", show_initially=False):
+        for chunk in collapsible_wrapper(response2, header=f"Similar problems and Real world examples from {llm2.model_name}", show_initially=True):
             yield chunk
             current_answer += chunk
 
@@ -1255,14 +1256,14 @@ Next Step or answer extension or continuation following the above guidelines:
         if self.n_steps == 2:
             return
         
-        multiple_llm_models = ["openai/chatgpt-4o-latest", "anthropic/claude-3.7-sonnet", "x-ai/grok-3-beta"]
+        multiple_llm_models = EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1]
         if isinstance(self.writer_model, list):
             multiple_llm_models += self.writer_model
         else:
-            multiple_llm_models += [self.writer_model]
+            multiple_llm_models = ([self.writer_model] + multiple_llm_models) if self.writer_model not in multiple_llm_models else multiple_llm_models
         multiple_llm_models = list(set(multiple_llm_models))
         random.shuffle(multiple_llm_models)
-        multiple_llm = [CallLLm(self.keys, model) for model in multiple_llm_models[:2]]
+        multiple_llm = [CallLLm(self.keys, model) for model in multiple_llm_models[:2 if self.n_steps >= 3 else 1]]
         
         
         for i, llm in enumerate(multiple_llm, start=1):
