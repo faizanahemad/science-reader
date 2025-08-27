@@ -3286,6 +3286,186 @@ def run_code():
     return run_code_once(code_string)
 
 
+# Prompt Management API Routes
+
+@app.route('/get_prompts', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_prompts():
+    """
+    Get a list of all available prompt names.
+    
+    Returns:
+        JSON response with list of prompt names
+    """
+    try:
+        from prompts import manager
+        
+        # Get all prompt names
+        prompt_names = manager.keys()
+        
+        return jsonify({
+            'status': 'success',
+            'prompts': prompt_names,
+            'count': len(prompt_names)
+        })
+    except Exception as e:
+        logger.error(f"Error getting prompts: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+@app.route('/get_prompt_by_name/<prompt_name>', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_prompt_by_name(prompt_name):
+    """
+    Get the content of a specific prompt by name.
+    
+    Args:
+        prompt_name: Name of the prompt to retrieve
+        
+    Returns:
+        JSON response with prompt content and metadata
+    """
+    try:
+        from prompts import manager
+        
+        # Check if prompt exists
+        if prompt_name not in manager:
+            return jsonify({
+                'status': 'error',
+                'error': f"Prompt '{prompt_name}' not found"
+            }), 404
+        
+        # Get the composed prompt content
+        prompt_content = manager[prompt_name]
+        
+        # Also get the raw prompt with metadata if available
+        try:
+            prompt_metadata = manager.get_raw(prompt_name, as_dict=True)
+            
+            return jsonify({
+                'status': 'success',
+                'name': prompt_name,
+                'content': prompt_content,
+                'raw_content': prompt_metadata.get('content', prompt_content),
+                'metadata': {
+                    'description': prompt_metadata.get('description', ''),
+                    'category': prompt_metadata.get('category', ''),
+                    'tags': prompt_metadata.get('tags', []),
+                    'version': prompt_metadata.get('version', ''),
+                    'created_at': prompt_metadata.get('created_at', ''),
+                    'updated_at': prompt_metadata.get('updated_at', '')
+                }
+            })
+        except:
+            # If getting metadata fails, just return the content
+            return jsonify({
+                'status': 'success',
+                'name': prompt_name,
+                'content': prompt_content,
+                'raw_content': prompt_content,
+                'metadata': {}
+            })
+            
+    except Exception as e:
+        logger.error(f"Error getting prompt '{prompt_name}': {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+@app.route('/update_prompt', methods=['PUT'])
+@limiter.limit("50 per minute")
+@login_required
+def update_prompt():
+    """
+    Update the content of an existing prompt.
+    
+    Expected JSON payload:
+    {
+        "name": "prompt_name",
+        "content": "new prompt content",
+        "description": "optional description",
+        "category": "optional category",
+        "tags": ["optional", "tags"]
+    }
+    
+    Returns:
+        JSON response with update status
+    """
+    try:
+        from prompts import manager
+        
+        # Get request data
+        data = request.json
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'error': 'No data provided'
+            }), 400
+        
+        # Validate required fields
+        prompt_name = data.get('name')
+        if not prompt_name:
+            return jsonify({
+                'status': 'error',
+                'error': 'Prompt name is required'
+            }), 400
+        
+        # Check if prompt exists
+        if prompt_name not in manager:
+            return jsonify({
+                'status': 'error',
+                'error': f"Prompt '{prompt_name}' not found"
+            }), 404
+        
+        # Get the new content
+        new_content = data.get('content')
+        if new_content is None:
+            return jsonify({
+                'status': 'error',
+                'error': 'Content field is required for update'
+            }), 400
+        
+        # Update the prompt using the dictionary interface
+        manager[prompt_name] = new_content
+        
+        # If additional metadata is provided, update it using edit method
+        if any(key in data for key in ['description', 'category', 'tags']):
+            try:
+                edit_kwargs = {}
+                if 'description' in data:
+                    edit_kwargs['description'] = data['description']
+                if 'category' in data:
+                    edit_kwargs['category'] = data['category']
+                if 'tags' in data:
+                    edit_kwargs['tags'] = data['tags']
+                
+                manager.edit(prompt_name, **edit_kwargs)
+            except Exception as e:
+                logger.warning(f"Could not update metadata for prompt '{prompt_name}': {str(e)}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f"Prompt '{prompt_name}' updated successfully",
+            'name': prompt_name,
+            'new_content': new_content
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating prompt: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+
 
 
 

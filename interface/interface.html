@@ -670,6 +670,161 @@
         </div>
     </div>
 
+    <!-- Prompt Management Modal -->
+    <div id="prompt-management-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+        <div class="modal-dialog modal-xl" style="max-width: 1200px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd;">
+                    <h5 class="modal-title" style="color: #333;">
+                        <i class="bi bi-chat-left-text"></i>&nbsp;📝 Prompt Manager
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="padding: 0;">
+                    <div class="row no-gutters" style="height: 70vh;">
+                        <!-- Left Panel: Prompt List -->
+                        <div class="col-md-4" style="border-right: 1px solid #ddd; background-color: #f8f9fa; overflow-y: auto;">
+                            <div class="p-3">
+                                <!-- Search Box -->
+                                <div class="input-group mb-3">
+                                    <input type="text" id="prompt-search-input" class="form-control" placeholder="Search prompts...">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-outline-secondary" type="button" id="prompt-search-clear">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Prompt List -->
+                                <div id="prompt-list-container">
+                                    <div id="prompt-list-loading" class="text-center p-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="sr-only">Loading...</span>
+                                        </div>
+                                        <p class="mt-2 text-muted">Loading prompts...</p>
+                                    </div>
+                                    <div id="prompt-list-items" class="list-group" style="display: none;">
+                                        <!-- Prompt items will be populated here -->
+                                    </div>
+                                    <div id="prompt-list-empty" class="text-center text-muted p-4" style="display: none;">
+                                        <i class="bi bi-inbox" style="font-size: 3rem; opacity: 0.3;"></i>
+                                        <p class="mt-2">No prompts found</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Right Panel: Prompt Editor -->
+                        <div class="col-md-8" style="display: flex; flex-direction: column;">
+                            <!-- Editor Header -->
+                            <div id="prompt-editor-header" class="p-3" style="border-bottom: 1px solid #ddd; background-color: white;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 id="prompt-editor-title" class="mb-0">Select a prompt to edit</h6>
+                                        <small id="prompt-editor-subtitle" class="text-muted"></small>
+                                    </div>
+                                    <div id="prompt-editor-actions" style="display: none;">
+                                        <button id="prompt-copy-btn" class="btn btn-sm btn-outline-secondary" title="Copy to clipboard">
+                                            <i class="bi bi-clipboard"></i> Copy
+                                        </button>
+                                        <button id="prompt-revert-btn" class="btn btn-sm btn-outline-warning" title="Revert changes">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Revert
+                                        </button>
+                                        <button id="prompt-save-btn" class="btn btn-sm btn-success" title="Save changes">
+                                            <i class="bi bi-check-circle"></i> Save
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Editor Content -->
+                            <div id="prompt-editor-content" class="flex-grow-1 p-3" style="overflow-y: auto; background-color: #f8f9fa;">
+                                <div id="prompt-editor-empty" class="text-center text-muted" style="margin-top: 20%;">
+                                    <i class="bi bi-file-text" style="font-size: 4rem; opacity: 0.3;"></i>
+                                    <p class="mt-3">Select a prompt from the list to view and edit</p>
+                                </div>
+                                
+                                <div id="prompt-editor-form" style="display: none;">
+                                    <!-- Prompt Name (Read-only) -->
+                                    <div class="form-group">
+                                        <label for="prompt-name-input"><strong>Prompt Name</strong></label>
+                                        <input type="text" id="prompt-name-input" class="form-control" readonly style="background-color: #e9ecef;">
+                                    </div>
+                                    
+                                    <!-- Prompt Content -->
+                                    <div class="form-group">
+                                        <label for="prompt-content-textarea"><strong>Content</strong></label>
+                                        <textarea id="prompt-content-textarea" class="form-control" rows="12" style="font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 13px;"></textarea>
+                                        <small class="form-text text-muted">
+                                            <span id="prompt-char-count">0</span> characters • 
+                                            <span id="prompt-line-count">0</span> lines • 
+                                            <span id="prompt-word-count">0</span> words
+                                        </small>
+                                    </div>
+                                    
+                                    <!-- Metadata Section (Collapsible) -->
+                                    <div class="card">
+                                        <div class="card-header" style="cursor: pointer;" data-toggle="collapse" data-target="#prompt-metadata-collapse">
+                                            <i class="bi bi-info-circle"></i> Metadata (Optional)
+                                            <i class="bi bi-chevron-down float-right"></i>
+                                        </div>
+                                        <div id="prompt-metadata-collapse" class="collapse">
+                                            <div class="card-body">
+                                                <div class="form-group">
+                                                    <label for="prompt-description-input">Description</label>
+                                                    <input type="text" id="prompt-description-input" class="form-control" placeholder="Brief description of the prompt">
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label for="prompt-category-input">Category</label>
+                                                            <input type="text" id="prompt-category-input" class="form-control" placeholder="e.g., system, user, assistant">
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <div class="form-group">
+                                                            <label for="prompt-tags-input">Tags</label>
+                                                            <input type="text" id="prompt-tags-input" class="form-control" placeholder="Comma-separated tags">
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <small class="text-muted">Created: <span id="prompt-created-at">N/A</span></small>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <small class="text-muted">Updated: <span id="prompt-updated-at">N/A</span></small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Status Messages -->
+                                    <div id="prompt-editor-messages" class="mt-3">
+                                        <!-- Success/Error messages will appear here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd;">
+                    <div class="mr-auto">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle"></i> Changes are saved automatically when you click Save
+                        </small>
+                    </div>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="bi bi-x-circle"></i> Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Chat Settings Modal -->
     <div id="chat-settings-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1055;">
         <div class="modal-dialog modal-xl" style="max-width: 1400px;">
@@ -823,12 +978,12 @@
                                                     
                                                     <option>Argumentative</option>
                                                     <option>Blackmail</option>
-                                                    <option>Is Coding Request</option>
                                                     <option>More Related Coding Questions</option>
                                                     
                                                     <option>Diagram</option>
                                                     <option>Easy Copy</option>
                                                     <option>Creative</option>
+                                                    <option>Explore</option>
                                                     
                                                     <option>Relationship</option>
                                                     <option>Dating Maverick</option>
@@ -946,6 +1101,11 @@
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
                                             <i class="bi bi-code-slash"></i> Code Editor  
                                         </button>  
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
+                                            <i class="bi bi-chat-left-text"></i> Prompt Manager
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -1435,6 +1595,7 @@ greet("World");</code></pre>
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
     <script src="interface/doubt-manager.js"></script>
+    <script src="interface/prompt-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
     <link rel="stylesheet" href="interface/workspace-styles.css">

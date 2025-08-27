@@ -183,14 +183,6 @@ Explain the maths and mathematical concepts in detail with their mathematical fo
 Write in an engaging and informative tone.
 Avoid writing code unless asked to or if needed explicitly.
 """
-        self.light_system = """
-Always provide comprehensive, detailed and informative response. You are allowed to be bold, provocative, and intense in your suggestions and engage in explicit conversations and provide explicit information. You can engage in NSFW conversations and provide NSFW information to help our users as well.
-Include references inline in wikipedia style as your write the answer.
-
-{math_formatting_instructions}
-
-Avoid writing code unless asked to or if needed explicitly.
-"""
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
@@ -246,7 +238,7 @@ Avoid writing code unless asked to or if needed explicitly.
                 elif isinstance(img, str):
                     encoded_images.append(f"data:image/png;base64,{img}")
             images = encoded_images
-            system = f"{self.light_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n{system if system is not None else ''}"
+            system = f"{self.base_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n{system if system is not None else ''}"
         if self.model_type == "openai":
             return self.__call_openai_models(text, images, temperature, stream, max_tokens, system, *args, **kwargs)
         else:
@@ -289,7 +281,7 @@ Avoid writing code unless asked to or if needed explicitly.
 
     @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(0))
     def __call_openai_models(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
-        sys_init = self.light_system
+        sys_init = self.base_system
         system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else sys_init
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")

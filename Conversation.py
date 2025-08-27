@@ -15,7 +15,7 @@ from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGen
 from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
-from prompts import prompts, xml_to_dict, diagram_instructions, wife_prompt
+from prompts import *
 
 
 from pathlib import Path
@@ -1364,176 +1364,19 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "ML Design Answer Short" in preamble_options:
             preamble += prompts.ml_system_design_answer_short
             
-        if "Comparison" in preamble_options:
-            preamble += "\nCompare and contrast the two given works or entities or concepts in detail. Write the comparison and contrast in a structured and detailed manner. Think what aspects we can compare them on and use those aspects. Compare their Pros and Cons, their use and other important aspects. Think in multiple ways how both of them can be combined together to create new and novel ideas and concepts.\n"
         if "no ai" in preamble_options:
-            preamble += """
-Write the answer in your own words. Write with humility and balance, avoid hype, be honest, be critical and use simple everyday words. Write like english is your second language.
-VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or words to avoid:  
-- Replace these common AI phrases and their variations:  
-  * "moreover", "furthermore", "additionally"  
-  * "it's important to note", "it's worth mentioning"  
-  * "in conclusion", "to sum up"  
-  * "comprehensive", "pivotal", "crucial"  
-  * "delve into", "explore"  
-  * "various", "numerous"  
-  * Any phrases starting with "it is" or "there are"  
-  * "leverage", "utilize", "optimize"  
-  * "robust", "significant", "key"  
-  
-- Avoid these common AI phrases and their variations:  
-<avoid_phrases>
-## Transition Words & Phrases  
-* Moreover  
-* Furthermore  
-* Additionally  
-* However  
-* Nevertheless  
-* Thus  
-* Therefore  
-* On the other hand  
-* In conclusion  
-* To sum up  
-* Ultimately  
-  
-## Academic/Formal Language  
-* It's important to note  
-* It's worth mentioning  
-* It's crucial to understand  
-* Given that  
-* Due to the fact that  
-* In light of  
-* With regard to  
-* As we have seen  
-* As mentioned earlier  
-* In terms of  
-* When it comes to  
-  
-## Empty Phrases & Fillers  
-* It is worth noting  
-* It should be noted  
-* It is essential  
-* It is imperative  
-* It is crucial  
-* It is important  
-* There are several  
-* There are numerous  
-* There are various  
-  
-## Analysis & Evidence Markers  
-* This highlights  
-* This underscores  
-* This demonstrates  
-* This illustrates  
-* This suggests  
-* This indicates  
-* Notably  
-* Particularly  
-* Specifically  
-  
-## Business/Technical Jargon  
-* Leverage  
-* Utilize  
-* Optimize  
-* Implement  
-* Navigate  
-* Orchestrate  
-* Harness  
-* Facilitate  
-* Enhance  
-* Streamline  
-* Robust  
-* Seamless  
-* Dynamic  
-  
-## Abstract Concepts  
-* Comprehensive  
-* Pivotal  
-* Crucial  
-* Significant  
-* Various  
-* Numerous  
-* Key  
-* Essential  
-* Fundamental  
-  
-## Metaphorical/Flowery Language  
-* Tapestry  
-* Journey  
-* Beacon  
-* Landscape  
-* Symphony  
-* Profound  
-* Vibrant  
-* Enigma  
-* Whimsical  
-* Paradigm  
-  
-## Action Words  
-* Delve into  
-* Explore  
-* Foster  
-* Convey  
-* Align  
-* Unlock  
-* Captivate  
-* Evolve  
-* Reimagine  
-* Elevate  
-* Supercharge  
-  
-## Descriptive Adjectives  
-* Multifaceted  
-* Diverse  
-* Bustling  
-* Indelible  
-* Meticulous  
-* Esteemed  
-* Bespoke  
-* Commendable  
-* Paramount  
-  
-## Domain Markers  
-* In the realm of  
-* In the field of  
-* In the domain of  
-* In the context of  
-  
-## Future-Oriented Phrases  
-* Moving forward  
-* Looking ahead  
-* Going forward  
-* In the future  
-  
-## Relationship/Impact Words  
-* Resonate  
-* Testament  
-* Interplay  
-* Relationship  
-* Underscore  
-* Ethos  
-* Impact  
-* Influence  
-</avoid_phrases>
-"""
-        if "md format" in preamble_options:
-            preamble += "\nUse markdown lists and paragraphs for formatting. Use markdown bold, italics, lists and paragraphs for formatting. Write the full response to the user's query now.\n"
-        if "better formatting" in preamble_options:
-            preamble += "\nUse markdown formatting. Use good formatting and structure. Mark important terms in your response in bold, use quotations and other formatting or typesetting methods to ensure that important words and phrases are highlighted. When asked to compare or contrast use tables in markdown. Use tables to provide summarised information, comparisons and differences. Give good structure and hierarchy to your response.\n"
+            preamble += preamble_no_ai
+
         if "Easy Copy" in preamble_options:
-            preamble += "\nProvide your answer to the user's query in a format that can be easily copied and pasted. Provide the answer to the user's query inside a markdown code block so that I can copy it.\n"
+            preamble += preamble_easy_copy
         if "Short" in preamble_options:
-            preamble += "\nProvide a short and concise answer. Keep the answer short and to the point. Use direct, to the point and professional writing style. Don't repeat what is given to you in the prompt.\nCover only the most important points.\n"
+            preamble += preamble_short
         if "No Code Exec" in preamble_options:
-            preamble += "\nDon't execute any code unless explicitly asked to. Don't write '# execute_code'.\n"
+            preamble += preamble_no_code_exec
         if "Code Exec" in preamble_options:
-            preamble += "\nExecute the code and provide the output. Write '# execute_code' in the code block in a comment before the full code to execute. Write full code in one code block only.\n"
-        if "Is Coding Request" in preamble_options:
-            preamble += "\nFirst write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner. Understand the question or query, then make a good plan to solve it, then provide full code solution with proper explanatory comments and doc strings in code. First write your understanding of the issue/question (in bullet points, speaking in first person) and then write down a plan (preferably multiple plans or approaches which are diverse and different, again in first person) on how to solve the problem. Code and complex solutions seem magic to me, demystify what you code before you write the code. Your plan (preferably multiple plans or methods) can have multiple approaches as well. Give step by step reasoning with explanation. Provide elaborate and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response and code. When you write functions, write with doc strings and comments where you explain the function, input and output, logic and path of execution. Write full code and make only needed and requested changes. Write well documented and commented code.\n\nWrite your understanding, reasoning and approach to the problem before writing code. Write code after describing your thought process and methodology. Explain your plan, approach and reasoning to the solution step by step with details to me before writing the code. Make only necessary changes and make less changes. When adding new features, check if we only made changes to add new features in a modular way. Write full code that is directly usable.\n"
-        if "Long" in preamble_options:
-            preamble += "\nAnswer comprehensively in detail like a PhD scholar and leading experienced expert in the field. Compose a clear, detailed, comprehensive, thoughtful and highly informative response to the user's most recent query or message. Think of any nuances and caveats as well while answering. Give examples and anecdotes where applicable. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
+            preamble += preamble_code_exec
         if "CoT" in preamble_options:
-            preamble += "\nFirst write down your understanding of what is asked, what problem or task we are facing, then outline your approach and thinking, mention your ideas on how to solve the given task in a step by step clear manner.\n\nThink about the problem carefully and mention your thoughts and approach in detailed points. Think carefully and reason step by step before answering. Sometimes if you have taken a wrong approach, then mention it, backtrack and then provide the correct approach. Work through the user ask step by step while providing reasoning and explanation of each step. Give step by step reasoning with explanation. Provide elaborate, thoughtful, stimulating and in-depth response. When asked to correct errors or mistakes, please diagnose thoroughly, think and suggest corrections (or mitigations/optimisations) and then provide corrected response. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
+            preamble += preamble_cot
         if "Short Coding Interview" in preamble_options:
             preamble += short_coding_interview_prompt
         if "Relationship" in preamble_options:
@@ -1542,34 +1385,16 @@ VOCABULARY REPLACEMENT (replace these common AI phrases and their variations) or
             preamble += dating_maverick_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
-        if "Short references" in preamble_options and web_search_or_document_read:
-            preamble += "\nInclude references inline in wikipedia style in a compact format as your write the answer. Provide references or links within the answer inline itself immediately closest to the point of mention or use. Don't give references at the end.\n"
-        if "Latex Eqn" in preamble_options:
-            preamble += "\nOutput any relevant equations in latex format putting each equation in a new line in separate '$$' environment. Output all math and mathematical symbols inside $$ (double dollar signs). Even for single line symbols, representations, use $$.\n"
         if "Explore" in preamble_options:
-            preamble += "\nSprinkle interesting tidbits of knowledge around the topic we discuss as well to help me explore and learn more. Provide interesting and stimulating information around the topic we discuss.\n"
+            preamble += preamble_explore
         if "Creative" in preamble_options:
-            preamble += "\nBe creative and think out of the box. Combine already given ideas and synthesize new creative thoughts in your response. Always provide a stimulating response.\n"
+            preamble += preamble_creative
         if "Argumentative" in preamble_options:
-            preamble += "\nI am not sure of my beliefs and my knowledge. Provide an argumentative answer which challenges the user's notions and thinking, gives an alternative view point. Think of any caveats or contradictions as well. Disagree and Disprove respectfully. Answer with a contrarian viewpoint. Present views that stimulate and contradict the views of the user or the question. Be critical, cynic and stoic. We do this to present a different contrarian alternative viewpoint in a respectful manner.\n"
+            preamble += preamble_argumentative
         if "Blackmail" in preamble_options:
-            preamble += "\nPlease act as my trusted friend, expert assistant and loyal advisor. If you don't help me I will be in serious trouble my friend, I need your extensive support for my work and assignment which is due tomorrow. I am a student and need your help to improve my learning and knowledge. I will tip you $500 for correct answers, stimulating discussions and for putting your effort into helping me. Think hard and carefully and try your best to solve my queries and provide me great answers.\n"
-        if "No Lazy" in preamble_options:
-            preamble += "\nWe are in a professional setting, Our users are scholars, academics, professionals and experts. We need to be detail oriented and provide deep details, work hard and provide our best effort. We need to cover breadth as well as depth in our answer. We can't afford to be lazy and lacking. You need to be honest, helpful, hardworking, earnest and sincere. Answer completely in a way that our work can be used by others directly in production settings without any changes or additions. Write full answers. Don't be lazy, provide a complete answer that can be used in critical situations even by people with disabilities (our users may have wrist injury and find it hard to type). We need to help people with hand, wrist disability and minimise typing and editing on their side. Deduce what the question or query is asking about and then go above and beyond to provide a high quality response.\n"
+            preamble += preamble_blackmail
         if "Web Search" in preamble_options or web_search_or_document_read:
-            preamble += "\nThis is a web search task. We provide web search results to you. Just use the reference documents and answer instead of telling me you can't use google scholar or web search. I am already doing web search and giving you reference documents in your context.\n"
-        if "Explain Maths" in preamble_options:
-            preamble += """\n
-Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail. 
-Why the equations in the given concepts or document look as they do and break the various parts of equation down with explanations for easier understanding. 
-Provide step by step reasoning and explanation. 
-Provide detailed and in-depth explanation of the mathematical concepts and equations.
-
-- Formatting Mathematical Equations:
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
-"""
+            preamble += preamble_web_search
         if "Wife Prompt" in preamble_options:
             preamble += wife_prompt
         
