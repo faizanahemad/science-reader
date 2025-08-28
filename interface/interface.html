@@ -547,7 +547,7 @@
     </div>
 
     <!-- Coding Hint Modal -->
-    <div id="hint-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
+    <div id="hint-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1090;">
         <div class="modal-dialog modal-lg" style="max-width: 800px;">
             <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
                 <div class="modal-header" style="border-bottom: 1px solid #ddd;">
@@ -1432,7 +1432,7 @@ greet("World");</code></pre>
     </style>
 
     <!-- Full Solution Modal -->
-    <div id="solution-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
+    <div id="solution-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1090;">
         <div class="modal-dialog modal-xl" style="max-width: 900px;">
             <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
                 <div class="modal-header" style="border-bottom: 1px solid #ddd;">
@@ -1472,7 +1472,7 @@ greet("World");</code></pre>
     </div>
 
     <!-- Code Editor Modal -->  
-    <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">  
+    <div class="modal fade" id="code-editor-modal" tabindex="-1" aria-hidden="true" style="z-index: 1075;">
       <div class="modal-dialog modal-xl"> <!-- Using modal-xl for more space -->  
         <div class="modal-content">  
           <div class="modal-header">  
@@ -1664,9 +1664,13 @@ greet("World");</code></pre>
 
     /* Custom styling for hint and solution modals */
     #hint-modal, #solution-modal {
-        z-index: 1060 !important; /* Above code editor modal */
+        z-index: 1090 !important; /* Above code editor modal */
     }
-    
+
+    /* Code Editor Modal - Mid level */
+    #code-editor-modal.modal {
+        z-index: 1075 !important;
+    }
     #hint-modal .modal-content, #solution-modal .modal-content {
         border: none;
         box-shadow: 0 10px 25px rgba(0,0,0,0.2);

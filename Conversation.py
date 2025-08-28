@@ -3191,7 +3191,7 @@ At the end write what we must make slides about as well.
             
             # Get conversation summary and history
             conversation_summary = self.running_summary
-            conversation_history = self.get_conversation_history()
+            # conversation_history = self.get_conversation_history()
             
             # Build the context for doubt clearing
             context_text = ""

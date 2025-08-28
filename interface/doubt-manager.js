@@ -357,7 +357,7 @@ const DoubtManager = {
         }
         
         const card = $(`
-            <div class="card doubt-conversation-card ${senderClass}">
+            <div class="card doubt-conversation-card ${senderClass}" style="position: relative;">
                 <div class="card-header">
                     ${senderText} ${deleteBtn}
                 </div>
@@ -366,6 +366,16 @@ const DoubtManager = {
                 </div>
             </div>
         `);
+        
+        // Add scroll-to-top button for assistant messages that are long enough
+        if (!isUser && text.length > 300) {
+            // Use setTimeout to ensure card is in DOM before adding button
+            setTimeout(function() {
+                if (typeof window.addScrollToTopButton === 'function') {
+                    window.addScrollToTopButton(card, '↑ Top', 'doubt-scroll-top');
+                }
+            }, 50);
+        }
         
         return card;
     },
@@ -448,8 +458,10 @@ const DoubtManager = {
         // Disable the delete button on the user card until we get the doubt_id
         userCard.find('.doubt-delete-btn').prop('disabled', true).addClass('text-muted');
         
-        // Create assistant card for streaming response
+        // Create assistant card for streaming response with unique ID for tracking
         const assistantCard = this.createDoubtChatCard('', 'assistant', null);
+        const cardId = 'doubt-card-' + Date.now(); // Unique ID for this card
+        assistantCard.attr('data-card-id', cardId);
         $('#doubt-chat-messages').append(assistantCard);
         
         // Clear input
@@ -538,6 +550,16 @@ const DoubtManager = {
         let doubtId = null;
         let isCancelled = false;
         
+        // DEBUG: Log initial state
+        console.log('=== DOUBT STREAMING DEBUG START ===');
+        console.log('AssistantCard exists:', assistantCard && assistantCard.length > 0);
+        console.log('AssistantCard ID:', assistantCard.attr('data-card-id'));
+        console.log('AssistantCard HTML:', assistantCard.prop('outerHTML')?.substring(0, 200));
+        
+        // Store the card ID immediately for later use
+        const storedCardId = assistantCard.attr('data-card-id');
+        console.log('Stored card ID for later:', storedCardId);
+        
         // Set up streaming controller
         currentDoubtStreamingController = {
             reader: reader,
@@ -553,7 +575,11 @@ const DoubtManager = {
                 const { value, done } = await reader.read();
                 
                 if (done || isCancelled) {
-                    console.log('Doubt streaming complete');
+                    console.log('=== DONE BRANCH TRIGGERED ===');
+                    console.log('Done flag:', done);
+                    console.log('isCancelled:', isCancelled);
+                    console.log('This branch may be dead code if streaming completes via part.completed');
+                    
                     // Reset UI state - hide stop button and clear controller
                     $('#stop-doubt-chat-button').hide();
                     currentDoubtStreamingController = null;
@@ -603,6 +629,102 @@ const DoubtManager = {
                                 doubt_answer: accumulatedText
                             });
                         }
+                    }
+                    
+                    // Add scroll-to-top button for streamed doubt response if long enough
+                    console.log('=== DOUBT BUTTON ADDITION DEBUG ===');
+                    console.log('Text length:', accumulatedText.length);
+                    console.log('Threshold: 300 characters');
+                    console.log('Should add button:', accumulatedText.length > 300);
+                    
+                    if (accumulatedText.length > 300) {
+                        // Small delay to ensure DOM is stable after streaming completes
+                        setTimeout(function() {
+                            console.log('--- Attempting to add button after delay ---');
+                            console.log('Stored card ID:', storedCardId);
+                            
+                            // Method 1: Try to find by stored ID
+                            let currentCard = null;
+                            if (storedCardId) {
+                                currentCard = $(`[data-card-id="${storedCardId}"]`);
+                                console.log('Method 1 - Find by stored ID:', storedCardId);
+                                console.log('Card found by ID:', currentCard.length > 0);
+                                if (currentCard.length > 0) {
+                                    console.log('Card classes:', currentCard.attr('class'));
+                                    console.log('Card position style:', currentCard.css('position'));
+                                }
+                            }
+                            
+                            // Method 2: Try original assistantCard reference
+                            if ((!currentCard || currentCard.length === 0) && assistantCard && assistantCard.length > 0) {
+                                currentCard = assistantCard;
+                                console.log('Method 2 - Using original assistantCard reference');
+                                console.log('Card exists:', currentCard.length > 0);
+                            }
+                            
+                            // Method 3: Fallback to finding the last assistant card
+                            if (!currentCard || currentCard.length === 0) {
+                                currentCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
+                                console.log('Method 3 - Using fallback (last assistant card)');
+                                console.log('Card found:', currentCard.length > 0);
+                                console.log('Total assistant cards in modal:', $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').length);
+                            }
+                            
+                            if (currentCard && currentCard.length > 0) {
+                                console.log('--- Card found, checking for existing button ---');
+                                const existingButtons = currentCard.find('.scroll-to-top-btn');
+                                console.log('Existing buttons:', existingButtons.length);
+                                
+                                if (existingButtons.length === 0) {
+                                    console.log('--- No existing button, checking addScrollToTopButton function ---');
+                                    console.log('window.addScrollToTopButton type:', typeof window.addScrollToTopButton);
+                                    console.log('window.addScrollToTopButton exists:', typeof window.addScrollToTopButton === 'function');
+                                    
+                                    if (typeof window.addScrollToTopButton === 'function') {
+                                        console.log('--- Calling addScrollToTopButton ---');
+                                        console.log('Card HTML before:', currentCard.prop('outerHTML')?.substring(0, 200));
+                                        
+                                        // Call the function
+                                        const result = window.addScrollToTopButton(currentCard, '↑ Top', 'doubt-scroll-top');
+                                        console.log('Function returned:', result);
+                                        
+                                        // Immediate verification
+                                        const immediateCheck = currentCard.find('.scroll-to-top-btn').length;
+                                        console.log('Immediate button count:', immediateCheck);
+                                        
+                                        // Delayed verification
+                                        setTimeout(function() {
+                                            const delayedCheck = currentCard.find('.scroll-to-top-btn').length;
+                                            console.log('--- Final verification ---');
+                                            console.log('Button count after delay:', delayedCheck);
+                                            console.log('Card HTML after:', currentCard.prop('outerHTML')?.substring(0, 300));
+                                            
+                                            if (delayedCheck > 0) {
+                                                console.log('✅ SUCCESS: Button added to streamed doubt');
+                                                const btn = currentCard.find('.scroll-to-top-btn').first();
+                                                console.log('Button position:', btn.css('position'));
+                                                console.log('Button bottom:', btn.css('bottom'));
+                                                console.log('Button right:', btn.css('right'));
+                                            } else {
+                                                console.error('❌ FAILED: Button was not added');
+                                                console.log('Card still exists in DOM:', $(currentCard).length > 0);
+                                                console.log('Card parent exists:', currentCard.parent().length > 0);
+                                            }
+                                            console.log('=== DOUBT BUTTON DEBUG END ===');
+                                        }, 100);
+                                    } else {
+                                        console.error('❌ addScrollToTopButton function not available');
+                                    }
+                                } else {
+                                    console.log('⚠️ Button already exists on card');
+                                }
+                            } else {
+                                console.error('❌ Could not find assistant card for button addition');
+                                console.log('All cards in modal:', $('#doubt-chat-messages .doubt-conversation-card').length);
+                            }
+                        }, 500); // Increased delay to ensure modal is fully rendered
+                    } else {
+                        console.log('ℹ️ Text too short for button:', accumulatedText.length, 'characters');
                     }
                     
                     // Scroll to bottom
@@ -655,9 +777,78 @@ const DoubtManager = {
                             doubtId = part.doubt_id;
                         }
                         
+                        // Update doubt history
+                        if (doubtId) {
+                            // Update user card with doubt ID
+                            if (userCard && userCard.length > 0) {
+                                const userDeleteBtn = userCard.find('.doubt-delete-btn');
+                                userDeleteBtn.data('doubt-id', doubtId);
+                                userDeleteBtn.prop('disabled', false).removeClass('text-muted');
+                            }
+                            
+                            // Update the current doubt history
+                            if (self.currentDoubtHistory) {
+                                self.currentDoubtHistory.push({
+                                    doubt_id: doubtId,
+                                    doubt_text: userCard ? userCard.find('.card-body').text() : '',
+                                    doubt_answer: accumulatedText
+                                });
+                            }
+                        }
+                        
                         // Ensure stop button is hidden on completion
                         $('#stop-doubt-chat-button').hide();
                         currentDoubtStreamingController = null;
+                        
+                        // Add scroll-to-top button when streaming completes via completed flag
+                        console.log('=== DOUBT BUTTON ADDITION DEBUG (via completed flag) ===');
+                        console.log('Text length:', accumulatedText.length);
+                        console.log('Threshold: 300 characters');
+                        console.log('Should add button:', accumulatedText.length > 300);
+                        
+                        if (accumulatedText.length > 300) {
+                            setTimeout(function() {
+                                console.log('--- Adding button after completed flag ---');
+                                console.log('Stored card ID:', storedCardId);
+                                
+                                // Find the card
+                                let currentCard = null;
+                                if (storedCardId) {
+                                    currentCard = $(`[data-card-id="${storedCardId}"]`);
+                                    console.log('Found card by ID:', currentCard.length > 0);
+                                }
+                                
+                                if (!currentCard || currentCard.length === 0) {
+                                    currentCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
+                                    console.log('Using fallback - last assistant card');
+                                }
+                                
+                                if (currentCard && currentCard.length > 0) {
+                                    if (currentCard.find('.scroll-to-top-btn').length === 0) {
+                                        if (typeof window.addScrollToTopButton === 'function') {
+                                            console.log('Calling addScrollToTopButton...');
+                                            window.addScrollToTopButton(currentCard, '↑ Top', 'doubt-scroll-top');
+                                            
+                                            // Verify
+                                            setTimeout(function() {
+                                                const buttonCount = currentCard.find('.scroll-to-top-btn').length;
+                                                if (buttonCount > 0) {
+                                                    console.log('✅ Button successfully added via completed flag');
+                                                } else {
+                                                    console.error('❌ Button was not added');
+                                                }
+                                            }, 100);
+                                        }
+                                    }
+                                } else {
+                                    console.error('Could not find card for button');
+                                }
+                            }, 500);
+                        }
+                        
+                        // Scroll to bottom after completion
+                        const messagesContainer = $('#doubt-chat-messages');
+                        messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
                         
                         return;
                     }

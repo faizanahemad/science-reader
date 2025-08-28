@@ -639,6 +639,127 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     return;
 }
 
+/**
+ * Add a scroll-to-top button to a card element
+ * @param {jQuery} cardElem - The card element to add the button to
+ * @param {string} buttonText - Text for the button (default: "↑ Top")
+ * @param {string} buttonClass - Additional CSS classes for the button
+ */
+window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonClass = '') {
+    console.log('[addScrollToTopButton] Called with:', {
+        cardElem: cardElem,
+        cardExists: cardElem && cardElem.length > 0,
+        buttonText: buttonText,
+        buttonClass: buttonClass
+    });
+    
+    // Check if button already exists to avoid duplicates
+    if (cardElem.find('.scroll-to-top-btn').length > 0) {
+        console.log('[addScrollToTopButton] Button already exists, skipping');
+        return; // Button already exists, don't add another
+    }
+    
+    console.log('[addScrollToTopButton] Creating button...');
+    // Create the scroll-to-top button
+    let scrollTopBtn = $('<button>')
+        .addClass('btn btn-sm scroll-to-top-btn ' + buttonClass)
+        .html(buttonText)
+        .css({
+            'position': 'absolute',
+            'bottom': '5px',
+            'right': '5px',
+            'padding': '2px 8px',
+            'font-size': '0.75rem',
+            'background-color': '#f8f9fa',
+            'border': '1px solid #dee2e6',
+            'border-radius': '4px',
+            'opacity': '0.8',
+            'z-index': '10',
+            'transition': 'opacity 0.2s'
+        })
+        .hover(
+            function() { $(this).css('opacity', '1'); },
+            function() { $(this).css('opacity', '0.8'); }
+        );
+    
+    // Click handler to scroll to top of the card
+    scrollTopBtn.click(function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Check if card is in doubt chat messages (modal)
+        const doubtMessages = $('#doubt-chat-messages');
+        if (doubtMessages.length > 0 && doubtMessages.find(cardElem).length > 0) {
+            // Card is inside doubt modal
+            const cardRelativeTop = cardElem.position().top;
+            
+            // Scroll doubt messages container to show the top of the card
+            doubtMessages.animate({
+                scrollTop: doubtMessages.scrollTop() + cardRelativeTop
+            }, 300, 'swing');
+            return;
+        }
+        
+        // Check if card is in chat view
+        const chatView = $('#chatView');
+        if (chatView.length > 0 && chatView.find(cardElem).length > 0) {
+            // Card is inside chatView
+            const cardRelativeTop = cardElem.position().top;
+            
+            // Scroll chatView to show the top of the card
+            chatView.animate({
+                scrollTop: chatView.scrollTop() + cardRelativeTop
+            }, 300, 'swing');
+            return;
+        }
+        
+        // Check if card is in any modal body
+        const modalBody = cardElem.closest('.modal-body');
+        if (modalBody.length > 0) {
+            // Card is in a modal
+            const cardRelativeTop = cardElem.position().top;
+            
+            // Scroll modal body to show the top of the card
+            modalBody.animate({
+                scrollTop: modalBody.scrollTop() + cardRelativeTop
+            }, 300, 'swing');
+            return;
+        }
+        
+        // Default: Card is in the main window, scroll window
+        const cardTop = cardElem.offset().top;
+        $('html, body').animate({
+            scrollTop: cardTop - 20 // 20px padding from top
+        }, 300, 'swing');
+    });
+    
+    // Ensure the card has relative positioning for absolute button positioning
+    const currentPosition = cardElem.css('position');
+    console.log('[addScrollToTopButton] Card current position:', currentPosition);
+    if (currentPosition === 'static') {
+        console.log('[addScrollToTopButton] Setting position to relative');
+        cardElem.css('position', 'relative');
+    }
+    
+    // Add the button to the card
+    console.log('[addScrollToTopButton] Appending button to card...');
+    cardElem.append(scrollTopBtn);
+    
+    // Verify button was added
+    const buttonAdded = cardElem.find('.scroll-to-top-btn').length > 0;
+    console.log('[addScrollToTopButton] Button added successfully:', buttonAdded);
+    
+    if (!buttonAdded) {
+        console.error('[addScrollToTopButton] Failed to add button!');
+        console.log('[addScrollToTopButton] Card still exists:', cardElem.length > 0);
+        console.log('[addScrollToTopButton] Card parent:', cardElem.parent().length > 0);
+        console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, cardElem[0]));
+    }
+    
+    // Return the button element in case further customization is needed
+    return scrollTopBtn;
+}
+
 const markdownParser = new marked.Renderer();
 
 // Create a marked extension for math

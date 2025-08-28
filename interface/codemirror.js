@@ -193,7 +193,16 @@ def comprehensive_example():
         modal.find('#hint-content').html('');
         modal.find('#hint-status').show();
         modal.find('#hint-status-text').text('Analyzing your code and generating hint...');
+        
+        // Ensure proper z-index before showing
+        modal.css('z-index', '1090');
         modal.modal('show');
+        
+        // Force z-index after modal is shown
+        setTimeout(() => {
+            modal.css('z-index', '1090');
+            $('.modal-backdrop').last().css('z-index', '1089');
+        }, 100);
 
         // Use fetch for streaming
         fetch(`/get_coding_hint/${conversationId}`, {
@@ -244,7 +253,16 @@ def comprehensive_example():
         modal.find('#solution-content').html('');
         modal.find('#solution-status').show();
         modal.find('#solution-status-text').text('Analyzing problem and generating complete solution...');
+        
+        // Ensure proper z-index before showing
+        modal.css('z-index', '1090');
         modal.modal('show');
+        
+        // Force z-index after modal is shown
+        setTimeout(() => {
+            modal.css('z-index', '1090');
+            $('.modal-backdrop').last().css('z-index', '1089');
+        }, 100);
 
         // Use fetch for streaming
         fetch(`/get_full_solution/${conversationId}`, {
@@ -304,9 +322,10 @@ def comprehensive_example():
                 const { value, done } = await reader.read();
                 
                 if (done || isCancelled) {
-                    console.log('Hint streaming complete');
-                    // Reset UI state
+                    console.log('Hint streaming complete - done:', done, 'cancelled:', isCancelled);
+                    // Reset UI state - ensure stop button is hidden
                     $('#stop-hint-button').hide();
+                    console.log('Stop hint button hidden');
                     currentHintStreamingController = null;
                     
                     if (done && !isCancelled) {
@@ -316,6 +335,11 @@ def comprehensive_example():
                             renderHintContent(contentElement, accumulatedText);
                         }
                         showToast("Hint generated successfully!", "success");
+                        
+                        // Double-check stop button is hidden after completion
+                        setTimeout(() => {
+                            $('#stop-hint-button').hide();
+                        }, 100);
                     } else if (isCancelled) {
                         statusElement.hide();
                         console.log('Hint streaming cancelled by user');
@@ -354,6 +378,10 @@ def comprehensive_example():
                         statusElement.hide();
                         renderHintContent(contentElement, part.accumulated_text || accumulatedText);
                         showToast("Hint generated successfully!", "success");
+                        // Ensure stop button is hidden
+                        $('#stop-hint-button').hide();
+                        currentHintStreamingController = null;
+                        console.log('Hint completed via part.completed flag');
                         return;
                     }
                 }
@@ -386,6 +414,74 @@ def comprehensive_example():
             // Fallback: display as preformatted text
             element.html('<pre>' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>');
         }
+        
+        // Add scroll-to-top button for long hints
+        if (text.length > 300) {
+            const modalContent = element.closest('.modal-content');
+            if (modalContent.length > 0) {
+                // Ensure the modal content has relative positioning
+                if (modalContent.css('position') === 'static') {
+                    modalContent.css('position', 'relative');
+                }
+                
+                // Remove any existing scroll-to-top button
+                modalContent.find('.code-hint-scroll-top').remove();
+                
+                // Create scroll button for modal
+                let scrollTopBtn = $('<button>')
+                    .addClass('btn btn-sm code-hint-scroll-top')
+                    .html('↑ Top')
+                    .css({
+                        'position': 'absolute',  // Absolute positioning within modal
+                        'bottom': '20px', // Position at bottom of modal
+                        'right': '240px', // Moved further left to avoid wide close button
+                        'padding': '6px 12px', // Better padding
+                        'font-size': '0.85rem',
+                        'background-color': '#007bff', // Blue color for hint
+                        'color': '#fff', // White text
+                        'border': '1px solid #0056b3',
+                        'border-radius': '20px', // Rounded button
+                        'opacity': '0.9',
+                        'z-index': '10', // Within modal context
+                        'transition': 'all 0.2s',
+                        'box-shadow': '0 2px 6px rgba(0,0,0,0.3)',
+                        'cursor': 'pointer'
+                    })
+                    .hover(
+                        function() { 
+                            $(this).css({
+                                'opacity': '1',
+                                'transform': 'scale(1.05)'
+                            }); 
+                        },
+                        function() { 
+                            $(this).css({
+                                'opacity': '0.9',
+                                'transform': 'scale(1)'
+                            }); 
+                        }
+                    );
+                
+                scrollTopBtn.click(function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Scroll modal body to top
+                    const modalBody = modalContent.find('.modal-body');
+                    modalBody.animate({
+                        scrollTop: 0
+                    }, 300, 'swing');
+                });
+                
+                // Append to modal content (not body)
+                modalContent.append(scrollTopBtn);
+                
+                // Clean up button when modal is closed
+                $('#hint-modal').on('hidden.bs.modal', function() {
+                    $('.code-hint-scroll-top').remove();
+                });
+            }
+        }
     }
 
     function renderStreamingSolution(streamingResponse, conversationId, modal) {
@@ -414,9 +510,10 @@ def comprehensive_example():
                 const { value, done } = await reader.read();
                 
                 if (done || isCancelled) {
-                    console.log('Solution streaming complete');
-                    // Reset UI state
+                    console.log('Solution streaming complete - done:', done, 'cancelled:', isCancelled);
+                    // Reset UI state - ensure stop button is hidden
                     $('#stop-solution-button').hide();
+                    console.log('Stop solution button hidden');
                     currentSolutionStreamingController = null;
                     
                     if (done && !isCancelled) {
@@ -426,6 +523,11 @@ def comprehensive_example():
                             renderSolutionContent(contentElement, accumulatedText);
                         }
                         showToast("Solution generated successfully!", "success");
+                        
+                        // Double-check stop button is hidden after completion
+                        setTimeout(() => {
+                            $('#stop-solution-button').hide();
+                        }, 100);
                     } else if (isCancelled) {
                         statusElement.hide();
                         console.log('Solution streaming cancelled by user');
@@ -464,6 +566,10 @@ def comprehensive_example():
                         statusElement.hide();
                         renderSolutionContent(contentElement, part.accumulated_text || accumulatedText);
                         showToast("Solution generated successfully!", "success");
+                        // Ensure stop button is hidden
+                        $('#stop-solution-button').hide();
+                        currentSolutionStreamingController = null;
+                        console.log('Solution completed via part.completed flag');
                         return;
                     }
                 }
@@ -495,6 +601,74 @@ def comprehensive_example():
         } else {
             // Fallback: display as preformatted text
             element.html('<pre>' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>');
+        }
+        
+        // Add scroll-to-top button for long solutions
+        if (text.length > 300) {
+            const modalContent = element.closest('.modal-content');
+            if (modalContent.length > 0) {
+                // Ensure the modal content has relative positioning
+                if (modalContent.css('position') === 'static') {
+                    modalContent.css('position', 'relative');
+                }
+                
+                // Remove any existing scroll-to-top button
+                modalContent.find('.code-solution-scroll-top').remove();
+                
+                // Create scroll button for modal
+                let scrollTopBtn = $('<button>')
+                    .addClass('btn btn-sm code-solution-scroll-top')
+                    .html('↑ Top')
+                    .css({
+                        'position': 'absolute',  // Absolute positioning within modal
+                        'bottom': '20px', // Position at bottom of modal
+                        'right': '240px', // Moved further left to avoid wide close button
+                        'padding': '6px 12px', // Better padding
+                        'font-size': '0.85rem',
+                        'background-color': '#28a745', // Green color for solution
+                        'color': '#fff', // White text
+                        'border': '1px solid #1e7e34',
+                        'border-radius': '20px', // Rounded button
+                        'opacity': '0.9',
+                        'z-index': '10', // Within modal context
+                        'transition': 'all 0.2s',
+                        'box-shadow': '0 2px 6px rgba(0,0,0,0.3)',
+                        'cursor': 'pointer'
+                    })
+                    .hover(
+                        function() { 
+                            $(this).css({
+                                'opacity': '1',
+                                'transform': 'scale(1.05)'
+                            }); 
+                        },
+                        function() { 
+                            $(this).css({
+                                'opacity': '0.9',
+                                'transform': 'scale(1)'
+                            }); 
+                        }
+                    );
+                
+                scrollTopBtn.click(function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // Scroll modal body to top
+                    const modalBody = modalContent.find('.modal-body');
+                    modalBody.animate({
+                        scrollTop: 0
+                    }, 300, 'swing');
+                });
+                
+                // Append to modal content (not body)
+                modalContent.append(scrollTopBtn);
+                
+                // Clean up button when modal is closed
+                $('#solution-modal').on('hidden.bs.modal', function() {
+                    $('.code-solution-scroll-top').remove();
+                });
+            }
         }
     }
 

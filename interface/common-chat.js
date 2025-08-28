@@ -2028,6 +2028,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
             mermaid.run({querySelector: "pre.mermaid"});
             
+            // Add scroll-to-top button for streamed messages
+            if (card && answer.length > 300) { // Only add for longer messages
+                if (typeof window.addScrollToTopButton === 'function') {
+                    window.addScrollToTopButton(card, '↑ Top of Answer', 'chat-scroll-top');
+                }
+            }
+            
             // Final setup of event handlers with the complete message ID (if available)
             if (response_message_id) {
                 setupStreamingCardEventHandlers(card, response_message_id);
@@ -2750,26 +2757,40 @@ var ChatManager = {
             }
             
             if (message.text.trim().length > 0) {
-                renderInnerContentAsMarkdown(textElem, immediate_callback=function () {
-                    const hasSlides = (
-                        !!textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
-                        !!textElem.closest('.card-body').find('.slide-external-link').length ||
-                        (textElem && textElem.attr('data-has-slides') === 'true')
-                    );
-                    if (hasSlides) {
-                        // Ensure historic messages with slides resize properly
-                        setTimeout(function() {
-                            var slideWrapper = textElem.closest('.card-body').find('.slide-presentation-wrapper');
-                            if (slideWrapper.length > 0) {
-                                adjustCardHeightForSlides(slideWrapper);
+                // Capture the current messageElement in a closure
+                (function(currentMessageElement, currentMessage) {
+                    renderInnerContentAsMarkdown(textElem, immediate_callback=function () {
+                        const hasSlides = (
+                            !!textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
+                            !!textElem.closest('.card-body').find('.slide-external-link').length ||
+                            (textElem && textElem.attr('data-has-slides') === 'true')
+                        );
+                        if (hasSlides) {
+                            // Ensure historic messages with slides resize properly
+                            setTimeout(function() {
+                                var slideWrapper = textElem.closest('.card-body').find('.slide-presentation-wrapper');
+                                if (slideWrapper.length > 0) {
+                                    adjustCardHeightForSlides(slideWrapper);
+                                }
+                            }, 100);
+                        } else if (textElem.text().length > 300) { // && (index < array.length - 2)
+                            showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
+                                'message_id': currentMessage.message_id
+                            }); // index >= array.length - 2
+                        }
+                        
+                        // Add scroll-to-top button for old messages (assistant messages only)
+                        // Now inside the callback with proper closure
+                        if (currentMessage.sender !== 'user' && currentMessage.text.length > 300) {
+                            // Check if button doesn't already exist to avoid duplicates
+                            if (currentMessageElement.find('.scroll-to-top-btn').length === 0) {
+                                if (typeof window.addScrollToTopButton === 'function') {
+                                    window.addScrollToTopButton(currentMessageElement, '↑ Top of Answer', 'chat-scroll-top');
+                                }
                             }
-                        }, 100);
-                    } else if (textElem.text().length > 300) { // && (index < array.length - 2)
-                        showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
-                            'message_id': message.message_id
-                        }); // index >= array.length - 2
-                    }
-                }, continuous = false, html = message.text.replace(/\n/g, '  \n'));
+                        }
+                    }, continuous = false, html = currentMessage.text.replace(/\n/g, '  \n'));
+                })(messageElement, message);
             }
 
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
