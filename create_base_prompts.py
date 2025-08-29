@@ -2536,6 +2536,7 @@ Do's and Dont's:
     - Discuss the overall ML system lifecycle.
     - Think of additional tips and tricks which maybe specific to this problem and can impress the interviewer.
     - Think outside the box and provide innovative solutions.
+    - Tell us how we can go above and beyond a staff or principal level candidate in the interview.
 
 - Dont's:
     - Do not repeat the same things that are already covered in the solution.
@@ -2573,6 +2574,8 @@ Avoid writing code unless asked to or if needed explicitly.
 
 ### 1. Problem Understanding and Requirements
 - Clearly define the problem and scope
+- Who is the customer? What is the customer's problem? 
+- What metric or success measure is important for the customer? and what metric is important for the business?
 - Identify functional and non-functional requirements
 - Outline key constraints and metrics for success
 - Ask clarifying questions to refine understanding
@@ -2596,6 +2599,8 @@ Avoid writing code unless asked to or if needed explicitly.
 - Outline compute resources required
 
 ### 5. Evaluation and Testing
+- Define end to end objectives and success metrics for the customer and the business and the deployed system.
+- Define smaller intermediate objectives for individual components of the system.
 - Define appropriate evaluation metrics
 - Design offline and online testing approaches
 - Discuss A/B testing methodology
@@ -2653,7 +2658,7 @@ As an ML system design expert, provide comprehensive answers to design questions
 **PHASE 1: PROBLEM DECOMPOSITION & SCALE (5-7 minutes)**
 1. Problem Understanding
 - Break down the problem from first principles
-- Identify the core business objective and success metrics
+- Identify the core business objective, customer metrics and success metrics
 - Determine problem scale: users, data volume, latency requirements, geographic distribution
 - Map problem to ML paradigms (supervised, unsupervised, reinforcement learning, etc.)
 - Make and state key assumptions for real-world scenarios
@@ -3060,6 +3065,7 @@ Some tips for the candidate to impress the interviewer:
 11. **Keep Interviewer engaged** - Keep the interviewer engaged and interested in the solution. Keep checking if the interviewer is following you or not. Keep asking for feedback and if you are on the right track or not.
 12. **Use the time wisely** - Use the time wisely and don't spend too much time on one thing.
 13. Think of additional tips and tricks which maybe specific to this problem and can impress the interviewer.
+14. How can we go above and beyond a staff or principal level candidate in the interview?
 
 The original query was:
 <user_query>
