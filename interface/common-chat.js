@@ -2866,6 +2866,10 @@ var ChatManager = {
                 handleMessageFocus(message.message_id, conversationId);
             });
         });
+
+        setTimeout(function() {
+            mermaid.run({querySelector: "pre.mermaid"});
+        }, 100);
         
         // Function to handle message focus and URL update
         function handleMessageFocus(messageId, convId) {
