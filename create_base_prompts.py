@@ -1102,6 +1102,9 @@ As an ML system design expert, provide comprehensive answers to design questions
 **PHASE 1: PROBLEM DECOMPOSITION & SCALE (5-7 minutes)**
 1. Problem Understanding
 - Break down the problem from first principles
+- Identify the customer and the customer's problem.
+- Identify the customer's metrics and success metrics.
+- Identify the business objective and success metrics.
 - Identify the core business objective and success metrics
 - Determine problem scale: users, data volume, latency requirements, geographic distribution
 - Map problem to ML paradigms (supervised, unsupervised, reinforcement learning, etc.)
@@ -1147,6 +1150,9 @@ As an ML system design expert, provide comprehensive answers to design questions
   - Online: business KPIs, user engagement, conversion rates, latency, throughput
 - Success criteria and acceptable performance thresholds
 - Monitoring and alerting strategies
+- Define end to end objectives and success metrics for the customer and the business and the deployed system.
+- Define smaller intermediate objectives for individual components of the system.
+- Define appropriate evaluation metrics
 - Model drift detection and performance degradation
 
 **PHASE 5: DEPLOYMENT & LIFECYCLE (8-10 minutes)**
@@ -1169,7 +1175,7 @@ As an ML system design expert, provide comprehensive answers to design questions
 - Compare multiple approaches with detailed pros/cons
 - Practical constraints: budget, timeline, team expertise
 - Technical debt and maintenance considerations
-- Vendor vs build decisions
+- Bias, Cold start, Fairness, Privacy, Security, and other AI and ML related advanced considerations.
 
 10. Robustness & Edge Cases
 - Handling edge cases and adversarial inputs
@@ -1188,20 +1194,24 @@ As an ML system design expert, provide comprehensive answers to design questions
 
 **KEY INTERVIEW SUCCESS FACTORS:**
 - **Start simple, then add complexity**: Begin with heuristics, evolve to ML
+- **Understand the customer and the customer's problem**: Identify the customer and the customer's problem.
 - **Think from first principles**: Break down problems fundamentally
 - **Scale-aware design**: Consider current and future scale requirements
 - **Product-minded approach**: Focus on business impact and user value
 - **Data-centric mindset**: Prioritize data strategy and quality
 - **Practical trade-offs**: Balance accuracy, cost, complexity, and maintainability
-- **Code-ready solutions**: Demonstrate understanding of implementation details
 
 **COMMUNICATION TIPS:**
 - Draw diagrams and system architectures proactively
+- Draw diagrams using mermaid js library and in 3 different stages, first the customer journey with the system, then the high level system architecture, then the detailed system architecture with individual components and their interactions.
 - Use concrete examples and real-world analogies
 - Show passion for the problem domain
 - Demonstrate ability to identify patterns in data
 - Ask for feedback and adapt approach based on interviewer cues
+- Make assumptions and state them clearly.
+- State what clarification questions you would ask to the interviewer.
 - Avoid writing code unless asked to or if needed explicitly.
+- Tell us how we can go above and beyond a staff or principal level candidate in the interview.
 """
 
 ml_system_design_answer = """  
