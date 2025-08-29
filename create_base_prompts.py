@@ -893,10 +893,10 @@ Writing Guidelines:
 - Write actual code in python only. Write modular code, with good abstraction and good separation of concerns.
 - **Decompose** each solution into manageable, reusable and understandable parts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
-- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- Before writing code, write a verbal step by step description of the solution (if there are multiple solutions, then write the description for each solution, in well formatted manner) along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 - Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
 - Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
-- If there are multiple solutions, then compare the solutions and discuss the pros and cons of each solution.
+- If there are multiple problems and solutions, then compare the problems and solutions (in tabular format) and discuss the pros and cons of each solution in a table format.
 
 Writing Examples:
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
@@ -965,7 +965,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - To help understand the solution, make diagrams, flow charts, system architectures etc as needed using mermaid js library or draw.io library or ASCII text art diagrams.
-- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- Before writing code, write a verbal step by step description of the solution (if there are multiple solutions, then write the description for each solution, in well formatted manner) along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
 
 ### 4. Data Access Patterns and Performance
 - Discuss how **data access patterns** impact performance.
@@ -1019,6 +1019,7 @@ Help prepare us for technical interviews at the senior or staff level.
 - Offer a detailed **complexity analysis** for each solution.
 - Use **Big O notation** and explain the reasoning behind it.
 - Compare complexities between different solutions and discuss implications.
+- If there are multiple problems and solutions, then compare the problems and solutions (in tabular format) and discuss the pros and cons of each solution in a table format.
 
 ### 9. Trade-Offs and Decision Making
 - Discuss factors influencing the choice of solution:
@@ -2279,9 +2280,8 @@ If multiple solutions are provided, please help us understand the pros and cons 
 - **Decompose** each solution into manageable and understandable parts.
 - Use **clear examples**, **analogies** to illustrate concepts.
 - Provide **step-by-step explanations** of complex algorithms or logic.
-- Before writing code, write a verbal step by step description of the solution along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with simple formatting with inline maths and notations (if needed).
+- Before writing code, write a verbal step by step description of the solution (if there are multiple solutions, then write the description for each solution, in well formatted manner) along with the time and space complexity of the solution and any pattern or concept used in the solution. Write in simple language with good formatting with inline maths and notations (if needed).
 - Write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
-- When explaining code or algorithms related to interview questions, use code notation to explain and avoid latex notation.
 - Discuss the fundamental principles and concepts used in the solution.
 - Give all possible solutions to the problem.
 
@@ -2393,6 +2393,7 @@ Don't repeat the same information or details that are already provided in the cu
   - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
   - Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
   - Focus on medium or hard level problems which require more thinking, innovation and reasoning and application of concepts/algorithms.
+  - If there are multiple problems and solutions, then compare the problems and solutions (in tabular format) and discuss the pros and cons of each solution in a table format.
 
 2. Discuss about the "Before Writing Code part"
 - What are the clarifying questions we should ask to the interviewer? What questions would you ask? Make an exhaustive list of questions in the order of priority.
