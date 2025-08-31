@@ -57,9 +57,71 @@ from threading import Lock
 
 gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 
+# Deep research model names
+DEEP_RESEARCH_MODELS = ["o3-deep-research", "o4-mini-deep-research"]
 
-def call_chat_model(model, text, images, temperature, system, keys):
+
+def call_openai_deep_research_model(model, text, images, temperature, system, keys):
     """
+    Calls the OpenAI deep research models (o3-deep-research, o4-mini-deep-research)
+    using the Responses API with web search capabilities.
+    """
+    api_key = keys["openAIKey"]
+    instructions = """
+For this task search the web wide and deep with multiple search terms. Read multiple web pages and compare and contrast the information. Since we need deep information that is recent so do date sensitive searches as well.
+- Make sure to gather all the information needed to carry out the research task in a well-structured manner.
+- Perform multiple search queries and gather information from multiple sources. Also read multiple web pages concurrently.
+- Use bullet points or numbered lists if appropriate for clarity.
+- Use tables in markdown format if appropriate for clarity.
+- Give broad coverage deep analysis and in depth results with insights.
+- Make tables for comparisons and numeric facts.
+- Use markdown format for the response.
+
+Finally strive hard to give comprehensive broadly researched and well grounded, and useful information. Work hard to satisfy the curiosity of our user.
+
+"""
+    
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, timeout=3600)  # Longer timeout for deep research
+    
+    # Combine system prompt and user text for the input
+    input_text = f"{system}\n\n{instructions}\n\n{text}" if system else text
+    
+    # If images are provided, we need to handle them differently
+    # For now, we'll log a warning as the Responses API may not support images directly
+    if len(images) > 0:
+        logger.warning(f"[call_openai_deep_research_model]: Images provided but may not be supported by {model}")
+    
+    try:
+        start_time = time.time()
+        # Create the response using the Responses API
+        response = client.responses.create(
+            model=model,
+            reasoning={
+                "summary": "auto",
+            },
+            input=input_text,
+            instructions=instructions,
+            tools=[{"type": "web_search", "user_location": {"type": "approximate"}, "search_context_size": "medium"}]  # Enable web search for research,
+        )
+        
+        # Get the output text and apply math formatting
+        output_text = response.output_text
+        end_time = time.time()
+        logger.info(f"[call_openai_deep_research_model]: Time taken to get response: {end_time - start_time} seconds")
+        formatted_output = process_math_formatting(output_text)
+        
+        yield formatted_output
+        
+    except Exception as e:
+        logger.error(f"[call_openai_deep_research_model]: Error calling {model} with error {str(e)}")
+        traceback.print_exc(limit=8)
+        raise e
+
+
+def call_chat_model_original(model, text, images, temperature, system, keys):
+    """
+    Original chat model function - renamed to avoid conflicts.
     Calls the specified chat model with streaming. The user wants math tokens
     replaced in-flight, so we wrap the streaming response with our
     stream_with_math_formatting generator.
@@ -146,24 +208,27 @@ def call_chat_model(model, text, images, temperature, system, keys):
             # (In practice, "finish_reason" might be included in the last chunk.)
             
     except Exception as e:
-        logger.error(f"[call_chat_model]: Error in calling chat model {model} with error {str(e)}")
+        logger.error(f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}")
         traceback.print_exc(limit=4)
         raise e
 
 
-def substitute_llm_name(model_name, images=False):
-    model_name = model_name.lower().strip()
-    
-    if "o1" in model_name and images:
-        model_name = "anthropic/claude-3.5-sonnet:beta"
-    elif "o1" in model_name and not images:
-        model_name = "openai/o1-preview"
-        
-    openai_models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-4-32k", "o1-preview", "o1-mini", "o1-hard", "o1-easy", "o1", "gpt-4-vision-preview", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4-32k"]
-    if model_name in openai_models:
-        model_name = "openai/" + model_name
-    
-    return model_name
+def call_chat_model(model, text, images, temperature, system, keys):
+    """
+    Calls the specified chat model with streaming. Routes to deep research models
+    if o3-deep-research or o4-mini-deep-research is specified.
+    """
+    # Check if this is a deep research model and route accordingly
+    if model in DEEP_RESEARCH_MODELS:
+        logger.info(f"[call_chat_model]: Routing to deep research model: {model}")
+        for chunk in call_openai_deep_research_model(model, text, images, temperature, system, keys):
+            yield chunk
+    else:
+        # Use the original chat model function for all other models
+        for chunk in call_chat_model_original(model, text, images, temperature, system, keys):
+            yield chunk
+
+
 
 
 
@@ -195,8 +260,7 @@ Avoid writing code unless asked to or if needed explicitly.
 
 
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, *args, **kwargs):
-        # self.model_name = substitute_llm_name(self.model_name, len(images) > 0)
-        # self.model_type = "openrouter"
+        
         if len(images) > 0:
             assert (self.model_type == "openai" and self.model_name in ["o1", "o1-hard", "o1-easy", "gpt-4-turbo", "gpt-4o", "gpt-4-vision-preview", "gpt-4.5-preview"]) or self.model_name in ["minimax/minimax-01", 
                                                                                                                                                                              "anthropic/claude-3-haiku:beta",
@@ -291,7 +355,11 @@ Avoid writing code unless asked to or if needed explicitly.
             assert self.keys["openAIKey"] is not None
 
         model_name = self.model_name
-        if model_name == "o1-mini":
+        # Handle deep research models
+        if model_name in DEEP_RESEARCH_MODELS:
+            # Deep research models are handled separately
+            pass
+        elif model_name == "o1-mini":
             pass
         elif model_name == "o1-preview":
             pass
@@ -389,8 +457,7 @@ class MockCallLLm:
         self.model_name = model_name
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
-        self.mock_response = """
-
+        self.mock_response = r"""
 # **Mathematics in Computer Science: The Logic of Computation**  
   
 Following our exploration of mathematics in physics and chemistry, let's dive into how computer science uses mathematics as its **foundational language**. Unlike physics (which describes nature) or chemistry (which studies matter), computer science uses mathematics to **create abstract systems**, **solve computational problems**, and **design algorithms**.  

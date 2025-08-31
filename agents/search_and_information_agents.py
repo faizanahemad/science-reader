@@ -1124,6 +1124,20 @@ class JinaSearchAgent(PerplexitySearchAgent):
             return f"<b>No relevant search results found for query:</b> {query}"
         
 
+class OpenaiDeepResearchAgent(WebSearchWithAgent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
+        super().__init__(keys, model_name, detail_level, timeout, num_queries)
+        self.openai_deep_research_model = model_name
+        
+        
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+        response = self.openai_deep_research_model(text, images, temperature, stream, max_tokens, system, web_search)
+        return response
+        
+        
+        
+        
+
 class MultiSourceSearchAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=3):
         self.keys = keys

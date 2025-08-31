@@ -3470,6 +3470,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/o4-mini-high"
     elif model_name == "o4-mini-deep-research":
         model_name = "o4-mini-deep-research"
+    elif model_name == "o3-deep-research":
+        model_name = "o3-deep-research"
     elif model_name == "openai/o3":
         model_name = "openai/o3"
     
