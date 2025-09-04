@@ -1069,11 +1069,11 @@ class MLSystemDesignAgent(Agent):
 
         self.system_prompt = manager["ml_system_design_system_prompt"]
 
-        self.ml_system_design_prompt = manager["ml_system_design_answer"]
+        self.ml_system_design_prompt = manager["ml_system_design_prompt"]
 
-        self.ml_system_design_prompt_2 = manager["ml_system_design_answer_2"]
+        self.ml_system_design_prompt_2 = manager["ml_system_design_prompt_2"]
 
-        self.ml_system_design_prompt_3 = manager["ml_system_design_answer_3"]
+        self.ml_system_design_prompt_3 = manager["ml_system_design_prompt_3"]
 
 
         
