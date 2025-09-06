@@ -5,13 +5,14 @@ import collections.abc
 import shutil
 
 import yaml
-from agents.search_and_information_agents import JinaSearchAgent
+from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent
 from call_llm import MockCallLLm
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
 from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent
+from agents.tts_and_podcast_agent import CodeTTSAgent, StreamingCodeTTSAgent, CodePodcastAgent, StreamingCodePodcastAgent
 from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
@@ -815,6 +816,131 @@ Your response will be in below xml style format:
         self.set_field("memory", memory)
         memory["title_force_set"] = True
         self.save_local()
+    
+    def detect_coding_interview_content(self, text):
+        """
+        Detect if the text contains LeetCode-style or interview coding questions.
+        
+        Uses an LLM to analyze the text and determine if it's discussing:
+        1. LeetCode/interview-style coding problems
+        2. Algorithm/data structure interview questions
+        3. Coding challenge solutions
+        
+        Returns a structured response indicating the content type.
+        
+        Args:
+            text (str): The text to analyze
+            
+        Returns:
+            dict: {
+                "is_coding_interview": bool,
+                "confidence": float (0-1),
+                "reasoning": str,
+                "content_type": str ("leetcode", "interview_prep", "general_code", "non_code")
+            }
+        """
+        try:
+            # Import CallLLm here to avoid circular imports
+            from call_llm import CallLLm
+            
+            # System prompt for detection
+            detection_system_prompt = """You are an expert at identifying coding interview and LeetCode-style content.
+Your task is to analyze text and determine if it contains or discusses:
+1. LeetCode problems or solutions
+2. Technical interview coding questions
+3. Algorithm or data structure interview problems
+4. Competitive programming problems
+5. Coding challenge explanations
+
+You should distinguish between:
+- **leetcode/interview_prep**: Actual interview-style problems with specific problem statements, examples, constraints, solutions discussing time/space complexity, or interview preparation content
+- **general_code**: Regular programming help, debugging, feature implementation, or general coding assistance
+- **non_code**: Content that is not primarily about programming
+
+Respond in JSON format with these fields:
+- is_coding_interview: true if it's leetcode/interview content, false otherwise
+- confidence: 0.0 to 1.0 indicating your confidence
+- reasoning: brief explanation of your decision
+- content_type: one of "leetcode", "interview_prep", "general_code", or "non_code"
+
+Look for indicators like:
+- Problem statements with examples and expected outputs
+- Mentions of time/space complexity, Big O notation
+- Terms like "Given an array", "Return indices", "Find the maximum", etc.
+- Interview-specific language
+- Multiple solution approaches being discussed
+- Optimization discussions"""
+
+            # Prompt for the LLM
+            detection_prompt = f"""Analyze the following text and determine if it contains LeetCode-style or technical interview coding content:
+
+<text>
+{text[:3000]}  # Limit to first 3000 chars for efficiency
+</text>
+
+Respond with a JSON object containing is_coding_interview, confidence, reasoning, and content_type."""
+
+            # Initialize LLM with a fast model
+            llm = CallLLm(
+                keys=self.get_api_keys(),
+                model_name="gpt-4o-mini"  # Use a fast, efficient model for detection
+            )
+            
+            # Get the detection result
+            response = llm(
+                text=detection_prompt,
+                system=detection_system_prompt,
+                temperature=0.3,  # Lower temperature for more consistent detection
+                max_tokens=200
+            )
+            
+            # Parse the JSON response
+            import json
+            import re
+            
+            # Try to extract JSON from the response
+            json_match = re.search(r'\{[^}]*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                # Fallback if JSON parsing fails
+                result = {
+                    "is_coding_interview": False,
+                    "confidence": 0.0,
+                    "reasoning": "Failed to parse LLM response",
+                    "content_type": "non_code"
+                }
+            
+            # Validate and ensure all required fields are present
+            required_fields = ["is_coding_interview", "confidence", "reasoning", "content_type"]
+            for field in required_fields:
+                if field not in result:
+                    if field == "is_coding_interview":
+                        result[field] = False
+                    elif field == "confidence":
+                        result[field] = 0.0
+                    elif field == "reasoning":
+                        result[field] = "Field missing from response"
+                    elif field == "content_type":
+                        result[field] = "non_code"
+            
+            # Ensure confidence is a float between 0 and 1
+            result["confidence"] = max(0.0, min(1.0, float(result["confidence"])))
+            
+            logger.info(f"Content detection result: is_coding={result['is_coding_interview']}, "
+                       f"type={result['content_type']}, confidence={result['confidence']:.2f}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in detect_coding_interview_content: {e}")
+            # Return default non-coding result on error
+            return {
+                "is_coding_interview": False,
+                "confidence": 0.0,
+                "reasoning": f"Detection failed: {str(e)}",
+                "content_type": "non_code"
+            }
         
     def convert_to_tts(self, text, message_id, message_index, recompute=False, shortTTS=False):
         """
@@ -883,13 +1009,27 @@ Your response will be in below xml style format:
         
         # Attempt to generate TTS
         try:
-            # Initialize TTSAgent with the specific output path and shortTTS flag
-            tts_agent = TTSAgent(
-                keys=self.get_api_keys(),
-                storage_path=audio_path,
-                convert_to_tts_friendly_format=True,
-                shortTTS=shortTTS
-            )
+            # Detect if this is coding interview content
+            detection_result = self.detect_coding_interview_content(text)
+            is_coding_content = detection_result["is_coding_interview"]
+            
+            # Select appropriate TTS agent based on content type
+            if is_coding_content:
+                logger.info(f"Using CodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                tts_agent = CodeTTSAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
+            else:
+                logger.info(f"Using standard TTSAgent for {detection_result['content_type']} content")
+                tts_agent = TTSAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
             
             # Convert text to audio and get the output path
             output_path = tts_agent(text)
@@ -907,7 +1047,7 @@ Your response will be in below xml style format:
     
     def convert_to_audio(self, text, message_id, message_index, recompute=False, shortTTS=False, podcastTTS=False):
         if podcastTTS:
-            raise Exception("Podcast TTS is not supported yet")
+            return self.convert_to_podcast(text, message_id, message_index, recompute, shortTTS)
         else:
             return self.convert_to_tts(text, message_id, message_index, recompute, shortTTS)
     
@@ -986,13 +1126,27 @@ Your response will be in below xml style format:
                     logger.info(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
                     raise Exception(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
             
-            # Initialize StreamingTTSAgent with path and shortTTS
-            tts_agent = StreamingTTSAgent(
-                keys=self.get_api_keys(),
-                storage_path=audio_path,
-                convert_to_tts_friendly_format=True,
-                shortTTS=shortTTS
-            )
+            # Detect if this is coding interview content
+            detection_result = self.detect_coding_interview_content(text)
+            is_coding_content = detection_result["is_coding_interview"]
+            
+            # Select appropriate streaming TTS agent based on content type
+            if is_coding_content:
+                logger.info(f"Using StreamingCodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                tts_agent = StreamingCodeTTSAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
+            else:
+                logger.info(f"Using standard StreamingTTSAgent for {detection_result['content_type']} content")
+                tts_agent = StreamingTTSAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
             
             # Stream the chunks to the client while saving to file
             audio_generator = tts_agent(text)
@@ -1090,13 +1244,27 @@ Your response will be in below xml style format:
                     logger.info(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
                     raise Exception(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
             
-            # Initialize StreamingPodcastAgent
-            podcast_agent = StreamingPodcastAgent(
-                keys=self.get_api_keys(),
-                storage_path=audio_path,
-                convert_to_tts_friendly_format=True,
-                shortTTS=shortTTS
-            )
+            # Detect if this is coding interview content
+            detection_result = self.detect_coding_interview_content(formatted_text)
+            is_coding_content = detection_result["is_coding_interview"]
+            
+            # Select appropriate streaming podcast agent based on content type
+            if is_coding_content:
+                logger.info(f"Using StreamingCodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                podcast_agent = StreamingCodePodcastAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
+            else:
+                logger.info(f"Using standard StreamingPodcastAgent for {detection_result['content_type']} content")
+                podcast_agent = StreamingPodcastAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
             
             # Stream the chunks to the client while saving to file
             audio_generator = podcast_agent(formatted_text, stream=True)
@@ -1110,6 +1278,115 @@ Your response will be in below xml style format:
             def empty_gen():
                 yield
             return empty_gen()
+    
+    def convert_to_podcast(self, text, message_id, message_index, recompute=False, shortTTS=False,
+                          previous_message=None, conversation_summary=None):
+        """
+        Convert text to podcast-style audio using PodcastAgent (non-streaming version).
+        
+        This method:
+        1. Creates an audio messages directory if it doesn't exist
+        2. Resolves the message_id if missing or invalid
+        3. Formats the input to include brief context from previous message and conversation summary
+        4. Uses a distinct filename format: "{message_id}_podcast.mp3"
+        5. If the file exists and recompute=False, returns its path (cached)
+        6. Otherwise, initializes the PodcastAgent to generate the full audio file
+        
+        Args:
+            text (str): Current message text to convert to podcast audio
+            message_id (str|None): Message ID for the text
+            message_index (int): Index of the message
+            recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
+            shortTTS (bool, optional): Whether to generate a shorter podcast variant. Defaults to False.
+            previous_message (str|None, optional): Text of the previous message for context. Defaults to None.
+            conversation_summary (str|None, optional): Summary of the conversation for context. Defaults to None.
+        
+        Returns:
+            str: Path to the generated (or cached) audio file, or None if an error occurred.
+        """
+        # Create audio messages directory
+        audio_dir = os.path.join(self._storage, "audio_messages")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        # Resolve message_id if missing
+        if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
+            messages = self.get_field("messages")
+            if messages:
+                message_id = messages[-1].get("message_id")
+                text = messages[-1].get("text")
+        
+        # If still no message_id, log and return
+        if not message_id:
+            logger.error(f"Could not determine message_id for index {message_index}")
+            return None
+        
+        # Retrieve relevant message text if available
+        messages = self.get_field("messages")
+        if messages:
+            message = next((m for m in messages if m["message_id"] == message_id), None)
+            if message:
+                text = message.get("text", text)
+        
+        # If previous_message is not provided, try to get it from messages
+        if previous_message is None and len(messages) > 1:
+            prev_msg = messages[-2] if message_id == messages[-1].get("message_id") else None
+            if prev_msg:
+                previous_message = prev_msg.get("text", "")
+        
+        # If conversation_summary is not provided, use running_summary
+        if conversation_summary is None:
+            conversation_summary = self.running_summary
+        
+        # Format the input text to include context
+        formatted_text = text  # self._format_podcast_input(text, previous_message, conversation_summary)
+        
+        # Use distinct filename for podcast
+        if shortTTS:
+            filename = f"{message_id}_podcast_short.mp3"
+        else:
+            filename = f"{message_id}_podcast.mp3"
+        audio_path = os.path.join(audio_dir, filename)
+        
+        # If audio file already exists and recompute=False, return its path
+        if os.path.exists(audio_path) and not recompute:
+            if audio_path.endswith(".mp3"):
+                logger.info(f"Found existing podcast audio file for message_id={message_id}, shortTTS={shortTTS}")
+                return audio_path
+            else:
+                logger.info(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
+                raise Exception(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
+        
+        # Attempt to generate podcast
+        try:
+            # Detect if this is coding interview content
+            detection_result = self.detect_coding_interview_content(formatted_text)
+            is_coding_content = detection_result["is_coding_interview"]
+            
+            # Select appropriate podcast agent based on content type
+            if is_coding_content:
+                logger.info(f"Using CodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                podcast_agent = CodePodcastAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
+            else:
+                logger.info(f"Using standard PodcastAgent for {detection_result['content_type']} content")
+                podcast_agent = PodcastAgent(
+                    keys=self.get_api_keys(),
+                    storage_path=audio_path,
+                    convert_to_tts_friendly_format=True,
+                    shortTTS=shortTTS
+                )
+            
+            # Convert text to podcast audio and get the output path
+            output_path = podcast_agent(formatted_text)
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Error converting text to podcast for message_id={message_id}, shortTTS={shortTTS}: {e}")
+            return None
 
     
 
@@ -1413,6 +1690,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             pass
         if field == "JinaSearchAgent":
             agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
+        if field == "JinaDeepResearchAgent":
+            agent = JinaDeepResearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=180, num_queries=kwargs.get("num_queries", 1))
         if field == "PerplexitySearch":
             agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "WebSearch":
@@ -2543,15 +2822,15 @@ At the end write what we must make slides about as well.
                 agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
             
             
-            else:
-                main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-                if isinstance(main_ans_gen, dict):
-                    main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
-                elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
-                    pass
-                elif not isinstance(main_ans_gen, str):
-                    main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
-                main_ans_gen = buffer_generator_async(main_ans_gen)
+            
+            main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+            if isinstance(main_ans_gen, dict):
+                main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
+            elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
+                pass
+            elif not isinstance(main_ans_gen, str):
+                main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
+            main_ans_gen = buffer_generator_async(main_ans_gen)
             
         else:
             if is_slide_agent and storyboard_context is not None:
@@ -3562,8 +3841,14 @@ def model_name_to_canonical_name(model_name):
         model_name = "thedrummer/anubis-pro-105b-v1"
     elif model_name == "thedrummer/anubis-70b-v1.1":
         model_name = "thedrummer/anubis-70b-v1.1"
-    elif model_name == "moonshotai/kimi-k2":
-        model_name = "moonshotai/kimi-k2"
+    elif model_name == "moonshotai/kimi-k2" or model_name == "moonshotai/kimi-k2-0905":
+        model_name = "moonshotai/kimi-k2-0905"
+    elif model_name == "perplexity/sonar-pro":
+        model_name = "perplexity/sonar-pro"
+    elif model_name == "perplexity/sonar-deep-research":
+        model_name = "perplexity/sonar-deep-research"
+    elif model_name == "qwen/qwen3-max":
+        model_name = "qwen/qwen3-max"
     elif model_name == "steelskull/l3.3-electra-r1-70b":
         model_name = "steelskull/l3.3-electra-r1-70b"
     elif model_name == "openai/gpt-4o-mini":

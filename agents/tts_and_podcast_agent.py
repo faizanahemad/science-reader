@@ -2604,6 +2604,386 @@ class StreamingPodcastAgent(PodcastAgent):
                 except Exception as write_error:  
                     error_logger.error(f"Error writing fallback audio file: {write_error}")  
 
+
+# Code-focused TTS and Podcast Agents for LeetCode-style problems
+
+# Code TTS formatting instructions
+code_tts_friendly_format_instructions = """  
+**Code TTS Guidelines for Technical Interview and LeetCode-style Problems**:  
+  - You are explaining a coding problem and its solution(s) to someone who is listening, not reading code.
+  - **NEVER read code verbatim** - instead, explain what the code does in natural language.
+  - Focus on the problem understanding, approach, algorithm, and key insights.
+  - Use visual and conceptual explanations that work well in audio format.
+  
+**Problem Explanation Structure**:
+  - Start by clearly stating what the problem asks us to do.
+  - Give concrete examples with small inputs to illustrate the problem.
+  - Mention any constraints or edge cases that are important.
+  - Use phrases like "imagine we have...", "picture this scenario...", "think of it as..."
+  
+**Solution Discussion Format**:
+  - Explain the intuition and approach BEFORE any code details.
+  - Describe the algorithm in steps using natural language.
+  - For data structures, explain WHY we use them, not just WHAT they are.
+  - Use analogies and real-world comparisons when possible.
+  
+**Code Description Guidelines**:
+  - Instead of "for i in range(n)", say "we iterate through each element"
+  - Instead of "dp[i][j] = max(dp[i-1][j], dp[i][j-1])", say "we take the maximum of the value from the cell above or the cell to the left"
+  - Describe the logic and purpose, not the syntax.
+  - For complex algorithms, walk through a small example step by step.
+  
+**Multiple Solutions**:
+  - When discussing multiple solutions, clearly transition between them.
+  - Compare approaches in terms of time/space complexity using simple terms.
+  - Explain trade-offs in practical, understandable language.
+  
+**Emotion and Pacing**:
+  - Use <emotion>curious</emotion> when introducing the problem.
+  - Use <emotion>thoughtful</emotion> when explaining the approach.
+  - Use <emotion>excited</emotion> when revealing key insights.
+  - Use <emotion>authoritative</emotion> when stating the final solution.
+  - Add *pause* between major sections for better comprehension.
+  
+**Technical Terms**:
+  - Spell out abbreviations on first use: "BFS, which stands for Breadth-First Search"
+  - Use simple language alternatives when possible: "visiting each node" instead of "traversing"
+  - Explain Big O notation in practical terms: "linear time, meaning it scales directly with input size"
+  
+{tts_friendly_format_instructions}
+"""
+
+code_stts_prompt = """  
+Further Code TTS Instructions (shortTTS = True):  
+- Focus ONLY on the core algorithm and key insight.
+- Skip detailed complexity analysis unless crucial.
+- Give one clear example and move to the solution.
+- Mention only the most optimal solution unless specifically asked.
+- Keep explanations concise but clear.
+- No code reading - pure conceptual explanation.
+"""
+
+# Code Podcast formatting instructions  
+code_podcast_format_instructions = """
+**Code Podcast Guidelines for Technical Interview Discussion**:
+
+You are creating a podcast where a Host interviews an Expert about coding problems and their solutions.
+The Host is a curious developer preparing for interviews, and the Expert is a seasoned engineer who explains solutions clearly.
+
+**CONVERSATION STYLE**:
+- The Host asks clarifying questions about the problem and approach.
+- The Expert explains concepts without reading code verbatim.
+- Both speakers use analogies and visual descriptions for audio clarity.
+- Natural back-and-forth dialogue with genuine reactions.
+
+**PROBLEM INTRODUCTION PATTERN**:
+Host: Introduces the topic and asks about the problem.
+Expert: Explains what the problem is asking with a simple example.
+Host: Asks about edge cases or clarifications.
+Expert: Addresses concerns and sets up the solution approach.
+
+**SOLUTION DISCUSSION PATTERN**:
+Expert: Explains the intuition behind the approach.
+Host: Asks "why" questions - why this data structure, why this approach?
+Expert: Provides reasoning and compares to alternatives.
+Host: Summarizes understanding and asks about complexity.
+Expert: Confirms and explains trade-offs in simple terms.
+
+**CODE EXPLANATION STYLE**:
+- Never say "the code does X" - instead say "our approach does X"
+- Use "we" language: "we iterate through", "we check if", "we maintain"
+- Describe the algorithm conceptually, not syntactically.
+- Walk through examples conversationally.
+
+**MULTIPLE SOLUTIONS DIALOGUE**:
+Host: "Is there another way to solve this?"
+Expert: Introduces alternative approach with pros/cons.
+Host: Asks about when to use which approach.
+Expert: Explains practical considerations and interview tips.
+
+**EMOTION GUIDELINES**:
+- Host uses <emotion>curious</emotion> for questions.
+- Expert uses <emotion>thoughtful</emotion> for explanations.
+- Both use <emotion>excited</emotion> for "aha" moments.
+- Host uses <emotion>surprised</emotion> for unexpected insights.
+- Expert uses <emotion>authoritative</emotion> for key concepts.
+"""
+
+code_stts_podcast_prompt = code_stts_prompt + """  
+Further Code Podcast Instructions (shortTTS = True):  
+- Keep the dialogue snappy and focused.
+- Host asks fewer but more targeted questions.
+- Expert gives concise, clear explanations.
+- Skip extensive examples - one clear walkthrough is enough.
+- Focus on the main solution approach and key insight.
+"""
+
+
+class CodeTTSAgent(TTSAgent):
+    """
+    A specialized TTS Agent for converting LeetCode-style coding problems and solutions
+    into audio-friendly explanations. Inherits from TTSAgent but uses code-specific prompts.
+    """
+    
+    def __init__(
+        self,
+        keys: Dict[str, str],
+        storage_path: str,
+        convert_to_tts_friendly_format: bool = True,
+        shortTTS: bool = False,
+        voice: str = "nova",
+        model: str = "tts-1",
+        audio_format: str = "mp3",
+        max_workers: int = None,
+    ):
+        """
+        Initialize the CodeTTSAgent with code-specific prompts.
+        All parameters are the same as TTSAgent.
+        """
+        # Initialize parent class
+        super().__init__(
+            keys,
+            storage_path,
+            convert_to_tts_friendly_format,
+            shortTTS,
+            voice,
+            model,
+            audio_format,
+            max_workers,
+        )
+        
+        # Override prompts with code-specific versions
+        shortTTS_prompt = code_stts_prompt if self.shortTTS else ""
+        
+        self.system = f"""
+You are an expert coding instructor specializing in explaining technical interview problems and LeetCode-style questions.
+You convert coding problems and solutions into audio-friendly explanations that are easy to understand when listening.
+You NEVER read code verbatim but instead explain algorithms, approaches, and insights in natural language.
+
+Use the following guidelines to create engaging, educational audio content:
+{code_tts_friendly_format_instructions}
+{shortTTS_prompt}
+
+Remember: Your audience is listening, not reading. Make the content conversational, clear, and conceptual.
+"""
+        
+        self.prompt = self.system + f"""
+Original coding problem or solution to explain:
+<|context|>
+{{text}}
+</|context|>
+
+{shortTTS_prompt}
+Convert this into an audio-friendly explanation following the Code TTS Guidelines above.
+Focus on explaining the problem, approach, and algorithm in a way that's easy to understand through listening:
+"""
+
+
+class StreamingCodeTTSAgent(StreamingTTSAgent, CodeTTSAgent):
+    """
+    A streaming version of CodeTTSAgent that processes and streams code explanations in real-time.
+    Inherits from both StreamingTTSAgent for streaming functionality and CodeTTSAgent for code-specific prompts.
+    """
+    
+    def __init__(
+        self,
+        keys: Dict[str, str],
+        storage_path: str,
+        convert_to_tts_friendly_format: bool = True,
+        shortTTS: bool = False,
+        voice: str = "nova",
+        model: str = "tts-1",
+        audio_format: str = "mp3",
+        max_workers: int = None,
+    ):
+        """
+        Initialize the StreamingCodeTTSAgent.
+        Uses CodeTTSAgent's prompts with StreamingTTSAgent's streaming capabilities.
+        """
+        # Initialize with CodeTTSAgent to get the code-specific prompts
+        CodeTTSAgent.__init__(
+            self,
+            keys,
+            storage_path,
+            convert_to_tts_friendly_format,
+            shortTTS,
+            voice,
+            model,
+            audio_format,
+            max_workers,
+        )
+        # The streaming functionality is inherited from StreamingTTSAgent
+
+
+class CodePodcastAgent(PodcastAgent):
+    """
+    A specialized Podcast Agent for creating conversational podcasts about coding problems and solutions.
+    Creates engaging dialogue between a Host and Expert discussing LeetCode-style problems.
+    """
+    
+    def __init__(
+        self,
+        keys: Dict[str, str],
+        storage_path: str,
+        convert_to_tts_friendly_format: bool = True,
+        host_voice: str = "alloy",
+        expert_voice: str = "nova",
+        shortTTS: bool = False,
+        template: str = "interview",
+        background_music: Optional[str] = None,
+        sound_effects_dir: Optional[str] = None,
+        enable_sound_effects: bool = True,
+        pause_duration: int = 500,
+        intro_music_volume: float = -10,
+        background_music_volume: float = -20,
+        sound_effect_volume: float = -5,
+        max_workers: int = None,
+        model: str = "tts-1",
+        audio_format: str = "mp3"
+    ):
+        """
+        Initialize the CodePodcastAgent with code-specific dialogue prompts.
+        All parameters are the same as PodcastAgent.
+        """
+        # Initialize parent class
+        super().__init__(
+            keys,
+            storage_path,
+            convert_to_tts_friendly_format,
+            host_voice,
+            expert_voice,
+            shortTTS,
+            template,
+            background_music,
+            sound_effects_dir,
+            enable_sound_effects,
+            pause_duration,
+            intro_music_volume,
+            background_music_volume,
+            sound_effect_volume,
+            max_workers,
+            model,
+            audio_format
+        )
+        
+        # Override prompts with code-specific versions
+        shortTTS_prompt = code_stts_podcast_prompt if self.shortTTS else ""
+        
+        self.system = f"""
+You are an expert podcast script writer specializing in technical interview preparation and coding problems.
+You create engaging dialogues between a Host (curious developer) and an Expert (seasoned engineer) discussing LeetCode-style problems.
+
+The conversation should be educational, engaging, and optimized for audio consumption.
+NEVER have speakers read code verbatim - always explain concepts, approaches, and algorithms conversationally.
+
+{code_podcast_format_instructions}
+
+PODCAST FORMAT: {self.template.name}
+DESCRIPTION: {self.template.description}
+
+STRUCTURE:
+{self._format_structure()}
+
+HOST ROLE (Curious Developer):
+- Asks clarifying questions about problem requirements
+- Inquires about approach and algorithm choices
+- Seeks understanding of time/space complexity
+- Asks about edge cases and alternative solutions
+- Summarizes understanding and asks follow-ups
+- Shows genuine curiosity and "aha" moments
+
+EXPERT ROLE (Seasoned Engineer):
+- Explains problems with clear examples
+- Describes algorithms conceptually, not syntactically
+- Provides intuition behind approaches
+- Compares different solutions practically
+- Offers interview tips and best practices
+- Uses analogies and visual descriptions for audio
+
+{code_tts_friendly_format_instructions}
+{shortTTS_prompt}
+
+EXAMPLE DIALOGUE PATTERN:
+<emotion>curious</emotion>
+Host: [speaking curiously] Today we're tackling an interesting problem about finding the longest palindromic substring. Can you walk us through what this problem is asking?
+
+<emotion>thoughtful</emotion>
+Expert: [speaking thoughtfully] Absolutely! Imagine you have a string, and you need to find the longest sequence of characters that reads the same forwards and backwards. For example, in the word "babad", both "bab" and "aba" are palindromes, and they're the longest ones at three characters each.
+
+<emotion>curious</emotion>
+Host: [speaking curiously] Interesting! So how would we approach finding these palindromes efficiently?
+
+<emotion>authoritative</emotion>
+Expert: [speaking with authority] There are actually several approaches. The key insight is that we can expand around potential centers...
+
+Remember: This is a conversation about code, not a code reading session. Keep it natural and educational!
+"""
+        
+        self.prompt = self.system + f"""
+Original coding problem or solution to discuss:
+<|context|>
+{{text}}
+</|context|>
+
+{shortTTS_prompt}
+Create an engaging podcast dialogue between a Host and Expert discussing this coding problem.
+Focus on explaining the problem, exploring the approach, and understanding the solution through natural conversation:
+"""
+
+
+class StreamingCodePodcastAgent(StreamingPodcastAgent, CodePodcastAgent):
+    """
+    A streaming version of CodePodcastAgent that processes and streams code discussion podcasts in real-time.
+    Combines streaming capabilities with code-focused podcast dialogue generation.
+    """
+    
+    def __init__(
+        self,
+        keys: Dict[str, str],
+        storage_path: str,
+        convert_to_tts_friendly_format: bool = True,
+        host_voice: str = "alloy",
+        expert_voice: str = "nova",
+        shortTTS: bool = False,
+        template: str = "interview",
+        background_music: Optional[str] = None,
+        sound_effects_dir: Optional[str] = None,
+        enable_sound_effects: bool = True,
+        pause_duration: int = 500,
+        intro_music_volume: float = -10,
+        background_music_volume: float = -20,
+        sound_effect_volume: float = -5,
+        max_workers: int = None,
+        model: str = "tts-1",
+        audio_format: str = "mp3"
+    ):
+        """
+        Initialize the StreamingCodePodcastAgent.
+        Uses CodePodcastAgent's prompts with StreamingPodcastAgent's streaming capabilities.
+        """
+        # Initialize with CodePodcastAgent to get the code-specific prompts
+        CodePodcastAgent.__init__(
+            self,
+            keys,
+            storage_path,
+            convert_to_tts_friendly_format,
+            host_voice,
+            expert_voice,
+            shortTTS,
+            template,
+            background_music,
+            sound_effects_dir,
+            enable_sound_effects,
+            pause_duration,
+            intro_music_volume,
+            background_music_volume,
+            sound_effect_volume,
+            max_workers,
+            model,
+            audio_format
+        )
+        # The streaming functionality is inherited from StreamingPodcastAgent
+
   
 if __name__ == "__main__":  
     keys = {  

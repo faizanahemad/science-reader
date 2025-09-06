@@ -786,19 +786,18 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         super().__init__(keys, model_name, detail_level, timeout)
         self.num_queries = num_queries
         self.perplexity_models = [
-            "perplexity/llama-3.1-sonar-small-128k-online",
-            "openai/gpt-4o-mini-search-preview",
+            
             "perplexity/sonar-pro",
             "perplexity/sonar",
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
         
         if detail_level >= 3:
-            self.perplexity_models.append("perplexity/llama-3.1-sonar-large-128k-online")
+            
             # self.perplexity_models.append("perplexity/sonar-pro")
             self.perplexity_models.append("perplexity/sonar-reasoning")
             self.perplexity_models.append("perplexity/sonar-reasoning-pro")
-            self.perplexity_models.append("openai/gpt-4o-search-preview")
+            
         
         year = time.localtime().tm_year
         self.get_references = f"""
@@ -1319,6 +1318,256 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             yield {"text": chunk, "status": "MultiSourceSearchAgent"}
             answer += chunk
         yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
+
+
+class JinaDeepResearchAgent(Agent):
+    """Agent that uses Jina's Deep Research API for comprehensive search and analysis"""
+    
+    def __init__(self, keys, model_name, detail_level=1, timeout=180, num_queries=1):
+        super().__init__(keys)
+        self.model_name = model_name
+        self.detail_level = detail_level
+        self.timeout = timeout
+        self.num_queries = num_queries
+        
+        # Use the same API key as JinaSearchAgent
+        self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
+        assert self.jina_api_key, "No Jina API key found. Please set jinaAIKey environment variable."
+        
+        # Reasoning effort based on detail level
+        self.reasoning_effort = "low" if detail_level <= 2 else "medium" if detail_level == 3 else "high"
+        num_queries_actual = num_queries + 1 
+        
+        # LLM for generating search queries
+        self.query_generation_prompt = f"""Given the following text, generate {num_queries_actual} focused and specific search queries that would help answer the user's question comprehensively.
+
+Text: {{text}}
+
+Generate exactly {num_queries_actual} search queries that are:
+1. The first query is a single detailed query that overall represents the user's question and web search intention and what to search for. If user's direct query itself is also short and clear then append it to the end of this first query so we keep what user asked verbatim as well.
+2. The second query is a summary query that summarizes the user's question in full details along with brief information about user's goal and purpose and previous conversation.
+3. The remaining queries are generated based on the below guidelines.
+    a. Queries after the first two should be Specific and focused on different aspects of the question
+    b. Queries after the first two should likely to return complementary information
+    c. Queries after the first two should be formulated to get the most relevant results
+
+Note: Generate a first query as a generic single query that overall represents the user's question. Then the remaining queries are generated based on the above guidelines.
+
+Format your response as a Python list:
+```python
+["first query that overall represents the user's question", "summary query that summarizes the user's question in full details along with brief information about user's goal and purpose and previous conversation", "query3", ...]
+```
+"""
+
+    def extract_queries(self, code_string):
+        """Extract queries from LLM response"""
+        regex = r"```(?:\w+)?\s*(.*?)```"
+        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        
+        if not matches:
+            return None
+        
+        code_to_execute = matches[0].strip()
+        
+        try:
+            import ast
+            queries = ast.literal_eval(code_to_execute)
+            queries = [queries[0]] + queries[2:] # "\n\n" + queries[1]
+            if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
+                return queries[:self.num_queries]  # Limit to num_queries
+        except (SyntaxError, ValueError) as e:
+            logger.error(f"Error parsing queries: {e}")
+        
+        return None
+    
+    def call_jina_deep_research(self, messages, stream=True):
+        """Call Jina Deep Research API with the given messages"""
+        import requests
+        import json
+        
+        url = "https://deepsearch.jina.ai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.jina_api_key}"
+        }
+        
+        data = {
+            "model": "jina-deepsearch-v1",
+            "messages": messages,
+            "stream": stream,
+            "reasoning_effort": self.reasoning_effort
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=data, stream=stream)
+            response.raise_for_status()
+            
+            if stream:
+                for line in response.iter_lines():
+                    if line:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith("data: "):
+                            line_str = line_str[6:]  # Remove "data: " prefix
+                        
+                        if line_str == "[DONE]":
+                            break
+                        
+                        try:
+                            chunk = json.loads(line_str)
+                            if "choices" in chunk and len(chunk["choices"]) > 0:
+                                delta = chunk["choices"][0].get("delta", {})
+                                content = delta.get("content", "")
+                                content_type = delta.get("type", "")
+                                
+                                yield {
+                                    "content": content,
+                                    "type": content_type,
+                                    "role": delta.get("role", "")
+                                }
+                        except json.JSONDecodeError:
+                            continue
+            else:
+                return response.json()
+                
+        except Exception as e:
+            logger.error(f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}")
+            yield {"content": f"Error: {str(e)}", "type": "error", "role": "assistant"}
+    
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+        """Execute deep research for the given query"""
+        
+        # Generate search queries if num_queries > 1
+        queries = []
+        
+        # Use LLM to generate multiple queries
+        llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
+        query_prompt = self.query_generation_prompt.format(text=text, num_queries=self.num_queries)
+        
+        yield {"text": "Generating search queries...\n", "status": "Generating queries"}
+        
+        query_response = llm(query_prompt, temperature=0.7, stream=False)
+        queries = self.extract_queries(query_response)
+        yield {"text": "<details open>\n<summary><strong>Queries</strong></summary>\n\n", "status": "Researching query"}
+        
+        if queries:
+            yield {"text": f"Generated {len(queries)} search queries:\n", "status": "Generated queries"}
+            for i, q in enumerate(queries, 1):
+                yield {"text": f"{i}. {q}\n", "status": "Generated queries"}
+            yield {"text": "\n", "status": "Generated queries"}
+        else:
+            # Fallback to single query
+            queries = [text]
+        yield {"text": "</details>\n\n", "status": "Researching query"}        
+        # Perform deep research for each query
+        all_results = []
+        
+        for idx, query in enumerate(queries, 1):
+            yield {"text": f"\n <b>Deep Research Query {idx}/{len(queries)}: {query}</b> \n\n", "status": f"Researching query {idx}"}
+            
+            # Prepare messages for Jina Deep Research API
+            messages = [
+                {
+                    "role": "user",
+                    "content": system if system else "You are a helpful research and web search assistant that provides comprehensive, well-researched answers and knowledge base compilations with citations. Focus on writing detailed and comprehensive answers with mutliple citations and research and references. Expend your energy in writing the actual answer itself with due research."
+                },
+                {
+                    "role": "assistant", 
+                    "content": "Let me perform an extensive search and provide you that information. I will perform a broad and deep search. This user has requested a web search query and I will not overthink. I will perform search and retrieval of information and then compile and present it. I will not think. Put all the references with web url links (http or https links) at the end in markdown links format as bullet points."
+                },
+                {
+                    "role": "user",
+                    "content": query
+                }
+            ]
+            
+            # Stream response from Jina Deep Research
+            thinking_mode = False
+            current_result = ""
+            
+            yield {"text": "<details open>\n<summary><strong>Research Process</strong></summary>\n\n", "status": f"Researching query {idx}"}
+            
+            try:
+                for chunk in self.call_jina_deep_research(messages, stream=True):
+                    content = chunk.get("content", "")
+                    content_type = chunk.get("type", "")
+
+                    if content_type != "think":
+                        print(len(content))
+                    
+                    # Handle thinking vs regular content
+                    if content_type == "think" and "<think>" in content and not thinking_mode:
+                        thinking_mode = True
+                        yield {"text": "<details open>\n<summary><strong>Thinking Process</strong></summary>\n\n", "status": f"Researching query {idx}"}
+                        yield {"text": "**Analyzing sources and reasoning...**\n\n", "status": f"Researching query {idx}"}
+                    elif content == "</think>" or "</think>" in content:
+                        thinking_mode = False
+                        yield {"text": "\n</think>\n\n", "status": f"Researching query {idx}"}
+                        yield {"text": "\n</details>\n\n", "status": f"Researching query {idx}"}
+                        yield {"text": "\n---\n\n", "status": f"Researching query {idx}"}
+                    elif thinking_mode:
+                        # Show thinking process in code block
+                        yield {"text": content, "status": f"Researching query {idx}"}
+                    elif content_type != "think":
+                        yield {"text": content, "status": f"Researching query {idx}"}
+                        current_result += content
+                    else:
+                        # Regular content
+                        current_result += content
+                        yield {"text": content, "status": f"Getting Results {idx}"}
+            except Exception as e:
+                logger.error(f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}")
+                yield {"text": f"Error: {str(e)}", "status": f"Researching query {idx}"}
+            
+            yield {"text": "\n</details>\n\n", "status": f"Researching query {idx}"}
+            
+            all_results.append({
+                "query": query,
+                "result": current_result
+            })
+            
+            if idx < len(queries):
+                yield {"text": "\n---\n", "status": f"Completed query {idx}"}
+        
+        # If multiple queries, combine results
+        if len(queries) > 1:
+            yield {"text": "\n\n**Synthesizing Results**\n\n", "status": "Synthesizing"}
+            
+            # Combine all results using LLM
+            llm = CallLLm(self.keys, model_name=self.model_name)
+            
+            # Prepare results for combination
+            results_text = ""
+            for res in all_results:
+                results_text += f"Query: {res['query']}\n\nResult:\n{res['result']}\n\n---\n\n"
+            
+            combine_prompt = f"""You are tasked with synthesizing multiple deep research results into a comprehensive response.
+
+User's original question:
+{text}
+
+Deep research results from multiple queries:
+{results_text}
+
+Please provide a comprehensive, well-structured response that:
+1. Integrates information from all search results
+2. Maintains all important citations and references
+3. Presents the information in a logical flow
+4. Avoids repetition while ensuring completeness
+5. Clearly addresses the user's original question
+
+Your synthesized response:"""
+            
+            yield {"text": "<web_answer>", "status": "Synthesizing"}
+            
+            combined_response = llm(combine_prompt, temperature=temperature, stream=True, max_tokens=max_tokens)
+            
+            for chunk in combined_response:
+                yield {"text": chunk, "status": "Synthesizing"}
+            
+            yield {"text": "</web_answer>", "status": "Complete"}
+        else:
+            # Single query result already streamed
+            yield {"text": "\n\n**Research completed.**", "status": "Complete"}
 
     
     
