@@ -999,7 +999,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         audio_path = os.path.join(audio_dir, filename)
         
         # If audio file already exists and recompute=False, return its path
-        if os.path.exists(audio_path) and not recompute:
+        if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
             if audio_path.endswith(".mp3"):
                 logger.info(f"Found existing audio file for message_id={message_id}, shortTTS={shortTTS}")
                 return audio_path
@@ -1115,7 +1115,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
         try:
             # If file exists and recompute=False, stream it from local file
-            if os.path.exists(audio_path) and not recompute:
+            if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
                 if audio_path.endswith(".mp3"):
                     logger.info(f"Streaming existing audio file for message_id={message_id}, shortTTS={shortTTS}")
                     with open(audio_path, 'rb') as f:
@@ -1233,7 +1233,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         
         try:
             # If file exists and recompute=False, stream it from local file
-            if os.path.exists(audio_path) and not recompute:
+            if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
                 if audio_path.endswith(".mp3"):
                     logger.info(f"Streaming existing podcast audio file for message_id={message_id}")
                     with open(audio_path, 'rb') as f:
@@ -1348,7 +1348,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         audio_path = os.path.join(audio_dir, filename)
         
         # If audio file already exists and recompute=False, return its path
-        if os.path.exists(audio_path) and not recompute:
+        if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
             if audio_path.endswith(".mp3"):
                 logger.info(f"Found existing podcast audio file for message_id={message_id}, shortTTS={shortTTS}")
                 return audio_path

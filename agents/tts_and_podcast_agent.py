@@ -1059,7 +1059,7 @@ class StreamingTTSAgent(TTSAgent):
             output_path = os.path.join(self.storage_path, 'output.mp3')  
   
         # If file exists and we're streaming, stream it directly  
-        if stream and os.path.exists(output_path):  
+        if stream and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:  
             return self._stream_existing_file(output_path)  
   
         # If not streaming, use the parent class implementation  
@@ -2200,7 +2200,7 @@ class StreamingPodcastAgent(PodcastAgent):
             output_path = os.path.join(self.storage_path, 'podcast_output.mp3')  
   
         # If file exists and we're streaming, stream it directly  
-        if stream and os.path.exists(output_path):  
+        if stream and os.path.exists(output_path) and os.path.getsize(output_path) > 1024:  
             return self._stream_existing_file(output_path)  
   
         # If not streaming, use the parent class implementation  
@@ -2650,7 +2650,7 @@ code_tts_friendly_format_instructions = """
   - Use simple language alternatives when possible: "visiting each node" instead of "traversing"
   - Explain Big O notation in practical terms: "linear time, meaning it scales directly with input size"
   
-{tts_friendly_format_instructions}
+**Additional TTS formatting from base instructions will be included below**
 """
 
 code_stts_prompt = """  
@@ -2762,6 +2762,7 @@ You NEVER read code verbatim but instead explain algorithms, approaches, and ins
 
 Use the following guidelines to create engaging, educational audio content:
 {code_tts_friendly_format_instructions}
+{tts_friendly_format_instructions}
 {shortTTS_prompt}
 
 Remember: Your audience is listening, not reading. Make the content conversational, clear, and conceptual.
@@ -2779,10 +2780,10 @@ Focus on explaining the problem, approach, and algorithm in a way that's easy to
 """
 
 
-class StreamingCodeTTSAgent(StreamingTTSAgent, CodeTTSAgent):
+class StreamingCodeTTSAgent(StreamingTTSAgent):
     """
     A streaming version of CodeTTSAgent that processes and streams code explanations in real-time.
-    Inherits from both StreamingTTSAgent for streaming functionality and CodeTTSAgent for code-specific prompts.
+    Inherits from StreamingTTSAgent and overrides prompts for code-specific content.
     """
     
     def __init__(
@@ -2798,11 +2799,10 @@ class StreamingCodeTTSAgent(StreamingTTSAgent, CodeTTSAgent):
     ):
         """
         Initialize the StreamingCodeTTSAgent.
-        Uses CodeTTSAgent's prompts with StreamingTTSAgent's streaming capabilities.
+        Inherits from StreamingTTSAgent but uses code-specific prompts.
         """
-        # Initialize with CodeTTSAgent to get the code-specific prompts
-        CodeTTSAgent.__init__(
-            self,
+        # Initialize parent StreamingTTSAgent (which will initialize TTSAgent)
+        super().__init__(
             keys,
             storage_path,
             convert_to_tts_friendly_format,
@@ -2812,7 +2812,33 @@ class StreamingCodeTTSAgent(StreamingTTSAgent, CodeTTSAgent):
             audio_format,
             max_workers,
         )
-        # The streaming functionality is inherited from StreamingTTSAgent
+        
+        # Override prompts with code-specific versions (same as CodeTTSAgent)
+        shortTTS_prompt = code_stts_prompt if self.shortTTS else ""
+        
+        self.system = f"""
+You are an expert coding instructor specializing in explaining technical interview problems and LeetCode-style questions.
+You convert coding problems and solutions into audio-friendly explanations that are easy to understand when listening.
+You NEVER read code verbatim but instead explain algorithms, approaches, and insights in natural language.
+
+Use the following guidelines to create engaging, educational audio content:
+{code_tts_friendly_format_instructions}
+{tts_friendly_format_instructions}
+{shortTTS_prompt}
+
+Remember: Your audience is listening, not reading. Make the content conversational, clear, and conceptual.
+"""
+        
+        self.prompt = self.system + f"""
+Original coding problem or solution to explain:
+<|context|>
+{{text}}
+</|context|>
+
+{shortTTS_prompt}
+Convert this into an audio-friendly explanation following the Code TTS Guidelines above.
+Focus on explaining the problem, approach, and algorithm in a way that's easy to understand through listening:
+"""
 
 
 class CodePodcastAgent(PodcastAgent):
@@ -2901,6 +2927,7 @@ EXPERT ROLE (Seasoned Engineer):
 - Uses analogies and visual descriptions for audio
 
 {code_tts_friendly_format_instructions}
+{tts_friendly_format_instructions}
 {shortTTS_prompt}
 
 EXAMPLE DIALOGUE PATTERN:
@@ -2931,10 +2958,10 @@ Focus on explaining the problem, exploring the approach, and understanding the s
 """
 
 
-class StreamingCodePodcastAgent(StreamingPodcastAgent, CodePodcastAgent):
+class StreamingCodePodcastAgent(StreamingPodcastAgent):
     """
     A streaming version of CodePodcastAgent that processes and streams code discussion podcasts in real-time.
-    Combines streaming capabilities with code-focused podcast dialogue generation.
+    Inherits from StreamingPodcastAgent and overrides prompts for code-specific content.
     """
     
     def __init__(
@@ -2959,11 +2986,10 @@ class StreamingCodePodcastAgent(StreamingPodcastAgent, CodePodcastAgent):
     ):
         """
         Initialize the StreamingCodePodcastAgent.
-        Uses CodePodcastAgent's prompts with StreamingPodcastAgent's streaming capabilities.
+        Inherits from StreamingPodcastAgent but uses code-specific prompts.
         """
-        # Initialize with CodePodcastAgent to get the code-specific prompts
-        CodePodcastAgent.__init__(
-            self,
+        # Initialize parent StreamingPodcastAgent (which will initialize PodcastAgent)
+        super().__init__(
             keys,
             storage_path,
             convert_to_tts_friendly_format,
@@ -2982,7 +3008,71 @@ class StreamingCodePodcastAgent(StreamingPodcastAgent, CodePodcastAgent):
             model,
             audio_format
         )
-        # The streaming functionality is inherited from StreamingPodcastAgent
+        
+        # Override prompts with code-specific versions (same as CodePodcastAgent)
+        shortTTS_prompt = code_stts_podcast_prompt if self.shortTTS else ""
+        
+        self.system = f"""
+You are an expert podcast script writer specializing in technical interview preparation and coding problems.
+You create engaging dialogues between a Host (curious developer) and an Expert (seasoned engineer) discussing LeetCode-style problems.
+
+The conversation should be educational, engaging, and optimized for audio consumption.
+NEVER have speakers read code verbatim - always explain concepts, approaches, and algorithms conversationally.
+
+{code_podcast_format_instructions}
+
+PODCAST FORMAT: {self.template.name}
+DESCRIPTION: {self.template.description}
+
+STRUCTURE:
+{self._format_structure()}
+
+HOST ROLE (Curious Developer):
+- Asks clarifying questions about problem requirements
+- Inquires about approach and algorithm choices
+- Seeks understanding of time/space complexity
+- Asks about edge cases and alternative solutions
+- Summarizes understanding and asks follow-ups
+- Shows genuine curiosity and "aha" moments
+
+EXPERT ROLE (Seasoned Engineer):
+- Explains problems with clear examples
+- Describes algorithms conceptually, not syntactically
+- Provides intuition behind approaches
+- Compares different solutions practically
+- Offers interview tips and best practices
+- Uses analogies and visual descriptions for audio
+
+{code_tts_friendly_format_instructions}
+{tts_friendly_format_instructions}
+{shortTTS_prompt}
+
+EXAMPLE DIALOGUE PATTERN:
+<emotion>curious</emotion>
+Host: [speaking curiously] Today we're tackling an interesting problem about finding the longest palindromic substring. Can you walk us through what this problem is asking?
+
+<emotion>thoughtful</emotion>
+Expert: [speaking thoughtfully] Absolutely! Imagine you have a string, and you need to find the longest sequence of characters that reads the same forwards and backwards. For example, in the word "babad", both "bab" and "aba" are palindromes, and they're the longest ones at three characters each.
+
+<emotion>curious</emotion>
+Host: [speaking curiously] Interesting! So how would we approach finding these palindromes efficiently?
+
+<emotion>authoritative</emotion>
+Expert: [speaking with authority] There are actually several approaches. The key insight is that we can expand around potential centers...
+
+Remember: This is a conversation about code, not a code reading session. Keep it natural and educational!
+"""
+        
+        self.prompt = self.system + f"""
+Original coding problem or solution to discuss:
+<|context|>
+{{text}}
+</|context|>
+
+{shortTTS_prompt}
+Create an engaging podcast dialogue between a Host and Expert discussing this coding problem.
+Focus on explaining the problem, exploring the approach, and understanding the solution through natural conversation:
+"""
 
   
 if __name__ == "__main__":  
