@@ -2343,8 +2343,8 @@ Don't repeat the same information or details that are already provided in the cu
   - Ask questions that would need this solution.
   - Change the wording of the question to help our identification muscle work better. Like changing from "largest value in array" to "find the tallest student in the class when all heights are given". Transform the question to make it more real world and practical while keeping the core problem the same.
 
-2. Other related questions or problems we have not discussed yet in our answer (5 questions and their solutions - (3 easy/medium and 2 hard)):
-  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+2. Other related algorithmic and data structures style questions or problems we have not discussed yet in our answer/conversation (3 new questions and their solutions - (1 easy, 1 medium and 1 hard)):
+  - **Discuss** other related leetcode style questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
   - Give a verbal solution (using multi level bullet points and numbered lists) and then python code solution to the related questions or problems.
   - Relate the new questions or problems to the older problem and solution we already discussed and how they are similar or different. 
@@ -2397,8 +2397,8 @@ Don't repeat the same information or details that are already provided in the cu
 
 ## Guidelines:
 
-1. More related questions or problems we have not discussed yet in our answer (3 questions and their solutions at max):
-  - **Discuss** other related questions or problems that are similar or use similar concepts or algorithms or solutions.
+1. More related algorithmic and data structures style questions or problems we have not discussed yet in our answer/conversation (3 new questions and their solutions - (1 easy, 1 medium and 1 hard)):
+  - **Discuss** other related leetcode style questions or problems that are similar or use similar concepts or algorithms or solutions.
   - Provide hints and clues to solve or approach the related questions or problems. Provide a verbal solution or pseudocode solution after the hint as well.
   - Give a verbal solution (using multi level bullet points and numbered lists) and then python code solution to the related questions or problems.
   - Relate the related questions or problems to the current problem and solution and how they are similar or different. 
@@ -2499,6 +2499,7 @@ Add only new information that is not already in the current answer.
 Guidelines:
 ### 1. What-if questions and scenarios
 - **Discuss** what-if questions and scenarios that are relevant to the problem and solution.
+- Suggest new what-if questions that are leetcode style or algorithmic and data structures style problems and also require innovation and reasoning.
 - Ask and hint on how to solve the problem if some constraints, data, or other conditions are changed as per the above what-if questions and scenarios.
 - Verbalize the solutions first, write partial python code and then also mention their time and space complexities. 
 
@@ -2508,10 +2509,9 @@ Guidelines:
   - Verbalize the solutions first, write partial python code and then also mention their time and space complexities. 
 
 ### 3. **Mind Bending Questions**:
-  - Tell us any new niche concepts or patterns that are used in the solution and any other niche concepts and topics that will be useful to learn.
   - Ask us some mind bending questions based on the solution and the problem to test our understanding and stimulate our thinking.
-  - Provide verbal hints and clues to solve or approach the mind bending questions, then write partial python code and then also mention their time and space complexities.
-
+  - Mind bending (whacky and weird and stimulating) questions must be coding and interview preparation style questions for FAANG and staff or principal level positions.
+  - Provide verbal hints and clues to solve or approach the mind bending questions asked above, then write partial python code and then also mention their time and space complexities.
 
 Query:
 <user_query>
