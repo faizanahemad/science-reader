@@ -1925,7 +1925,9 @@ def download_doc_from_conversation(conversation_id, doc_id):
         if doc and os.path.exists(doc.doc_source):
             file_dir, file_name = os.path.split(doc.doc_source)
             print(os.path.dirname(os.path.abspath(file_dir)))
-            file_dir = file_dir.replace(os.path.dirname(__file__) + "/", "")
+            if os.path.dirname(__file__).strip() != "":
+                root_dir = os.path.dirname(__file__) + "/"
+                file_dir = file_dir.replace(root_dir, "")
             return send_from_directory(file_dir, file_name)
         elif doc:
             return redirect(doc.doc_source)

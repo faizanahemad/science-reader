@@ -695,7 +695,8 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
         source = self.doc_source
         if self.is_local:
             # only give filename in source
-            source = os.path.basename(source)
+            # source = os.path.basename(source)
+            source = source.replace(os.path.dirname(__file__)+"/", "")
         return dict(visible=self.visible, doc_id=self.doc_id, source=source, title=self.title, short_summary=self.short_summary, summary=self.short_summary)
     
     @property

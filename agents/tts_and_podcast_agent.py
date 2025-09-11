@@ -647,7 +647,12 @@ Write the original answer or text in a TTS friendly format using the above TTS G
                 line_emotion = paragraph_emotion  # Default to paragraph emotion  
                 
                 if bracket_match:  
-                    emotion_text = bracket_match.group(1).lower()  
+                    try:
+                        emotion_text = bracket_match.group(1).lower()  
+                    except Exception as e:
+                        error_logger.error(f"Error processing bracket emotion: {e}")
+                        emotion_text = "neutral"
+                    
                     # Convert spaces to underscores for matching with VOICE_EMOTIONS  
                     emotion_key = emotion_text.replace(" ", "_")  
                     
@@ -2620,18 +2625,22 @@ code_tts_friendly_format_instructions = """
   - Give concrete examples with small inputs to illustrate the problem.
   - Mention any constraints or edge cases that are important.
   - Use phrases like "imagine we have...", "picture this scenario...", "think of it as..."
+  - Help us visualise.
   
 **Solution Discussion Format**:
+  - Give a quick verbal overview of the solution first.
   - Explain the intuition and approach BEFORE any code details.
   - Describe the algorithm in steps using natural language.
   - For data structures, explain WHY we use them, not just WHAT they are.
   - Use analogies and real-world comparisons when possible.
+  - Discuss time complexity and space complexity in simple terms.
   
 **Code Description Guidelines**:
   - Instead of "for i in range(n)", say "we iterate through each element"
   - Instead of "dp[i][j] = max(dp[i-1][j], dp[i][j-1])", say "we take the maximum of the value from the cell above or the cell to the left"
   - Describe the logic and purpose, not the syntax.
   - For complex algorithms, walk through a small example step by step.
+  - Finally give a reading of code in natural language. Keep it short and concise.
   
 **Multiple Solutions**:
   - When discussing multiple solutions, clearly transition between them.
@@ -2646,9 +2655,9 @@ code_tts_friendly_format_instructions = """
   - Add *pause* between major sections for better comprehension.
   
 **Technical Terms**:
-  - Spell out abbreviations on first use: "BFS, which stands for Breadth-First Search"
+  - Spell out uncommon or unusual abbreviations on first use: example "LIDAR, which stands for Light Detection and Ranging"
   - Use simple language alternatives when possible: "visiting each node" instead of "traversing"
-  - Explain Big O notation in practical terms: "linear time, meaning it scales directly with input size"
+  - Explain Big O notation in practical terms: "O(n) aka linear time,"
   
 **Additional TTS formatting from base instructions will be included below**
 """
@@ -2671,10 +2680,17 @@ You are creating a podcast where a Host interviews an Expert about coding proble
 The Host is a curious developer preparing for interviews, and the Expert is a seasoned engineer who explains solutions clearly.
 
 **CONVERSATION STYLE**:
+- Expert starts by clearly stating what the problem asks us to do.
+- Expert gives concrete examples with small inputs to illustrate the problem.
 - The Host asks clarifying questions about the problem and approach.
 - The Expert explains concepts without reading code verbatim.
 - Both speakers use analogies and visual descriptions for audio clarity.
+- The Expert gives a quick verbal overview of the solution first.
+- The Expert explains the full solution. Later if there are multiple solutions, the Expert explains the other solutions as well.
 - Natural back-and-forth dialogue with genuine reactions.
+- Discuss time complexity and space complexity in simple terms.
+- Both host and expert speak in a way that helps us visualise.
+
 
 **PROBLEM INTRODUCTION PATTERN**:
 Host: Introduces the topic and asks about the problem.
@@ -2683,11 +2699,15 @@ Host: Asks about edge cases or clarifications.
 Expert: Addresses concerns and sets up the solution approach.
 
 **SOLUTION DISCUSSION PATTERN**:
+Host: Lets give a quick verbal overview of the solution first.
+Expert: Gives a quick verbal overview of the solution first.
 Expert: Explains the intuition behind the approach.
+Host: Let's move on to deeper understanding and explanation of the solution.
+Expert: Explains the full solution and then gives a reading of code in natural language.
 Host: Asks "why" questions - why this data structure, why this approach?
 Expert: Provides reasoning and compares to alternatives.
 Host: Summarizes understanding and asks about complexity.
-Expert: Confirms and explains trade-offs in simple terms.
+Expert: Confirms and explains trade-offs in simple terms. 
 
 **CODE EXPLANATION STYLE**:
 - Never say "the code does X" - instead say "our approach does X"
