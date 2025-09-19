@@ -328,6 +328,7 @@ Compact list of bullet points:
             docs = []
         if doc_id is not None:
             docs = [d for d in docs if d.doc_id == doc_id]
+        docs = [d for d in docs if d is not None]
         if not readonly:
             keys = self.get_api_keys()
             for d in docs:
