@@ -38,7 +38,7 @@ TOKEN_LIMIT_FOR_SUPER_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_SUPER_DETAILED",
 TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 3000))
 TOKEN_LIMIT_FOR_NORMAL = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 5500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
-PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777/forms/libreoffice/convert")
+PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")
 MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 45))
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
 FILLER_MODEL = "Filler"
@@ -544,26 +544,7 @@ def check_page_status(url):
 from loggers import getLoggers
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 
-def convert_html_to_pdf(file_path, output_path):
-    api_url = PDF_CONVERT_URL
-    try:
-        logger.info(f"Converting doc at {file_path} to pdf, file exists = {os.path.exists(file_path)}")
-        assert os.path.exists(file_path)
-        with open(file_path, 'rb') as f:
-            files = {'files': (os.path.basename(file_path), f)}
-            payload = {'pdfFormat': 'PDF/A-1a'}
-            r = requests.post(api_url, files=files, data=payload)
-            if r.status_code == 200:
-                with open(output_path, 'wb') as out_file:
-                    out_file.write(r.content)
-                return True
-            else:
-                print(f"Conversion failed with status code {r.status_code}")
-                return False
-    except Exception as e:
-        exc = traceback.format_exc()
-        logger.error(f"Exception converting doc at {file_path} to pdf: {e}\n{exc}")
-        return False
+from converters import convert_html_to_pdf
 
 class RunThread(threading.Thread):
     def __init__(self, func, args, kwargs):

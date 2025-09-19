@@ -984,6 +984,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
+        from converters import convert_doc_to_pdf
         convert_doc_to_pdf(pdf_url, pdf_url.replace(".docx", ".pdf"))
         pdf_url = pdf_url.replace(".docx", ".pdf")
     elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url or is_youtube_link(pdf_url)) and False:
@@ -1007,6 +1008,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         html_file = os.path.join(folder, "temp.html")
         with open(html_file, "w") as f:
             f.write(html)
+        from converters import convert_html_to_pdf
         convert_html_to_pdf(html_file, html_file.replace(".html", ".pdf"))
         pdf_url = html_file.replace(".html", ".pdf")
         # delete html file
