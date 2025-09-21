@@ -122,6 +122,7 @@ class DocIndex:
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "review_data", "static_data", "_paper_details"]
+        print(doc_filetype)
         assert doc_filetype in ["pdf", "html", "word", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
 
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
