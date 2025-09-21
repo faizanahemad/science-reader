@@ -31,7 +31,8 @@ def convert_html_to_pdf(file_path, output_path):
             raise ValueError(f"Expected HTML file, got: {file_path}")  
           
         with open(file_path, 'rb') as f:  
-            files = {'files': (os.path.basename(file_path), f, 'text/html')}  
+            # Gotenberg requires the file to be named 'index.html'
+            files = {'files': ('index.html', f, 'text/html')}  
               
             # Gotenberg Chromium-specific parameters  
             payload = {  
