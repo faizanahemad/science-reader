@@ -185,8 +185,8 @@ def convert_html_string_to_pdf(html_content, output_path, title="Document"):
         logger.info(f"Converting HTML string to PDF at {output_path}")
         
         # Create a temporary file-like object from the HTML string
-        # Gotenberg expects a file in multipart form data
-        files = {'files': (f'{title}.html', html_content.encode('utf-8'), 'text/html')}
+        # Gotenberg expects a file named 'index.html' in multipart form data
+        files = {'files': ('index.html', html_content.encode('utf-8'), 'text/html')}
         
         # Gotenberg Chromium-specific parameters
         payload = {
