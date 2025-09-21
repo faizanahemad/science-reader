@@ -242,7 +242,8 @@ Download from https://www.libreoffice.org/download/download-libreoffice/?type=de
 sudo apt install docker-ce
 sudo systemctl start docker
 sudo systemctl enable docker
-docker run --rm -p 7777:80 gotenberg/gotenberg:7 gotenberg --api-port=80 --api-timeout=30s
+docker stop gotenberg-production && docker rm gotenberg-production 
+docker run -d --name gotenberg-production --restart unless-stopped -p 7777:80 --memory=1g --cpus=1.0 gotenberg/gotenberg:7 gotenberg --api-port=80 --api-timeout=30s --chromium-disable-web-security=true  
 
 # for RHEL
 cd ~

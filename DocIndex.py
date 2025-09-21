@@ -122,7 +122,7 @@ class DocIndex:
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
         self.store_separate = ["indices", "raw_data", "review_data", "static_data", "_paper_details"]
-        assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
+        assert doc_filetype in ["pdf", "html", "word", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
 
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
@@ -1015,9 +1015,17 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         os.remove(html_file)
         doc_text = UnstructuredHTMLLoader(html_file).load()[0].page_content
     elif pdf_url.endswith(".html"):
+        from converters import convert_html_to_pdf
         doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
+        convert_html_to_pdf(pdf_url, pdf_url.replace(".html", ".pdf"))
+        pdf_url = pdf_url.replace(".html", ".pdf")
+        
     elif pdf_url.endswith(".md"):
         doc_text = UnstructuredMarkdownLoader(pdf_url).load()[0].page_content
+        from converters import convert_markdown_to_pdf
+        convert_markdown_to_pdf(pdf_url, pdf_url.replace(".md", ".pdf"))
+        pdf_url = pdf_url.replace(".md", ".pdf")
+        
     elif pdf_url.endswith(".json"):
         doc_text = JSONLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".csv"):

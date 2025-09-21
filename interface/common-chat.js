@@ -2517,10 +2517,29 @@ var ChatManager = {
 
         
         // Function to check if the file type is valid  
-        function isValidFileType(file) {
-            var validTypes = fileInput.attr('accept').split(', ');
-            filetype = file.type ? file.type : getMimeType(file);
-            return validTypes.includes(filetype);
+        function isValidFileType(file) {  
+            var validTypes = fileInput.attr('accept').split(', ');  
+              
+            // Get file extension  
+            var fileName = file.name.toLowerCase();  
+            var fileExtension = fileName.substring(fileName.lastIndexOf('.'));  
+              
+            // MIME type from browser  
+            var mimeType = file.type || getMimeType(file);  
+              
+            // Special handling for markdown files  
+            var isMarkdown = fileExtension === '.md' || fileExtension === '.markdown';  
+            var isMarkdownMime = mimeType === 'text/markdown' ||   
+                                mimeType === 'text/md' ||   
+                                mimeType === 'text/x-markdown' || mimeType === 'application/octet-stream';  
+              
+            // Check if it's a valid markdown file  
+            if (isMarkdown && (isMarkdownMime || mimeType === 'text/plain' || mimeType === '')) {  
+                return true;  
+            }  
+              
+            // Standard MIME type validation for other files  
+            return validTypes.includes(mimeType);  
         } 
 
         $(document).off('dragover').on('dragover', function (event) {
