@@ -1760,6 +1760,16 @@ def loader():
 
 
 
+@app.route('/clear_locks')
+@limiter.limit("100 per minute")
+@login_required
+def clear_locks():
+    # clear the locks directory
+    for file in os.listdir(locks_dir):
+        os.remove(os.path.join(locks_dir, file))
+    return jsonify({'result': 'locks cleared'})
+
+
 @app.route('/interface')
 @limiter.limit("200 per minute")
 @login_required
