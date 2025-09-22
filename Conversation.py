@@ -720,6 +720,29 @@ Give 4 suggestions.
         lock_location = self._get_lock_location(key)
         if os.path.exists(f"{lock_location}.lock"):
             os.remove(f"{lock_location}.lock")
+
+    def check_lockfile(self, key="all"):
+        lock_location = self._get_lock_location(key)
+        if os.path.exists(f"{lock_location}.lock"):
+            return True
+        return False
+
+    def check_all_lockfiles(self):
+        lock_status = {
+            "": self.check_lockfile(""),
+            "all": self.check_lockfile("all"),
+            "message_operations": self.check_lockfile("message_operations"),
+            "memory": self.check_lockfile("memory"),
+            "messages": self.check_lockfile("messages"),
+            "uploaded_documents_list": self.check_lockfile("uploaded_documents_list")
+        }
+        
+        any_lock_acquired = any(lock_status.values())
+        
+        return {
+            "any_lock_acquired": any_lock_acquired,
+            "lock_status": lock_status
+        }
     
     @timer
     def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
@@ -1862,6 +1885,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         self.next_question_suggestions = list()
         self.clear_cancellation()
+        lock_status = self.check_all_lockfiles()
+        if lock_status["any_lock_acquired"]:
+            logger.warning(f"Lock is already taken for conversation {self.conversation_id}. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...")
+            time.sleep(1)
+            yield {"text": "[WARNING]: Lock is already taken for conversation. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...", "status": "Waiting for lock to be released..."}
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
