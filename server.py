@@ -1409,10 +1409,14 @@ if __name__ == '__main__':
         cache_dir = os.path.join(os.getcwd(), folder, "cache")
         users_dir = os.path.join(os.getcwd(), folder, "users")
         pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")
+        locks_dir = os.path.join(folder, "locks")
         os.makedirs(cache_dir, exist_ok=True)
         os.makedirs(users_dir, exist_ok=True)
         os.makedirs(pdfs_dir, exist_ok=True)
-        os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
+        os.makedirs(locks_dir, exist_ok=True)
+        # clear the locks directory
+        for file in os.listdir(locks_dir):
+            os.remove(os.path.join(locks_dir, file))
         # nlp = English()  # just the language with no model
         # _ = nlp.add_pipe("lemmatizer")
         # nlp.initialize()
@@ -1686,10 +1690,16 @@ def get_user_info():
 
 def load_conversation(conversation_id):
     path = os.path.join(conversation_folder, conversation_id)
-    conversation = Conversation.load_local(path)
+    conversation: Conversation = Conversation.load_local(path)
+    conversation.clear_lockfile("")
+    conversation.clear_lockfile("all")
+    conversation.clear_lockfile("message_operations")
+    conversation.clear_lockfile("memory")
+    conversation.clear_lockfile("messages")
+    conversation.clear_lockfile("uploaded_documents_list")
     return conversation
 
-conversation_cache = DefaultDictQueue(maxsize=100, default_factory=load_conversation)
+conversation_cache = DefaultDictQueue(maxsize=200, default_factory=load_conversation)
     
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")

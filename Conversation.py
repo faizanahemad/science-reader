@@ -715,6 +715,11 @@ Give 4 suggestions.
             # Fallback in case the XML format wasn't followed
             suggestions = ["Tell me more", "Can you explain further?", "What's next?"]
         return suggestions
+
+    def clear_lockfile(self, key="all"):
+        lock_location = self._get_lock_location(key)
+        if os.path.exists(f"{lock_location}.lock"):
+            os.remove(f"{lock_location}.lock")
     
     @timer
     def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
