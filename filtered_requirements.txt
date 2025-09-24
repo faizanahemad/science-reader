@@ -13,7 +13,7 @@ dataclasses-json==0.5.9
 dateparser==1.1.8
 dill==0.3.5.1
 diskcache==5.6.1
-faiss-cpu==1.8.0
+faiss-cpu==1.10.0
 Flask==3.0.2
 Flask-Caching==2.0.2
 Flask-Dance==7.1.0

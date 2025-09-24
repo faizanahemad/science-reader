@@ -604,6 +604,7 @@ How should you respond to a question?
 For Leetcode style questions, or coding interview style questions, or algorithmic and data structures style questions
 - Give all possible solutions to the problem.
 - Give verbal solutions (using multi level bullet points and numbered lists) and then python code solution.
+- Give step by step verbal approach and description of all solutions in detail before writing code. 
 - Provide **step-by-step explanations** of complex algorithms or logic.
 - Before writing code, write a verbal step by step description of the solution.
 - Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
