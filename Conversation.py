@@ -723,9 +723,8 @@ Give 4 suggestions.
 
     def check_lockfile(self, key="all"):
         lock_location = self._get_lock_location(key)
-        if os.path.exists(f"{lock_location}.lock"):
-            return True
-        return False
+        lock = FileLock(f"{lock_location}.lock")
+        return lock.is_locked
 
     def check_all_lockfiles(self):
         lock_status = {
@@ -1886,10 +1885,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         self.next_question_suggestions = list()
         self.clear_cancellation()
         lock_status = self.check_all_lockfiles()
-        if lock_status["any_lock_acquired"]:
-            logger.warning(f"Lock is already taken for conversation {self.conversation_id}. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...")
+        wait_max = 10
+        wait_time = 0
+        while lock_status["any_lock_acquired"]:
             time.sleep(1)
-            yield {"text": "[WARNING]: Lock is already taken for conversation. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...", "status": "Waiting for lock to be released..."}
+            wait_time += 1
+            if wait_time > wait_max:
+                logger.warning(f"Lock is already taken for conversation {self.conversation_id}. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...")
+                yield {"text": "[WARNING]: Lock is already taken for conversation. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting for 10 seconds...", "status": "Waiting for lock to be released..."}
+                return
+                
+            lock_status = self.check_all_lockfiles()
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
         pattern = r'\[.*?\]\(.*?\)'
         st = time.time()
