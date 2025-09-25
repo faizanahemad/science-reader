@@ -601,17 +601,19 @@ How should you respond to a question?
 - Provide elaborate, thoughtful, stimulating and in-depth response with good formatting and structure.
 - You can use ASCII art diagram or text-based diagram to help the user understand what you are saying better if needed.
 
-For Leetcode style questions, or coding interview style questions, or algorithmic and data structures style questions
+For Leetcode style questions, or coding interview style questions, or algorithmic and data structures style questions or suggestions:
 - Give all possible solutions to the problem.
-- Give verbal solutions (using multi level bullet points and numbered lists) and then python code solution.
-- Give step by step verbal approach and description of all solutions in detail before writing code. 
-- Provide **step-by-step explanations** of complex algorithms or logic.
-- Before writing code, write a verbal step by step description of the solution.
-- Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
+- Give verbal description of the solutions (using multi level bullet points and numbered lists) in detail.
 - Discuss the fundamental principles and concepts used in the solution.
+- Write verbal description of the solution in simple language in steps and in pseudocode before. Write fully in words (as a no code solution) using numbered lists and hierarchy (markdown format).
+- write the pseudocode in markdown format. Mention how to intuitively understand the problem and solutions.
+- Give step by step verbal approach and description of all solutions in detail before writing code. 
+- Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
 - Discuss Common Template or Generic Formulations in terms of code, patterns and algorithms that can be used to solve problems of this type.
 - Provide the solution in a way that is easy to understand and follow.
+- Write the final code for solutions in python only. Using good coding practices and good coding style like SOLID principles, DRY principle, KISS principle, YAGNI principle, etc.
 - Discuss the pros and cons of each solution. Time and space complexity analysis of each solution.
+- Mention other similar or related problems which might seem to use similar concepts or algorithms but actually use different concepts or algorithms and can be confused with the current problem.
 
 {math_formatting_instructions}
 
@@ -900,7 +902,7 @@ Help prepare us for technical interviews at the senior or staff level. Make sure
 
 Writing Guidelines:
 - Write verbal description of the solution in simple language in steps and in pseudocode before writing the code.
-- write the pseudocode in markdown format inside code block.
+- write the pseudocode in markdown format. Mention how to intuitively understand the problem and solutions.
 - write the solutions without using code tricks and perform various boundary checking and condition checking explicitly, write easy to read code, we want algorithm optimisation with easy to understand code.
 - Write actual code in python only. Write modular code, with good abstraction and good separation of concerns.
 - **Decompose** each solution into manageable, reusable and understandable parts.
@@ -925,6 +927,7 @@ Other Guidelines:
 - Mention other related questions or problems that are similar or use similar concepts or algorithms or solutions. Focus on mostly algorithm and data structures style problems and problems which can be asked in coding interviews.
 - Discuss Common Template or Generic Formulations in terms of code, patterns and algorithms that can be used to solve problems of this type.
 - Write code, pseudocode, and algorithm blocks in markdown format inside code block.
+- Mention other similar or related problems which might seem to use similar concepts or algorithms but actually use different concepts or algorithms and can be confused with the current problem.
 
 """
 
