@@ -92,17 +92,8 @@ function interface_readiness() {
             clearUrlofConversationId();
         }
         currentDomain["page_loaded"] = true;
-        $("#field-selector").val("None");
-        $('#permanentText').show();
-        $('#linkInput').show();
-        $('#searchInput').show();
-        $("#field-selector").parent().show();
-        $("#preamble-selector").val("").val(["Wife Prompt"]);
+        
         $("#chat-options-assistant-use-google-scholar").parent().show();
-        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
-        $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
-        $("#user-preferences-modal-open-button").parent().show();
-        $("#user-details-modal-open-button").parent().show();
         activateChatTab();
     });
     $('#search-tab').on('shown.bs.tab', function (e) {
@@ -113,30 +104,14 @@ function interface_readiness() {
             clearUrlofConversationId();
         }
         currentDomain["page_loaded"] = true;
-        $("#field-selector").val("None");
+        
         activateChatTab();
-        $('#permanentText').hide();
-        $('#linkInput').hide();
-        $('#searchInput').hide();
 
-        $("#preamble-selector").val("").val(["Wife Prompt"]);
         
-        $("#field-selector").parent().show();
+        
+        
         $("#chat-options-assistant-use-google-scholar").parent().show();
-        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
-        // $("#chat-options-assistant-tell-me-more-checkbox").parent().show();
-        $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
-        $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
-
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);
-        $("#user-preferences-modal-open-button").parent().show();
-        $("#user-details-modal-open-button").parent().show();
-
         
-
-        $("#chat-options-assistant-ensemble").parent().hide();
-        $("#chat-options-assistant-ensemble").prop('checked', false);
     });
 
     $('#finchat-tab').on('shown.bs.tab', function (e) {
@@ -149,31 +124,10 @@ function interface_readiness() {
         currentDomain["page_loaded"] = true;
         
         activateChatTab();
-        $('#linkInput').hide();
-        $('#searchInput').hide();
-        $('#permanentText').hide();
+        
         // $("#field-selector").val("Finance");
-        $("#field-selector").val("None");
-        $("#preamble-selector").val("").val(["Short Coding Interview"]);
-        $("#field-selector").parent().show();
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='2']").prop("checked", true);
-        $("input[name='chat-options-assistant-provide-detailed-answers-checkboxOptions'][value='4']").prop("checked", false);
-
+        
         $("#chat-options-assistant-use-google-scholar").parent().hide();
-        $("#chat-options-assistant-use-google-scholar").prop('checked', false);
-        $("#chat-options-assistant-use-multiple-docs-checkbox").parent().hide();
-        $("#chat-options-assistant-use-multiple-docs-checkbox").prop('checked', false);
-        $("#chat-options-assistant-tell-me-more-checkbox").parent().hide();
-        $("#chat-options-assistant-tell-me-more-checkbox").prop('checked', false);
-
-        $("#chat-options-assistant-search-exact").parent().hide();
-        $("#chat-options-assistant-search-exact").prop('checked', false);
-
-        $("#chat-options-assistant-ensemble").parent().hide();
-        $("#chat-options-assistant-ensemble").prop('checked', false);
-        $("#user-preferences-modal-open-button").parent().hide();
-        $("#user-details-modal-open-button").parent().hide();
-        // Settings modal replaced the old toggle functionality
         
     });
     

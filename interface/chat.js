@@ -40,7 +40,7 @@ function chat_interface_readiness() {
     }
     $('#messageText').keypress(textboxCallBack);
     $('#messageText').on('input change', textboxCallBack);
-    addOptions('chat-options', 'assistant', null);
+    
     $('#sendMessageButton').on('click', sendMessageCallback);
     $('#stopResponseButton').on('click', stopCurrentResponse);
     $('#stop-hint-button').on('click', stopCodingHint);
@@ -85,7 +85,7 @@ function chat_interface_readiness() {
     $('#chat-settings-modal').on('hidden.bs.modal', function () {
         console.log('Chat settings modal hidden - auto-applying settings');
         // Auto-apply settings when modal closes and persist to state/localStorage
-        applySettingsFromModal();
+        
         persistSettingsStateFromModal();
     });
 
@@ -151,23 +151,13 @@ function chat_interface_readiness() {
     // Listen for tab changes to reset settings to that tab's defaults
     $('#assistant-tab, #search-tab, #finchat-tab').on('shown.bs.tab', function () {
         const tab = getCurrentActiveTab();
-        const defaultsForTab = computeDefaultStateForTab(tab);
+        const defaultsForTab = getPersistedSettingsState() || computeDefaultStateForTab(tab);
         window.chatSettingsState = defaultsForTab;
-        try { localStorage.setItem('chatSettingsState', JSON.stringify(defaultsForTab)); } catch (e) {}
-        // Apply defaults to modal controls if open
-        if ($('#chat-settings-modal').hasClass('show')) {
-            setModalFromState(defaultsForTab);
-            if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
-        }
-        // Also apply to inline controls if present
-        if ($('#depthSelector').length) { $('#depthSelector').val(defaultsForTab.depth); }
-        if ($('#historySelector').length) { $('#historySelector').val(defaultsForTab.history); }
-        if ($('#rewardLevelSelector').length) { $('#rewardLevelSelector').val(defaultsForTab.reward); }
-        if ($('#chat-options-assistant-perform-web-search-checkbox').length) { $('#chat-options-assistant-perform-web-search-checkbox').prop('checked', !!defaultsForTab.perform_web_search); }
-        if ($('#chat-options-assistant-search-exact').length) { $('#chat-options-assistant-search-exact').prop('checked', !!defaultsForTab.search_exact); }
-        if ($('#chat-options-assistant-persist_or_not').length) { $('#chat-options-assistant-persist_or_not').prop('checked', defaultsForTab.persist_or_not !== false); }
-        if ($('#use_memory_pad').length) { $('#use_memory_pad').prop('checked', !!defaultsForTab.use_memory_pad); }
+        setModalFromState(defaultsForTab);
+        if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
     });
+
+
 
     $('#toggleChatDocsView').click(function () {
         $('#chat-doc-view').toggleClass('d-none');
@@ -308,68 +298,7 @@ function loadSettingsIntoModal() {
     }
 }
 
-function applySettingsFromModal() {
-    // Apply settings from modal back to the original controls (only if they exist)
-    
-    // Basic Options
-    if ($('#chat-options-assistant-perform-web-search-checkbox').length) {
-        $('#chat-options-assistant-perform-web-search-checkbox').prop('checked', $('#settings-perform-web-search-checkbox').is(':checked'));
-    }
-    if ($('#chat-options-assistant-search-exact').length) {
-        $('#chat-options-assistant-search-exact').prop('checked', $('#settings-search-exact').is(':checked'));
-    }
-    if ($('#chat-options-assistant-persist_or_not').length) {
-        $('#chat-options-assistant-persist_or_not').prop('checked', $('#settings-persist_or_not').is(':checked'));
-    }
-    if ($('#use_memory_pad').length) {
-        $('#use_memory_pad').prop('checked', $('#settings-use_memory_pad').is(':checked'));
-    }
-    if ($('#enable_planner').length) {
-        $('#enable_planner').prop('checked', $('#settings-enable_planner').is(':checked'));
-    }
-    
-    // Advanced Settings
-    if ($('#depthSelector').length) {
-        $('#depthSelector').val($('#settings-depthSelector').val());
-    }
-    if ($('#historySelector').length) {
-        $('#historySelector').val($('#settings-historySelector').val());
-    }
-    if ($('#rewardLevelSelector').length) {
-        $('#rewardLevelSelector').val($('#settings-rewardLevelSelector').val());
-    }
-    
-    // Model and Agent Selection
-    if ($('#preamble-selector').length) {
-        $('#preamble-selector').val($('#settings-preamble-selector').val());
-    }
-    if ($('#main-model-selector').length) {
-        $('#main-model-selector').val($('#settings-main-model-selector').val());
-    }
-    if ($('#field-selector').length) {
-        $('#field-selector').val($('#settings-field-selector').val());
-    }
-    
-    // Permanent Instructions
-    if ($('#permanentText').length) {
-        $('#permanentText').val($('#settings-permanentText').val());
-    }
-    
-    // Search & Links
-    if ($('#linkInput').length) {
-        $('#linkInput').val($('#settings-linkInput').val());
-    }
-    if ($('#searchInput').length) {
-        $('#searchInput').val($('#settings-searchInput').val());
-    }
-    
-    // Refresh any select pickers if they exist
-    if (typeof $.fn.selectpicker !== 'undefined') {
-        $('.selectpicker').selectpicker('refresh');
-    }
-    
-    console.log('Settings applied from modal');
-}
+
 
 // ---------- Settings State Persistence ----------
 function buildSettingsStateFromControlsOrDefaults() {
@@ -435,25 +364,38 @@ function collectSettingsFromModal() {
 }
 
 function persistSettingsStateFromModal() {
+    const tab = getCurrentActiveTab();
     const state = collectSettingsFromModal();
     window.chatSettingsState = state;
-    try { localStorage.setItem('chatSettingsState', JSON.stringify(state)); } catch (e) { /* ignore */ }
+    try { 
+        localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(state)); 
+    } catch (e) { 
+        console.error('Error saving chat settings to localStorage:', e); 
+    }
+    
 }
 
 function getPersistedSettingsState() {
-    if (window.chatSettingsState) { return window.chatSettingsState; }
+    const tab = getCurrentActiveTab();
+    
     try {
-        const raw = localStorage.getItem('chatSettingsState');
-        if (raw) { window.chatSettingsState = JSON.parse(raw); }
-    } catch (e) { /* ignore */ }
+        const raw = localStorage.getItem(`${tab}chatSettingsState`);
+        if (raw) { 
+            window.chatSettingsState = JSON.parse(raw); 
+        }
+    } catch (e) { 
+        console.error('Error getting chat settings from localStorage:', e); 
+    }
     return window.chatSettingsState || null;
 }
 
 function initializeSettingsState() {
     const state = getPersistedSettingsState();
+    window.chatSettingsState = state;
     if (state) {
         // Ensure modal controls reflect persisted state now
         setModalFromState(state);
+        
         // Also apply to inline controls if present
         if ($('#depthSelector').length) { $('#depthSelector').val(state.depth || '2'); }
         if ($('#historySelector').length) { $('#historySelector').val(state.history || '2'); }

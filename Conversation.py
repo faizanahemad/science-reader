@@ -1678,6 +1678,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += preamble_short
         if "No Code Exec" in preamble_options:
             preamble += preamble_no_code_exec
+        if "No Code" in preamble_options:
+            preamble += preamble_no_code_prompt
         if "Code Exec" in preamble_options:
             preamble += preamble_code_exec
         if "CoT" in preamble_options:
