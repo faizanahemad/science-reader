@@ -471,7 +471,15 @@ function getDefaultPreambleForTab(tab) {
 
 function getDefaultModelForTab(tab) {
     // All tabs use the same default model
-    return ['Sonnet 4'];
+    switch(tab) {
+        case 'chat':
+        case 'search':
+            return ['Sonnet 4'];
+        case 'finchat':
+            return ['openai/gpt-5-chat'];
+        default:
+            return ['Sonnet 4'];
+    }
 }
 
 function getDefaultAgentForTab(tab) {

@@ -839,6 +839,143 @@
                 </div>
                 <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding: 1.5rem;">
                     <div id="settings-content">
+
+                        <!-- Model and Agent Selection Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-robot"></i> Model & Agent Selection</h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-preamble-selector" class="form-label"><strong>Preamble Options</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control selectpicker" id="settings-preamble-selector" multiple>
+                                                    <option>No Links</option>
+                                                    <option selected>Wife Prompt</option>
+                                                    <option>Debug LLM</option>
+                                                    <option>Short</option>
+                                                    <option>Short Coding Interview</option>
+                                                    <option>No Code</option>
+                                                    <option>ML Design Answer Short</option>
+                                                    
+                                                    <option>Argumentative</option>
+                                                    <option>Blackmail</option>
+                                                    <option>More Related Coding Questions</option>
+                                                    
+                                                    <option>Diagram</option>
+                                                    <option>Easy Copy</option>
+                                                    <option>Creative</option>
+                                                    <option>Explore</option>
+                                                    
+                                                    <option>Relationship</option>
+                                                    <option>Dating Maverick</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-main-model-selector" class="form-label"><strong>Main Model</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-main-model-selector" multiple>
+                                                    <optgroup label="Newer Models">   
+                                                        
+                                                        <option>openai/gpt-5-chat</option>
+                                                        <option>qwen/qwen3-max</option>
+                                                        <option>gpt-5-codex</option>
+                                                        <option>deepseek-v3.1</option>
+                                                        <option selected>Sonnet 4</option>
+                                                        <option>moonshotai/kimi-k2</option>
+                                                        <option>Qwen3-Coder-Plus</option>
+                                                        
+                                                    </optgroup>
+                                                    <optgroup label="Others">
+                                                        <option>Filler</option>
+                                                        <option hidden>x-ai/grok-4</option>
+                                                        <option hidden>openai/chatgpt-4o-latest</option> 
+                                                        <option hidden>gpt-5</option>
+                                                        <option>Gemini-2.5-pro</option>
+                                                        <option>Opus 4.1</option>
+                                                        <option>google/gemini-2.5-flash</option>
+                                                        <option hidden>o4-mini-deep-research</option>
+                                                        <option hidden>o3-deep-research</option>
+                                                        <option hidden>x-ai/grok-3-beta</option>
+                                                        <option>x-ai/grok-3</option>
+                                                        <option>sao10k/l3.3-euryale-70b</option>
+                                                        <option>thedrummer/anubis-pro-105b-v1</option>
+                                                        <option>nousresearch/hermes-3-llama-3.1-405b</option>
+                                                        <option>raifle/sorcererlm-8x22b</option>
+                                                        <option>perplexity/sonar-pro</option>
+                                                        <option hidden>perplexity/sonar-deep-research</option>
+                                                    </optgroup>
+                                                    <optgroup hidden label="Filler Models">
+                                                        <option hidden>Filler</option>
+                                                    </optgroup>
+                                                    <optgroup hidden label="Fast Models">
+                                                        <option hidden>google/gemini-2.5-flash</option>
+                                                        <option hidden>google/gemini-2.5-flash-lite</option>
+                                                        <option hidden>google/gemini-2.0-flash-001</option>
+                                                        <option hidden>google/gemini-2.0-flash-lite-001</option>
+                                                        <option hidden>qwen/qwen-turbo</option>
+                                                        <option hidden>openai/gpt-4.1-mini</option>
+                                                        <option hidden>x-ai/grok-3-mini</option>
+                                                    </optgroup>
+                                                    <optgroup hidden label="Reasoning Models">
+                                                        <option hidden>Gemini-2.5-pro</option>
+                                                        <option hidden>o3-pro</option>
+                                                        <option hidden>minimax/minimax-m1</option>
+                                                        <option hidden>o1</option>
+                                                        <option hidden>o3</option>
+                                                        <option hidden>o4-mini-high</option>
+                                                        <option hidden>o4-mini-deep-research</option>
+                                                        <option hidden>o3-deep-research</option>
+                                                        <option hidden>Claude Sonnet 3.7 Thinking</option>
+                                                        <option hidden>o1-pro</option>
+                                                    </optgroup>
+                                                    <optgroup hidden label="Creative Models">
+                                                        <option hidden>sao10k/l3.3-euryale-70b</option>
+                                                        <option hidden>thedrummer/anubis-pro-105b-v1</option>
+                                                        <option hidden>thedrummer/anubis-70b-v1.1</option>
+                                                        <option hidden>nousresearch/hermes-3-llama-3.1-405b</option>
+                                                        <option hidden>raifle/sorcererlm-8x22b</option>
+                                                    </optgroup>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="settings-field-selector" class="form-label"><strong>Agent</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-field-selector">
+                                                    <option selected>None</option>
+                                                    <option hidden>InterviewSimulator</option>
+                                                    <option hidden>InterviewSimulatorV2</option>
+                                                    <option>NStepCodeAgent</option>
+                                                    <option hidden>CodeSolveAgent</option>
+                                                    <option>InstructionFollowingAgent</option>
+                                                    <option>MLSystemDesignAgent</option>
+                                                    <option hidden>NStepAgent</option>
+                                                    <option>NResponseAgent</option>
+                                                    <option>PerplexitySearch</option>
+                                                    <option>JinaSearchAgent</option>
+                                                    <option>JinaDeepResearchAgent</option>
+                                                    <option>WebSearch</option>
+                                                    <option>MultiSourceSearch</option>
+                                                    <option hidden>BroadSearch</option>
+                                                    <option>WhatIf</option>
+                                                    <option hidden>LiteratureReview</option>
+                                                    <option hidden>ToCGenerationAgent</option>
+                                                    <option hidden>BookCreatorAgent</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+
                         <!-- Basic Options Section -->
                         <div class="row mb-4">
                             <div class="col-12">
@@ -959,137 +1096,7 @@
                             </div>
                         </div>
 
-                        <!-- Model and Agent Selection Section -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-robot"></i> Model & Agent Selection</h6>
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <label for="settings-preamble-selector" class="form-label"><strong>Preamble Options</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
-                                                <select class="form-control selectpicker" id="settings-preamble-selector" multiple>
-                                                    <option>No Links</option>
-                                                    <option selected>Wife Prompt</option>
-                                                    <option>Debug LLM</option>
-                                                    <option>Short</option>
-                                                    <option>Short Coding Interview</option>
-                                                    <option>No Code</option>
-                                                    <option>ML Design Answer Short</option>
-                                                    
-                                                    <option>Argumentative</option>
-                                                    <option>Blackmail</option>
-                                                    <option>More Related Coding Questions</option>
-                                                    
-                                                    <option>Diagram</option>
-                                                    <option>Easy Copy</option>
-                                                    <option>Creative</option>
-                                                    <option>Explore</option>
-                                                    
-                                                    <option>Relationship</option>
-                                                    <option>Dating Maverick</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <label for="settings-main-model-selector" class="form-label"><strong>Main Model</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
-                                                <select class="form-control" id="settings-main-model-selector" multiple>
-                                                    <optgroup label="Newer Models">   
-                                                        <option selected>Sonnet 4</option>
-                                                        <option hidden>openai/chatgpt-4o-latest</option> 
-                                                        <option hidden>gpt-5</option>
-                                                        <option>openai/gpt-5-chat</option>
-                                                        
-                                                        <option>qwen/qwen3-max</option>
-                                                        <option hidden>moonshotai/kimi-k2-0905</option>
-                                                        <option hidden>x-ai/grok-4</option>
-                                                        <option hidden>Opus 4.1</option>
-                                                        <option>moonshotai/kimi-k2</option>
-                                                        <option hidden>Qwen3-Coder</option>
-                                                    </optgroup>
-                                                    <optgroup label="Others">
-                                                        <option>Filler</option>
-                                                        <option>Gemini-2.5-pro</option>
-                                                        <option>google/gemini-2.5-flash</option>
-                                                        <option hidden>o4-mini-deep-research</option>
-                                                        <option hidden>o3-deep-research</option>
-                                                        <option hidden>x-ai/grok-3-beta</option>
-                                                        <option>x-ai/grok-3</option>
-                                                        <option>sao10k/l3.3-euryale-70b</option>
-                                                        <option>thedrummer/anubis-pro-105b-v1</option>
-                                                        <option>nousresearch/hermes-3-llama-3.1-405b</option>
-                                                        <option>raifle/sorcererlm-8x22b</option>
-                                                        <option>perplexity/sonar-pro</option>
-                                                        <option hidden>perplexity/sonar-deep-research</option>
-                                                    </optgroup>
-                                                    <optgroup hidden label="Filler Models">
-                                                        <option hidden>Filler</option>
-                                                    </optgroup>
-                                                    <optgroup hidden label="Fast Models">
-                                                        <option hidden>google/gemini-2.5-flash</option>
-                                                        <option hidden>google/gemini-2.5-flash-lite</option>
-                                                        <option hidden>google/gemini-2.0-flash-001</option>
-                                                        <option hidden>google/gemini-2.0-flash-lite-001</option>
-                                                        <option hidden>qwen/qwen-turbo</option>
-                                                        <option hidden>openai/gpt-4.1-mini</option>
-                                                        <option hidden>x-ai/grok-3-mini</option>
-                                                    </optgroup>
-                                                    <optgroup hidden label="Reasoning Models">
-                                                        <option hidden>Gemini-2.5-pro</option>
-                                                        <option hidden>o3-pro</option>
-                                                        <option hidden>minimax/minimax-m1</option>
-                                                        <option hidden>o1</option>
-                                                        <option hidden>o3</option>
-                                                        <option hidden>o4-mini-high</option>
-                                                        <option hidden>o4-mini-deep-research</option>
-                                                        <option hidden>o3-deep-research</option>
-                                                        <option hidden>Claude Sonnet 3.7 Thinking</option>
-                                                        <option hidden>o1-pro</option>
-                                                    </optgroup>
-                                                    <optgroup hidden label="Creative Models">
-                                                        <option hidden>sao10k/l3.3-euryale-70b</option>
-                                                        <option hidden>thedrummer/anubis-pro-105b-v1</option>
-                                                        <option hidden>thedrummer/anubis-70b-v1.1</option>
-                                                        <option hidden>nousresearch/hermes-3-llama-3.1-405b</option>
-                                                        <option hidden>raifle/sorcererlm-8x22b</option>
-                                                    </optgroup>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <label for="settings-field-selector" class="form-label"><strong>Agent</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
-                                                <select class="form-control" id="settings-field-selector">
-                                                    <option selected>None</option>
-                                                    <option hidden>InterviewSimulator</option>
-                                                    <option hidden>InterviewSimulatorV2</option>
-                                                    <option>NStepCodeAgent</option>
-                                                    <option hidden>CodeSolveAgent</option>
-                                                    <option>MLSystemDesignAgent</option>
-                                                    <option hidden>NStepAgent</option>
-                                                    <option>NResponseAgent</option>
-                                                    <option>PerplexitySearch</option>
-                                                    <option>JinaSearchAgent</option>
-                                                    <option>JinaDeepResearchAgent</option>
-                                                    <option>WebSearch</option>
-                                                    <option>MultiSourceSearch</option>
-                                                    <option hidden>BroadSearch</option>
-                                                    <option>WhatIf</option>
-                                                    <option hidden>LiteratureReview</option>
-                                                    <option hidden>ToCGenerationAgent</option>
-                                                    <option hidden>BookCreatorAgent</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        
 
                         <!-- Actions Section -->
                         <div class="row mb-4">

@@ -11,7 +11,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent, InstructionFollowingAgent
 from agents.tts_and_podcast_agent import CodeTTSAgent, StreamingCodeTTSAgent, CodePodcastAgent, StreamingCodePodcastAgent
 from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -1718,6 +1718,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         model_name = kwargs.get("model_name", EXPENSIVE_LLM[0])
         if field == "Agent_IdeaNovelty":
             pass
+        if field == "InstructionFollowingAgent":
+            agent = InstructionFollowingAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "JinaSearchAgent":
             agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
         if field == "JinaDeepResearchAgent":
@@ -3934,6 +3936,14 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-5"
     elif model_name == "openai/gpt-5-chat":
         model_name = "openai/gpt-5-chat"
+    elif model_name == "deepseek/deepseek-v3.1-terminus" or model_name == "deepseek-v3.1":
+        model_name = "deepseek/deepseek-v3.1-terminus"
+    elif model_name == "x-ai/grok-4-fast" or model_name == "grok-4-fast":
+        model_name = "x-ai/grok-4-fast"
+    elif model_name == "openai/gpt-5-codex" or model_name == "gpt-5-codex":
+        model_name = "openai/gpt-5-codex"
+    elif model_name == "qwen/qwen3-coder-plus" or model_name == "Qwen3-Coder-Plus":
+        model_name = "qwen/qwen3-coder-plus"
     
     elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM:
         pass

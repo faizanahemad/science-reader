@@ -339,6 +339,220 @@ Text: {{text}}
 Generate as many as needed relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
 
+class InstructionFollowingAgent(Agent):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False):
+        super().__init__(keys)
+        
+        # System prompt for the backbone model - generates initial answer
+        self.backbone_system_prompt = """You are a helpful, accurate, and intelligent AI assistant. 
+Your task is to provide comprehensive and detailed answers to user queries.
+Follow all instructions carefully and provide complete, well-structured responses."""
+        
+        # System prompt for the verifier model - checks instruction adherence
+        self.verifier_system_prompt = """You are a meticulous instruction verification specialist.
+Your role is to carefully analyze whether an AI response fully adheres to all instructions and requirements given in the original query.
+You must identify any missing elements, overlooked instructions, or areas where the response doesn't fully meet the requirements."""
+        
+        # Prompt template for the verifier model
+        self.verifier_prompt = """Carefully analyze the following user query and the AI's response.
+Your task is to verify whether the response fully adheres to ALL instructions and requirements specified in the original query.
+
+## Original User Query:
+<user_query>
+{user_query}
+</user_query>
+
+## AI's Response:
+<ai_response>
+{ai_response}
+</ai_response>
+
+## Your Task:
+1. First, identify ALL explicit and implicit instructions/requirements in the user query
+2. Check if the AI's response addresses each instruction/requirement
+3. Identify any missing elements, overlooked instructions, or partial compliance
+
+## Output Format:
+Provide your analysis in the following format:
+
+### Instructions Found in Query:
+- List each instruction or requirement you identified in the user query
+
+### Compliance Analysis:
+For each instruction, indicate whether it was:
+✅ Fully addressed
+⚠️ Partially addressed  
+❌ Not addressed
+
+### Issues and Missing Elements:
+If there are any issues, list them as bullet points:
+- [Specific issue or missing element 1]
+- [Specific issue or missing element 2]
+- [etc.]
+
+### Overall Assessment:
+Provide a brief summary of whether the response fully meets the requirements or needs improvement.
+
+Be thorough and specific in your analysis. Focus on instruction adherence, not on the quality of the content itself."""
+
+        # System prompt for the rewriter model - improves answer based on feedback
+        self.rewriter_system_prompt = """You are an expert at improving AI responses to better follow instructions.
+Your task is to rewrite responses to fully address all requirements and instructions identified by the verifier.
+You must maintain all good aspects of the original response while fixing any issues or adding missing elements."""
+        
+        # Prompt template for the rewriter model
+        self.rewriter_prompt = """Based on the verification feedback, rewrite the AI response to fully address ALL instructions and requirements.
+
+## Original User Query:
+<user_query>
+{user_query}
+</user_query>
+
+## Original AI Response:
+<original_response>
+{original_response}
+</original_response>
+
+## Verifier's Feedback:
+<verifier_feedback>
+{verifier_feedback}
+</verifier_feedback>
+
+## Your Task:
+Rewrite the response to:
+1. Maintain all good aspects of the original response
+2. Address ALL issues and missing elements identified by the verifier
+3. Ensure complete adherence to every instruction in the original query
+4. Keep the same level of detail and quality, or improve it where needed
+
+## Important Guidelines:
+- Do NOT remove good content from the original response unless it's incorrect
+- ADD missing elements identified by the verifier
+- IMPROVE sections that were only partially compliant
+- Ensure the response is comprehensive and follows ALL instructions
+- Maintain a clear, well-structured format
+
+Provide the improved response directly without any preamble or explanation."""
+        
+        # Initialize the models
+        self.backbone_model = CallLLm(keys, model_name)
+        self.verifier_model = CallLLm(keys, model_name)
+        self.rewriter_model = CallLLm(keys, model_name)
+        
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        """
+        Execute the instruction-following agent workflow:
+        1. Generate base answer with backbone model
+        2. Verify instruction adherence with verifier model
+        3. Rewrite answer based on verifier feedback with rewriter model
+        """
+        import time
+        
+        
+        st = time.time()
+        
+        # Step 1: Generate base answer from backbone model
+        backbone_system = system if system else self.backbone_system_prompt
+        backbone_response_stream = self.backbone_model(
+            text, 
+            images, 
+            temperature, 
+            stream=True,  # Always stream internally for better UX
+            max_tokens=max_tokens, 
+            system=backbone_system
+        )
+        
+        # Wrap backbone response in collapsible section and collect it
+        backbone_response = ""
+        wrapped_backbone = collapsible_wrapper(
+            backbone_response_stream, 
+            header="Initial Response", 
+            show_initially=True,
+            add_close_button=True
+        )
+        
+        for chunk in wrapped_backbone:
+            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+                backbone_response += chunk
+            yield chunk
+        
+        time_logger.info(f"Time taken for backbone response: {time.time() - st} seconds, response length: {len(backbone_response.split())} words")
+        
+        # Step 2: Verify instruction adherence
+        verifier_prompt_formatted = self.verifier_prompt.format(
+            user_query=text,
+            ai_response=backbone_response
+        )
+        
+        verifier_response_stream = self.verifier_model(
+            verifier_prompt_formatted,
+            images=[],  # Verifier doesn't need images
+            temperature=0.3,  # Lower temperature for more consistent verification
+            stream=True,
+            max_tokens=max_tokens,
+            system=self.verifier_system_prompt
+        )
+        
+        # Wrap verifier response in collapsible section and collect it
+        verifier_response = ""
+        wrapped_verifier = collapsible_wrapper(
+            verifier_response_stream,
+            header="Instruction Verification",
+            show_initially=False,
+            add_close_button=True
+        )
+        
+        for chunk in wrapped_verifier:
+            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+                verifier_response += chunk
+            yield chunk
+        
+        time_logger.info(f"Time taken for verification: {time.time() - st} seconds")
+        
+        # Step 3: Rewrite based on verifier feedback
+        rewriter_prompt_formatted = self.rewriter_prompt.format(
+            user_query=text,
+            original_response=backbone_response,
+            verifier_feedback=verifier_response
+        )
+        
+        # Add a separator before the final improved response
+        yield "\n---\n\n## 📝 **Final Improved Response**\n\n"
+        
+        rewriter_response_stream = self.rewriter_model(
+            rewriter_prompt_formatted,
+            images=images,  # Include original images for rewriter
+            temperature=temperature,
+            stream=True,
+            max_tokens=max_tokens,
+            system=self.rewriter_system_prompt
+        )
+        
+        # Stream the final improved response
+        wrapped_rewriter = collapsible_wrapper(
+            rewriter_response_stream,
+            header="Improved Response",
+            show_initially=True,
+            add_close_button=True
+        )
+        rewriter_response = ""
+        for chunk in wrapped_rewriter:
+            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+                rewriter_response += chunk
+            yield chunk
+        
+        yield "\n\n"
+        time_logger.info(f"Total time for instruction-following agent: {time.time() - st} seconds")
+        
+        # Log the improvement metrics if needed
+        if verifier_response and "❌" in verifier_response:
+            time_logger.info("Response required significant improvements to meet instructions")
+        elif verifier_response and "⚠️" in verifier_response:
+            time_logger.info("Response required minor improvements to fully meet instructions")
+        else:
+            time_logger.info("Initial response met all instructions adequately")
+
+
 class ReflectionAgent(Agent):
     def __init__(self, keys, writer_model: Union[List[str], str], improve_model: str, outline_model: str):
         self.keys = keys
