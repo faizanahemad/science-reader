@@ -3034,7 +3034,7 @@ def set_memory_pad(conversation_id):
     return jsonify({'message': f'Memory pad set'})
 
 @app.route('/fetch_memory_pad/<conversation_id>', methods=['GET'])
-@limiter.limit("25 per minute")
+@limiter.limit("1000 per minute")
 @login_required
 def fetch_memory_pad(conversation_id):
     email, name, loggedin = check_login(session)
