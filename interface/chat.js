@@ -474,11 +474,11 @@ function getDefaultModelForTab(tab) {
     switch(tab) {
         case 'chat':
         case 'search':
-            return ['Sonnet 4'];
+            return ['Sonnet 4.5'];
         case 'finchat':
-            return ['openai/gpt-5-chat'];
+            return ['Sonnet 4.5'];
         default:
-            return ['Sonnet 4'];
+            return ['Sonnet 4.5'];
     }
 }
 
