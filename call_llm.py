@@ -285,7 +285,7 @@ Avoid writing code unless asked to or if needed explicitly.
                                                                                                                                                  "anthropic/claude-4-opus-20250522",
                                                                                                                                                  "anthropic/claude-4-sonnet-20250522",
                                                                                                                                                  "google/gemini-2.5-pro", "google/gemini-2.0-flash-001", "google/gemini-2.5-flash",
-                                                                                                                                                   "anthropic/claude-3.7-sonnet", "anthropic/claude-3.7-sonnet:beta"], f"{self.model_name} is not supported for image input."
+                                                                                                                                                   "anthropic/claude-3.7-sonnet", "anthropic/claude-3.7-sonnet:beta", "anthropic/claude-sonnet-4.5"], f"{self.model_name} is not supported for image input."
             encoded_images = []
             for img in images:
                 if os.path.exists(img):
