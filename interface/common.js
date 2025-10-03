@@ -788,13 +788,6 @@ marked.use({ extensions: [mathExtension] });
 
 marked.setOptions({
     renderer: markdownParser,
-    highlight: function (code, language) {
-        const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
-        if (validLanguage === 'plaintext') {
-            return hljs.highlightAuto(code).value;
-        }
-        return hljs.highlight(validLanguage, code).value;
-    },
     pedantic: false,
     gfm: true,
     breaks: false,
@@ -952,9 +945,12 @@ markdownParser.code = function (code, language) {
     return `<div class="code-block">
         <div class="code-header" style="height: 18px; min-height: 16px; padding: 1px 4px; display: flex; align-items: center; justify-content: space-between;">
             
-            <button class="copy-code-btn" style="padding: 2px 2px; padding-bottom: 4px; font-size: 12px; height: 20px;">Copy</button>
+            <button class="copy-code-btn" style="padding: 2px 2px; font-size: 12px; height: 20px;">Copy</button>
         </div>
-        <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
+        <details style="padding-top: 20px;">
+            <summary>Code Block</summary>
+            <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
+        </details>
     </div>`;
 };
 
@@ -1236,16 +1232,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         }
     }
 
-    if (code_rendering_needed) {
-        MathJax.Hub.Queue(function() {
-            // Only highlight code elements that are inside pre tags or have language classes
-            // Exclude inline code elements (those with class 'inline-code' or not in pre tags)
-            code_elems = $(elem_to_render_in).find('pre code, code[class*="language-"], code.hljs').not('.inline-code')
-            Array.from(code_elems).forEach(function (code_elem) {
-                hljs.highlightBlock(code_elem);
-            });
-        })
-    }
+    
 
     if (drawio_rendering_needed) {
         MathJax.Hub.Queue(function() {
