@@ -143,51 +143,11 @@ const DoubtManager = {
         this.currentConversationId = conversationId;
         this.currentMessageId = messageId;
         
-        // Load existing doubts to build proper parent-child relationships
-        this.loadExistingDoubtsAsHistory(conversationId, messageId);
+        
+        this.currentDoubtHistory = [];
+        this.openDoubtChatModal();
     },
     
-    /**
-     * Load existing doubts as history for new doubt conversations
-     */
-    loadExistingDoubtsAsHistory: function(conversationId, messageId) {
-        const self = this;
-        
-        // Fetch existing doubts for this message
-        fetch(`/get_doubts/${conversationId}/${messageId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success && data.doubts && data.doubts.length > 0) {
-                // Flatten and sort all doubts by created_at to build a linear conversation history
-                const allDoubts = self.flattenDoubtTree(data.doubts);
-                allDoubts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-                
-                self.currentDoubtHistory = allDoubts;
-                self.openDoubtChatModal();
-                self.renderDoubtHistory(allDoubts);
-            } else {
-                // No existing doubts, start fresh
-                self.currentDoubtHistory = [];
-                self.openDoubtChatModal();
-            }
-        })
-        .catch(error => {
-            console.error('Error loading existing doubts:', error);
-            // Fallback to empty history
-            self.currentDoubtHistory = [];
-            self.openDoubtChatModal();
-        });
-    },
     
     /**
      * Flatten doubt tree into a linear array
@@ -237,6 +197,7 @@ const DoubtManager = {
                     .then(response => response.json())
                     .then(treeData => {
                         if (treeData.success && treeData.doubts) {
+                            treeData.doubts = treeData.doubts.filter(doubt => doubt.doubt_id === data.doubt.doubt_id);
                             // Flatten the tree and sort by created_at
                             const allDoubts = self.flattenDoubtTree(treeData.doubts);
                             allDoubts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));

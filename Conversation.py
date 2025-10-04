@@ -3563,8 +3563,9 @@ Please provide a clear, comprehensive explanation that addresses the user's doub
 2. **Clarity**: Explain any complex concepts, terminology, or reasoning mentioned in the target message
 3. **Completeness**: Address all aspects of the user's doubt thoroughly
 4. **Examples**: Provide examples or analogies where helpful
-5. **Brieffly**: Answer the question in a few sentences.
+5. **Brieffly**: Answer the question in a few sentences. Add details if needed.
 6. Don't use latex or math notation. We can't render latex and math notation. Use single backticks for single line code blocks and triple backticks for multi-line code blocks.
+7. Convey intuition and details clearly and thoroughly and help in enhancing the user's understanding and learning. Explain any key moments or concepts and aha moments or gotchas or other important stuff.
 
 Please provide your explanation in a clear, structured format that directly addresses the user's doubt."""
 
@@ -3946,6 +3947,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-5-codex"
     elif model_name == "qwen/qwen3-coder-plus" or model_name == "Qwen3-Coder-Plus":
         model_name = "qwen/qwen3-coder-plus"
+    elif model_name == "meituan/longcat-flash-chat" or model_name == "Longcat Flash Chat":
+        model_name = "meituan/longcat-flash-chat"
     
     elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM:
         pass
