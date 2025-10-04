@@ -912,6 +912,7 @@ Writing Guidelines:
 - Add **comments** and **docstrings** to explain execution flow, logic, and any non-obvious implementation details.
 - Talk about other similar or related problems which I might confuse this problem with, and also talk or hint about the differences and their solutions.
 - If there are multiple problems and solutions, then compare the problems and solutions (in tabular format) and discuss the pros and cons of each solution in a table format.
+- Separate each problem/question by using horizontal rule (`---  `).
 
 Writing Examples (Provide examples if user has asked for them):
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.

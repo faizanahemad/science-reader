@@ -980,6 +980,54 @@ function hasUnclosedMermaidTag(htmlString) {
 }
  
 
+// Helper function to generate a summary for each section
+function generateSectionSummary(sectionContent, sectionIndex) {
+    /**
+     * Generate a summary title for a section based on its content
+     * 
+     * @param {string} sectionContent - The markdown content of the section
+     * @param {number} sectionIndex - The index of the section (0-based)
+     * @returns {string} - A summary title for the section
+     */
+    
+    // Try to extract the first heading if it exists
+    var headingMatch = sectionContent.match(/^#{1,6}\s+(.+?)$/m);
+    if (headingMatch) {
+        return headingMatch[1].trim();
+    }
+    
+    // Try to get the first line of text (non-empty, non-code)
+    var lines = sectionContent.split('\n');
+    for (var line of lines) {
+        line = line.trim();
+        // Skip empty lines, code blocks, and special markdown syntax
+        if (line && !line.startsWith('```') && !line.startsWith('    ') && !line.startsWith('\t')) {
+            // Truncate if too long and add ellipsis
+            if (line.length > 50) {
+                return line.substring(0, 47) + '...';
+            }
+            return line;
+        }
+    }
+    
+    // Default fallback
+    return `Section ${sectionIndex + 1}`;
+}
+
+// Add this helper function to handle closing sections
+function closeSectionDetails(sectionId) {
+    /**
+     * Close a specific section details element
+     * 
+     * @param {string} sectionId - The ID of the details element to close
+     */
+    var detailsElement = document.getElementById(sectionId);
+    if (detailsElement) {
+        detailsElement.removeAttribute('open');
+        // Optionally scroll to the summary so it's visible after closing
+        detailsElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
 
 function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null) {
     parent = jqelem.parent()
@@ -1015,6 +1063,72 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // check html has </answer> tag
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
+
+    // Check if we should wrap sections (you might want to make this configurable)
+    var wrapSectionsInDetails = true; // You can make this configurable via options
+    
+    if (wrapSectionsInDetails && html.includes('---')) {
+        // Split by horizontal rules (--- with optional spaces)
+        // We need to be careful to match markdown horizontal rules but not other uses of ---
+        var sections = html.split(/\n---+\s*\n/);
+        
+        if (sections.length > 1) {
+            var wrappedHtml = '';
+            
+            sections.forEach(function(section, index) {
+                section = section.trim();
+                if (section) {
+                    // Generate a summary for each section
+                    // You can customize how the summary is generated
+                    var summary = generateSectionSummary(section, index);
+                    
+                    // Generate a unique ID for this section
+                    var sectionId = `section-details-${elem_id}-${index}`;
+                    
+                    // Wrap each section in a details tag (open by default)
+                    wrappedHtml += `
+<details open class="section-details" data-section-index="${index}" id="${sectionId}">
+    <summary class="section-summary"><strong>${summary}</strong></summary>
+    <div class="section-content">
+        
+
+${section}
+
+<div class="section-footer">
+<button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+</div>
+</div>
+</details>
+`;
+                    // Add a subtle separator between sections (optional)
+                    if (index < sections.length - 1) {
+                        wrappedHtml += '\n'; // Small spacing between sections
+                    }
+                }
+            });
+            
+            html = wrappedHtml;
+        }
+    }
+
+    $(document).off('click', '.close-section-btn').on('click', '.close-section-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        var sectionId = $(this).data('section-id');
+        var detailsElement = $('#' + sectionId);
+        
+        if (detailsElement.length) {
+            // Close the details element
+            detailsElement.prop('open', false);
+            
+            // Smooth scroll to the summary
+            detailsElement[0].scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'nearest' 
+            });
+        }
+    });
     
     // Check if this input contains slide presentation tags at all
     var hasSlideTags = html.includes('<slide-presentation>');
