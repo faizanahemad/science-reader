@@ -1000,6 +1000,7 @@ function generateSectionSummary(sectionContent, sectionIndex) {
     var lines = sectionContent.split('\n');
     for (var line of lines) {
         line = line.trim();
+        line = line.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
         // Skip empty lines, code blocks, and special markdown syntax
         if (line && !line.startsWith('```') && !line.startsWith('    ') && !line.startsWith('\t')) {
             // Truncate if too long and add ellipsis
@@ -1082,12 +1083,28 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     // You can customize how the summary is generated
                     var summary = generateSectionSummary(section, index);
 
-                    var sectionHash = btoa(section).replace(/[^a-zA-Z0-9]/g, '').substring(0, 8);
+                    // Create a proper hash of the section content
+                    // Simple hash function to create a consistent identifier
+                    function simpleHash(str) {
+                        let hash = 0;
+                        if (str.length === 0) return hash.toString();
+                        for (let i = 0; i < str.length; i++) {
+                            const char = str.charCodeAt(i);
+                            hash = ((hash << 5) - hash) + char;
+                            hash = hash & hash; // Convert to 32-bit integer
+                        }
+                        return Math.abs(hash).toString(16).substring(0, 8);
+                    }
+                    
+                    var sectionHash = simpleHash(section) || 
+                        // Fallback: create hash from section length and first few safe characters
+                        (section.length.toString() + section.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                     
                     // Generate a unique ID for this section
                     var sectionId = `section-details-${elem_id}-${index}-${sectionHash}`;
                     
                     // Wrap each section in a details tag (open by default)
+                    summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                     wrappedHtml += `
 <details open class="section-details" data-section-index="${index}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
