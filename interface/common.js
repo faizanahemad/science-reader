@@ -1081,9 +1081,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     // Generate a summary for each section
                     // You can customize how the summary is generated
                     var summary = generateSectionSummary(section, index);
+
+                    var sectionHash = btoa(section).replace(/[^a-zA-Z0-9]/g, '').substring(0, 8);
                     
                     // Generate a unique ID for this section
-                    var sectionId = `section-details-${elem_id}-${index}`;
+                    var sectionId = `section-details-${elem_id}-${index}-${sectionHash}`;
                     
                     // Wrap each section in a details tag (open by default)
                     wrappedHtml += `
