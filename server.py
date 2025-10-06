@@ -150,6 +150,16 @@ def create_tables():
                                     FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
                                 ); """
     
+    # section hidden details table
+    sql_create_section_hidden_details_table = """CREATE TABLE IF NOT EXISTS SectionHiddenDetails (
+                                    conversation_id text,
+                                    section_id text,
+                                    hidden boolean DEFAULT 0,
+                                    created_at text,
+                                    updated_at text,
+                                    PRIMARY KEY (conversation_id, section_id)
+                                ); """
+    
     conn = create_connection(database)
     # delete_table(conn, "ConversationIdToWorkspaceId")
     # delete_table(conn, "WorkspaceMetadata")
@@ -168,6 +178,8 @@ def create_tables():
         create_table(conn, sql_create_workspace_metadata_table)
         # create DoubtsClearing table
         create_table(conn, sql_create_doubts_clearing_table)
+        # create SectionHiddenDetails table
+        create_table(conn, sql_create_section_hidden_details_table)
     else:
         print("Error! cannot create the database connection.")
         
@@ -198,6 +210,11 @@ def create_tables():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_parent_doubt_id ON DoubtsClearing (parent_doubt_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_child_doubt_id ON DoubtsClearing (child_doubt_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_is_root ON DoubtsClearing (is_root_doubt)")
+    
+    # create indexes for SectionHiddenDetails table
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_conversation_id ON SectionHiddenDetails (conversation_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_section_id ON SectionHiddenDetails (section_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_hidden ON SectionHiddenDetails (hidden)")
     
     cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
@@ -772,6 +789,124 @@ def build_doubt_tree(doubt_record):
         doubt_tree["children"].append(child_tree)
     
     return doubt_tree
+
+
+def get_section_hidden_details(conversation_id, section_ids):
+    """
+    Retrieve hidden details for multiple sections in a conversation.
+    
+    Args:
+        conversation_id (str): The conversation ID
+        section_ids (list): List of section IDs to retrieve details for
+        
+    Returns:
+        dict: Dictionary mapping section_id to hidden status
+    """
+    if not section_ids:
+        return {}
+        
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        
+        # Build placeholder string for IN clause
+        placeholders = ','.join('?' * len(section_ids))
+        
+        # Query for all requested sections
+        query = f"""
+            SELECT section_id, hidden, created_at, updated_at
+            FROM SectionHiddenDetails 
+            WHERE conversation_id = ? AND section_id IN ({placeholders})
+        """
+        
+        # Prepare parameters: conversation_id + all section_ids
+        params = [conversation_id] + section_ids
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        # Build result dictionary
+        section_details = {}
+        for row in rows:
+            section_details[row[0]] = {
+                "hidden": bool(row[1]),
+                "created_at": row[2],
+                "updated_at": row[3]
+            }
+        
+        # For sections not found in database, default to not hidden
+        for section_id in section_ids:
+            if section_id not in section_details:
+                section_details[section_id] = {
+                    "hidden": False,
+                    "created_at": None,
+                    "updated_at": None
+                }
+        
+        logger.info(f"Retrieved hidden details for {len(section_ids)} sections in conversation {conversation_id}")
+        
+        return section_details
+        
+    except Exception as e:
+        logger.error(f"Error getting section hidden details: {str(e)}")
+        raise e
+    finally:
+        conn.close()
+
+
+def bulk_update_section_hidden_detail(conversation_id, section_updates):
+    """
+    Bulk update or create section hidden details for multiple sections.
+    
+    Args:
+        conversation_id (str): The conversation ID
+        section_updates (dict): Dictionary mapping section_id to hidden status (bool)
+        
+    Returns:
+        None
+    """
+    if not section_updates:
+        return
+        
+    conn = create_connection("{}/users.db".format(users_dir))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        
+        # Process each section update
+        for section_id, hidden_state in section_updates.items():
+            # Use INSERT OR REPLACE to handle both new and existing records
+            cur.execute("""
+                INSERT OR REPLACE INTO SectionHiddenDetails
+                (conversation_id, section_id, hidden, created_at, updated_at)
+                VALUES (
+                    ?,  -- conversation_id
+                    ?,  -- section_id  
+                    ?,  -- hidden
+                    COALESCE((SELECT created_at FROM SectionHiddenDetails 
+                              WHERE conversation_id = ? AND section_id = ?), ?),  -- preserve created_at if exists
+                    ?   -- updated_at (always new)
+                )
+            """, (
+                conversation_id,
+                section_id,
+                hidden_state,
+                conversation_id,
+                section_id,
+                now,  # default created_at if new record
+                now   # updated_at
+            ))
+        
+        conn.commit()
+        
+        logger.info(f"Bulk updated {len(section_updates)} section hidden details for conversation {conversation_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in bulk updating section hidden details: {str(e)}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
 
 
 def collapseWorkspaces(workspace_ids: list[str]):
@@ -3486,6 +3621,148 @@ def update_prompt():
             'error': str(e)
         }), 500
 
+
+@app.route('/get_section_hidden_details', methods=['GET'])
+@limiter.limit("100 per minute")
+@login_required
+def get_section_hidden_details_endpoint():
+    conversation_id = request.args.get('conversation_id')
+    section_ids = request.args.get('section_ids')
+    section_ids = section_ids.split(',')
+    section_ids = [str(section_id) for section_id in section_ids]
+    section_hidden_details = get_section_hidden_details(conversation_id, section_ids)
+    return jsonify({"section_details": section_hidden_details})
+
+@app.route('/update_section_hidden_details', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def update_section_hidden_details_endpoint():
+    """
+    Update or create section hidden details for multiple sections in bulk.
+    
+    Expected JSON payload:
+    {
+        "conversation_id": "conv_123",
+        "section_details": {
+            "section_1": {"hidden": true},
+            "section_2": {"hidden": false},
+            "section_3": {"hidden": true}
+        }
+    }
+    
+    Returns:
+        JSON response with status and updated section details
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'error': 'No JSON data provided'
+            }), 400
+        
+        conversation_id = data.get('conversation_id')
+        section_details = data.get('section_details', {})
+        
+        if not conversation_id:
+            return jsonify({
+                'status': 'error',
+                'error': 'conversation_id is required'
+            }), 400
+        
+        if not section_details:
+            return jsonify({
+                'status': 'error',
+                'error': 'section_details is required and must be a non-empty dictionary'
+            }), 400
+        
+        # Validate that section_details is a dictionary
+        if not isinstance(section_details, dict):
+            return jsonify({
+                'status': 'error',
+                'error': 'section_details must be a dictionary'
+            }), 400
+        
+        # Check if user has access to this conversation
+        email, name, loggedin = check_login(session)
+        if not checkConversationExists(email, conversation_id):
+            return jsonify({
+                'status': 'error',
+                'error': 'Conversation not found or access denied'
+            }), 404
+        
+        # Validate all section details before processing
+        validated_updates = {}
+        validation_errors = []
+        
+        for section_id, details in section_details.items():
+            try:
+                # Validate section details structure
+                if not isinstance(details, dict):
+                    validation_errors.append(f"Section {section_id}: details must be a dictionary")
+                    continue
+                
+                if 'hidden' not in details:
+                    validation_errors.append(f"Section {section_id}: 'hidden' field is required")
+                    continue
+                
+                hidden_state = details['hidden']
+                if not isinstance(hidden_state, bool):
+                    validation_errors.append(f"Section {section_id}: 'hidden' must be a boolean value")
+                    continue
+                
+                # Add to validated updates
+                validated_updates[str(section_id)] = hidden_state
+                
+            except Exception as validation_error:
+                validation_errors.append(f"Section {section_id}: {str(validation_error)}")
+        
+        # Return validation errors if any
+        if validation_errors:
+            return jsonify({
+                'status': 'error',
+                'error': 'Validation failed',
+                'validation_errors': validation_errors
+            }), 400
+        
+        # Perform bulk update in a single database operation
+        try:
+            bulk_update_section_hidden_detail(conversation_id, validated_updates)
+            
+            # Prepare successful response
+            updated_sections = {
+                section_id: {
+                    'hidden': hidden_state,
+                    'status': 'updated'
+                }
+                for section_id, hidden_state in validated_updates.items()
+            }
+            
+            response_data = {
+                'status': 'success',
+                'message': f"Updated {len(updated_sections)} sections successfully",
+                'updated_sections': updated_sections,
+                'conversation_id': conversation_id
+            }
+            
+            logger.info(f"Bulk updated section hidden details for conversation {conversation_id}: {len(updated_sections)} sections")
+            
+            return jsonify(response_data)
+            
+        except Exception as bulk_update_error:
+            logger.error(f"Error in bulk update for conversation {conversation_id}: {str(bulk_update_error)}")
+            return jsonify({
+                'status': 'error',
+                'error': f"Failed to update sections: {str(bulk_update_error)}"
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error updating section hidden details: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
 
 
 

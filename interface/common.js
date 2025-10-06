@@ -979,6 +979,39 @@ function hasUnclosedMermaidTag(htmlString) {
     return stack.length > 0; // If the stack is not empty, there is at least one unclosed tag
 }
  
+// Function to attach listeners directly to section elements
+function attachSectionListeners(elem_to_render_in) {
+    $(elem_to_render_in).off('click', 'details summary');
+    
+    $(elem_to_render_in).on('click', 'details summary', function() {
+        // Check if this is a section-details element and handle state persistence
+        const sectionDetails = $(this).closest('.section-details');
+        var sectionId = $(this).closest('details').attr('id');
+        var sectionHash = $(this).closest('details').attr('data-section-hash');
+        var detailsElement = $(document.getElementById(sectionId));
+        if (sectionDetails.length > 0) {
+            const sectionHash = sectionDetails.attr('data-section-hash');
+            
+            // Use setTimeout to read state after the browser has toggled it
+            setTimeout(function() {
+                const isOpen = sectionDetails.prop('open');
+                const isHidden = !isOpen;
+                
+                console.log('Section toggled via closest section-details:', sectionHash, 'isHidden:', isHidden);
+                
+                if (conversation_id && sectionHash) {
+                    persistSectionState(conversation_id, sectionHash, isHidden);
+                }
+            }, 0);
+        }
+        const details = $(this).parent('details')[0];
+        const willBeOpen = !details.hasAttribute('open');
+        console.log('details clicked, will be open:', willBeOpen);
+
+    });
+}
+
+
 
 // Helper function to generate a summary for each section
 function generateSectionSummary(sectionContent, sectionIndex) {
@@ -1030,7 +1063,89 @@ function closeSectionDetails(sectionId) {
     }
 }
 
+// Helper function to fetch and apply section hidden states
+function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
+    // Find all section-details elements
+    const sectionElements = $(elem_to_render_in).find('.section-details');
+    if (sectionElements.length === 0) return;
+    
+    // Collect section IDs
+    const sectionIds = [];
+    sectionElements.each(function() {
+        const sectionId = $(this).attr('id');
+        if (sectionId) {
+            // Remove the "section-details-" prefix from the ID
+            const cleanedId = sectionId.replace(/^section-details-/, '');
+            sectionIds.push(cleanedId);
+        }
+        
+        // if (sectionId) {
+        //     // Extract just the hash part of the ID (e.g., "section-details-conv123-abc123" -> "abc123")
+        //     const match = sectionId.match(/section-details-[^-]+-(.+)$/);
+        //     if (match && match[1]) {
+        //         sectionIds.push(match[1]);
+        //     }
+        // }
+    });
+    
+    if (sectionIds.length === 0) return;
+    
+    // Fetch hidden states from server
+    $.ajax({
+        url: '/get_section_hidden_details',
+        method: 'GET',
+        data: {
+            conversation_id: conversation_id,
+            section_ids: sectionIds.join(',')
+        },
+        success: function(response) {
+            if (response && response.section_details) {
+                // Apply the states to the details elements
+                sectionElements.each(function() {
+                    const sectionElement = $(this);
+                    const sectionId = sectionElement.attr('id');
+                    if (sectionId) {
+                        const cleanedId = sectionId.replace(/^section-details-/, '');
+                        const sectionData = response.section_details[cleanedId];
+                        if (sectionData && sectionData.hidden) {
+                            // Close the section if it's marked as hidden
+                            sectionElement.prop('open', false);
+                        }
+                        
+                    }
+                });
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Failed to fetch section hidden states:', error);
+        }
+    });
+}
+
+// Helper function to persist section state when toggled
+function persistSectionState(conversation_id, sectionHash, isHidden) {
+    const sectionDetails = {};
+    sectionDetails[sectionHash] = { hidden: isHidden };
+    
+    $.ajax({
+        url: '/update_section_hidden_details',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            conversation_id: conversation_id,
+            section_details: sectionDetails
+        }),
+        success: function(response) {
+            console.log('Section state persisted:', response);
+        },
+        error: function(xhr, status, error) {
+            console.error('Failed to persist section state:', error);
+        }
+    });
+}
+
 function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null) {
+    conversation_id = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation()!= '') ? ConversationManager.getActiveConversation() : '';
     parent = jqelem.parent()
     elem_id = jqelem.attr('id');
     elem_to_render_in = jqelem
@@ -1101,12 +1216,13 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                         (section.length.toString() + section.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                     
                     // Generate a unique ID for this section
-                    var sectionId = `section-details-${elem_id}-${index}-${sectionHash}`;
+                    sectionHash =  `${conversation_id}-${sectionHash}`;
+                    var sectionId = `section-details-${sectionHash}`;
                     
                     // Wrap each section in a details tag (open by default)
                     summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                     wrappedHtml += `
-<details open class="section-details" data-section-index="${index}" id="${sectionId}">
+<details open class="section-details" data-section-index="${index}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
     <div class="section-content">
         
@@ -1130,16 +1246,24 @@ ${section}
         }
     }
 
+    // For the close button, we need to manually track the state change
     $(document).off('click', '.close-section-btn').on('click', '.close-section-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
         
         var sectionId = $(this).data('section-id');
-        var detailsElement = $('#' + sectionId);
+        var detailsElement = $(document.getElementById(sectionId));
         
         if (detailsElement.length) {
+            var sectionHash = detailsElement.attr('data-section-hash');
+            
             // Close the details element
             detailsElement.prop('open', false);
+            
+            // Since programmatic changes don't fire toggle event, manually persist state
+            if (conversation_id && sectionHash) {
+                persistSectionState(conversation_id, sectionHash, true); // true = hidden
+            }
             
             // Smooth scroll to the summary
             detailsElement[0].scrollIntoView({ 
@@ -1299,6 +1423,19 @@ ${section}
     if (immediate_callback) {
         immediate_callback()
     }
+    
+    // Add toggle event listeners to section details elements and fetch stored states
+    // Only do this for non-streaming content (when we have complete content)
+
+    if (conversation_id && !continuous) {
+        // Attach event listeners directly to the section elements
+        attachSectionListeners(elem_to_render_in);
+        
+        // Fetch and apply stored section states (only for non-streaming content)
+        fetchAndApplySectionStates(conversation_id, elem_to_render_in);
+    }
+
+    
 
     // Slides are now opened in a new window via link; no in-card Reveal init
 
