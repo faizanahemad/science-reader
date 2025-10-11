@@ -289,9 +289,14 @@
     color: rgba(255, 255, 255, 0.8) !important;
 }
 
-.conversation-item.active .conversation-actions i {
+/* Make all action buttons white EXCEPT the flag button */
+.conversation-item.active .conversation-actions .clone-conversation-button i,
+.conversation-item.active .conversation-actions .delete-chat-button i,
+.conversation-item.active .conversation-actions .stateless-button i {
     color: white !important;
 }
+
+/* Flag colors on active conversations are preserved via inline styles in the HTML */
 
 
 /* Enhanced drag and drop styles */
@@ -376,5 +381,150 @@
 .workspace-section {
     position: relative;
     z-index: 1;
+}
+
+/* Flag Color Picker Popover Styles */
+.flag-color-picker-popover {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1050;
+    padding: 4px;
+    min-width: 140px;
+}
+
+.flag-color-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+}
+
+.flag-color-option:hover {
+    background-color: #f8f9fa;
+}
+
+.flag-color-option.selected {
+    background-color: #e3f2fd;
+}
+
+.flag-color-option i {
+    font-size: 0.9rem;
+}
+
+/* Flag Filter Styles */
+.workspace-flag-filter-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.flag-filter-button {
+    border: none;
+    background: none;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 0.2s;
+}
+
+.flag-filter-button:hover {
+    background: rgba(0,0,0,0.1);
+}
+
+.flag-filter-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1050;
+    padding: 4px;
+    min-width: 140px;
+    margin-top: 5px;
+}
+
+.flag-filter-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+}
+
+.flag-filter-option:hover {
+    background-color: #f8f9fa;
+}
+
+.flag-filter-option i {
+    font-size: 0.9rem;
+}
+
+.flag-filter-divider {
+    margin: 4px 0;
+    border-top: 1px solid #e0e0e0;
+}
+
+/* Flag Button Styles in Conversation Actions */
+.flag-conversation-button {
+    border: 1px solid #000000;
+    background: none;
+    transition: all 0.2s;
+    border-radius: 4px;
+    padding: 5px;
+    color: #000000;
+}
+
+.flag-filter-button {
+    border: 1px solid #000000;
+    border-radius: 4px;
+    padding: 5px;
+    color: #000000;
+}
+
+
+.list-group-item-action.active .flag-conversation-button,
+.list-group-item-action.active .flag-conversation-button:visited {
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;      /* Change for more or less curvature */
+    padding: 5px;
+    color: #FFFFFF;
+}
+
+.flag-conversation-button:hover {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.flag-conversation-button:focus {
+    outline: none;
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Keep flag colors visible on active conversations - don't override the inline colors */
+.conversation-item.active .flag-conversation-button {
+    opacity: 1;
+}
+
+.conversation-item.active .flag-conversation-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Only make the other action buttons white on active conversations, not flag buttons */
+.conversation-item.active .clone-conversation-button i,
+.conversation-item.active .delete-chat-button i,
+.conversation-item.active .stateless-button i {
+    color: white !important;
 }
 

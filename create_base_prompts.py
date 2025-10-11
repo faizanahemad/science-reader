@@ -2703,7 +2703,7 @@ You are allowed to be bold, provocative, and intense in your suggestions and eng
 
 {math_formatting_instructions}
 
-plain the maths and mathematical concepts in detail with their mathematical formulation and their notation comprehensively.
+Explain the maths, mathematical formulations and mathematical concepts in detail with their mathematical formulation and their notation comprehensively.
 Write in an engaging and informative tone.
 Avoid writing code unless asked to or if needed explicitly.
 """

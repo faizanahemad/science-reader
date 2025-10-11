@@ -173,12 +173,44 @@ var WorkspaceManager = {
         // OLD: const isExpanded = localStorage.getItem(`workspace_${workspaceId}_expanded`) !== 'false';
         // NEW: Read 'expanded' state directly from the workspace object.
         const isExpanded = workspace.expanded === true || workspace.expanded === 'true';
-
+        workspace_display_name = workspace.name;
+        if (workspace.workspace_id === this.defaultWorkspaceId) {
+            workspace_display_name = 'General';
+        }
         const workspaceDiv = $(`
-            <div class="workspace-section workspace-color-${workspace.color}" data-workspace-id="${workspaceId}">
+            <div class="workspace-section workspace-color-${workspace.color}" data-workspace-id="${workspaceId}" data-active-flag-filter="all">
                 <div class="workspace-header" data-workspace-id="${workspaceId}">
-                    <div class="workspace-title">${workspace.name}</div>
+                    <div class="workspace-title">${workspace_display_name}</div>
                     <div class="workspace-header-actions">
+                        <div class="workspace-flag-filter-container" data-workspace-id="${workspaceId}">
+                            <button class="btn p-0 flag-filter-button" type="button" title="Filter by flag" data-workspace-id="${workspaceId}">
+                                <i class="bi bi-flag" style="font-size: 0.8rem; color: #6c757d;"></i>
+                            </button>
+                            <div class="flag-filter-dropdown" style="display: none;">
+                                <div class="flag-filter-option" data-filter="all" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag" style="color: #6c757d;"></i> All flags
+                                </div>
+                                <hr class="flag-filter-divider">
+                                <div class="flag-filter-option" data-filter="red" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: red;"></i> Red
+                                </div>
+                                <div class="flag-filter-option" data-filter="blue" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: blue;"></i> Blue
+                                </div>
+                                <div class="flag-filter-option" data-filter="green" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: green;"></i> Green
+                                </div>
+                                <div class="flag-filter-option" data-filter="yellow" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: #ffc107;"></i> Yellow
+                                </div>
+                                <div class="flag-filter-option" data-filter="orange" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: orange;"></i> Orange
+                                </div>
+                                <div class="flag-filter-option" data-filter="purple" data-workspace-id="${workspaceId}">
+                                    <i class="bi bi-flag-fill" style="color: purple;"></i> Purple
+                                </div>
+                            </div>
+                        </div>
                         <span class="workspace-count">${conversations.length}</span>
                         <button class="btn p-0 workspace-add-chat" data-workspace-id="${workspaceId}" title="Add chat to ${workspace.name}">
                             <i class="fa fa-plus" style="font-size: 0.8rem; color: #6c757d;"></i>
@@ -205,9 +237,16 @@ var WorkspaceManager = {
 
     // Create conversation element with all existing functionality preserved
     createConversationElement: function(conversation) {
+        // Determine flag icon and style
+        const hasFlag = conversation.flag && conversation.flag !== 'none';
+        const flagIcon = hasFlag ? 'bi-flag-fill' : 'bi-flag';
+        const flagColor = hasFlag ? conversation.flag : '#6c757d';
+        const flagStyle = hasFlag ? `color: ${flagColor};` : 'color: #6c757d;';
+        
         const conversationItem = $(`
             <a href="#" class="list-group-item list-group-item-action conversation-item" 
                data-conversation-id="${conversation.conversation_id}" 
+               data-conversation-flag="${conversation.flag || 'none'}"
                draggable="true">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="conversation-content flex-grow-1">
@@ -226,12 +265,174 @@ var WorkspaceManager = {
                         <button class="btn p-0 ms-1 stateless-button" data-conversation-id="${conversation.conversation_id}" title="Toggle State">
                             <i class="bi bi-eye-slash" style="font-size: 0.8rem;"></i>
                         </button>
+                        <button class="btn p-0 ms-1 flag-conversation-button" data-conversation-id="${conversation.conversation_id}" data-current-flag="${conversation.flag || 'none'}" title="Set Flag">
+                            <i class="${flagIcon}" style="font-size: 0.8rem; ${flagStyle}"></i>
+                        </button>
                     </div>
                 </div>
             </a>
         `);
         
         return conversationItem;
+    },
+
+    // Show flag color picker popover
+    showFlagColorPicker: function(button) {
+        // Close any existing popover
+        $('.flag-color-picker-popover').remove();
+        
+        const currentFlag = $(button).data('current-flag') || 'none';
+        const conversationId = $(button).data('conversation-id');
+        const buttonOffset = $(button).offset();
+        
+        // Create popover with 6 color options + "No flag"
+        const popover = $(`
+            <div class="flag-color-picker-popover">
+                <div class="flag-color-option" data-flag="none" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag" style="color: #6c757d;"></i> No flag
+                </div>
+                <div class="flag-color-option" data-flag="red" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: red;"></i> Red
+                </div>
+                <div class="flag-color-option" data-flag="blue" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: blue;"></i> Blue
+                </div>
+                <div class="flag-color-option" data-flag="green" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: green;"></i> Green
+                </div>
+                <div class="flag-color-option" data-flag="yellow" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: #ffc107;"></i> Yellow
+                </div>
+                <div class="flag-color-option" data-flag="orange" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: orange;"></i> Orange
+                </div>
+                <div class="flag-color-option" data-flag="purple" data-conversation-id="${conversationId}">
+                    <i class="bi bi-flag-fill" style="color: purple;"></i> Purple
+                </div>
+            </div>
+        `);
+        
+        // Position popover
+        $('body').append(popover);
+        popover.css({
+            top: buttonOffset.top + $(button).outerHeight() + 5,
+            left: buttonOffset.left - popover.outerWidth() + $(button).outerWidth()
+        });
+        
+        // Highlight current selection
+        popover.find(`.flag-color-option[data-flag="${currentFlag}"]`).addClass('selected');
+        
+        // Handle option click
+        popover.find('.flag-color-option').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const selectedFlag = $(this).data('flag');
+            const conversationId = $(this).data('conversation-id');
+            WorkspaceManager.handleFlagSelection(conversationId, selectedFlag, currentFlag);
+        });
+        
+        // Close popover on outside click
+        setTimeout(() => {
+            $(document).one('click', function() {
+                $('.flag-color-picker-popover').remove();
+            });
+        }, 100);
+    },
+
+    // Handle flag selection and API call
+    handleFlagSelection: function(conversationId, newFlag, oldFlag) {
+        // Only call API if flag changed
+        if (newFlag === oldFlag) {
+            $('.flag-color-picker-popover').remove();
+            return;
+        }
+        
+        // Call set_flag API
+        $.ajax({
+            url: `/set_flag/${conversationId}/${newFlag}`,
+            type: 'POST',
+            success: () => {
+                // Update button UI
+                const button = $(`.flag-conversation-button[data-conversation-id="${conversationId}"]`);
+                const icon = button.find('i');
+                
+                // Update conversation item data attribute
+                $(`.conversation-item[data-conversation-id="${conversationId}"]`).attr('data-conversation-flag', newFlag);
+                
+                if (newFlag === 'none') {
+                    // Show outline flag
+                    icon.removeClass('bi-flag-fill').addClass('bi-flag');
+                    icon.attr('style', 'font-size: 0.8rem; color: #6c757d;');
+                    button.data('current-flag', 'none');
+                } else {
+                    // Show colored flag
+                    icon.removeClass('bi-flag').addClass('bi-flag-fill');
+                    icon.attr('style', `font-size: 0.8rem; color: ${newFlag};`);
+                    button.data('current-flag', newFlag);
+                }
+                
+                // Update data attribute
+                button.attr('data-current-flag', newFlag);
+                
+                // Close popover
+                $('.flag-color-picker-popover').remove();
+                
+                // Reapply current filter if active
+                const workspaceSection = button.closest('.workspace-section');
+                const currentFilter = workspaceSection.data('active-flag-filter');
+                if (currentFilter && currentFilter !== 'all') {
+                    const workspaceId = workspaceSection.data('workspace-id');
+                    WorkspaceManager.filterConversationsByFlag(workspaceId, currentFilter);
+                }
+            },
+            error: (xhr, status, error) => {
+                console.error('Failed to set flag:', error);
+                alert('Failed to set flag. Please try again.');
+                $('.flag-color-picker-popover').remove();
+            }
+        });
+    },
+
+    // Filter conversations by flag within a workspace
+    filterConversationsByFlag: function(workspaceId, flagFilter) {
+        const workspaceSection = $(`.workspace-section[data-workspace-id="${workspaceId}"]`);
+        const conversations = workspaceSection.find('.conversation-item');
+        
+        let visibleCount = 0;
+        
+        if (flagFilter === 'all') {
+            // Show all conversations
+            conversations.show();
+            visibleCount = conversations.length;
+        } else {
+            // Filter by specific flag color
+            conversations.each(function() {
+                const conversationFlag = $(this).data('conversation-flag') || 'none';
+                if (conversationFlag === flagFilter) {
+                    $(this).show();
+                    visibleCount++;
+                } else {
+                    $(this).hide();
+                }
+            });
+        }
+        
+        // Update workspace count to show filtered count
+        const countElement = workspaceSection.find('.workspace-count');
+        countElement.text(visibleCount);
+        
+        // Update workspace data attribute
+        workspaceSection.attr('data-active-flag-filter', flagFilter);
+        
+        // Update filter button icon
+        const filterButton = workspaceSection.find('.flag-filter-button i');
+        if (flagFilter === 'all') {
+            filterButton.removeClass('bi-flag-fill').addClass('bi-flag');
+            filterButton.attr('style', 'font-size: 0.8rem; color: #6c757d;');
+        } else {
+            filterButton.removeClass('bi-flag').addClass('bi-flag-fill');
+            filterButton.attr('style', `font-size: 0.8rem; color: ${flagFilter};`);
+        }
     },
 
     // Setup main event handlers
@@ -487,6 +688,59 @@ var WorkspaceManager = {
                 ConversationManager.statefulConversation(conversationId).done(() => {
                     button.find('i').removeClass('bi-eye').addClass('bi-eye-slash');
                 });
+            }
+        });
+        
+        // Flag conversation button (using event delegation)
+        $(document).off('click', '.flag-conversation-button').on('click', '.flag-conversation-button', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            WorkspaceManager.showFlagColorPicker(this);
+        });
+        
+        // Flag filter button click - toggle dropdown (using event delegation)
+        $(document).off('click', '.flag-filter-button').on('click', '.flag-filter-button', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const dropdown = $(this).siblings('.flag-filter-dropdown');
+            const isVisible = dropdown.is(':visible');
+            
+            // Close all other dropdowns first
+            $('.flag-filter-dropdown').hide();
+            
+            // Toggle this dropdown
+            if (isVisible) {
+                dropdown.hide();
+            } else {
+                dropdown.show();
+                
+                // Position the dropdown
+                const button = $(this);
+                const buttonOffset = button.offset();
+                dropdown.css({
+                    top: button.outerHeight() + 5,
+                    left: 0
+                });
+            }
+        });
+        
+        // Flag filter option click (using event delegation)
+        $(document).off('click', '.flag-filter-option').on('click', '.flag-filter-option', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const workspaceId = $(this).data('workspace-id');
+            const flagFilter = $(this).data('filter');
+            WorkspaceManager.filterConversationsByFlag(workspaceId, flagFilter);
+            
+            // Close the dropdown after selection
+            $(this).closest('.flag-filter-dropdown').hide();
+        });
+        
+        // Close flag filter dropdown when clicking outside
+        $(document).on('click', function(e) {
+            if (!$(e.target).closest('.workspace-flag-filter-container').length) {
+                $('.flag-filter-dropdown').hide();
             }
         });
         

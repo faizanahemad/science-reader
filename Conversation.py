@@ -60,6 +60,8 @@ class Conversation:
         self.set_messages_field(messages)
         self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
         self._domain = domain
+
+        self._flag = None
         
         # Initialize persistent context data for reward system
         self._context_data = {
@@ -74,6 +76,22 @@ class Conversation:
         }
         
         self.save_local()
+
+    @property
+    def flag(self) -> Union[str, None]:
+        if hasattr(self, "_flag"):
+            return self._flag
+        else:
+            return None
+    
+    @flag.setter
+    def flag(self, value: str):
+        if hasattr(self, "_flag"):
+            self._flag = value
+        else:
+            setattr(self, "_flag", value)
+        self.save_local()
+    
 
 
     def set_memory_if_None(self):
@@ -3124,7 +3142,7 @@ At the end write what we must make slides about as well.
             memory["title"] = ""
         title = memory["title"]
         return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
-                    summary_till_now=summary_till_now, domain=self.domain,
+                    summary_till_now=summary_till_now, domain=self.domain, flag=self.flag,
                     last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
 
     def _initiate_reward_evaluation(self, reward_level, query_text, checkboxes, previous_messages_long, summary):
@@ -3567,7 +3585,7 @@ Please provide a clear, comprehensive explanation that addresses the user's doub
 6. Don't use latex or math notation. We can't render latex and math notation. Use single backticks for single line code blocks and triple backticks for multi-line code blocks.
 7. Convey intuition and details clearly and thoroughly and help in enhancing the user's understanding and learning. Explain any key moments or concepts and aha moments or gotchas or other important stuff.
 
-Please provide your explanation in a clear, structured format that directly addresses the user's doubt."""
+Please provide your explanation or answer to the user's doubt in a clear, structured format that directly addresses the user's doubt."""
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()

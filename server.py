@@ -1233,6 +1233,38 @@ def deleteConversationForUser(user_email, conversation_id):
     finally:
         conn.close()
 
+
+def cleanup_deleted_conversations(conversation_ids):
+    """Clean up database entries for deleted stateless conversations"""
+    if not conversation_ids:
+        return
+        
+    conn = create_connection("{}/users.db".format(users_dir))
+    if conn is None:
+        logger.error("Error! cannot create the database connection for cleanup.")
+        return
+        
+    try:
+        cur = conn.cursor()
+        placeholders = ','.join(['?' for _ in conversation_ids])
+        
+        # Delete from tables in proper order (respecting foreign key constraints)
+        cur.execute(f"DELETE FROM SectionHiddenDetails WHERE conversation_id IN ({placeholders})", conversation_ids)
+        cur.execute(f"DELETE FROM DoubtsClearing WHERE conversation_id IN ({placeholders})", conversation_ids)
+        cur.execute(f"DELETE FROM ConversationIdToWorkspaceId WHERE conversation_id IN ({placeholders})", conversation_ids)
+        cur.execute(f"DELETE FROM UserToConversationId WHERE conversation_id IN ({placeholders})", conversation_ids)
+        
+        # Note: WorkspaceMetadata doesn't have conversation_id column based on schema
+        # Note: UserDetails is keyed by user_email, not conversation_id, so shouldn't be deleted here
+        
+        conn.commit()
+        logger.info(f"Cleaned up database entries for {len(conversation_ids)} deleted conversations")
+    except Exception as e:
+        logger.error(f"Error cleaning up deleted conversations: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def getAllCoversations():
     conn = create_connection("{}/users.db".format(users_dir))
     cur = conn.cursor()
@@ -1905,7 +1937,7 @@ def clear_locks():
     return jsonify({'result': 'locks cleared'})
 
 
-@app.route('/interface')
+@app.route('/interface', strict_slashes=False)
 @limiter.limit("200 per minute")
 @login_required
 def interface():
@@ -1917,7 +1949,7 @@ def static_files(filename):
     return send_from_directory(os.path.join(app.root_path, 'static'), filename)
 
 
-@app.route('/interface/<path:path>')  
+@app.route('/interface/<path:path>', strict_slashes=False)  
 @limiter.limit("1000 per minute")  
 def interface_combined(path):
     # Check login status  
@@ -1926,6 +1958,11 @@ def interface_combined(path):
     # custom path logic
     if not loggedin or email is None:
         return redirect('/login', code=302)
+
+    # Handle empty path (edge case)
+    if not path or path == '':
+        return send_from_directory('interface', 'interface.html', max_age=0)
+    
     
     if email is not None and path.startswith(email) and path.count('/') >= 2:
         path = '/'.join(path.split('/')[1:])
@@ -2237,6 +2274,29 @@ def cancel_doubt_clearing(conversation_id):
     return jsonify({"message": "Doubt clearing cancellation requested successfully"}), 200
 
 
+@app.route('/set_flag/<conversation_id>/<flag>', methods=['POST'])
+@limiter.limit("100 per minute")
+@login_required
+def set_flag(conversation_id, flag):
+    email, name, loggedin = check_login(session)
+    if not checkConversationExists(email, conversation_id):
+        return jsonify({"message": "Conversation not found"}), 404
+    else:
+        conversation = conversation_cache[conversation_id]
+    if conversation is None:
+        return jsonify({"message": "Conversation not found"}), 404
+    # Define valid colors for conversation flags
+    valid_colors = ["red", "blue", "green", "yellow", "orange", "purple", "pink", "cyan", "magenta", "lime", "indigo", "teal", "brown", "gray", "black", "white"]
+    
+    # Handle "none" as a special case to clear the flag
+    if flag is not None and flag.strip().lower() == "none":
+        conversation.flag = None
+        return jsonify({"message": "Flag cleared successfully"}), 200
+    
+    assert flag is not None and len(flag.strip()) > 0 and flag.strip().lower() in valid_colors
+    conversation.flag = flag.strip().lower()
+    return jsonify({"message": "Flag set successfully"}), 200
+
 ### chat apis
 @app.route('/list_conversation_by_user/<domain>', methods=['GET'])
 @limiter.limit("500 per minute")
@@ -2252,19 +2312,25 @@ def list_conversation_by_user(domain:str):
     conversation_ids = [c[1] for c in conv_db]
     conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]
     conversation_id_to_workspace_id = {c[1]: {"workspace_id": c[4], "workspace_name": c[5]} for c in conv_db if c[4] is not None}
-    # stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
-    # for conversation in stateless_conversations:
-    #     removeUserFromConversation(email, conversation.conversation_id)
-    #     del conversation_cache[conversation.conversation_id]
-    #     deleteConversationForUser(email, conversation.conversation_id)
-    #     conversation.delete_conversation()
+    
+    stateless_conversations = [conversation for conversation in conversations if conversation is not None and conversation.stateless]
+    stateless_conversation_ids = [conversation.conversation_id for conversation in stateless_conversations]
+    for conversation in stateless_conversations:
+        removeUserFromConversation(email, conversation.conversation_id)
+        del conversation_cache[conversation.conversation_id]
+        deleteConversationForUser(email, conversation.conversation_id)
+        conversation.delete_conversation()
 
+    none_conversation_ids = []
     for conversation_id, conversation in zip(conversation_ids, conversations):
         if conversation is None:
             removeUserFromConversation(email, conversation_id)
             del conversation_cache[conversation_id]
             deleteConversationForUser(email, conversation_id)
-            
+            none_conversation_ids.append(conversation_id)
+
+    # Clean up database entries for deleted none conversations
+    cleanup_deleted_conversations(none_conversation_ids + stateless_conversation_ids)
 
     conversations = [conversation for conversation in conversations if conversation is not None and conversation.domain==domain] #  and not conversation.stateless
     conversations = [set_keys_on_docs(conversation, keys) for conversation in conversations]
