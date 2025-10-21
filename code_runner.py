@@ -387,7 +387,12 @@ try:
         
 except Exception as e:
     execution_success = False
-    error_message = str(e) + "\\n" + traceback.format_exc()
+    
+    # traceback_buffer = StringIO()
+    # traceback.print_exc(file=traceback_buffer)
+    # error_message = str(e) + "\\n" + traceback_buffer.getvalue()
+    
+    traceback.print_exc(file=sys.stdout)
     
     
 finally:
@@ -403,7 +408,9 @@ finally:
     print(stdout_buffer.getvalue(), flush=True)
     print("===STDOUT_END===", flush=True)
     print("===STDERR_START===", flush=True)
-    print(stderr_buffer.getvalue(), flush=True)
+    if not execution_success:
+        traceback.print_exc()
+    
     print("===STDERR_END===", flush=True)
 '''
 
@@ -599,7 +606,7 @@ def code_runner_with_retry(instructions: str, rules: List[str], llm_hard: CallLL
 
 
 def run_code_once(code_string: str, session: Union[PersistentPythonEnvironment, PersistentPythonEnvironment_v2]=None):
-    success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=PythonEnvironmentWithForceKill() if session is None else session, timeout=5, pad_code_string=False)
+    success, failure_reason, stdout, stderr = run_code_with_constraints_v2(code_string, session=PythonEnvironmentWithForceKill() if session is None else session, timeout=120, pad_code_string=False)
     final_output = format_execution_output_for_ui(success, failure_reason, stdout, stderr)
     return final_output
 
@@ -1119,7 +1126,7 @@ def run_code_with_constraints(code_string, constraints={}):
         stdout = stdout.decode()
     else:
         stdout = ""
-    failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n"
+    failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n\nSTDERR:\n{stderr}\n"
     return success, failure_reason, stdout, stderr
 
 
@@ -1285,7 +1292,7 @@ print = prnt
         pass
 
     if failure_reason is not None and failure_reason.strip() != "" and failure_reason.strip()!="None":
-        failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n"
+        failure_reason = f"Raised Exception Message and stack trace:\n{failure_reason}\n\nSTDERR:\n{stderr}\n"
     if stderr:
         stderr = stderr.strip()
 

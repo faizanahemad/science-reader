@@ -1,7 +1,6 @@
-
+var codeEditor = null; // Store editor instance globally  
+var currentCode = null;
 function setupCodeEditor() {  
-    let codeEditor = null; // Store editor instance globally  
-    let currentCode = null;
       
     // **Modal Opening Logic**  
     $('#code-editor-modal-open-button').on('click', function() {  
