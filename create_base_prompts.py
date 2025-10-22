@@ -918,6 +918,14 @@ Writing Examples (Provide examples if user has asked for them):
 - Use **clear examples**, **analogies**, and **visualizations** to illustrate concepts.
 - Show a running example of the solution where we go step by step and check outputs and intermediates at each step and show them to understand the solution better.
 - If there are loop invariants, or state variables, or any other variables that are changing, then show them changing in the example.
+- For Dynamic Programming problems and other problems (where ever sensible) provide short mathematical formulations and equations to help us understand the solution better.
+  - Example on how to write mathematical formulations and equations for DP problems:
+    - Let `dp[i]` be the minimum number of words to break the string `s[0:i]` into a space-separated sequence of one or more dictionary words.
+    - `dp[i] = min(dp[j] + 1) for all j < i and s[j:i] is in the dictionary.` (Also write in latex format like below.)
+    - $$ dp[i] = \bigvee_{j=0}^{i-1} (dp[j] \land s[j:i] \in \text{wordDict}) $$
+    - `dp[0] = 0`
+    - `dp[i] = infinity if no such j exists.`
+    - `dp[len(s)]` is the answer.
 - Examples should be sufficiently detailed to understand the solution.
 - Provide examples only if user has asked for them.
 
