@@ -3567,12 +3567,14 @@ At the end write what we must make slides about as well.
             # Build the doubt clearing prompt
             doubt_prompt = f"""You are an AI assistant helping to clear doubts about a specific message in a conversation. 
 
+<prior_context>
 {context_text}
+</prior_context>
 
 # User's Doubt/Question
 The user has a specific doubt or question about the message marked as **[TARGET MESSAGE]** above:
 
-**User's Doubt:** {doubt_text if doubt_text.strip() else "Please explain this message in more detail."}
+**User's Doubt:** {doubt_text if doubt_text.strip() else "Please explain this message in more detail. Take care to explain ambiguity and possible confusion that might be present to help the user understand better."}
 
 # Your Task
 Please provide a clear, comprehensive explanation that addresses the user's doubt. Consider:
@@ -3589,7 +3591,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
-            llm = CallLLm(api_keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+            llm = CallLLm(api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
             
             # Generate streaming response
             response_stream = llm(
@@ -3968,7 +3970,7 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "meituan/longcat-flash-chat" or model_name == "Longcat Flash Chat":
         model_name = "meituan/longcat-flash-chat"
     
-    elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM:
+    elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM or model_name in UNUSED_EXPENSIVE_LLM:
         pass
     
         
