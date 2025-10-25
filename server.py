@@ -3516,20 +3516,49 @@ def run_code():
 @login_required
 def get_prompts():
     """
-    Get a list of all available prompt names.
+    Get a list of all available prompt names with metadata.
     
     Returns:
-        JSON response with list of prompt names
+        JSON response with list of prompts and their metadata
     """
     try:
         from prompts import manager
+        import datetime
         
         # Get all prompt names
         prompt_names = manager.keys()
         
+        # Build detailed prompt list with metadata
+        prompts_with_metadata = []
+        for name in prompt_names:
+            try:
+                # Try to get metadata for each prompt
+                prompt_metadata = manager.get_raw(name, as_dict=True)
+                prompts_with_metadata.append({
+                    'name': name,
+                    'description': prompt_metadata.get('description', ''),
+                    'category': prompt_metadata.get('category', ''),
+                    'tags': prompt_metadata.get('tags', []),
+                    'created_at': prompt_metadata.get('created_at', ''),
+                    'updated_at': prompt_metadata.get('last_modified', datetime.datetime.now().isoformat()),
+                    'version': prompt_metadata.get('version', '')
+                })
+            except:
+                # If metadata fails, just include the name with current timestamp
+                prompts_with_metadata.append({
+                    'name': name,
+                    'description': '',
+                    'category': '',
+                    'tags': [],
+                    'created_at': '',
+                    'updated_at': datetime.datetime.now().isoformat(),
+                    'version': ''
+                })
+        
         return jsonify({
             'status': 'success',
-            'prompts': prompt_names,
+            'prompts': prompt_names,  # Keep backward compatibility
+            'prompts_detailed': prompts_with_metadata,
             'count': len(prompt_names)
         })
     except Exception as e:
@@ -3602,6 +3631,90 @@ def get_prompt_by_name(prompt_name):
         }), 500
 
 
+@app.route('/create_prompt', methods=['POST'])
+@limiter.limit("20 per minute")
+@login_required
+def create_prompt():
+    """
+    Create a new prompt.
+    
+    Expected JSON payload:
+    {
+        "name": "prompt_name",
+        "content": "prompt content",
+        "description": "optional description",
+        "category": "optional category",
+        "tags": ["optional", "tags"]
+    }
+    
+    Returns:
+        JSON response with creation status
+    """
+    try:
+        from prompts import manager, prompt_cache
+        
+        # Get request data
+        data = request.json
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'error': 'No data provided'
+            }), 400
+        
+        # Validate required fields
+        prompt_name = data.get('name')
+        if not prompt_name:
+            return jsonify({
+                'status': 'error',
+                'error': 'Prompt name is required'
+            }), 400
+        
+        # Check if prompt already exists
+        if prompt_name in manager:
+            return jsonify({
+                'status': 'error',
+                'error': f"Prompt '{prompt_name}' already exists"
+            }), 409
+        
+        # Get the content
+        content = data.get('content', '')
+        
+        # Create the prompt using the dictionary interface
+        manager[prompt_name] = content
+        
+        # Update cache
+        prompt_cache[prompt_name] = content
+        
+        # If additional metadata is provided, update it using edit method
+        if any(key in data for key in ['description', 'category', 'tags']):
+            try:
+                edit_kwargs = {}
+                if 'description' in data:
+                    edit_kwargs['description'] = data['description']
+                if 'category' in data:
+                    edit_kwargs['category'] = data['category']
+                if 'tags' in data:
+                    edit_kwargs['tags'] = data['tags']
+                
+                manager.edit(prompt_name, **edit_kwargs)
+            except Exception as e:
+                logger.warning(f"Could not update metadata for prompt '{prompt_name}': {str(e)}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f"Prompt '{prompt_name}' created successfully",
+            'name': prompt_name,
+            'content': content
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating prompt: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
 @app.route('/update_prompt', methods=['PUT'])
 @limiter.limit("50 per minute")
 @login_required
@@ -3622,7 +3735,7 @@ def update_prompt():
         JSON response with update status
     """
     try:
-        from prompts import manager
+        from prompts import manager, prompt_cache
         
         # Get request data
         data = request.json
@@ -3657,6 +3770,9 @@ def update_prompt():
         
         # Update the prompt using the dictionary interface
         manager[prompt_name] = new_content
+        
+        # Update cache
+        prompt_cache[prompt_name] = new_content
         
         # If additional metadata is provided, update it using edit method
         if any(key in data for key in ['description', 'category', 'tags']):

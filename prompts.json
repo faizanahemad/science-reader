@@ -8,7 +8,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-26T23:47:32.737344",
-    "last_modified": "2025-10-22T14:27:34.133381",
+    "last_modified": "2025-08-22T14:27:34.133381",
     "version": 33
   },
   "improve_code_prompt": {
@@ -20,7 +20,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-26T23:47:32.737626",
-    "last_modified": "2025-10-22T14:27:34.135252",
+    "last_modified": "2025-08-22T14:27:34.135252",
     "version": 33
   },
   "improve_code_prompt_interviews": {
@@ -32,7 +32,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-26T23:47:32.737945",
-    "last_modified": "2025-10-22T14:27:34.136963",
+    "last_modified": "2025-08-22T14:27:34.136963",
     "version": 33
   },
   "relationship_prompt": {
@@ -44,7 +44,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-26T23:47:32.738306",
-    "last_modified": "2025-10-22T14:27:34.138315",
+    "last_modified": "2025-08-22T14:27:34.138315",
     "version": 33
   },
   "dating_maverick_prompt": {
@@ -56,7 +56,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-26T23:47:32.738750",
-    "last_modified": "2025-10-22T14:27:34.140152",
+    "last_modified": "2025-08-22T14:27:34.140152",
     "version": 33
   },
   "wife_prompt": {
@@ -104,7 +104,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.292377",
-    "last_modified": "2025-10-22T14:27:34.146898",
+    "last_modified": "2025-08-22T14:27:34.146898",
     "version": 32
   },
   "coding_interview_prompt": {
@@ -116,7 +116,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.292672",
-    "last_modified": "2025-10-22T14:27:34.148607",
+    "last_modified": "2025-08-22T14:27:34.148607",
     "version": 32
   },
   "ml_system_design_answer_short": {
@@ -128,7 +128,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.293202",
-    "last_modified": "2025-10-22T14:27:34.150010",
+    "last_modified": "2025-08-22T14:27:34.150010",
     "version": 32
   },
   "ml_system_design_answer": {
@@ -140,7 +140,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.293616",
-    "last_modified": "2025-10-22T14:27:34.151663",
+    "last_modified": "2025-08-22T14:27:34.151663",
     "version": 32
   },
   "ml_system_design_role": {
@@ -152,7 +152,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.294033",
-    "last_modified": "2025-10-22T14:27:34.153245",
+    "last_modified": "2025-08-22T14:27:34.153245",
     "version": 32
   },
   "tts_friendly_format_instructions": {
@@ -164,7 +164,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.294530",
-    "last_modified": "2025-10-22T14:27:34.154845",
+    "last_modified": "2025-08-22T14:27:34.154845",
     "version": 32
   },
   "engineering_excellence_prompt": {
@@ -176,7 +176,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T11:47:22.295031",
-    "last_modified": "2025-10-22T14:27:34.156231",
+    "last_modified": "2025-08-22T14:27:34.156231",
     "version": 32
   },
   "base_system": {
@@ -212,7 +212,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.289476",
-    "last_modified": "2025-10-22T14:27:34.162838",
+    "last_modified": "2025-08-22T14:27:34.162838",
     "version": 30
   },
   "code_agent_prompt2": {
@@ -224,7 +224,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.290307",
-    "last_modified": "2025-10-22T14:27:34.164126",
+    "last_modified": "2025-08-22T14:27:34.164126",
     "version": 30
   },
   "code_agent_prompt2_v2": {
@@ -236,7 +236,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.290964",
-    "last_modified": "2025-10-22T14:27:34.165315",
+    "last_modified": "2025-08-22T14:27:34.165315",
     "version": 30
   },
   "ml_system_design_system_prompt": {
@@ -248,7 +248,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.291502",
-    "last_modified": "2025-10-22T14:27:34.169806",
+    "last_modified": "2025-08-22T14:27:34.169806",
     "version": 30
   },
   "ml_system_design_prompt": {
@@ -260,7 +260,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.292003",
-    "last_modified": "2025-10-22T14:27:34.172478",
+    "last_modified": "2025-08-22T14:27:34.172478",
     "version": 30
   },
   "ml_system_design_prompt_2": {
@@ -272,7 +272,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.292835",
-    "last_modified": "2025-10-22T14:27:34.174108",
+    "last_modified": "2025-08-22T14:27:34.174108",
     "version": 30
   },
   "ml_system_design_prompt_3": {
@@ -284,7 +284,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.293360",
-    "last_modified": "2025-10-22T14:27:34.175490",
+    "last_modified": "2025-08-22T14:27:34.175490",
     "version": 30
   },
   "ml_system_design_clarifications_assumptions_prompt": {
@@ -296,7 +296,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.293958",
-    "last_modified": "2025-10-22T14:27:34.176764",
+    "last_modified": "2025-08-22T14:27:34.176764",
     "version": 30
   },
   "ml_system_design_top_down_design_prompt": {
@@ -308,7 +308,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.294533",
-    "last_modified": "2025-10-22T14:27:34.178537",
+    "last_modified": "2025-08-22T14:27:34.178537",
     "version": 30
   },
   "ml_system_design_other_areas_prompt_1": {
@@ -320,7 +320,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T13:19:01.295142",
-    "last_modified": "2025-10-22T14:27:34.179986",
+    "last_modified": "2025-08-22T14:27:34.179986",
     "version": 30
   },
   "code_agent_prompt3": {
@@ -332,7 +332,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.821246",
-    "last_modified": "2025-10-22T14:27:34.167110",
+    "last_modified": "2025-08-22T14:27:34.167110",
     "version": 29
   },
   "code_agent_what_if_prompt": {
@@ -344,7 +344,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.821872",
-    "last_modified": "2025-10-22T14:27:34.168742",
+    "last_modified": "2025-08-22T14:27:34.168742",
     "version": 29
   },
   "ml_system_design_other_areas_prompt_2": {
@@ -356,7 +356,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.827673",
-    "last_modified": "2025-10-22T14:27:34.181198",
+    "last_modified": "2025-08-22T14:27:34.181198",
     "version": 29
   },
   "ml_system_design_what_if_questions_prompt": {
@@ -368,7 +368,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.828643",
-    "last_modified": "2025-10-22T14:27:34.182514",
+    "last_modified": "2025-08-22T14:27:34.182514",
     "version": 29
   },
   "ml_system_design_tips_prompt": {
@@ -380,7 +380,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.829603",
-    "last_modified": "2025-10-22T14:27:34.183987",
+    "last_modified": "2025-08-22T14:27:34.183987",
     "version": 29
   },
   "persist_current_turn_prompt": {
@@ -392,7 +392,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.830807",
-    "last_modified": "2025-10-22T14:27:34.185538",
+    "last_modified": "2025-08-22T14:27:34.185538",
     "version": 29
   },
   "preamble_easy_copy": {
@@ -404,7 +404,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.831794",
-    "last_modified": "2025-10-22T14:27:34.186632",
+    "last_modified": "2025-08-22T14:27:34.186632",
     "version": 29
   },
   "preamble_short": {
@@ -416,7 +416,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.835061",
-    "last_modified": "2025-10-22T14:27:34.187955",
+    "last_modified": "2025-08-22T14:27:34.187955",
     "version": 29
   },
   "preamble_no_code_exec": {
@@ -428,7 +428,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.837256",
-    "last_modified": "2025-10-22T14:27:34.189562",
+    "last_modified": "2025-08-22T14:27:34.189562",
     "version": 29
   },
   "preamble_code_exec": {
@@ -440,7 +440,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.839195",
-    "last_modified": "2025-10-22T14:27:34.191139",
+    "last_modified": "2025-08-22T14:27:34.191139",
     "version": 29
   },
   "preamble_cot": {
@@ -452,7 +452,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.841051",
-    "last_modified": "2025-10-22T14:27:34.192453",
+    "last_modified": "2025-08-22T14:27:34.192453",
     "version": 29
   },
   "preamble_explore": {
@@ -464,7 +464,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.844900",
-    "last_modified": "2025-10-22T14:27:34.193927",
+    "last_modified": "2025-08-22T14:27:34.193927",
     "version": 29
   },
   "preamble_creative": {
@@ -476,7 +476,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.847540",
-    "last_modified": "2025-10-22T14:27:34.195508",
+    "last_modified": "2025-08-22T14:27:34.195508",
     "version": 29
   },
   "preamble_argumentative": {
@@ -488,7 +488,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.850766",
-    "last_modified": "2025-10-22T14:27:34.196742",
+    "last_modified": "2025-08-22T14:27:34.196742",
     "version": 29
   },
   "preamble_blackmail": {
@@ -500,7 +500,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.853439",
-    "last_modified": "2025-10-22T14:27:34.198149",
+    "last_modified": "2025-08-22T14:27:34.198149",
     "version": 29
   },
   "preamble_web_search": {
@@ -512,7 +512,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.856453",
-    "last_modified": "2025-10-22T14:27:34.200305",
+    "last_modified": "2025-08-22T14:27:34.200305",
     "version": 29
   },
   "preamble_no_ai": {
@@ -524,7 +524,7 @@
     ],
     "metadata": {},
     "created_at": "2025-08-27T18:22:57.859295",
-    "last_modified": "2025-10-22T14:27:34.202206",
+    "last_modified": "2025-08-22T14:27:34.202206",
     "version": 29
   },
   "no_code_prompt": {
@@ -536,7 +536,7 @@
     ],
     "metadata": {},
     "created_at": "2025-09-27T01:27:43.884529",
-    "last_modified": "2025-09-27T01:27:43.884535",
+    "last_modified": "2025-08-27T01:27:43.884535",
     "version": 1
   },
   "preamble_no_code_prompt": {
@@ -548,7 +548,17 @@
     ],
     "metadata": {},
     "created_at": "2025-09-27T01:30:10.937811",
-    "last_modified": "2025-10-22T14:27:34.161018",
+    "last_modified": "2025-08-22T14:27:34.161018",
     "version": 17
+  },
+  "dynamic": {
+    "content": "For dynamic programming problems write the DP equation in math latex form.",
+    "description": "",
+    "category": "",
+    "tags": [],
+    "metadata": {},
+    "created_at": "2025-10-25T21:34:41.938322",
+    "last_modified": "2025-10-25T21:34:41.943411",
+    "version": 2
   }
 }

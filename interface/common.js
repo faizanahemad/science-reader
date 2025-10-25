@@ -939,8 +939,16 @@ markdownParser.code = function (code, language) {
     } else {
         var highlighted = hljs.highlight(validLanguage, code).value;
     }
-    
+    number_of_lines = code.split('\n').length;
+    show_by_default = number_of_lines < 8 || (language === 'markdown' && number_of_lines < 15) || (language === 'md' && number_of_lines < 15) || (language === 'plaintext' && number_of_lines < 15);
     // var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
+
+    if (show_by_default) {
+        return `<div class="code-block">
+        <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
+        </div>`;
+    }
+    else {
 
     return `<div class="code-block">
         <div class="code-header" style="height: 18px; min-height: 16px; padding: 1px 4px; display: flex; align-items: center; justify-content: space-between;">
@@ -952,6 +960,7 @@ markdownParser.code = function (code, language) {
             <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
         </details>
     </div>`;
+    }
 };
 
 function hasUnclosedMermaidTag(htmlString) {
@@ -1779,7 +1788,17 @@ function getOptions(parentElementId, type) {
     }
     
     if (type === "assistant") {
-        values['preamble_options'] = $('#preamble-selector').length ? $('#preamble-selector').val() : $('#settings-preamble-selector').val();
+        // Get preamble options, including custom ones
+        let preambleOptions = $('#preamble-selector').length ? 
+            $('#preamble-selector').val() : 
+            $('#settings-preamble-selector').val();
+        
+        // If modal hasn't been opened and no value found, check persisted state
+        if (!preambleOptions && window.chatSettingsState) {
+            preambleOptions = window.chatSettingsState.preamble_options;
+        }
+        
+        values['preamble_options'] = preambleOptions || [];
         values['main_model'] = $('#main-model-selector').length ? $('#main-model-selector').val() : $('#settings-main-model-selector').val();
         values['field'] = $('#field-selector').length ? $('#field-selector').val() : $('#settings-field-selector').val();
         values["permanentText"] = $("#permanentText").length ? $("#permanentText").val() : $("#settings-permanentText").val();

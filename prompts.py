@@ -1,7 +1,65 @@
 import os
 from copy import deepcopy
 from prompt_lib import WrappedManager, create_wrapped_manager
+
+# Create the wrapped manager for managing prompts
 manager = create_wrapped_manager("prompts.json")
+
+# Create a cache dictionary to store prompts that might be created via the API
+# This allows quick access to prompts without repeatedly accessing the manager
+prompt_cache = {}
+
+# Initialize the cache with existing prompts
+try:
+    for prompt_name in manager.keys():
+        try:
+            prompt_cache[prompt_name] = manager[prompt_name]
+        except:
+            pass  # Skip any prompts that can't be loaded
+except:
+    pass  # If manager is not ready, cache will be populated on first use
+
+def refresh_cache():
+    """
+    Refresh the prompt cache from the manager.
+    This function can be called to sync the cache with the manager.
+    """
+    global prompt_cache
+    prompt_cache.clear()
+    try:
+        for prompt_name in manager.keys():
+            try:
+                prompt_cache[prompt_name] = manager[prompt_name]
+            except:
+                pass  # Skip any prompts that can't be loaded
+    except:
+        pass  # If manager is not ready, cache remains empty
+
+def get_prompt(name, default=None):
+    """
+    Get a prompt from cache or manager.
+    
+    Args:
+        name: The name of the prompt to retrieve
+        default: Default value if prompt is not found
+        
+    Returns:
+        The prompt content or default value
+    """
+    # First check cache
+    if name in prompt_cache:
+        return prompt_cache[name]
+    
+    # If not in cache, try to get from manager and cache it
+    try:
+        if name in manager:
+            prompt = manager[name]
+            prompt_cache[name] = prompt
+            return prompt
+    except:
+        pass
+    
+    return default
 
 # Extract all prompts from manager and assign them to variables for use in the codebase
 math_formatting_instructions = manager["math_formatting_instructions"]

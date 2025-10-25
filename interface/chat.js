@@ -285,12 +285,26 @@ $(document).ready(function() {
     setupCodeEditor();
     // Load persisted settings state on boot and apply to modal controls (and inline if present)
     initializeSettingsState();
+    
+    // Ensure custom prompts are populated after DOM is ready
+    // Use a small delay to ensure modal HTML is fully loaded
+    setTimeout(function() {
+        populateCustomPromptsInDOM();
+        // Re-apply persisted preamble options if they exist
+        if (window.chatSettingsState && window.chatSettingsState.preamble_options) {
+            $('#settings-preamble-selector').val(window.chatSettingsState.preamble_options);
+        }
+    }, 100);
 });
 
 // Settings Modal Functions
 function loadSettingsIntoModal() {
     // Prefer persisted state if available; otherwise initialize from controls/defaults
     const state = getPersistedSettingsState() || buildSettingsStateFromControlsOrDefaults();
+    
+    // Ensure custom prompts are populated before setting state
+    populateCustomPromptsInDOM();
+    
     setModalFromState(state);
     // Refresh select pickers after loading values
     if (typeof $.fn.selectpicker !== 'undefined') {
@@ -335,12 +349,37 @@ function setModalFromState(state) {
     $('#settings-depthSelector').val(state.depth || '2');
     $('#settings-historySelector').val(state.history || '2');
     $('#settings-rewardLevelSelector').val(state.reward || '0');
-    $('#settings-preamble-selector').val(state.preamble_options || []);
+    
+    // Handle preamble options including custom prompts
+    const preambleOptions = state.preamble_options || [];
+    
+    // Populate custom prompts in DOM if available
+    populateCustomPromptsInDOM();
+    
+    $('#settings-preamble-selector').val(preambleOptions);
     $('#settings-main-model-selector').val(state.main_model || []);
     $('#settings-field-selector').val(state.field || 'None');
     $('#settings-permanentText').val(state.permanentText || '');
     $('#settings-linkInput').val(state.links || '');
     $('#settings-searchInput').val(state.search || '');
+}
+
+function populateCustomPromptsInDOM() {
+    // Check if we have custom prompts in cache and the DOM element exists
+    if (window.availableCustomPrompts && window.availableCustomPrompts.length > 0) {
+        const customPromptsGroup = $('#custom-prompts-group');
+        if (customPromptsGroup.length) {
+            // Clear and repopulate to ensure freshness
+            customPromptsGroup.empty();
+            window.availableCustomPrompts.forEach(prompt => {
+                const option = $('<option></option>')
+                    .val(prompt.value)
+                    .text(prompt.displayName);
+                customPromptsGroup.append(option);
+            });
+            console.log(`Populated ${window.availableCustomPrompts.length} custom prompts in DOM`);
+        }
+    }
 }
 
 function collectSettingsFromModal() {
@@ -389,7 +428,107 @@ function getPersistedSettingsState() {
     return window.chatSettingsState || null;
 }
 
+function cleanupDeletedCustomPrompts() {
+    if (!window.chatSettingsState || !window.availableCustomPrompts) return;
+    
+    const availableCustomValues = window.availableCustomPrompts.map(p => p.value);
+    const currentPreamble = window.chatSettingsState.preamble_options || [];
+    
+    // Filter out custom prompts that no longer exist
+    const cleanedPreamble = currentPreamble.filter(option => {
+        if (option.startsWith('custom:')) {
+            return availableCustomValues.includes(option);
+        }
+        return true; // Keep all default prompts
+    });
+    
+    if (cleanedPreamble.length !== currentPreamble.length) {
+        window.chatSettingsState.preamble_options = cleanedPreamble;
+        // Save the cleaned state back to localStorage
+        const tab = getCurrentActiveTab();
+        try {
+            localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(window.chatSettingsState));
+            console.log('Cleaned up deleted custom prompts from saved settings');
+        } catch (e) {
+            console.error('Error saving cleaned settings:', e);
+        }
+    }
+}
+
+function loadCustomPromptsOnInit() {
+    // Fetch custom prompts and store in global variable
+    window.availableCustomPrompts = [];
+    
+    fetch('/get_prompts', {
+        method: 'GET',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success' && data.prompts) {
+            // Apply the same filtering logic as loadCustomPrompts
+            // Combine prompts and prompts_detailed arrays
+            const combinedPrompts = data.prompts.map((promptName, index) => {
+                const detailedInfo = data.prompts_detailed ? 
+                    data.prompts_detailed.find(p => p.name === promptName) || {} : {};
+                return {
+                    name: promptName,
+                    ...detailedInfo
+                };
+            });
+            
+            // Filter prompts that have empty category (or no category)
+            const categorizedPrompts = combinedPrompts.filter(prompt => 
+                !prompt.category || prompt.category.trim() === ''
+            );
+            
+            // Update data to only include filtered prompts
+            data.prompts = categorizedPrompts.map(prompt => prompt.name);
+            
+            // Filter custom prompts (non-default ones)
+            const defaultPrompts = [
+                'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 
+                'Short Coding Interview', 'No Code', 'ML Design Answer Short',
+                'Argumentative', 'Blackmail', 'More Related Coding Questions',
+                'Diagram', 'Easy Copy', 'Creative', 'Explore',
+                'Relationship', 'Dating Maverick'
+            ];
+            const defaultPromptKeys = defaultPrompts.map(p => 
+                p.toLowerCase().replace(/ /g, '_')
+            );
+            
+            data.prompts.forEach(promptName => {
+                if (!defaultPromptKeys.includes(promptName.toLowerCase())) {
+                    window.availableCustomPrompts.push({
+                        name: promptName,
+                        value: `custom:${promptName}`,
+                        displayName: promptName.replace(/_/g, ' ')
+                            .replace(/\b\w/g, l => l.toUpperCase())
+                    });
+                }
+            });
+            
+            // Clean up any deleted prompts from saved settings
+            cleanupDeletedCustomPrompts();
+            
+            // Try to populate DOM with custom prompts (in case modal HTML is ready)
+            populateCustomPromptsInDOM();
+            
+            // Also update the selector value if we have persisted state
+            if (window.chatSettingsState && window.chatSettingsState.preamble_options) {
+                $('#settings-preamble-selector').val(window.chatSettingsState.preamble_options);
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error loading custom prompts on init:', error);
+    });
+}
+
 function initializeSettingsState() {
+    // Load custom prompts early so they're available immediately
+    loadCustomPromptsOnInit();
+    
     const state = getPersistedSettingsState();
     window.chatSettingsState = state;
     if (state) {

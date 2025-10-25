@@ -1727,6 +1727,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += improve_code_prompt
         if "Improve Code Interviews" in preamble_options:
             preamble += improve_code_prompt_interviews
+        
+        # Handle custom prompts (those prefixed with "custom:")
+        from prompts import manager as prompts_manager
+        for option in preamble_options:
+            if option.startswith("custom:"):
+                # Extract the actual prompt name
+                custom_prompt_name = option[7:]  # Remove "custom:" prefix
+                try:
+                    # Try to get the prompt from the manager
+                    if custom_prompt_name in prompts_manager:
+                        custom_prompt_content = prompts_manager[custom_prompt_name]
+                        preamble += f"\n\n{custom_prompt_content}"
+                        # Update cache for next time
+                        
+                        logger.info(f"Added custom prompt from manager: {custom_prompt_name}")
+                    else:
+                        logger.warning(f"Custom prompt not found: {custom_prompt_name}")
+                except Exception as e:
+                    logger.error(f"Error loading custom prompt {custom_prompt_name}: {str(e)}")
 
         if field == "None":
             pass

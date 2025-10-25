@@ -5,10 +5,13 @@
 const PromptManager = {
     // State management
     allPrompts: [],
+    allPromptsDetailed: [],  // Store prompts with metadata
     filteredPrompts: [],
     currentPrompt: null,
     originalContent: null,
     hasUnsavedChanges: false,
+    showOldPrompts: false,  // Toggle for showing prompts older than 30 days
+    isCreatingNew: false,  // Flag for creating new prompt mode
 
     /**
      * Initialize the prompt manager
@@ -125,9 +128,29 @@ const PromptManager = {
             loading.hide();
             
             if (data.status === 'success' && data.prompts && data.prompts.length > 0) {
-                self.allPrompts = data.prompts.sort();
-                self.filteredPrompts = [...self.allPrompts];
-                self.renderPromptList();
+                // Store both simple list and detailed list
+                self.allPrompts = data.prompts;
+                
+                // Use detailed prompts if available, otherwise create simple entries
+                if (data.prompts_detailed) {
+                    self.allPromptsDetailed = data.prompts_detailed;
+                } else {
+                    // Create simple entries for backward compatibility
+                    self.allPromptsDetailed = data.prompts.map(name => ({
+                        name: name,
+                        updated_at: new Date().toISOString()
+                    }));
+                }
+                
+                // Sort by updated_at date (newest first)
+                self.allPromptsDetailed.sort((a, b) => {
+                    const dateA = a.updated_at ? new Date(a.updated_at) : new Date(0);
+                    const dateB = b.updated_at ? new Date(b.updated_at) : new Date(0);
+                    return dateB - dateA;  // Descending order (newest first)
+                });
+                
+                // Apply initial filter
+                self.applyFiltersAndRender();
                 itemsContainer.show();
             } else {
                 emptyState.show();
@@ -139,6 +162,44 @@ const PromptManager = {
             self.showError('Failed to load prompts: ' + error.message);
         });
     },
+    
+    /**
+     * Apply filters (search + age filter) and render the list
+     */
+    applyFiltersAndRender: function() {
+        const searchQuery = $('#prompt-search-input').val();
+        let filtered = [...this.allPromptsDetailed];
+        
+        // Apply search filter
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            filtered = filtered.filter(prompt => 
+                prompt.name.toLowerCase().includes(lowerQuery) ||
+                (prompt.description && prompt.description.toLowerCase().includes(lowerQuery)) ||
+                (prompt.category && prompt.category.toLowerCase().includes(lowerQuery))
+            );
+        }
+        
+        // Apply age filter (hide prompts older than 30 days unless toggled)
+        if (!this.showOldPrompts) {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            
+            filtered = filtered.filter(prompt => {
+                if (!prompt.updated_at) return true;  // Keep prompts without dates
+                const updateDate = new Date(prompt.updated_at);
+                return updateDate >= thirtyDaysAgo;
+            });
+        }
+        
+        this.filteredPrompts = filtered.map(p => p.name);
+        this.renderPromptList();
+        
+        // Check if we should show "Create New" option
+        if (searchQuery && this.filteredPrompts.length === 0) {
+            this.showCreateNewOption(searchQuery);
+        }
+    },
 
     /**
      * Render the prompt list
@@ -148,8 +209,38 @@ const PromptManager = {
         const emptyState = $('#prompt-list-empty');
         
         itemsContainer.empty();
+        
+        // Add toggle for showing old prompts at the top
+        if (!$('#old-prompts-toggle').length) {
+            const toggleHtml = `
+                <div id="old-prompts-toggle" class="p-2 mb-2 border-bottom">
+                    <div class="custom-control custom-switch">
+                        <input type="checkbox" class="custom-control-input" id="showOldPromptsSwitch" 
+                            ${this.showOldPrompts ? 'checked' : ''}>
+                        <label class="custom-control-label" for="showOldPromptsSwitch">
+                            Show prompts older than 30 days
+                        </label>
+                    </div>
+                </div>
+            `;
+            itemsContainer.before(toggleHtml);
+            
+            // Add event handler for toggle
+            const self = this;
+            $('#showOldPromptsSwitch').on('change', function() {
+                self.showOldPrompts = $(this).is(':checked');
+                self.applyFiltersAndRender();
+            });
+        }
 
         if (this.filteredPrompts.length === 0) {
+            // Check if it's because of search with no results
+            const searchQuery = $('#prompt-search-input').val();
+            if (searchQuery) {
+                // Show create new option instead of empty state
+                this.showCreateNewOption(searchQuery);
+                return;
+            }
             itemsContainer.hide();
             emptyState.show();
             return;
@@ -158,16 +249,48 @@ const PromptManager = {
         emptyState.hide();
         itemsContainer.show();
 
+        // Render filtered prompts with metadata
         this.filteredPrompts.forEach(promptName => {
-            const listItem = this.createPromptListItem(promptName);
+            const promptDetail = this.allPromptsDetailed.find(p => p.name === promptName);
+            const listItem = this.createPromptListItem(promptName, promptDetail);
             itemsContainer.append(listItem);
+        });
+    },
+    
+    /**
+     * Show option to create a new prompt when search returns no results
+     */
+    showCreateNewOption: function(searchQuery) {
+        const itemsContainer = $('#prompt-list-items');
+        const emptyState = $('#prompt-list-empty');
+        
+        emptyState.hide();
+        itemsContainer.show();
+        
+        const createNewHtml = `
+            <div class="create-new-prompt-container p-3 text-center">
+                <i class="bi bi-file-plus" style="font-size: 3rem; opacity: 0.5;"></i>
+                <p class="mt-2 mb-3">No prompt found matching "<strong>${searchQuery}</strong>"</p>
+                <button id="create-new-prompt-btn" class="btn btn-primary" data-prompt-name="${searchQuery}">
+                    <i class="bi bi-plus-circle"></i> Create New Prompt
+                </button>
+            </div>
+        `;
+        
+        itemsContainer.html(createNewHtml);
+        
+        // Add click handler for create button
+        const self = this;
+        $('#create-new-prompt-btn').on('click', function() {
+            const promptName = $(this).data('prompt-name');
+            self.startCreateNewPrompt(promptName);
         });
     },
 
     /**
      * Create a list item for a prompt
      */
-    createPromptListItem: function(promptName) {
+    createPromptListItem: function(promptName, promptDetail) {
         const self = this;
         const isActive = this.currentPrompt === promptName;
         
@@ -175,14 +298,49 @@ const PromptManager = {
         const displayName = promptName.replace(/_/g, ' ')
             .replace(/\b\w/g, l => l.toUpperCase());
         
+        // Format date if available
+        let dateInfo = '';
+        if (promptDetail && promptDetail.updated_at) {
+            const updateDate = new Date(promptDetail.updated_at);
+            const now = new Date();
+            const diffTime = Math.abs(now - updateDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                dateInfo = 'Updated today';
+            } else if (diffDays === 1) {
+                dateInfo = 'Updated yesterday';
+            } else if (diffDays < 7) {
+                dateInfo = `Updated ${diffDays} days ago`;
+            } else if (diffDays < 30) {
+                const weeks = Math.floor(diffDays / 7);
+                dateInfo = `Updated ${weeks} week${weeks > 1 ? 's' : ''} ago`;
+            } else {
+                const months = Math.floor(diffDays / 30);
+                dateInfo = `Updated ${months} month${months > 1 ? 's' : ''} ago`;
+            }
+        }
+        
+        // Add category badge if available
+        const categoryBadge = (promptDetail && promptDetail.category) ? 
+            `<span class="badge badge-secondary mr-1">default</span>` : `<span class="badge badge-secondary mr-1">custom</span>`;
+        
         const item = $(`
             <a href="#" class="list-group-item list-group-item-action ${isActive ? 'active' : ''}" data-prompt-name="${promptName}">
                 <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="font-weight-medium">${displayName}</div>
-                        <small class="text-muted">${promptName}</small>
+                    <div class="flex-grow-1">
+                        <div class="font-weight-medium">
+                            ${categoryBadge}${displayName}
+                        </div>
+                        </br>
+                        
+                        ${promptDetail && promptDetail.description ? 
+                            `<small class="text-muted d-block" style="opacity: 0.8;"><i></i></small>` : ''}
                     </div>
-                    ${this.hasUnsavedChanges && isActive ? '<span class="badge badge-warning">Modified</span>' : ''}
+                    <div class="text-right ml-2">
+                        ${dateInfo ? `<small class="text-muted d-block">${dateInfo}</small>` : ''}
+                        ${this.hasUnsavedChanges && isActive ? '<span class="badge badge-warning">Modified</span>' : ''}
+                    </div>
                 </div>
             </a>
         `);
@@ -197,6 +355,7 @@ const PromptManager = {
                 }
             }
             
+            self.isCreatingNew = false;
             self.loadPrompt(promptName);
         });
 
@@ -313,8 +472,7 @@ const PromptManager = {
         }
 
         const saveBtn = $('#prompt-save-btn');
-        saveBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm mr-1"></span> Saving...');
-
+        
         // Prepare the data
         const content = $('#prompt-content-textarea').val();
         const description = $('#prompt-description-input').val();
@@ -329,9 +487,17 @@ const PromptManager = {
             category: category,
             tags: tags
         };
+        
+        // Determine if creating new or updating
+        const isNew = this.isCreatingNew;
+        const url = isNew ? '/create_prompt' : '/update_prompt';
+        const method = isNew ? 'POST' : 'PUT';
+        const buttonText = isNew ? 'Creating...' : 'Saving...';
+        
+        saveBtn.prop('disabled', true).html(`<span class="spinner-border spinner-border-sm mr-1"></span> ${buttonText}`);
 
-        fetch('/update_prompt', {
-            method: 'PUT',
+        fetch(url, {
+            method: method,
             headers: {
                 'Content-Type': 'application/json'
             },
@@ -345,7 +511,8 @@ const PromptManager = {
         })
         .then(data => {
             if (data.status === 'success') {
-                self.showSuccess('Prompt saved successfully!');
+                const successMsg = self.isCreatingNew ? 'Prompt created successfully!' : 'Prompt saved successfully!';
+                self.showSuccess(successMsg);
                 self.hasUnsavedChanges = false;
                 self.originalContent = {
                     content: content,
@@ -354,21 +521,37 @@ const PromptManager = {
                     tags: tagsInput
                 };
                 
-                // Update the list item to remove modified badge
-                self.renderPromptList();
+                // If we just created a new prompt, update our state
+                if (self.isCreatingNew) {
+                    self.isCreatingNew = false;
+                    // Reload prompts to include the new one
+                    self.loadPrompts();
+                } else {
+                    // Update the list item to remove modified badge
+                    self.renderPromptList();
+                }
                 
                 // Update save button
-                saveBtn.removeClass('btn-outline-success').addClass('btn-success')
-                    .html('<i class="bi bi-check-circle"></i> Saved');
+                const buttonIcon = self.isCreatingNew ? 'bi-plus-circle' : 'bi-check-circle';
+                const buttonText = self.isCreatingNew ? 'Created' : 'Saved';
+                saveBtn.removeClass('btn-primary btn-outline-success').addClass('btn-success')
+                    .html(`<i class="bi ${buttonIcon}"></i> ${buttonText}`);
                 
                 setTimeout(() => {
                     saveBtn.removeClass('btn-success').addClass('btn-outline-success')
                         .html('<i class="bi bi-check-circle"></i> Save')
                         .prop('disabled', false);
                 }, 2000);
+                
+                // Enable revert button after creation
+                if (!self.isCreatingNew) {
+                    $('#prompt-revert-btn').prop('disabled', false);
+                }
             } else {
-                self.showError('Failed to save prompt: ' + (data.error || 'Unknown error'));
-                saveBtn.prop('disabled', false).html('<i class="bi bi-check-circle"></i> Save');
+                const errorMsg = self.isCreatingNew ? 'Failed to create prompt: ' : 'Failed to save prompt: ';
+                self.showError(errorMsg + (data.error || 'Unknown error'));
+                const buttonText = self.isCreatingNew ? '<i class="bi bi-plus-circle"></i> Create' : '<i class="bi bi-check-circle"></i> Save';
+                saveBtn.prop('disabled', false).html(buttonText);
             }
         })
         .catch(error => {
@@ -447,16 +630,74 @@ const PromptManager = {
      * Filter prompts based on search query
      */
     filterPrompts: function(query) {
-        if (!query) {
-            this.filteredPrompts = [...this.allPrompts];
-        } else {
-            const lowerQuery = query.toLowerCase();
-            this.filteredPrompts = this.allPrompts.filter(prompt => 
-                prompt.toLowerCase().includes(lowerQuery)
-            );
+        this.applyFiltersAndRender();
+    },
+    
+    /**
+     * Start creating a new prompt
+     */
+    startCreateNewPrompt: function(promptName) {
+        const self = this;
+        
+        // Check for unsaved changes
+        if (this.hasUnsavedChanges) {
+            if (!confirm('You have unsaved changes. Do you want to discard them?')) {
+                return;
+            }
         }
         
-        this.renderPromptList();
+        // Set creating new flag
+        this.isCreatingNew = true;
+        this.currentPrompt = promptName;
+        this.hasUnsavedChanges = false;
+        
+        // Clear search and reload list
+        $('#prompt-search-input').val('');
+        this.applyFiltersAndRender();
+        
+        // Display empty form for new prompt
+        this.displayNewPromptForm(promptName);
+    },
+    
+    /**
+     * Display form for creating a new prompt
+     */
+    displayNewPromptForm: function(promptName) {
+        // Hide empty state and show form
+        $('#prompt-editor-empty').hide();
+        $('#prompt-editor-form').show();
+        $('#prompt-editor-actions').show();
+
+        // Update header
+        const displayName = promptName.replace(/_/g, ' ')
+            .replace(/\b\w/g, l => l.toUpperCase());
+        $('#prompt-editor-title').html(`<i class="bi bi-file-plus"></i> Create New Prompt`);
+        $('#prompt-editor-subtitle').text(promptName);
+
+        // Clear form fields
+        $('#prompt-name-input').val(promptName);
+        $('#prompt-content-textarea').val('');
+        $('#prompt-description-input').val('');
+        $('#prompt-category-input').val('');
+        $('#prompt-tags-input').val('');
+        $('#prompt-created-at').text('Not yet created');
+        $('#prompt-updated-at').text('Not yet created');
+
+        // Update stats
+        this.updateStats();
+        
+        // Clear any previous messages
+        $('#prompt-editor-messages').empty();
+        
+        // Update save button to show "Create"
+        $('#prompt-save-btn').removeClass('btn-success').addClass('btn-primary')
+            .html('<i class="bi bi-plus-circle"></i> Create').prop('disabled', false);
+        
+        // Update revert button
+        $('#prompt-revert-btn').prop('disabled', true);
+        
+        // Focus on content textarea
+        $('#prompt-content-textarea').focus();
     },
 
     /**

@@ -672,6 +672,45 @@
 
     <!-- Prompt Management Modal -->
     <div id="prompt-management-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+        <style>
+            /* Custom styles for Prompt Manager */
+            #prompt-list-items .list-group-item {
+                transition: all 0.2s ease;
+                border-left: 3px solid transparent;
+            }
+            #prompt-list-items .list-group-item.active {
+                border-left-color: #007bff;
+            }
+            #prompt-list-items .list-group-item:hover:not(.active) {
+                background-color: #f8f9fa;
+                border-left-color: #dee2e6;
+            }
+            .create-new-prompt-container {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border-radius: 8px;
+                margin: 20px;
+            }
+            .create-new-prompt-container strong {
+                color: #ffd700;
+            }
+            #old-prompts-toggle {
+                background-color: #f0f8ff;
+                border-radius: 4px;
+            }
+            .badge-secondary {
+                background-color: #6c757d;
+            }
+            /* Animation for create button */
+            #create-new-prompt-btn {
+                animation: pulse 2s infinite;
+            }
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+                100% { transform: scale(1); }
+            }
+        </style>
         <div class="modal-dialog modal-xl" style="max-width: 1200px;">
             <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
                 <div class="modal-header" style="border-bottom: 1px solid #ddd;">
@@ -849,26 +888,31 @@
                                         <div class="form-group">
                                             <label for="settings-preamble-selector" class="form-label"><strong>Preamble Options</strong></label>
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
-                                                <select class="form-control selectpicker" id="settings-preamble-selector" multiple>
-                                                    <option>No Links</option>
-                                                    <option selected>Wife Prompt</option>
-                                                    <option>Debug LLM</option>
-                                                    <option>Short</option>
-                                                    <option>Short Coding Interview</option>
-                                                    <option>No Code</option>
-                                                    <option>ML Design Answer Short</option>
-                                                    
-                                                    <option>Argumentative</option>
-                                                    <option>Blackmail</option>
-                                                    <option>More Related Coding Questions</option>
-                                                    
-                                                    <option>Diagram</option>
-                                                    <option>Easy Copy</option>
-                                                    <option>Creative</option>
-                                                    <option>Explore</option>
-                                                    
-                                                    <option>Relationship</option>
-                                                    <option>Dating Maverick</option>
+                                                <select class="form-control" id="settings-preamble-selector" multiple data-live-search="true">
+                                                    <optgroup label="Default Prompts" id="default-prompts-group">
+                                                        <option>No Links</option>
+                                                        <option selected>Wife Prompt</option>
+                                                        <option>Debug LLM</option>
+                                                        <option>Short</option>
+                                                        <option>Short Coding Interview</option>
+                                                        <option>No Code</option>
+                                                        <option>ML Design Answer Short</option>
+                                                        
+                                                        <option>Argumentative</option>
+                                                        <option>Blackmail</option>
+                                                        <option>More Related Coding Questions</option>
+                                                        
+                                                        <option>Diagram</option>
+                                                        <option>Easy Copy</option>
+                                                        <option>Creative</option>
+                                                        <option>Explore</option>
+                                                        
+                                                        <option>Relationship</option>
+                                                        <option>Dating Maverick</option>
+                                                    </optgroup>
+                                                    <optgroup label="Custom Prompts" id="custom-prompts-group">
+                                                        <!-- Custom prompts will be dynamically loaded here -->
+                                                    </optgroup>
                                                 </select>
                                             </div>
                                         </div>
@@ -1067,7 +1111,7 @@
                                         <div class="form-group">
                                             <label for="settings-historySelector" class="form-label"><strong>History</strong></label>
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
-                                                <select id="settings-historySelector" class="form-control form-control-sm selectpicker" style="width: 100%; border: none;">
+                                                <select id="settings-historySelector" class="form-control form-control-sm" style="width: 100%; border: none;">
                                                     <option value="-1">∅</option>
                                                     <option value="0">0</option>
                                                     <option value="1">1</option>
@@ -1084,7 +1128,7 @@
                                         <div class="form-group">
                                             <label for="settings-rewardLevelSelector" class="form-label"><strong>Reward Level</strong></label>
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
-                                                <select id="settings-rewardLevelSelector" class="form-control form-control-sm selectpicker" style="width: 100%; border: none;">
+                                                <select id="settings-rewardLevelSelector" class="form-control form-control-sm" style="width: 100%; border: none;">
                                                     <option value="-3">-3</option>
                                                     <option value="-2">-2</option>
                                                     <option value="-1">-1</option>
@@ -2115,9 +2159,149 @@ greet("World");</code></pre>
             });
         }
         
-        // When settings modal opens, update the preview
+        // Function to load custom prompts
+        function loadCustomPrompts() {
+            fetch('/get_prompts', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.prompts) {
+                    // data has prompts and prompts_detailed, inside prompts_detailed (which is an array of dicts), there is description, category, and other stuff
+                    // zip prompts and prompts_detailed and then filter all the prompts and prompts_detailed that have category as no-empty string.
+                    // Combine prompts and prompts_detailed arrays
+                    const combinedPrompts = data.prompts.map((promptName, index) => {
+                        const detailedInfo = data.prompts_detailed.find(p => p.name === promptName) || {};
+                        return {
+                            name: promptName,
+                            ...detailedInfo
+                        };
+                    });
+                    
+                    // Filter prompts that have a non-empty category
+                    const categorizedPrompts = combinedPrompts.filter(prompt => 
+                        prompt.category.trim() === ''
+                    );
+                    
+                    // Update data.prompts and data.prompts_detailed in place to only include categorized prompts
+                    data.prompts = categorizedPrompts.map(prompt => prompt.name);
+                    data.prompts_detailed = categorizedPrompts;
+                    const customPromptsGroup = $('#custom-prompts-group');
+                    const currentSelected = $('#settings-preamble-selector').val() || [];
+                    
+                    // Clear existing custom prompts
+                    customPromptsGroup.empty();
+                    
+                    // Filter out default prompts that are already in the default group
+                    const defaultPrompts = [
+                        'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 
+                        'Short Coding Interview', 'No Code', 'ML Design Answer Short',
+                        'Argumentative', 'Blackmail', 'More Related Coding Questions',
+                        'Diagram', 'Easy Copy', 'Creative', 'Explore',
+                        'Relationship', 'Dating Maverick'
+                    ];
+                    
+                    // Convert default prompt names to snake_case for comparison
+                    const defaultPromptKeys = defaultPrompts.map(p => 
+                        p.toLowerCase().replace(/ /g, '_')
+                    );
+                    
+                    // Clear and rebuild the cache
+                    window.availableCustomPrompts = [];
+                    
+                    // Add custom prompts that are not in the default list
+                    let customPromptsAdded = 0;
+                    data.prompts.forEach(promptName => {
+                        // Check if this prompt is not a default one
+                        if (!defaultPromptKeys.includes(promptName.toLowerCase())) {
+                            // Format the prompt name for display
+                            const displayName = promptName
+                                .replace(/_/g, ' ')
+                                .replace(/\b\w/g, l => l.toUpperCase());
+                            
+                            // Update cache
+                            window.availableCustomPrompts.push({
+                                name: promptName,
+                                value: `custom:${promptName}`,
+                                displayName: displayName
+                            });
+                            
+                            // Create option element
+                            const option = $('<option></option>')
+                                .val(`custom:${promptName}`)  // Prefix with custom: to identify custom prompts
+                                .text(displayName);
+                            
+                            // Check if this was previously selected
+                            if (currentSelected.includes(`custom:${promptName}`)) {
+                                option.prop('selected', true);
+                            }
+                            
+                            customPromptsGroup.append(option);
+                            customPromptsAdded++;
+                        }
+                    });
+                    
+                    // Try to refresh the selectpicker if it exists, otherwise just trigger change
+                    try {
+                        if ($.fn.selectpicker) {
+                            $('#settings-preamble-selector').selectpicker('refresh');
+                        }
+                    } catch (e) {
+                        // Selectpicker not available, trigger change event instead
+                        $('#settings-preamble-selector').trigger('change');
+                    }
+                    
+                    // If there are custom prompts, show the optgroup, otherwise hide it
+                    if (customPromptsAdded === 0) {
+                        customPromptsGroup.append('<option disabled>No custom prompts available</option>');
+                    }
+                    
+                    console.log(`Loaded ${customPromptsAdded} custom prompts`);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading custom prompts:', error);
+                const customPromptsGroup = $('#custom-prompts-group');
+                
+                // Fall back to cached prompts if fetch fails
+                if (window.availableCustomPrompts && window.availableCustomPrompts.length > 0) {
+                    customPromptsGroup.empty();
+                    const currentSelected = $('#settings-preamble-selector').val() || [];
+                    
+                    window.availableCustomPrompts.forEach(prompt => {
+                        const option = $('<option></option>')
+                            .val(prompt.value)
+                            .text(prompt.displayName);
+                        if (currentSelected.includes(prompt.value)) {
+                            option.prop('selected', true);
+                        }
+                        customPromptsGroup.append(option);
+                    });
+                    console.log('Using cached custom prompts due to fetch error');
+                } else {
+                    customPromptsGroup.empty();
+                    customPromptsGroup.append('<option disabled>Error loading prompts</option>');
+                }
+                
+                // Try to refresh the selectpicker if it exists
+                try {
+                    if ($.fn.selectpicker) {
+                        $('#settings-preamble-selector').selectpicker('refresh');
+                    }
+                } catch (e) {
+                    // Selectpicker not available
+                    $('#settings-preamble-selector').trigger('change');
+                }
+            });
+        }
+        
+        // When settings modal opens, update the preview and load custom prompts
         $('#chat-settings-modal').on('shown.bs.modal', function() {
             updatePreviewHighlight();
+            loadCustomPrompts();
         });
         
         // Apply saved theme on page load
