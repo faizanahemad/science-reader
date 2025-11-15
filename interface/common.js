@@ -1191,8 +1191,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
     // Check if we should wrap sections (you might want to make this configurable)
     var wrapSectionsInDetails = true; // You can make this configurable via options
-    
-    if (wrapSectionsInDetails && html.includes('---')) {
+    // var horizontalRuleRegex = /\n---+\s*\n/g;
+    var horizontalRuleRegex = /^---+\s*$/gm;
+    var hasHorizontalRules = horizontalRuleRegex.test(html);
+
+    if (wrapSectionsInDetails && hasHorizontalRules) {
         // Function to process sections while preserving existing details tags
         function processContentWithDetails(content) {
             // First, we need to preserve existing <details> tags
@@ -1216,7 +1219,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             }
             
             // Now split the content by horizontal rules
-            var sections = workingContent.split(/\n---+\s*\n/);
+            var sections = workingContent.split(horizontalRuleRegex);
             
             if (sections.length > 1) {
                 var wrappedHtml = '';
@@ -1239,11 +1242,16 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                     var detailsOpening = detailsBlock.match(/<details[^>]*>/)[0];
                                     var detailsContent = detailsMatch[1];
                                     
-                                    // Check if the inner content has --- and process it
-                                    if (detailsContent.includes('---')) {
-                                        // Process inner content: only wrap sections between --- markers
-                                        var innerSections = detailsContent.split(/\n---+\s*\n/);
-                                        if (innerSections.length > 2) {
+                                    // Check if the inner content has --- horizontal rules (not table separators) and process it
+                                    // Use a more specific regex that matches horizontal rules but not table separators
+                                    
+                                    var hasHorizontalRules = horizontalRuleRegex.test(detailsContent);
+                                    
+                                    if (hasHorizontalRules) {
+                                        // Process inner content: only wrap sections between --- horizontal rule markers
+                                        // Reset regex for splitting since test() advances the lastIndex
+                                        var innerSections = detailsContent.split(horizontalRuleRegex);
+                                        if (innerSections.length > 1) {
                                             var innerWrapped = '';
                                             
                                             // First section (before first ---) stays as-is
@@ -1258,7 +1266,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                             }
                                             
                                             // Middle sections (between --- markers) get wrapped
-                                            for (var j = 1; j < innerSections.length - 1; j++) {
+                                            for (var j = 1; j < innerSections.length; j++) {
                                                 var innerSection = innerSections[j].trim();
                                                 if (innerSection) {
                                                     var innerSummary = generateSectionSummary(innerSection, j - 1);
@@ -1280,22 +1288,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     innerSummary = innerSummary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                                     innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
-    <summary class="section-summary"><strong>${innerSummary}</strong></summary>
-    <div class="section-content">
-        ${innerSection}
-        <div class="section-footer">
-            <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
-        </div>
-    </div>
+<summary class="section-summary"><strong>${innerSummary}</strong></summary>
+<div class="section-content">
+
+${innerSection}
+
+<div class="section-footer">
+<button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+</div>
+</div>
 </details>`;
                                                 }
                                             }
                                             
                                             // Last section (after last ---) stays as-is
                                             var lastSection = innerSections[innerSections.length - 1].trim();
-                                            if (lastSection) {
-                                                innerWrapped += '\n' + lastSection;
-                                            }
+                                            
                                             
                                             detailsBlock = detailsOpening + innerWrapped + '</details>';
                                         }

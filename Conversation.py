@@ -1785,7 +1785,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             agent = InterviewSimulatorAgentV2(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
 
         if field == "NResponseAgent":
-            agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 3))
+            agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 2))
         if field == "NStepCodeAgent":
             agent = NStepCodeAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
         if field == "CodeSolveAgent":
@@ -2325,6 +2325,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
 
         message_config["perform_web_search"] = perform_web_search
+        perform_web_search = perform_web_search and FILLER_MODEL not in model_name
         message_config["links"] = query['links']
         
         unchanged_message_lookback = message_lookback
@@ -2930,7 +2931,8 @@ At the end write what we must make slides about as well.
                         model_names = (EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1] + [model_name])
                         improve_model = model_name
                     
-                    llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
+                    # llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
+                    llm = NResponseAgent(self.get_api_keys(), writer_model=model_names, n_responses=2)
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
                     main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)

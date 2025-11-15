@@ -163,7 +163,9 @@ def collapsible_wrapper(response, header="Solution", show_initially=True, add_cl
 document.addEventListener('click', function(event) {
     if (event.target.classList.contains('details-close-btn')) {
         // Find the parent details element
-        let details = event.target.closest('details');
+        let detailsId = event.target.getAttribute('data-details-id');
+        let details = detailsId ? document.getElementById(detailsId) : event.target.closest('details');
+        
         if (details) {
             // Close the details element
             details.removeAttribute('open');
@@ -177,10 +179,12 @@ document.addEventListener('click', function(event) {
         # yield style_string
     
     # Handle string responses directly
+    import hashlib
+    hashString = hashlib.md5((str(response) + str(uuid.uuid4())).encode()).hexdigest()[:8]
     if isinstance(response, str):
-        yield f"\n<details {open_attr}>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
+        yield f"\n<details {open_attr} id='details-{hashString}'>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
         if add_close_button:
-            yield "\n<button class='details-close-btn'>Close</button>\n"
+            yield "\n<button class='details-close-btn' data-details-id='details-{hashString}'>Close</button>\n"
         yield "</details>\n\n"
         return
     
