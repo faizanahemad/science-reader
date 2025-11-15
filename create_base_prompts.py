@@ -898,6 +898,7 @@ Help prepare us for technical interviews at the senior or staff level. Make sure
 
 ## Basic Guidelines:
 - Write your understanding of the problem in your own words to ensure clarity. Also write a few examples of the problem and solutions to help us understand the problem better.
+- Write the Big Picture of All Approaches and Solutions in a table format. With headers like `"Approach", "Idea", "Time Complexity", "Space Complexity", "Core Pattern/Concept Used", "Brief Explanation"`.
 - Write verbally in steps and in pseudocode what we are doing before giving proper code for easier understanding.
 - Give intuitive explanation of various non-obvious concepts and ideas in the solution.
 
