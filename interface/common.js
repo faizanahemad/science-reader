@@ -1193,66 +1193,181 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     var wrapSectionsInDetails = true; // You can make this configurable via options
     
     if (wrapSectionsInDetails && html.includes('---')) {
-        // Split by horizontal rules (--- with optional spaces)
-        // We need to be careful to match markdown horizontal rules but not other uses of ---
-        var sections = html.split(/\n---+\s*\n/);
-        
-        if (sections.length > 1) {
-            var wrappedHtml = '';
+        // Function to process sections while preserving existing details tags
+        function processContentWithDetails(content) {
+            // First, we need to preserve existing <details> tags
+            var detailsRegex = /<details[^>]*>[\s\S]*?<\/details>/gi;
+            var detailsBlocks = [];
+            var placeholders = [];
             
-            sections.forEach(function(section, index) {
-                section = section.trim();
-                if (section) {
-                    // Generate a summary for each section
-                    // You can customize how the summary is generated
-                    var summary = generateSectionSummary(section, index);
-
-                    // Create a proper hash of the section content
-                    // Simple hash function to create a consistent identifier
-                    function simpleHash(str) {
-                        let hash = 0;
-                        if (str.length === 0) return hash.toString();
-                        for (let i = 0; i < str.length; i++) {
-                            const char = str.charCodeAt(i);
-                            hash = ((hash << 5) - hash) + char;
-                            hash = hash & hash; // Convert to 32-bit integer
+            // Extract and store existing details blocks
+            var match;
+            var tempContent = content;
+            while ((match = detailsRegex.exec(content)) !== null) {
+                var placeholder = `__DETAILS_PLACEHOLDER_${placeholders.length}__`;
+                detailsBlocks.push(match[0]);
+                placeholders.push(placeholder);
+            }
+            
+            // Replace details blocks with placeholders temporarily
+            var workingContent = content;
+            for (var i = 0; i < detailsBlocks.length; i++) {
+                workingContent = workingContent.replace(detailsBlocks[i], placeholders[i]);
+            }
+            
+            // Now split the content by horizontal rules
+            var sections = workingContent.split(/\n---+\s*\n/);
+            
+            if (sections.length > 1) {
+                var wrappedHtml = '';
+                
+                sections.forEach(function(section, sectionIndex) {
+                    section = section.trim();
+                    
+                    // Check if this section contains a details placeholder
+                    var hasPlaceholder = placeholders.some(p => section.includes(p));
+                    
+                    if (hasPlaceholder) {
+                        // Process sections that contain placeholders
+                        for (var i = 0; i < placeholders.length; i++) {
+                            if (section.includes(placeholders[i])) {
+                                // Process the content inside the details block recursively
+                                var detailsBlock = detailsBlocks[i];
+                                var detailsMatch = detailsBlock.match(/<details[^>]*>([\s\S]*?)<\/details>/i);
+                                
+                                if (detailsMatch) {
+                                    var detailsOpening = detailsBlock.match(/<details[^>]*>/)[0];
+                                    var detailsContent = detailsMatch[1];
+                                    
+                                    // Check if the inner content has --- and process it
+                                    if (detailsContent.includes('---')) {
+                                        // Process inner content: only wrap sections between --- markers
+                                        var innerSections = detailsContent.split(/\n---+\s*\n/);
+                                        if (innerSections.length > 2) {
+                                            var innerWrapped = '';
+                                            
+                                            // First section (before first ---) stays as-is
+                                            if (innerSections[0].trim()) {
+                                                // Check if it has a summary tag (from server)
+                                                var summaryMatch = innerSections[0].match(/<summary[^>]*>(.*?)<\/summary>/i);
+                                                if (summaryMatch) {
+                                                    innerWrapped += innerSections[0].trim();
+                                                } else {
+                                                    innerWrapped += innerSections[0].trim();
+                                                }
+                                            }
+                                            
+                                            // Middle sections (between --- markers) get wrapped
+                                            for (var j = 1; j < innerSections.length - 1; j++) {
+                                                var innerSection = innerSections[j].trim();
+                                                if (innerSection) {
+                                                    var innerSummary = generateSectionSummary(innerSection, j - 1);
+                                                    // Helper function for hashing
+                                                    function simpleHash(str) {
+                                                        let hash = 0;
+                                                        if (str.length === 0) return hash.toString();
+                                                        for (let i = 0; i < str.length; i++) {
+                                                            const char = str.charCodeAt(i);
+                                                            hash = ((hash << 5) - hash) + char;
+                                                            hash = hash & hash;
+                                                        }
+                                                        return Math.abs(hash).toString(16).substring(0, 8);
+                                                    }
+                                                    var innerHash = simpleHash(innerSection) || 
+                                                        (innerSection.length.toString() + innerSection.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
+                                                    var innerId = `section-details-${conversation_id}-${innerHash}`;
+                                                    
+                                                    innerSummary = innerSummary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
+                                                    innerWrapped += `
+<details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
+    <summary class="section-summary"><strong>${innerSummary}</strong></summary>
+    <div class="section-content">
+        ${innerSection}
+        <div class="section-footer">
+            <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+        </div>
+    </div>
+</details>`;
+                                                }
+                                            }
+                                            
+                                            // Last section (after last ---) stays as-is
+                                            var lastSection = innerSections[innerSections.length - 1].trim();
+                                            if (lastSection) {
+                                                innerWrapped += '\n' + lastSection;
+                                            }
+                                            
+                                            detailsBlock = detailsOpening + innerWrapped + '</details>';
+                                        }
+                                    }
+                                    section = section.replace(placeholders[i], detailsBlock);
+                                } else {
+                                    section = section.replace(placeholders[i], detailsBlocks[i]);
+                                }
+                            }
                         }
-                        return Math.abs(hash).toString(16).substring(0, 8);
-                    }
-                    
-                    var sectionHash = simpleHash(section) || 
-                        // Fallback: create hash from section length and first few safe characters
-                        (section.length.toString() + section.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
-                    
-                    // Generate a unique ID for this section
-                    sectionHash =  `${conversation_id}-${sectionHash}`;
-                    var sectionId = `section-details-${sectionHash}`;
-                    
-                    // Wrap each section in a details tag (open by default)
-                    summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
-                    wrappedHtml += `
-<details open class="section-details" data-section-index="${index}" data-section-hash="${sectionHash}" id="${sectionId}">
+                        wrappedHtml += section;
+                    } else {
+                        // Handle sections without placeholders
+                        // Only wrap if this is a middle section (not first or last)
+                        if (sectionIndex === 0) {
+                            // First section - don't wrap
+                            if (section) {
+                                wrappedHtml += section + '\n';
+                            }
+                        } else if (sectionIndex === sections.length - 1) {
+                            // Last section - don't wrap
+                            if (section) {
+                                wrappedHtml += '\n' + section;
+                            }
+                        } else {
+                            // Middle section - wrap in details
+                            if (section) {
+                                var summary = generateSectionSummary(section, sectionIndex - 1);
+                                // Helper function for hashing (if not already defined above)
+                                function simpleHash(str) {
+                                    let hash = 0;
+                                    if (str.length === 0) return hash.toString();
+                                    for (let i = 0; i < str.length; i++) {
+                                        const char = str.charCodeAt(i);
+                                        hash = ((hash << 5) - hash) + char;
+                                        hash = hash & hash;
+                                    }
+                                    return Math.abs(hash).toString(16).substring(0, 8);
+                                }
+                                var sectionHash = simpleHash(section) || 
+                                    (section.length.toString() + section.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
+                                
+                                sectionHash = `${conversation_id}-${sectionHash}`;
+                                var sectionId = `section-details-${sectionHash}`;
+                                
+                                summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
+                                wrappedHtml += `
+<details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
     <div class="section-content">
-        
-
-${section}
-
-<div class="section-footer">
-<button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
-</div>
-</div>
-</details>
-`;
-                    // Add a subtle separator between sections (optional)
-                    if (index < sections.length - 1) {
-                        wrappedHtml += '\n'; // Small spacing between sections
+        ${section}
+        <div class="section-footer">
+            <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+        </div>
+    </div>
+</details>`;
+                            }
+                        }
                     }
-                }
-            });
+                });
+                
+                return wrappedHtml;
+            }
             
-            html = wrappedHtml;
+            // No sections to split, return original content with placeholders restored
+            for (var i = 0; i < placeholders.length; i++) {
+                workingContent = workingContent.replace(placeholders[i], detailsBlocks[i]);
+            }
+            return workingContent;
         }
+        
+        html = processContentWithDetails(html);
     }
 
     // For the close button, we need to manually track the state change
