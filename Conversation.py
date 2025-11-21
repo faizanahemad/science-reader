@@ -2863,7 +2863,9 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             answer += "\n\n**Response was cancelled by user**"
             yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
-        ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or isinstance(model_name, (list, tuple))) and agent is None
+        ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)) and agent is None
+        if isinstance(model_name, (list, tuple)):
+            model_name = list(set(model_name))
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
         is_slide_agent = agent is not None and (isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent))
         storyboard_context = None
@@ -2907,6 +2909,7 @@ At the end write what we must make slides about as well.
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif agent is not None and not is_slide_agent:
+            yield {"text": '', "status": "Agent is not None and not is_slide_agent, agent type is " + str(type(agent)) + " ..."}
             
             if isinstance(agent, (NResponseAgent, ReflectionAgent)):
                 if hasattr(agent, "n_responses"):
