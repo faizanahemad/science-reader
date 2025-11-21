@@ -1465,7 +1465,18 @@ var ChatManager = {
                 console.log(`Invalid file type ${file.type}.`)
                 console.log(`Invalid file type ${getFileType(file, ()=>{})}.`)
                 console.log(`Invalid file type ${getMimeType(file)}.`)
-                alert(`Invalid file type ${file.type}. Supported types are: ` + fileInput.attr('accept').replace(/, /g, ', ').replace(/application\//g, '').replace(/vnd.openxmlformats-officedocument.wordprocessingml.document/g, 'docx').replace(/vnd.openxmlformats-officedocument.spreadsheetml.sheet/g, 'xlsx').replace(/vnd.ms-excel/g, 'xls').replace(/text\//g, '').replace(/image\//g, '').replace(/svg\+xml/g, 'svg'));
+                const supportedTypes = fileInput.attr('accept')
+                    .replace(/, /g, ', ')
+                    .replace(/application\//g, '')
+                    .replace(/vnd.openxmlformats-officedocument.wordprocessingml.document/g, 'docx')
+                    .replace(/vnd.openxmlformats-officedocument.spreadsheetml.sheet/g, 'xlsx')
+                    .replace(/vnd.ms-excel/g, 'xls')
+                    .replace(/text\//g, '')
+                    .replace(/image\//g, '')
+                    .replace(/audio\//g, '')
+                    .replace(/video\//g, '')
+                    .replace(/svg\+xml/g, 'svg');
+                alert(`Invalid file type ${file.type}. Supported types are: ` + supportedTypes);
             } 
         }
 
@@ -1535,14 +1546,14 @@ var ChatManager = {
         
         // Function to check if the file type is valid  
         function isValidFileType(file) {  
-            var validTypes = fileInput.attr('accept').split(', ');  
+            var validTypes = fileInput.attr('accept').split(', ').map(type => type.toLowerCase());  
               
             // Get file extension  
             var fileName = file.name.toLowerCase();  
             var fileExtension = fileName.substring(fileName.lastIndexOf('.'));  
               
             // MIME type from browser  
-            var mimeType = file.type || getMimeType(file);  
+            var mimeType = (file.type || getMimeType(file) || '').toLowerCase();  
               
             // Special handling for markdown files  
             var isMarkdown = fileExtension === '.md' || fileExtension === '.markdown';  
@@ -1552,6 +1563,13 @@ var ChatManager = {
               
             // Check if it's a valid markdown file  
             if (isMarkdown && (isMarkdownMime || mimeType === 'text/plain' || mimeType === '')) {  
+                return true;  
+            }  
+
+            var audioExtensions = ['.mp3', '.mpeg', '.wav', '.wave', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus', '.webm', '.wma', '.aiff', '.aif', '.aifc', '.mp4'];  
+            var audioMimeTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/ogg', 'audio/flac', 'audio/x-flac', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mp4', 'video/mp4', 'audio/opus', 'audio/x-ms-wma', 'audio/aiff'];  
+
+            if (audioExtensions.includes(fileExtension) && (audioMimeTypes.includes(mimeType) || mimeType === '' || mimeType === 'application/octet-stream')) {  
                 return true;  
             }  
               

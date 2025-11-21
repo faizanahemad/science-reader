@@ -68,7 +68,24 @@ function getMimeType(file) {
         'parquet': 'application/parquet',
         'json': 'application/json',
         'jsonl': 'application/x-jsonlines',
-        'ndjson': 'application/x-ndjson'
+        'ndjson': 'application/x-ndjson',
+        'mp3': 'audio/mpeg',
+        'mpeg': 'audio/mpeg',
+        'wav': 'audio/wav',
+        'wave': 'audio/wav',
+        'm4a': 'audio/mp4',
+        'aac': 'audio/aac',
+        'flac': 'audio/flac',
+        'xflac': 'audio/x-flac',
+        'ogg': 'audio/ogg',
+        'oga': 'audio/ogg',
+        'opus': 'audio/opus',
+        'webm': 'audio/webm',
+        'wma': 'audio/x-ms-wma',
+        'aiff': 'audio/aiff',
+        'aif': 'audio/aiff',
+        'aifc': 'audio/aiff',
+        'mp4': 'video/mp4'
     };
     return mimeTypeMap[extension] || 'application/octet-stream'; // Default MIME type  
 }  

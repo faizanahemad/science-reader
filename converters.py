@@ -1,199 +1,189 @@
-import os  
-import requests  
-import traceback  
-import logging  
+import os
+import re
+import requests
+import traceback
+import logging
 import tempfile
+import textwrap
+from pathlib import Path
+
 import markdown  # For markdown to HTML conversion
 
 logger = logging.getLogger(__name__)
   
-def convert_html_to_pdf(file_path, output_path):  
-    """  
-    Convert HTML file to PDF using Gotenberg's Chromium engine.  
-      
-    Args:  
-        file_path (str): Path to the HTML file  
-        output_path (str): Path where the PDF will be saved  
-          
-    Returns:  
-        bool: True if conversion successful, False otherwise  
-    """  
-    # Gotenberg Chromium endpoint for HTML conversion  
-    GOTENBERG_BASE_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")  
-    api_url = f"{GOTENBERG_BASE_URL}/forms/chromium/convert/html"  
-      
-    try:  
-        logger.info(f"Converting HTML at {file_path} to PDF, file exists = {os.path.exists(file_path)}")  
-        assert os.path.exists(file_path), f"HTML file not found: {file_path}"  
-          
-        # Validate file extension  
-        if not file_path.lower().endswith(('.html', '.htm')):  
-            raise ValueError(f"Expected HTML file, got: {file_path}")  
-          
-        with open(file_path, 'rb') as f:  
-            # Gotenberg requires the file to be named 'index.html'
-            files = {'files': ('index.html', f, 'text/html')}  
-              
-            # Gotenberg Chromium-specific parameters  
-            payload = {  
-                'paperWidth': '8.27',      # A4 width in inches  
-                'paperHeight': '11.7',     # A4 height in inches  
-                'marginTop': '0.39',       # 1cm margin  
-                'marginBottom': '0.39',  
-                'marginLeft': '0.39',  
-                'marginRight': '0.39',  
-                'preferCSSPageSize': 'false',  
-                'printBackground': 'true',  
-                'landscape': 'false',  
-                'scale': '1.0'  
-            }  
-              
-            logger.info(f"Sending HTML conversion request to: {api_url}")  
-            response = requests.post(  
-                api_url,   
-                files=files,   
-                data=payload,  
-                timeout=60  # 60 second timeout  
-            )  
-              
-            if response.status_code == 200:  
-                # Ensure output directory exists  
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)  
-                  
-                with open(output_path, 'wb') as out_file:  
-                    out_file.write(response.content)  
-                  
-                logger.info(f"✅ HTML to PDF conversion successful: {output_path}")  
-                return True  
-            else:  
-                logger.error(f"❌ HTML conversion failed with status {response.status_code}: {response.text}")  
-                return False  
-                  
-    except Exception as e:  
-        exc = traceback.format_exc()  
-        logger.error(f"❌ Exception converting HTML at {file_path} to PDF: {e}\n{exc}")  
-        return False  
+def convert_html_to_pdf(file_path, output_path):
+    """
+    Convert HTML file to PDF using Gotenberg when available, otherwise fall back to a
+    pure-Python implementation backed by ReportLab.
+
+    Args:
+        file_path (str): Path to the HTML file
+        output_path (str): Path where the PDF will be saved
+
+    Returns:
+        bool: True if conversion successful, False otherwise
+    """
+    GOTENBERG_BASE_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")
+    api_url = f"{GOTENBERG_BASE_URL}/forms/chromium/convert/html"
+    success = False
+
+    try:
+        logger.info(f"Converting HTML at {file_path} to PDF, file exists = {os.path.exists(file_path)}")
+        assert os.path.exists(file_path), f"HTML file not found: {file_path}"
+
+        if not file_path.lower().endswith(('.html', '.htm')):
+            raise ValueError(f"Expected HTML file, got: {file_path}")
+
+        with open(file_path, 'rb') as f:
+            files = {'files': ('index.html', f, 'text/html')}
+            payload = {
+                'paperWidth': '8.27',
+                'paperHeight': '11.7',
+                'marginTop': '0.39',
+                'marginBottom': '0.39',
+                'marginLeft': '0.39',
+                'marginRight': '0.39',
+                'preferCSSPageSize': 'false',
+                'printBackground': 'true',
+                'landscape': 'false',
+                'scale': '1.0'
+            }
+
+            logger.info(f"Sending HTML conversion request to: {api_url}")
+            response = requests.post(
+                api_url,
+                files=files,
+                data=payload,
+                timeout=60
+            )
+
+            if response.status_code == 200:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'wb') as out_file:
+                    out_file.write(response.content)
+
+                logger.info(f"✅ HTML to PDF conversion successful: {output_path}")
+                success = True
+            else:
+                logger.error(f"❌ HTML conversion failed with status {response.status_code}: {response.text}")
+
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"❌ Exception converting HTML at {file_path} to PDF: {e}\n{exc}")
+
+    if success:
+        return True
+
+    logger.warning("Falling back to pure-Python HTML to PDF conversion for %s", file_path)
+    return _fallback_convert_html_file(file_path, output_path)
 
 
-def convert_doc_to_pdf(file_path, output_path):  
-    """  
-    Convert DOCX/DOC file to PDF using Gotenberg's LibreOffice engine.  
-      
-    Args:  
-        file_path (str): Path to the DOCX/DOC file  
-        output_path (str): Path where the PDF will be saved  
-          
-    Returns:  
-        bool: True if conversion successful, False otherwise  
-    """  
-    # Gotenberg LibreOffice endpoint for Office document conversion  
-    GOTENBERG_BASE_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")  
-    api_url = f"{GOTENBERG_BASE_URL}/forms/libreoffice/convert"  
-      
-    try:  
-        logger.info(f"Converting DOCX at {file_path} to PDF, file exists = {os.path.exists(file_path)}")  
-        assert os.path.exists(file_path), f"DOCX file not found: {file_path}"  
-          
-        # Validate file extension  
-        supported_extensions = ('.docx', '.doc', '.odt', '.rtf', '.xlsx', '.xls', '.pptx', '.ppt')  
-        if not file_path.lower().endswith(supported_extensions):  
-            raise ValueError(f"Unsupported file type. Expected: {supported_extensions}, got: {file_path}")  
-          
-        # Determine MIME type based on extension  
-        mime_types = {  
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  
-            '.doc': 'application/msword',  
-            '.odt': 'application/vnd.oasis.opendocument.text',  
-            '.rtf': 'application/rtf',  
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  
-            '.xls': 'application/vnd.ms-excel',  
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',  
-            '.ppt': 'application/vnd.ms-powerpoint'  
-        }  
-          
-        file_ext = os.path.splitext(file_path)[1].lower()  
-        mime_type = mime_types.get(file_ext, 'application/octet-stream')  
-          
-        with open(file_path, 'rb') as f:  
-            files = {'files': (os.path.basename(file_path), f, mime_type)}  
-              
-            # Gotenberg LibreOffice-specific parameters  
-            payload = {  
-                'pdfFormat': 'PDF/A-1a',           # PDF/A format for archival  
-                'merge': 'false',                  # Don't merge multiple files  
-                'landscape': 'false',              # Portrait orientation  
-                'nativePageRanges': '',            # Convert all pages  
-                'exportFormFields': 'true',        # Include form fields  
-                'allowDuplicateFieldNames': 'false',  
-                'exportBookmarks': 'true',         # Include bookmarks  
-                'exportBookmarksToPdfDestination': 'false',  
-                'exportPlaceholders': 'false',  
-                'exportNotes': 'false',  
-                'exportNotesPages': 'false',  
-                'exportOnlyNotesPages': 'false',  
-                'exportNotesInMargin': 'false',  
-                'convertOooTargetToPdfTarget': 'false',  
-                'exportLinksRelativeFsys': 'false',  
-                'exportHiddenSlides': 'false',  
-                'skipEmptyPages': 'true',  
-                'addOriginalDocumentAsStream': 'false'  
-            }  
-              
-            logger.info(f"Sending DOCX conversion request to: {api_url}")  
-            response = requests.post(  
-                api_url,   
-                files=files,   
-                data=payload,  
-                timeout=120  # 2 minute timeout for larger documents  
-            )  
-              
-            if response.status_code == 200:  
-                # Ensure output directory exists  
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)  
-                  
-                with open(output_path, 'wb') as out_file:  
-                    out_file.write(response.content)  
-                  
-                logger.info(f"✅ DOCX to PDF conversion successful: {output_path}")  
-                return True  
-            else:  
-                logger.error(f"❌ DOCX conversion failed with status {response.status_code}: {response.text}")  
-                return False  
-                  
-    except Exception as e:  
-        exc = traceback.format_exc()  
-        logger.error(f"❌ Exception converting DOCX at {file_path} to PDF: {e}\n{exc}")  
-        return False  
+def convert_doc_to_pdf(file_path, output_path):
+    """
+    Convert Office documents to PDF via Gotenberg when accessible, or fall back to a
+    simplified text-based conversion implemented in Python.
+
+    Args:
+        file_path (str): Path to the document
+        output_path (str): Path where the PDF will be saved
+
+    Returns:
+        bool: True if conversion successful, False otherwise
+    """
+    GOTENBERG_BASE_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")
+    api_url = f"{GOTENBERG_BASE_URL}/forms/libreoffice/convert"
+    supported_extensions = ('.docx', '.doc', '.odt', '.rtf', '.xlsx', '.xls', '.pptx', '.ppt')
+    success = False
+
+    try:
+        logger.info(f"Converting DOCX at {file_path} to PDF, file exists = {os.path.exists(file_path)}")
+        assert os.path.exists(file_path), f"DOCX file not found: {file_path}"
+
+        if not file_path.lower().endswith(supported_extensions):
+            raise ValueError(f"Unsupported file type. Expected: {supported_extensions}, got: {file_path}")
+
+        mime_types = {
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.doc': 'application/msword',
+            '.odt': 'application/vnd.oasis.opendocument.text',
+            '.rtf': 'application/rtf',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.xls': 'application/vnd.ms-excel',
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.ppt': 'application/vnd.ms-powerpoint'
+        }
+
+        file_ext = os.path.splitext(file_path)[1].lower()
+        mime_type = mime_types.get(file_ext, 'application/octet-stream')
+
+        with open(file_path, 'rb') as f:
+            files = {'files': (os.path.basename(file_path), f, mime_type)}
+            payload = {
+                'pdfFormat': 'PDF/A-1a',
+                'merge': 'false',
+                'landscape': 'false',
+                'nativePageRanges': '',
+                'exportFormFields': 'true',
+                'allowDuplicateFieldNames': 'false',
+                'exportBookmarks': 'true',
+                'exportBookmarksToPdfDestination': 'false',
+                'exportPlaceholders': 'false',
+                'exportNotes': 'false',
+                'exportNotesPages': 'false',
+                'exportOnlyNotesPages': 'false',
+                'exportNotesInMargin': 'false',
+                'convertOooTargetToPdfTarget': 'false',
+                'exportLinksRelativeFsys': 'false',
+                'exportHiddenSlides': 'false',
+                'skipEmptyPages': 'true',
+                'addOriginalDocumentAsStream': 'false'
+            }
+
+            logger.info(f"Sending DOCX conversion request to: {api_url}")
+            response = requests.post(
+                api_url,
+                files=files,
+                data=payload,
+                timeout=120
+            )
+
+            if response.status_code == 200:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                with open(output_path, 'wb') as out_file:
+                    out_file.write(response.content)
+
+                logger.info(f"✅ DOCX to PDF conversion successful: {output_path}")
+                success = True
+            else:
+                logger.error(f"❌ DOCX conversion failed with status {response.status_code}: {response.text}")
+
+    except Exception as e:
+        exc = traceback.format_exc()
+        logger.error(f"❌ Exception converting DOCX at {file_path} to PDF: {e}\n{exc}")
+
+    if success:
+        return True
+
+    logger.warning("Falling back to pure-Python document conversion for %s", file_path)
+    return _fallback_convert_doc_to_pdf(file_path, output_path)
 
 
 def convert_html_string_to_pdf(html_content, output_path, title="Document"):
     """
-    Convert HTML string content to PDF using Gotenberg's Chromium engine.
-    
-    Args:
-        html_content (str): HTML content as string
-        output_path (str): Path where the PDF will be saved
-        title (str): Title for the document (used in filename for multipart)
-        
-    Returns:
-        bool: True if conversion successful, False otherwise
+    Convert HTML string content to PDF, preferring Gotenberg but gracefully falling back
+    to a ReportLab-based implementation when the service is unavailable.
     """
-    # Gotenberg Chromium endpoint for HTML conversion
     GOTENBERG_BASE_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")
     api_url = f"{GOTENBERG_BASE_URL}/forms/chromium/convert/html"
-    
+    success = False
+
     try:
         logger.info(f"Converting HTML string to PDF at {output_path}")
-        
-        # Create a temporary file-like object from the HTML string
-        # Gotenberg expects a file named 'index.html' in multipart form data
         files = {'files': ('index.html', html_content.encode('utf-8'), 'text/html')}
-        
-        # Gotenberg Chromium-specific parameters
         payload = {
-            'paperWidth': '8.27',      # A4 width in inches
-            'paperHeight': '11.7',     # A4 height in inches
-            'marginTop': '0.39',       # 1cm margin
+            'paperWidth': '8.27',
+            'paperHeight': '11.7',
+            'marginTop': '0.39',
             'marginBottom': '0.39',
             'marginLeft': '0.39',
             'marginRight': '0.39',
@@ -202,32 +192,34 @@ def convert_html_string_to_pdf(html_content, output_path, title="Document"):
             'landscape': 'false',
             'scale': '1.0'
         }
-        
+
         logger.info(f"Sending HTML string conversion request to: {api_url}")
         response = requests.post(
-            api_url, 
-            files=files, 
+            api_url,
+            files=files,
             data=payload,
-            timeout=60  # 60 second timeout
+            timeout=60
         )
-        
+
         if response.status_code == 200:
-            # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
-            
             with open(output_path, 'wb') as out_file:
                 out_file.write(response.content)
-            
+
             logger.info(f"✅ HTML string to PDF conversion successful: {output_path}")
-            return True
+            success = True
         else:
             logger.error(f"❌ HTML string conversion failed with status {response.status_code}: {response.text}")
-            return False
-            
+
     except Exception as e:
         exc = traceback.format_exc()
         logger.error(f"❌ Exception converting HTML string to PDF: {e}\n{exc}")
-        return False
+
+    if success:
+        return True
+
+    logger.warning("Falling back to pure-Python HTML string conversion for %s", output_path)
+    return _fallback_convert_html_string(html_content, output_path, title=title)
 
 
 def convert_markdown_file_to_pdf(file_path, output_path):
@@ -388,19 +380,183 @@ def convert_markdown_string_to_pdf(markdown_content, output_path, title="Documen
 </body>
 </html>"""
         
-        # Use the HTML string to PDF converter
-        return convert_html_string_to_pdf(html_content, output_path, title)
-        
+        success = convert_html_string_to_pdf(html_content, output_path, title)
+        if success:
+            return True
+
+        logger.warning("Markdown HTML conversion failed, falling back to text-based PDF generation.")
+        return _fallback_convert_markdown_text(markdown_content, output_path, title)
+
     except ImportError:
         logger.error("❌ Python 'markdown' library not installed. Install it using: pip install markdown")
-        
-        # Fallback: Try to use Gotenberg's native Markdown support if available
-        return _convert_markdown_via_gotenberg(markdown_content, output_path, title)
-        
+        if _convert_markdown_via_gotenberg(markdown_content, output_path, title):
+            return True
+
+        logger.warning("Falling back to basic Markdown text conversion for %s", output_path)
+        return _fallback_convert_markdown_text(markdown_content, output_path, title)
+
     except Exception as e:
         exc = traceback.format_exc()
         logger.error(f"❌ Exception converting Markdown to PDF: {e}\n{exc}")
+        return _fallback_convert_markdown_text(markdown_content, output_path, title)
+
+
+def _fallback_convert_html_file(file_path: str, output_path: str) -> bool:
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            html_content = f.read()
+    except Exception as e:
+        logger.error(f"❌ Failed to read HTML file for fallback conversion: {e}")
         return False
+
+    title = Path(file_path).stem or "Document"
+    return _fallback_convert_html_string(html_content, output_path, title=title)
+
+
+def _fallback_convert_html_string(html_content: str, output_path: str, title: str = "Document") -> bool:
+    text = _html_to_text(html_content)
+    return _fallback_convert_text_to_pdf(text, output_path, title=title)
+
+
+def _fallback_convert_doc_to_pdf(file_path: str, output_path: str) -> bool:
+    try:
+        text = _extract_text_from_document(file_path)
+    except Exception as e:
+        logger.error(f"❌ Fallback document conversion failed for {file_path}: {e}")
+        return False
+
+    title = Path(file_path).stem or "Document"
+    return _fallback_convert_text_to_pdf(text, output_path, title=title)
+
+
+def _extract_text_from_document(file_path: str) -> str:
+    suffix = Path(file_path).suffix.lower()
+    if suffix in (".docx", ".docm"):
+        try:
+            from docx import Document  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("python-docx is required for DOCX fallback conversion.") from exc
+
+        doc = Document(file_path)
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return "\n\n".join(paragraphs)
+
+    if suffix == ".rtf":
+        try:
+            from striprtf.striprtf import rtf_to_text  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("striprtf is required for RTF fallback conversion.") from exc
+
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return rtf_to_text(f.read())
+
+    if suffix in (".pptx",):
+        try:
+            from pptx import Presentation  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("python-pptx is required for PPTX fallback conversion.") from exc
+
+        prs = Presentation(file_path)
+        texts = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                text = getattr(shape, "text", "")
+                if text:
+                    texts.append(text.strip())
+        return "\n\n".join(texts)
+
+    if suffix in (".xlsx", ".xls"):
+        try:
+            import pandas as pd  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("pandas is required for spreadsheet fallback conversion.") from exc
+
+        df = pd.read_excel(file_path, engine="openpyxl" if suffix == ".xlsx" else None)
+        return df.to_csv(index=False)
+
+    if suffix in (".txt",):
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+
+    raise RuntimeError(f"Fallback converter does not support '{suffix}' files. Please install Gotenberg or convert the document to DOCX.")
+
+
+def _fallback_convert_text_to_pdf(text: str, output_path: str, title: str = "Document") -> bool:
+    if not text.strip():
+        text = "No textual content was available for conversion."
+
+    try:
+        from reportlab.lib.pagesizes import LETTER  # type: ignore
+        from reportlab.pdfgen import canvas  # type: ignore
+    except ImportError as exc:
+        logger.error("ReportLab is required for fallback PDF generation. Install it via 'pip install reportlab'.")
+        return False
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    pdf_canvas = canvas.Canvas(output_path, pagesize=LETTER)
+    pdf_canvas.setTitle(title)
+    pdf_canvas.setFont("Helvetica", 11)
+
+    width, height = LETTER
+    margin = 72  # 1 inch
+    line_height = 14
+    max_chars = 95
+    y = height - margin
+
+    for paragraph in text.splitlines():
+        paragraph = paragraph.rstrip()
+        if not paragraph:
+            y -= line_height
+            if y <= margin:
+                pdf_canvas.showPage()
+                pdf_canvas.setFont("Helvetica", 11)
+                y = height - margin
+            continue
+
+        for line in textwrap.wrap(paragraph, width=max_chars):
+            pdf_canvas.drawString(margin, y, line)
+            y -= line_height
+            if y <= margin:
+                pdf_canvas.showPage()
+                pdf_canvas.setFont("Helvetica", 11)
+                y = height - margin
+
+    pdf_canvas.save()
+    logger.info(f"✅ Fallback text-based PDF written to {output_path}")
+    return True
+
+
+def _html_to_text(html_content: str) -> str:
+    if not html_content:
+        return ""
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+
+        soup = BeautifulSoup(html_content, "html.parser")
+        text = soup.get_text(separator="\n")
+    except Exception:
+        text = re.sub(r"(?i)<br\s*/?>", "\n", html_content)
+        text = re.sub(r"<[^>]+>", " ", text)
+
+    cleaned_lines = [line.strip() for line in text.splitlines()]
+    return "\n".join(line for line in cleaned_lines if line)
+
+
+def _fallback_convert_markdown_text(markdown_content: str, output_path: str, title: str = "Document") -> bool:
+    text = _strip_markdown_syntax(markdown_content)
+    return _fallback_convert_text_to_pdf(text, output_path, title)
+
+
+def _strip_markdown_syntax(markdown_content: str) -> str:
+    text = markdown_content
+    text = re.sub(r"!\[[^\]]*\]\([^\)]*\)", "", text)  # images
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # links
+    text = re.sub(r"`{1,3}[^`]+`{1,3}", "", text, flags=re.DOTALL)  # inline code
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)  # headers
+    text = re.sub(r"[*_]{1,2}([^*_]+)[*_]{1,2}", r"\1", text)  # emphasis
+    text = re.sub(r">+\s*", "", text)  # blockquotes
+    text = re.sub(r"-{3,}", "", text)  # horizontal rules
+    return text
 
 
 def _convert_markdown_via_gotenberg(markdown_content, output_path, title="Document"):

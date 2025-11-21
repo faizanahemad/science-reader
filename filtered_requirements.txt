@@ -89,3 +89,4 @@ PyMuPDF==1.25.3
 markdown-it-py==3.0.0
 mdit-py-plugins==0.3.0
 markdown-pdf==1.7
+reportlab==4.4.5

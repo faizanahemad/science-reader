@@ -1,10 +1,14 @@
 import os.path
 import shutil
+from datetime import datetime
+from typing import Tuple
 
 import semanticscholar.Paper
 from filelock import FileLock, Timeout
 from pathlib import Path
+from prompts import math_formatting_instructions
 from web_scraping import fetch_html
+from transcribe_audio import transcribe_audio as transcribe_audio_file
 
 try:
     import ujson as json
@@ -326,18 +330,17 @@ class DocIndex:
         elif "arxiv" in self.doc_source or "aclanthology" in self.doc_source or "aclweb" in self.doc_source:
             paper_summary = prompts.paper_summary_prompt
             llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
+            llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
             document_type = "scientific paper"
             
         else:
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
             
             # Step 1: Identify document type and key aspects
             identify_prompt = """
 Analyze the following document and:
 1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.) from the list of allowed document types.
-2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
-3. Outline a plan for creating an in-depth summary. We need to ensure all Key Aspects are addressed. Any key takeaways and important points are included.
+2. List the key aspects and key takeaways that should be included in a highly detailed and comprehensive summary for this type of document.
 
 Allowed document types:
 ```
@@ -368,15 +371,6 @@ Respond in the following xml like format:
 </key_takeaways>
 
 
-<detailed_summary_prompt>
-[
-    For Scientific Papers just leave this blank. We already have a detailed summary prompt for scientific papers.
-    Detailed summary prompt for an LLM to generate a comprehensive, detailed, and in-depth summary for the document type. 
-    The prompt should elicit the LLM to generate a detailed overview, documentation and multi-page technical report based on the document type and key aspects. 
-    The summary prompt should prompt the LLM to cover all the key aspects and important points and details of the document.
-]
-</detailed_summary_prompt>
-
 </response>
 ```
 
@@ -398,43 +392,36 @@ Your response should be in the xml format given above. Write the response below.
             long_summary += f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
             yield f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
             
-            if document_type == "scientific paper":
+            if document_type == "scientific paper" or document_type == "research paper":
                 detailed_summary_prompt = prompts.paper_summary_prompt
             else:
-                detailed_summary_prompt = identification.split("<detailed_summary_prompt>")[1].split("</detailed_summary_prompt>")[0].lower().strip()
+                detailed_summary_prompt = ""
             logger.info(f"Document Type: {document_type}, ")
             if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
             # Step 2: Generate the comprehensive summary
-            summary_prompt = """We have read the document and following is the analysis of the document:
+            summary_prompt = f"""We have read the document and following is the analysis of the document:
 
-Document Type: {document_type}
+Document Type: {{document_type}}
 
 Key Aspects: 
-{key_aspects}
+{{key_aspects}}
 
 Key Takeaways: 
-{key_takeaways}
+{{key_takeaways}}
 
-Use the below guidelines to generate the summary:
+{'Use the below guidelines to generate an extensive, detailed, and in-depth summary:' + detailed_summary_prompt if detailed_summary_prompt else 'Use the below guidelines to generate an extensive, detailed, and in-depth summary:'}
 
-{detailed_summary_prompt}
-
-Now, create a comprehensive, detailed, and in-depth summary of the entire document. 
-Follow the Summary Plan and ensure all Key Aspects are addressed. 
-The summary should provide a thorough understanding of the document's contents, main ideas, results, future work, and all other significant details.
-Use the Detailed Summary Prompt to guide the LLM to generate the summary. Cover the key aspects in depth in your long and comprehensive report.
+Write a comprehensive, detailed, and in-depth summary of the entire document. 
+The summary should provide a thorough understanding of the document's contents, main ideas, action items, key takeaways and all other significant details.
+Cover the key aspects in depth in your long and comprehensive report.
 All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 
-- Formatting Mathematical Equations:
-  - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - For inline maths and notations use "\\\\( ... \\\\)" instead of '$$'. That means for inline maths and notations use double backslash and a parenthesis opening and closing (so for opening you will use a double backslash and a opening parenthesis and for closing you will use a double backslash and a closing parenthesis) instead of dollar sign.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)` for inline maths.
-
+{math_formatting_instructions}
 
 Full document text:
-{text}
+{{text}}
 
 Comprehensive and In-depth Summary:
 """.lstrip()
@@ -445,16 +432,10 @@ Comprehensive and In-depth Summary:
         if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
         
             llm2 = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[1])
-            llm3 = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
             method_prompt = prompts.paper_details_map["methodology"]
-            method_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the methodology used in the paper."
+            method_prompt += "\n\n<context>\n" + text + f"\n</context>\n{math_formatting_instructions}\n\nWrite a detailed and comprehensive explanation of the methodology used in the paper covering the mathematical details as well as the intuition behind the methodology."
             method_ans_generator = llm2(method_prompt, temperature=0.7, stream=True)
-            literature_prompt = prompts.paper_details_map["previous_literature_and_differentiation"]
-            literature_prompt += "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive explanation of the previous literature and why their work is different from previous literature."
-            literature_ans_generator = llm3(literature_prompt, temperature=0.7, stream=True)
-            
-            
-        
+
         for ans in ans_generator:
             long_summary += ans
             yield ans
@@ -465,12 +446,6 @@ Comprehensive and In-depth Summary:
             for ans in method_ans_generator:
                 long_summary += ans
                 yield ans
-            long_summary += "\n\n ## Previous Literature and Differentiation \n"
-            yield "\n\n ## Previous Literature and Differentiation \n"
-            for ans in literature_ans_generator:
-                long_summary += ans
-                yield ans
-            
         setattr(self, "_long_summary", long_summary)
         self.save_local()
 
@@ -956,6 +931,79 @@ class YouTubeDocIndex(DocIndex):
                  keys):
         pass
 
+
+AUDIO_FILE_EXTENSIONS = (
+    ".mp3",
+    ".mpeg",
+    ".wav",
+    ".wave",
+    ".m4a",
+    ".mp4",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".oga",
+    ".opus",
+    ".webm",
+    ".wma",
+    ".aiff",
+    ".aif",
+    ".aifc",
+)
+
+
+def _is_audio_file(path: str) -> bool:
+    """Return True when the provided path has a supported audio extension."""
+    return path.lower().endswith(AUDIO_FILE_EXTENSIONS)
+
+
+def _transcribe_audio_document(audio_path: str, keys: dict) -> Tuple[str, str]:
+    """Transcribe an audio file and persist the transcript as a PDF.
+
+    Args:
+        audio_path: Absolute path to the uploaded audio file.
+        keys: API key dictionary associated with the current conversation.
+
+    Returns:
+        Tuple containing the raw transcript text and the PDF path that now
+        houses the transcription.
+
+    Raises:
+        RuntimeError: If the transcription or PDF conversion fails.
+    """
+    transcription = transcribe_audio_file(
+        audio_path,
+        openai_api_key=keys.get("openAIKey"),
+        assemblyai_api_key=keys.get("ASSEMBLYAI_API_KEY"),
+    ).strip()
+
+    if not transcription:
+        transcription = "Transcription completed, but no text was returned."
+
+    title = f"Transcript of {os.path.basename(audio_path)}"
+    generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    markdown_body = (
+        f"# {title}\n\n"
+        f"- Original file: `{os.path.basename(audio_path)}`\n"
+        f"- Generated at: {generated_at}\n\n"
+        f"{transcription}"
+    )
+
+    pdf_output_path = os.path.splitext(audio_path)[0] + ".pdf"
+    from converters import convert_markdown_string_to_pdf
+
+    conversion_success = convert_markdown_string_to_pdf(
+        markdown_body,
+        pdf_output_path,
+        title=title,
+    )
+
+    if not conversion_success:
+        raise RuntimeError(f"Failed to convert transcription of {audio_path} to PDF.")
+
+    return transcription, pdf_output_path
+
+
 def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import UnstructuredMarkdownLoader
     from langchain_community.document_loaders import JSONLoader
@@ -970,6 +1018,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     image_futures = None
     chunk_overlap = 128
     pdf_url = pdf_url.strip()
+    lower_pdf_url = pdf_url.lower()
     # check if the link is local or remote
     is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
     assert is_remote or os.path.exists(pdf_url), f"File {pdf_url} does not exist"
@@ -977,10 +1026,37 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         pdf_url = convert_to_pdf_link_if_needed(pdf_url)
         is_pdf = is_pdf_link(pdf_url)
     else:
-        is_pdf = pdf_url.endswith(".pdf")
+        is_pdf = lower_pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
     logger.info(f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}")
-    filetype = "pdf" if is_pdf else "word" if pdf_url.endswith(".docx") else "html" if pdf_url.endswith(".html") else "md" if pdf_url.endswith(".md") else "json" if pdf_url.endswith(".json") else "csv" if pdf_url.endswith(".csv") else "txt" if pdf_url.endswith(".txt") else "jpg" if pdf_url.endswith(".jpg") else "png" if pdf_url.endswith(".png") else "jpeg" if pdf_url.endswith(".jpeg") else "bmp" if pdf_url.endswith(".bmp") else "svg" if pdf_url.endswith(".svg") else "pdf"
+    if is_pdf:
+        filetype = "pdf"
+    elif lower_pdf_url.endswith(".docx"):
+        filetype = "word"
+    elif lower_pdf_url.endswith(".html"):
+        filetype = "html"
+    elif lower_pdf_url.endswith(".md"):
+        filetype = "md"
+    elif lower_pdf_url.endswith(".json"):
+        filetype = "json"
+    elif lower_pdf_url.endswith(".csv"):
+        filetype = "csv"
+    elif lower_pdf_url.endswith(".txt"):
+        filetype = "txt"
+    elif lower_pdf_url.endswith(".jpg"):
+        filetype = "jpg"
+    elif lower_pdf_url.endswith(".png"):
+        filetype = "png"
+    elif lower_pdf_url.endswith(".jpeg"):
+        filetype = "jpeg"
+    elif lower_pdf_url.endswith(".bmp"):
+        filetype = "bmp"
+    elif lower_pdf_url.endswith(".svg"):
+        filetype = "svg"
+    elif _is_audio_file(pdf_url):
+        filetype = "audio"
+    else:
+        filetype = "pdf"
     if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
@@ -1027,6 +1103,11 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         convert_markdown_to_pdf(pdf_url, pdf_url.replace(".md", ".pdf"))
         pdf_url = pdf_url.replace(".md", ".pdf")
         
+    elif _is_audio_file(pdf_url):
+        if is_remote:
+            raise ValueError("Remote audio URLs are not supported. Please upload the audio file directly.")
+        doc_text, pdf_url = _transcribe_audio_document(pdf_url, keys)
+        is_pdf = True
     elif pdf_url.endswith(".json"):
         doc_text = JSONLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".csv"):
@@ -1049,6 +1130,9 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".txt"):
         doc_text = TextLoader(pdf_url).load()[0].page_content
+        from converters import convert_markdown_to_pdf
+        convert_markdown_to_pdf(pdf_url, pdf_url.replace(".txt", ".pdf"))
+        pdf_url = pdf_url.replace(".txt", ".pdf")
     elif pdf_url.endswith(".jpg") or pdf_url.endswith(".jpeg") or pdf_url.endswith(".png") or pdf_url.endswith(".bmp") or pdf_url.endswith(".svg"):
 
         doc_text = ""
@@ -1089,7 +1173,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     cls = ImmediateDocIndex if not is_image else ImageDocIndex
     try:
         doc_index: DocIndex = cls(pdf_url,
-                    filetype,
+                    filetype if filetype in ["pdf", "html", "word", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "bmp", "svg", "parquet"] else "pdf",
                     "scientific_article" if not is_image else "image", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)

@@ -297,7 +297,7 @@
                                                 <label for="chat-file-upload" class="mb-0" style="cursor: pointer;">
                                                     <i class="fa fa-paperclip"></i> <!-- Paperclip icon -->
                                                 </label>
-                                                <input id="chat-file-upload" type="file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/html, text/markdown, text/md, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson" style="display: none;"/>
+                                                <input id="chat-file-upload" type="file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/html, text/markdown, text/md, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson, audio/mpeg, audio/mp3, audio/wav, audio/x-wav, audio/webm, audio/ogg, audio/flac, audio/x-flac, audio/aac, audio/m4a, audio/x-m4a, audio/mp4, video/mp4" style="display: none;"/>
                                             </span>
                                             <span class="input-group-text" id="voice-record-span" style="border-right: none; background-color: transparent;" title="Voice Input (Ctrl+K)">  
                                                 <label for="voice-record" class="mb-0" style="cursor: pointer;">  
@@ -371,9 +371,9 @@
                         <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
                         <label>Or drop a PDF file here or<button type="button" id="file-upload-button" style="padding-left: 4px; padding-top:2px;" class="btn btn-link">browse</button></label>
                         <div id="drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center;">
-                          Drop a PDF file here. To upload MS Word or html, first convert them to PDF.
+                          Drop a supported document or audio file here. Common formats (PDF, Word, HTML, Markdown, CSV, audio, etc.) can be uploaded directly.
                         </div>
-                        <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson" style="display: none;">  
+                        <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson, audio/mpeg, audio/mp3, audio/wav, audio/x-wav, audio/webm, audio/ogg, audio/flac, audio/x-flac, audio/aac, audio/m4a, audio/x-m4a, audio/mp4, video/mp4" style="display: none;">  
                       </div>
                       
                         <button id="submit-button" type="submit" class="btn btn-primary">Submit</button>

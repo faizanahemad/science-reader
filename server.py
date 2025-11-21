@@ -5,6 +5,7 @@ import traceback
 from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
 from flask_cors import CORS, cross_origin
 from common import COMMON_SALT_STRING, USE_OPENAI_API
+from transcribe_audio import transcribe_audio as run_transcribe_audio
 
 import secrets
 from typing import Any, Optional
@@ -3318,8 +3319,6 @@ def is_tts_done(conversation_id, message_id):
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe_audio():
-    from werkzeug.utils import secure_filename
-
     if 'audio' not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
 
@@ -3328,52 +3327,12 @@ def transcribe_audio():
     if audio_file.filename == '':
         return jsonify({"error": "No selected file"}), 400
 
-    if audio_file:
-        # Create a temporary file to store the uploaded audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio_file:
-            audio_file.save(temp_audio_file.name)
-
-        try:
-            if USE_OPENAI_API:
-                from openai import OpenAI
-                client = OpenAI(api_key=os.environ.get("openAIKey"))
-                # Open the temporary file and send it to OpenAI for transcription
-                with open(temp_audio_file.name, "rb") as audio:
-                    transcription = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio,
-                        response_format="text",
-                        language='en'
-                    )
-
-                return jsonify({"transcription": transcription.strip()})
-            else:
-                import assemblyai as aai
-                # Configure AssemblyAI
-                aai.settings.api_key = os.environ.get("ASSEMBLYAI_API_KEY")
-                
-                # Initialize transcriber
-                transcriber = aai.Transcriber()
-                
-                # Start transcription
-                transcript = transcriber.transcribe(temp_audio_file.name)
-
-                # Check status and return result
-                if transcript.status == aai.TranscriptStatus.error:
-                    return jsonify({"error": f"Transcription failed: {transcript.error}"}), 500
-
-                # Return the transcribed text
-                return jsonify({"transcription": transcript.text.strip()})
-
-        except Exception as e:
-            traceback.print_exc()
-            return jsonify({"error": str(e)}), 500
-
-        finally:
-            # Clean up the temporary file
-            os.unlink(temp_audio_file.name)
-
-    return jsonify({"error": "Failed to process audio file"}), 500
+    try:
+        transcription = run_transcribe_audio(audio_file)
+        return jsonify({"transcription": transcription})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 
