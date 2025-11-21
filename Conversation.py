@@ -2229,19 +2229,24 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if isinstance(model_name, (tuple, list)):
             model_name = list(map(model_name_to_canonical_name, model_name))
             assert FILLER_MODEL not in model_name or len(model_name) == 1, "Filler model name is not allowed if multiple models are provided."
+            yield {"text": '', "status": "Model name includes filler model name ..." if FILLER_MODEL in model_name else "Model name does not include filler model name ..."}
         else:
             model_name = model_name_to_canonical_name(model_name)
         if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
+            yield {"text": '', "status": "Model name is a tuple or list and has only one model name ..."}
             model_name = model_name[0].strip()
 
         if model_name == FILLER_MODEL:
             links = []
-            
+            yield {"text": '', "status": "Links set to [] because model name includes filler model name ..."}
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
             query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
         
+        
+        yield {"text": '', "status": "Getting message ids ..."}
         message_ids = self.get_message_ids(query, "")
+        yield {"text": '', "status": "Message ids got ..."}
         prefix = message_ids["user_message_id"]
         plot_prefix = f"plot-{prefix}-"
         
