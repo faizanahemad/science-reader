@@ -2073,7 +2073,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
 
 
+        
+        yield {"text": '', "status": "Extracting links from message text ..."}
         links_in_text = enhanced_robust_url_extractor(query['messageText'])
+        yield {"text": '', "status": "Links extracted from message text ..."}
         query['links'].extend(links_in_text)
         if len(links_in_text) > 1 and "\n" not in query['messageText']:
             yield {"text": "We don't support multiple links on single line.\n", "status": "Reading your provided links."}
@@ -2103,6 +2106,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         is_dense = "dense_summary" in attached_docs_for_summary
 
         if "/title " in query['messageText'] or "/set_title " in query['messageText']:
+            yield {"text": '', "status": "Setting title ..."}
             title = None
             
             # Try to match /title pattern first
@@ -2118,6 +2122,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if title:
                 self.set_title(title)
                 yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
+            yield {"text": '', "status": "Title set ..."}
             model_name = FILLER_MODEL
             checkboxes["main_model"] = model_name
 
@@ -2126,8 +2131,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
             query['messageText'] = query['messageText'].replace("/temp ", "").replace("/temporary ", "").strip()
             persist_or_not = False
+            yield {"text": '', "status": "Temporary mode enabled ..."}
             
+        yield {"text": '', "status": "Getting attached docs for summary if present ..."}
         attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "").replace("summarise_", "").replace("summarize_", "").replace("dense_summarise_", "").replace("dense_summarize_", "")
+        yield {"text": '', "status": "Attached docs for summary if present got ..."}
         attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
         _, attached_docs, doc_names, (_, _), (
             _, _) = attached_docs_for_summary_future.result()
@@ -2169,14 +2177,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         
         
         # Handle full document text request
-        attached_docs_for_full = re.findall(r'#full_doc_\d+', query['messageText'])
+        yield {"text": '', "status": "Getting attached docs for full text if present ..."}
+        attached_docs_for_full = re.findall(r'(#full_doc_\d+|#raw_doc_\d+|#content_doc_\d+)', query['messageText'])
         attached_docs_for_full = " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
-        
+        yield {"text": '', "status": "Attached docs for full text if present got ..."}
         if len(attached_docs_for_full) > 0:
             
             assert attached_docs_for_full == query['messageText'].strip(), "Attached docs for full text should be the only docs in the message text."
             
-            attached_docs_for_full = attached_docs_for_full.replace("full_", "")
+            attached_docs_for_full = attached_docs_for_full.replace("full_", "").replace("raw_", "").replace("content_", "")
             attached_docs_for_full_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": attached_docs_for_full})
             _, attached_docs, doc_names, (_, _), (
                 _, _) = attached_docs_for_full_future.result()
@@ -2214,6 +2223,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
         
         
+        yield {"text": '', "status": "Getting field and model name ..."}
         field = checkboxes["field"] if "field" in checkboxes else None
         model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
         if isinstance(model_name, (tuple, list)):
@@ -2235,10 +2245,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         prefix = message_ids["user_message_id"]
         plot_prefix = f"plot-{prefix}-"
         
+        yield {"text": '', "status": "Getting preamble ..."}
         preamble, agent = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      perform_web_search or google_scholar or len(links) > 0 or len(
                                          attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix, ppt_answer=checkboxes["ppt_answer"])
+        yield {"text": '', "status": "Preamble got ..."}
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
         link_context = previous_context_and_preamble + query['messageText'] + (
@@ -2259,6 +2271,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         
         planner_text = ''
         for t in planner_text_gen:
+            yield {"text": '', "status": "Getting planner response by words ..."}
             if len(planner_text.strip()) == 0:
                 time_dict["planner_first_word"] = time.time() - st
                 time_logger.info(f"Time to get first word of planner text = {time.time() - st_planner:.2f} seconds with full text as \n{t}")
@@ -2302,6 +2315,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
                 break
         et_planner = time.time()
+        yield {"text": '', "status": "Getting planner response ended ..."}
         time_logger.info(
             f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n and message text is \n\n{query['messageText']}\n\n")
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
