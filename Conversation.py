@@ -3020,7 +3020,7 @@ At the end write what we must make slides about as well.
                 break
             if isinstance(dcit, dict):
                 txt = dcit["text"]
-                status = dcit["status"]
+                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words"
             else:
                 txt = dcit
                 status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words"
