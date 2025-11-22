@@ -2909,7 +2909,10 @@ At the end write what we must make slides about as well.
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif agent is not None and not is_slide_agent:
-            yield {"text": '', "status": "Agent is not None and not is_slide_agent, agent type is " + str(type(agent)) + " ..."}
+            agent_type = type(agent).__name__
+            if isinstance(model_name, (list, tuple)):
+                model_name = list(set(model_name))
+            yield {"text": '', "status": "Agent is not None and not is_slide_agent, agent type is " + agent_type + " ..."}
             
             if isinstance(agent, (NResponseAgent, ReflectionAgent)):
                 if hasattr(agent, "n_responses"):
@@ -2918,6 +2921,7 @@ At the end write what we must make slides about as well.
                     agent.model_name = model_name
             else:
                 agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
+            yield {"text": '', "status": "Agent model name set to " + agent.model_name + " ..."}
                 
                     
             if hasattr(agent, "detail_level"):

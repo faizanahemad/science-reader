@@ -1211,32 +1211,129 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // var horizontalRuleRegex = /\n---+\s*\n/g;
     var horizontalRuleRegex = /^---+\s*$/gm;
     var hasHorizontalRules = horizontalRuleRegex.test(html);
+    horizontalRuleRegex.lastIndex = 0;
 
     if (wrapSectionsInDetails && hasHorizontalRules) {
+        // Function to extract and protect code blocks before processing
+        function extractCodeBlocks(content) {
+            var codeBlocks = [];
+            var codePlaceholders = [];
+            var workingContent = content;
+            
+            function replaceWithPlaceholder(match) {
+                var placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                codeBlocks.push(match);
+                codePlaceholders.push(placeholder);
+                return placeholder;
+            }
+            
+            // Replace all complete fenced code blocks first (``` and ~~~)
+            var tripleBacktickRegex = /```[\s\S]*?```/g;
+            var tripleTildeRegex = /~~~[\s\S]*?~~~/g;
+            workingContent = workingContent.replace(tripleBacktickRegex, replaceWithPlaceholder);
+            workingContent = workingContent.replace(tripleTildeRegex, replaceWithPlaceholder);
+            
+            function isFenceLine(str, idx) {
+                var pos = idx - 1;
+                while (pos >= 0 && str[pos] !== '\n') {
+                    if (str[pos] !== ' ' && str[pos] !== '\t') {
+                        return false;
+                    }
+                    pos--;
+                }
+                return true;
+            }
+            
+            function protectIncompleteFence(fenceToken) {
+                var startIdx = workingContent.lastIndexOf(fenceToken);
+                while (startIdx !== -1) {
+                    if (isFenceLine(workingContent, startIdx)) {
+                        var closingIdx = workingContent.indexOf(fenceToken, startIdx + fenceToken.length);
+                        if (closingIdx === -1) {
+                            var placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                            var segment = workingContent.substring(startIdx);
+                            codeBlocks.push(segment);
+                            codePlaceholders.push(placeholder);
+                            workingContent = workingContent.substring(0, startIdx) + placeholder;
+                            break;
+                        }
+                    }
+                    startIdx = workingContent.lastIndexOf(fenceToken, startIdx - 1);
+                }
+            }
+            
+            // Protect streaming scenarios where closing fence hasn't arrived yet
+            protectIncompleteFence('```');
+            protectIncompleteFence('~~~');
+            
+            // Handle inline code with completed backticks
+            workingContent = workingContent.replace(/`[^`\n]+`/g, function(match) {
+                var placeholder = `__INLINE_CODE_${codeBlocks.length}__`;
+                codeBlocks.push(match);
+                codePlaceholders.push(placeholder);
+                return placeholder;
+            });
+            
+            // Protect trailing unmatched inline code (e.g., streaming chunk)
+            var inlineBacktickCount = (workingContent.match(/`/g) || []).length;
+            if (inlineBacktickCount % 2 === 1) {
+                var unmatchedIndex = workingContent.lastIndexOf('`');
+                if (unmatchedIndex !== -1) {
+                    var inlinePlaceholder = `__INLINE_CODE_${codeBlocks.length}__`;
+                    var inlineSegment = workingContent.substring(unmatchedIndex);
+                    codeBlocks.push(inlineSegment);
+                    codePlaceholders.push(inlinePlaceholder);
+                    workingContent = workingContent.substring(0, unmatchedIndex) + inlinePlaceholder;
+                }
+            }
+            
+            return {
+                content: workingContent,
+                codeBlocks: codeBlocks,
+                placeholders: codePlaceholders
+            };
+        }
+        
+        // Function to restore code blocks in content
+        function restoreCodeBlocks(content, codeBlocks, placeholders) {
+            var restoredContent = content;
+            for (var i = 0; i < placeholders.length; i++) {
+                restoredContent = restoredContent.replace(placeholders[i], codeBlocks[i]);
+            }
+            return restoredContent;
+        }
+        
         // Function to process sections while preserving existing details tags
         function processContentWithDetails(content) {
-            // First, we need to preserve existing <details> tags
+            // Extract code blocks first to protect them from splitting
+            var codeExtraction = extractCodeBlocks(content);
+            var contentWithCodePlaceholders = codeExtraction.content;
+            var codeBlocks = codeExtraction.codeBlocks;
+            var codePlaceholders = codeExtraction.placeholders;
+            
+            // Now preserve existing <details> tags
             var detailsRegex = /<details[^>]*>[\s\S]*?<\/details>/gi;
             var detailsBlocks = [];
             var placeholders = [];
             
             // Extract and store existing details blocks
             var match;
-            var tempContent = content;
-            while ((match = detailsRegex.exec(content)) !== null) {
+            var tempContent = contentWithCodePlaceholders;
+            while ((match = detailsRegex.exec(contentWithCodePlaceholders)) !== null) {
                 var placeholder = `__DETAILS_PLACEHOLDER_${placeholders.length}__`;
                 detailsBlocks.push(match[0]);
                 placeholders.push(placeholder);
             }
             
             // Replace details blocks with placeholders temporarily
-            var workingContent = content;
+            var workingContent = contentWithCodePlaceholders;
             for (var i = 0; i < detailsBlocks.length; i++) {
                 workingContent = workingContent.replace(detailsBlocks[i], placeholders[i]);
             }
             
-            // Now split the content by horizontal rules
+            // Now split the content by horizontal rules (which are now safe from code blocks)
             var sections = workingContent.split(horizontalRuleRegex);
+            horizontalRuleRegex.lastIndex = 0;
             
             if (sections.length > 1) {
                 var wrappedHtml = '';
@@ -1259,26 +1356,33 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                     var detailsOpening = detailsBlock.match(/<details[^>]*>/)[0];
                                     var detailsContent = detailsMatch[1];
                                     
-                                    // Check if the inner content has --- horizontal rules (not table separators) and process it
-                                    // Use a more specific regex that matches horizontal rules but not table separators
+                                    // Extract code blocks from inner content before processing
+                                    var innerCodeExtraction = extractCodeBlocks(detailsContent);
+                                    var innerContentWithCodePlaceholders = innerCodeExtraction.content;
+                                    var innerCodeBlocks = innerCodeExtraction.codeBlocks;
+                                    var innerCodePlaceholders = innerCodeExtraction.placeholders;
                                     
-                                    var hasHorizontalRules = horizontalRuleRegex.test(detailsContent);
+                                    // Check if the inner content has --- horizontal rules (not in code blocks)
+                                    var hasHorizontalRules = horizontalRuleRegex.test(innerContentWithCodePlaceholders);
+                                    horizontalRuleRegex.lastIndex = 0;
                                     
                                     if (hasHorizontalRules) {
                                         // Process inner content: only wrap sections between --- horizontal rule markers
                                         // Reset regex for splitting since test() advances the lastIndex
-                                        var innerSections = detailsContent.split(horizontalRuleRegex);
+                                        var innerSections = innerContentWithCodePlaceholders.split(horizontalRuleRegex);
+                                        horizontalRuleRegex.lastIndex = 0;
                                         if (innerSections.length > 1) {
                                             var innerWrapped = '';
                                             
                                             // First section (before first ---) stays as-is
                                             if (innerSections[0].trim()) {
+                                                var firstSection = restoreCodeBlocks(innerSections[0].trim(), innerCodeBlocks, innerCodePlaceholders);
                                                 // Check if it has a summary tag (from server)
-                                                var summaryMatch = innerSections[0].match(/<summary[^>]*>(.*?)<\/summary>/i);
+                                                var summaryMatch = firstSection.match(/<summary[^>]*>(.*?)<\/summary>/i);
                                                 if (summaryMatch) {
-                                                    innerWrapped += innerSections[0].trim();
+                                                    innerWrapped += firstSection;
                                                 } else {
-                                                    innerWrapped += innerSections[0].trim();
+                                                    innerWrapped += firstSection;
                                                 }
                                             }
                                             
@@ -1286,7 +1390,9 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                             for (var j = 1; j < innerSections.length; j++) {
                                                 var innerSection = innerSections[j].trim();
                                                 if (innerSection) {
-                                                    var innerSummary = generateSectionSummary(innerSection, j - 1);
+                                                    // Restore code blocks in this section before generating summary
+                                                    var innerSectionWithCode = restoreCodeBlocks(innerSection, innerCodeBlocks, innerCodePlaceholders);
+                                                    var innerSummary = generateSectionSummary(innerSectionWithCode, j - 1);
                                                     // Helper function for hashing
                                                     function simpleHash(str) {
                                                         let hash = 0;
@@ -1308,7 +1414,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 <summary class="section-summary"><strong>${innerSummary}</strong></summary>
 <div class="section-content">
 
-${innerSection}
+${innerSectionWithCode}
 
 <div class="section-footer">
 <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
@@ -1331,6 +1437,8 @@ ${innerSection}
                                 }
                             }
                         }
+                        // Restore code blocks in the section with restored details
+                        section = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
                         wrappedHtml += section;
                     } else {
                         // Handle sections without placeholders
@@ -1338,17 +1446,23 @@ ${innerSection}
                         if (sectionIndex === 0) {
                             // First section - don't wrap
                             if (section) {
-                                wrappedHtml += section + '\n';
+                                // Restore code blocks before adding to output
+                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
+                                wrappedHtml += sectionWithCode + '\n';
                             }
                         } else if (sectionIndex === sections.length - 1) {
                             // Last section - don't wrap
                             if (section) {
-                                wrappedHtml += '\n' + section;
+                                // Restore code blocks before adding to output
+                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
+                                wrappedHtml += '\n' + sectionWithCode;
                             }
                         } else {
                             // Middle section - wrap in details
                             if (section) {
-                                var summary = generateSectionSummary(section, sectionIndex - 1);
+                                // Restore code blocks before generating summary and wrapping
+                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
+                                var summary = generateSectionSummary(sectionWithCode, sectionIndex - 1);
                                 // Helper function for hashing (if not already defined above)
                                 function simpleHash(str) {
                                     let hash = 0;
@@ -1371,7 +1485,7 @@ ${innerSection}
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
     <div class="section-content">
-        ${section}
+        ${sectionWithCode}
         <div class="section-footer">
             <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
         </div>
@@ -1389,6 +1503,8 @@ ${innerSection}
             for (var i = 0; i < placeholders.length; i++) {
                 workingContent = workingContent.replace(placeholders[i], detailsBlocks[i]);
             }
+            // Restore code blocks
+            workingContent = restoreCodeBlocks(workingContent, codeBlocks, codePlaceholders);
             return workingContent;
         }
         
