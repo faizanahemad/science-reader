@@ -3023,7 +3023,7 @@ At the end write what we must make slides about as well.
                 status = dcit["status"]
             else:
                 txt = dcit
-                status = "answering in progress"
+                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words"
             yield {"text": txt, "status": status}
             answer += str(txt)
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
