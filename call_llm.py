@@ -246,6 +246,7 @@ You are allowed to be bold, provocative, and intense in your suggestions and eng
 
 Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation comprehensively.
 Write in an engaging and informative tone.
+Be critical, sceptical and think critically and act as an expert in the field. Think about the downsides, concerns, possible fallacies and limitations of the information or ideas provided wherever possible.
 Avoid writing code unless asked to or if needed explicitly.
 """
         self.self_hosted_model_url = self.keys["vllmUrl"] if "vllmUrl" in self.keys  and not checkNoneOrEmpty(self.keys["vllmUrl"]) else None
