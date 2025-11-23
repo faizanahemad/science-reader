@@ -636,7 +636,7 @@ Question or Query is given below.
 Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
 """
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
-        answer = get_async_future(cr, prompt, text, self.semantic_search_document, "openai/gpt-4o")
+        answer = get_async_future(cr, prompt, text, self.semantic_search_document, EXPENSIVE_LLM[0])
         tex_len = self.text_len
         if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
             raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
