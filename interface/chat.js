@@ -94,7 +94,7 @@ function chat_interface_readiness() {
         // underlying select elements, especially important on mobile devices
         setTimeout(function() {
             persistSettingsStateFromModal();
-        }, 50);
+        }, 100);
     });
 
     // Apply button removed - settings auto-apply when modal closes
