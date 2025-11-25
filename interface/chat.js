@@ -1,3 +1,8 @@
+// ---------- Settings Persistence Configuration ----------
+// Set to false to disable saving settings to localStorage
+// When disabled, settings will still work during the session but won't persist across page reloads
+const ENABLE_SETTINGS_PERSISTENCE = true;
+
 function chat_interface_readiness() {
     
     // $('#chat-assistant-view').hide();
@@ -85,8 +90,11 @@ function chat_interface_readiness() {
     $('#chat-settings-modal').on('hidden.bs.modal', function () {
         console.log('Chat settings modal hidden - auto-applying settings');
         // Auto-apply settings when modal closes and persist to state/localStorage
-        
-        persistSettingsStateFromModal();
+        // Use a small delay to ensure SelectPicker has synced its state to the 
+        // underlying select elements, especially important on mobile devices
+        setTimeout(function() {
+            persistSettingsStateFromModal();
+        }, 50);
     });
 
     // Apply button removed - settings auto-apply when modal closes
@@ -382,7 +390,43 @@ function populateCustomPromptsInDOM() {
     }
 }
 
+/**
+ * Helper function to get the current value from a SelectPicker element.
+ * SelectPicker maintains its own UI state that may not be immediately synced 
+ * to the underlying <select> element. This function ensures we get the current
+ * visible selection, not a stale cached value.
+ * 
+ * @param {string} selector - jQuery selector for the select element
+ * @param {*} defaultValue - Default value if nothing is selected
+ * @returns {*} The current selected value(s)
+ */
+function getSelectPickerValue(selector, defaultValue) {
+    const $el = $(selector);
+    if (!$el.length) {
+        return defaultValue;
+    }
+    
+    // Check if SelectPicker is initialized on this element
+    if (typeof $.fn.selectpicker !== 'undefined' && $el.data('selectpicker')) {
+        // Force sync the SelectPicker state to the underlying select element
+        $el.selectpicker('refresh');
+        // Use SelectPicker's val method which reads from its internal state
+        const val = $el.selectpicker('val');
+        return val !== null && val !== undefined ? val : defaultValue;
+    }
+    
+    // Fallback for non-SelectPicker selects
+    return $el.val() || defaultValue;
+}
+
 function collectSettingsFromModal() {
+    // Force SelectPicker elements to sync their state before reading values
+    // This fixes a bug where deselected options (like "Filler") would remain
+    // in the saved state because SelectPicker hadn't synced to the <select> element
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('#settings-preamble-selector, #settings-main-model-selector').selectpicker('refresh');
+    }
+    
     return {
         perform_web_search: $('#settings-perform-web-search-checkbox').is(':checked'),
         search_exact: $('#settings-search-exact').is(':checked'),
@@ -393,8 +437,8 @@ function collectSettingsFromModal() {
         depth: $('#settings-depthSelector').val() || '2',
         history: $('#settings-historySelector').val() || '2',
         reward: $('#settings-rewardLevelSelector').val() || '0',
-        preamble_options: $('#settings-preamble-selector').val() || [],
-        main_model: $('#settings-main-model-selector').val() || [],
+        preamble_options: getSelectPickerValue('#settings-preamble-selector', []),
+        main_model: getSelectPickerValue('#settings-main-model-selector', []),
         field: $('#settings-field-selector').val() || 'None',
         permanentText: $('#settings-permanentText').val() || '',
         links: $('#settings-linkInput').val() || '',
@@ -402,20 +446,45 @@ function collectSettingsFromModal() {
     };
 }
 
+/**
+ * Persists the current modal settings to window state and optionally to localStorage.
+ * The localStorage persistence is controlled by the ENABLE_SETTINGS_PERSISTENCE flag.
+ * 
+ * This function is called when the settings modal is closed to save the current selections.
+ */
 function persistSettingsStateFromModal() {
     const tab = getCurrentActiveTab();
     const state = collectSettingsFromModal();
-    window.chatSettingsState = state;
-    try { 
-        localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(state)); 
-    } catch (e) { 
-        console.error('Error saving chat settings to localStorage:', e); 
-    }
     
+    // Always update the in-memory state for the current session
+    window.chatSettingsState = state;
+    
+    // Only persist to localStorage if the flag is enabled
+    if (ENABLE_SETTINGS_PERSISTENCE) {
+        try { 
+            localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(state));
+            console.log('Settings persisted to localStorage for tab:', tab);
+        } catch (e) { 
+            console.error('Error saving chat settings to localStorage:', e); 
+        }
+    } else {
+        console.log('Settings persistence disabled, only in-memory state updated');
+    }
 }
 
+/**
+ * Retrieves the persisted settings state from localStorage (if enabled) or returns
+ * the current in-memory state.
+ * 
+ * @returns {Object|null} The settings state object or null if not found
+ */
 function getPersistedSettingsState() {
     const tab = getCurrentActiveTab();
+    
+    // If persistence is disabled, only return in-memory state
+    if (!ENABLE_SETTINGS_PERSISTENCE) {
+        return window.chatSettingsState || null;
+    }
     
     try {
         const raw = localStorage.getItem(`${tab}chatSettingsState`);
@@ -428,6 +497,10 @@ function getPersistedSettingsState() {
     return window.chatSettingsState || null;
 }
 
+/**
+ * Removes references to custom prompts that no longer exist from the saved settings.
+ * This ensures that if a custom prompt is deleted, it doesn't remain selected in saved state.
+ */
 function cleanupDeletedCustomPrompts() {
     if (!window.chatSettingsState || !window.availableCustomPrompts) return;
     
@@ -444,13 +517,16 @@ function cleanupDeletedCustomPrompts() {
     
     if (cleanedPreamble.length !== currentPreamble.length) {
         window.chatSettingsState.preamble_options = cleanedPreamble;
-        // Save the cleaned state back to localStorage
-        const tab = getCurrentActiveTab();
-        try {
-            localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(window.chatSettingsState));
-            console.log('Cleaned up deleted custom prompts from saved settings');
-        } catch (e) {
-            console.error('Error saving cleaned settings:', e);
+        
+        // Save the cleaned state back to localStorage only if persistence is enabled
+        if (ENABLE_SETTINGS_PERSISTENCE) {
+            const tab = getCurrentActiveTab();
+            try {
+                localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(window.chatSettingsState));
+                console.log('Cleaned up deleted custom prompts from saved settings');
+            } catch (e) {
+                console.error('Error saving cleaned settings:', e);
+            }
         }
     }
 }
@@ -599,10 +675,11 @@ function getCurrentActiveTab() {
 function getDefaultPreambleForTab(tab) {
     switch(tab) {
         case 'chat':
+            return ['Google GL'];
         case 'search':
             return ['Wife Prompt'];
         case 'finchat':
-            return ['Short Coding Interview'];
+            return ['Wife Prompt'];
         default:
             return ['Wife Prompt'];
     }
@@ -645,5 +722,39 @@ function computeDefaultStateForTab(tab) {
         links: '',
         search: ''
     };
+}
+
+/**
+ * Clears all persisted chat settings from localStorage for all tabs.
+ * Useful for debugging or forcing a fresh start.
+ * Can be called from browser console: clearAllPersistedSettings()
+ */
+function clearAllPersistedSettings() {
+    const tabs = ['chat', 'search', 'finchat'];
+    tabs.forEach(tab => {
+        try {
+            localStorage.removeItem(`${tab}chatSettingsState`);
+            console.log(`Cleared persisted settings for tab: ${tab}`);
+        } catch (e) {
+            console.error(`Error clearing settings for tab ${tab}:`, e);
+        }
+    });
+    window.chatSettingsState = null;
+    console.log('All persisted settings cleared. Refresh the page for defaults.');
+}
+
+/**
+ * Clears persisted settings for the current tab only.
+ * Can be called from browser console: clearCurrentTabSettings()
+ */
+function clearCurrentTabSettings() {
+    const tab = getCurrentActiveTab();
+    try {
+        localStorage.removeItem(`${tab}chatSettingsState`);
+        window.chatSettingsState = null;
+        console.log(`Cleared persisted settings for current tab: ${tab}`);
+    } catch (e) {
+        console.error('Error clearing current tab settings:', e);
+    }
 }
 

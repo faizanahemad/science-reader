@@ -1671,6 +1671,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 """
         if "Engineering Excellence" in preamble_options:
             preamble += prompts.engineering_excellence_prompt
+        if "Google GL" in preamble_options:
+            preamble += prompts.google_gl_prompt
             
         if "Coding Interview" in preamble_options:
             preamble += prompts.coding_interview_prompt
@@ -4047,7 +4049,7 @@ def extract_user_answer(text):
     
     
 def model_hierarchies(model_names: List[str]):
-    if "anthropic/claude-sonnet-4.5" in model_names or "Sonnet 4.5" in model_names:
+    if "anthropic/claude-sonnet-4.5" in model_names or "Sonnet 4.5" in model_names or "anthropic/claude-opus-4.5" in model_names or "Opus 4.5" in model_names:
         improve_model = "anthropic/claude-sonnet-4.5"
     elif "gpt-5" in model_names:
         improve_model = "gpt-5"

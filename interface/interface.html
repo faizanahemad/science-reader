@@ -892,6 +892,7 @@
                                                     <optgroup label="Default Prompts" id="default-prompts-group">
                                                         <option>No Links</option>
                                                         <option selected>Wife Prompt</option>
+                                                        <option>Google GL</option>
                                                         <option>Debug LLM</option>
                                                         <option>Short</option>
                                                         <option>Short Coding Interview</option>
@@ -925,16 +926,19 @@
                                                     <optgroup label="Newer Models">
                                                         
                                                         
-                                                        <option>openai/gpt-5.1</option>
-                                                        <option selected>Sonnet 4.5</option>
+                                                        <option selected>openai/gpt-5.1</option>
+                                                        <option>Sonnet 4.5</option>
+                                                        <option>Opus 4.5</option>
+                                                        <option>google/gemini-3-pro-preview</option>
                                                         
-                                                        <option>deepseek-v3.1</option>
+                                                        
                                                         <option>moonshotai/kimi-k2</option>
                                                         
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>
-                                                        <option>google/gemini-3-pro-preview</option>
+                                                        
+                                                        <option>deepseek-v3.1</option>
                                                         <option>gpt-5.1-codex</option>
                                                         <option>Longcat Flash Chat</option>
                                                         <option>gpt-5-codex</option>
@@ -2201,7 +2205,7 @@ greet("World");</code></pre>
                     
                     // Filter out default prompts that are already in the default group
                     const defaultPrompts = [
-                        'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 
+                        'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 'Google GL',
                         'Short Coding Interview', 'No Code', 'ML Design Answer Short',
                         'Argumentative', 'Blackmail', 'More Related Coding Questions',
                         'Diagram', 'Easy Copy', 'Creative', 'Explore',

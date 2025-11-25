@@ -1574,6 +1574,7 @@ ${innerSectionWithCode}
                 var renderInline = false;
                 try {
                     // Get the current options to check if inline rendering is enabled
+                    // TODO: this seems broken
                     var options = getOptions('chat-controls', 'assistant');
                     renderInline = options.render_slides_inline || false;
                 } catch (e) {
