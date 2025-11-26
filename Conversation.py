@@ -3827,6 +3827,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-4.1"
     elif model_name == "anthropic/claude-opus-4" or model_name == "anthropic/claude-opus-4.1" or model_name == "Opus 4.1":
         model_name = "anthropic/claude-opus-4.1"
+    elif model_name == "anthropic/claude-opus-4.5" or model_name == "Opus 4.5":
+        model_name = "anthropic/claude-opus-4.5"
     elif model_name == "anthropic/claude-sonnet-4" or model_name == "Claude Sonnet 4" or model_name == "Sonnet 4":
         model_name = "anthropic/claude-sonnet-4"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
