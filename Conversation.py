@@ -575,20 +575,20 @@ Compact list of bullet points:
 
 
     @timer
-    def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=12):
+    def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=18):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
-        token_limit_very_short = 8000
-        token_limit_short = 12_000
-        token_limit_long = 25_000
-        token_limit_very_long = 55_000
+        token_limit_very_short = 10_000
+        token_limit_short = 20_000
+        token_limit_long = 48_000
+        token_limit_very_long = 64_000
         futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
         memory, messages = [sleep_and_get_future_result(f) for f in futures]
         message_lookback = 2
         previous_messages_text = ""
         if len(past_message_ids) > 0:
             messages = [m for m in messages if m["message_id"] in past_message_ids]
-            required_message_lookback = 12
+            required_message_lookback = 16
         word_count = 0
         previous_messages_very_short = previous_messages_short = previous_messages_long = previous_messages_very_long = ''
         while word_count < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
