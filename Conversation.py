@@ -1962,7 +1962,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # Extract reward level from checkboxes (0 = disabled, -3 to +3 = enabled with sensitivity)
         reward_level = int(checkboxes.get("reward_level", 0))
         if enablePreviousMessages == "infinite":
-            message_lookback = provide_detailed_answers * 4
+            message_lookback = 10 * 2 # 10 messages * 2 (each message is 2 - user and assistant)
         else:
             message_lookback = int(enablePreviousMessages) * 2
         checkboxes["ppt_answer"] = checkboxes["ppt_answer"] if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"]) else False
