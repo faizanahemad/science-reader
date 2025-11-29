@@ -2995,7 +2995,8 @@ At the end write what we must make slides about as well.
         web text length: {len(enc.encode(web_text))}, 
         link result text length: {len(enc.encode(link_result_text))}, 
         final prompt len: {len(enc.encode(prompt))}""")
-        time_dict["prompt_length"] = len(enc.encode(prompt))
+        prompt_length = len(enc.encode(prompt))
+        time_dict["prompt_length"] = prompt_length
         time_dict["web_text_length"] = len(enc.encode(web_text))
         time_dict["doc_answer_length"] = len(enc.encode(doc_answer + conversation_docs_answer))
         time_dict["link_result_text_length"] = len(enc.encode(link_result_text))
@@ -3022,10 +3023,10 @@ At the end write what we must make slides about as well.
                 break
             if isinstance(dcit, dict):
                 txt = dcit["text"]
-                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words"
+                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length)
             else:
                 txt = dcit
-                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words"
+                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length)
             yield {"text": txt, "status": status}
             answer += str(txt)
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
@@ -3143,6 +3144,7 @@ At the end write what we must make slides about as well.
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
         time_dict["total_time_to_reply"] = time.time() - st
         time_dict["bot_time_to_reply"] = time.time() - et
+        time_dict["answer_length"] = len(answer.split())
         answer = answer.replace(prompt, "")
         yield {"text": '', "status": "saving answer ..."}
         if perform_web_search or google_scholar:
