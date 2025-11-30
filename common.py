@@ -56,7 +56,7 @@ SCIENCE_KEYS = [
 OPENROUTER_LLM = ["google/gemini-2.5-flash", "google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta",]
             
 VERY_CHEAP_LLM = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-preview","google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
-CHEAP_LLM = ["gpt-4o", "openai/gpt-5-mini", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
+CHEAP_LLM = ["anthropic/claude-haiku-4.5", "gpt-4o", "openai/gpt-5-mini", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
 EXPENSIVE_LLM = ["anthropic/claude-sonnet-4.5","openai/gpt-5.1", "anthropic/claude-sonnet-4", "openai/gpt-5-chat", "gpt-5",    "qwen/qwen3-coder-plus", "openai/gpt-5", "openai/gpt-5.1-chat", "gpt-5.1-codex", "google/gemini-3-pro-preview", "anthropic/claude-opus-4.5"]
 UNUSED_EXPENSIVE_LLM =  ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
                  "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 

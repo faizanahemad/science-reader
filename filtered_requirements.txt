@@ -90,3 +90,4 @@ markdown-it-py==3.0.0
 mdit-py-plugins==0.3.0
 markdown-pdf==1.7
 reportlab==4.4.5
+img2pdf==0.6.3

@@ -492,35 +492,35 @@ class DocIndex:
                                       """)
         else:
             # First determine document type and structure using the identification from long summary
-            identify_prompt = """
-Analyze this summary and determine:
-1. The type of document (e.g., scientific paper, business report, technical documentation, news article, etc.)
-2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
-3. The key structural elements that should be emphasized in a dense summary
-4. The appropriate level of technical detail needed
-5. List of improvements to be made to the summary
-6. List of missing elements from the summary
+            identify_prompt = dedent("""
+            Analyze this summary and determine:
+            1. The type of document (e.g., scientific paper, business report, technical documentation, news article, etc.)
+            2. List the key aspects that should be included in a highly detailed and comprehensive summary for this type of document.
+            3. The key structural elements that should be emphasized in a dense summary
+            4. The appropriate level of technical detail needed
+            5. List of improvements to be made to the summary
+            6. List of missing elements from the summary
 
-Allowed document types:
-```
-["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
-```
+            Allowed document types:
+            ```
+            ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
+            ```
 
-Summary text:
-{text}
+            Summary text:
+            {text}
 
-Only give JSON in your response in the format given below.
+            Only give JSON in your response in the format given below.
 
-Respond in JSON format:
-{{
-    "doc_type": "type of document",
-    "key_elements": ["list of important structural elements and key aspects for a detailed and comprehensive summary"],
-    "technical_level": "high/medium/low",
-    "summary_focus": ["specific aspects to focus on"],
-    "improvements": ["list of improvements to be made to the summary"],
-    "missing_elements": ["list of missing elements from the summary which could be added if present in the document"]
-}}
-""".lstrip()
+            Respond in JSON format:
+            {{
+                "doc_type": "type of document",
+                "key_elements": ["list of important structural elements and key aspects for a detailed and comprehensive summary"],
+                "technical_level": "high/medium/low",
+                "summary_focus": ["specific aspects to focus on"],
+                "improvements": ["list of improvements to be made to the summary"],
+                "missing_elements": ["list of missing elements from the summary which could be added if present in the document"]
+            }}
+            """)
         
             json_response = llm(
                 identify_prompt.format(text=base_summary),
@@ -644,11 +644,12 @@ Respond in JSON format:
 
         additional_info = None
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
-        prompt = f"""Answer the question or query in detail given below using the given context as reference. 
-Question or Query is given below.
-{query}
-Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
-"""
+        prompt = dedent(f"""
+        Answer the question or query in detail given below using the given context as reference. 
+        Question or Query is given below.
+        {query}
+        Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
+        """)
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
         answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])
         tex_len = self.text_len
@@ -836,7 +837,11 @@ class ImageDocIndex(DocIndex):
             shutil.move(doc_source, storage)
             doc_source = os.path.join(storage, os.path.basename(doc_source))
             self.doc_source = doc_source
+        
+        # TODO: Convert image to pdf if it is an image, change the extension to pdf
         self.doc_source = doc_source
+        
+        
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
         self._title = ''
@@ -903,6 +908,16 @@ class ImageDocIndex(DocIndex):
             return True
 
         self.init_future = get_async_future(complete_init_image_doc_index)
+        if doc_filetype in ["jpeg", "jpg", "png", "bmp", "svg"]:
+            from img2pdf import convert
+            pdf_path = os.path.splitext(doc_source)[0] + ".pdf"
+            with open(doc_source, 'rb') as f:
+                image_data = f.read()
+            with open(pdf_path, 'wb') as f:
+                f.write(convert(image_data))
+            doc_source = pdf_path
+            doc_filetype = "pdf"
+        self.doc_source = doc_source
 
     def is_init_complete(self):
         # setattr that init_complete
@@ -1188,7 +1203,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     cls = ImmediateDocIndex if not is_image else ImageDocIndex
     try:
         doc_index: DocIndex = cls(pdf_url,
-                    filetype if filetype in ["pdf", "html", "word", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "bmp", "svg", "parquet"] else "pdf",
+                    filetype if filetype in ["pdf", "html", "word", "docx", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "bmp", "svg", "parquet"] else "pdf",
                     "scientific_article" if not is_image else "image", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
