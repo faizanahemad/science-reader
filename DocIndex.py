@@ -132,7 +132,7 @@ class DocIndex:
 
         if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
             def set_title_summary():
-                chunks = "\n\n".join(raw_data['chunks'][0:4])
+                chunks = "\n\n".join(raw_data['chunks'][0:8])
                 short_summary = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
                 title = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
                 setattr(self, "_title", title)
