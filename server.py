@@ -2130,6 +2130,25 @@ def download_doc_from_conversation(conversation_id, doc_id):
         return jsonify({'error': 'Conversation not found'}), 404
 
 def cached_get_file(file_url):
+    """
+    Retrieve a file from cache, disk, or remote URL and stream it as chunks.
+    
+    This function always returns PDF content. If the requested file is not a PDF,
+    it will be converted to PDF first using the convert_any_to_pdf utility.
+    
+    Args:
+        file_url (str): Path to a local file or URL to a remote file.
+        
+    Yields:
+        bytes: Chunks of file data.
+        
+    Note:
+        - Files are cached after first access for faster subsequent retrievals.
+        - Non-PDF files are automatically converted to PDF before serving.
+        - The cache key is based on the original file_url, not the converted PDF path.
+    """
+    from converters import convert_any_to_pdf
+    
     chunk_size = 1024  # Define your chunk size
     file_data = cache.get(file_url)
 
@@ -2141,8 +2160,17 @@ def cached_get_file(file_url):
         # how do I chunk with chunk size?
 
     elif os.path.exists(file_url):
+        # Convert to PDF if not already a PDF (UI can only render PDFs)
+        try:
+            pdf_file_url = convert_any_to_pdf(file_url)
+            logger.info(f"cached_get_file: serving PDF file {pdf_file_url} (original: {file_url})")
+        except Exception as e:
+            logger.error(f"cached_get_file: failed to convert {file_url} to PDF: {e}")
+            # Fallback to original file if conversion fails
+            pdf_file_url = file_url
+        
         file_data = []
-        with open(file_url, 'rb') as f:
+        with open(pdf_file_url, 'rb') as f:
             while True:
                 chunk = f.read(chunk_size)
                 if chunk:

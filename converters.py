@@ -716,6 +716,158 @@ def convert_markdown_to_pdf(markdown_content, output_path, title="Document", css
         return convert_markdown_string_to_pdf(markdown_content, output_path, title, css_style)
 
 
+def convert_any_to_pdf(file_path: str) -> str:
+    """
+    Convert any supported file format to PDF.
+    
+    This function checks if the file is already a PDF. If not, it converts the file
+    to PDF using the appropriate converter based on file extension and saves the 
+    PDF in the same directory with the same name but with .pdf extension.
+    
+    Supported formats:
+        - PDF: No conversion needed, returns original path
+        - Images (jpeg, jpg, png, bmp): Converted using img2pdf
+        - Office documents (docx, doc, odt, rtf, xlsx, xls, pptx, ppt): Converted via Gotenberg/LibreOffice
+        - HTML (html, htm): Converted via Gotenberg/Chromium
+        - Markdown (md, markdown, mdown, mkd, mdwn): Converted via markdown->HTML->PDF
+        - Text files (txt): Treated as plain text and converted to PDF
+    
+    Args:
+        file_path (str): Path to the file to convert.
+        
+    Returns:
+        str: Path to the PDF file (either original if already PDF, or newly created).
+        
+    Raises:
+        FileNotFoundError: If the input file does not exist.
+        ValueError: If the file format is not supported.
+        
+    Example:
+        >>> pdf_path = convert_any_to_pdf('/path/to/document.docx')
+        >>> print(pdf_path)  # '/path/to/document.pdf'
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    file_path = file_path.strip()
+    lower_path = file_path.lower()
+    
+    # If already a PDF, return as-is
+    if lower_path.endswith('.pdf'):
+        logger.info(f"File is already a PDF: {file_path}")
+        return file_path
+    
+    # Determine output path (same directory, same name, .pdf extension)
+    base_path = os.path.splitext(file_path)[0]
+    output_path = base_path + ".pdf"
+    
+    # Check if PDF already exists (previously converted)
+    if os.path.exists(output_path):
+        # Check if source file is newer than PDF (needs reconversion)
+        source_mtime = os.path.getmtime(file_path)
+        pdf_mtime = os.path.getmtime(output_path)
+        if source_mtime <= pdf_mtime:
+            logger.info(f"PDF already exists and is up-to-date: {output_path}")
+            return output_path
+        else:
+            logger.info(f"Source file is newer than existing PDF, reconverting: {file_path}")
+    
+    # Image formats - use img2pdf
+    image_extensions = ('.jpeg', '.jpg', '.png', '.bmp')
+    if lower_path.endswith(image_extensions):
+        logger.info(f"Converting image to PDF: {file_path}")
+        try:
+            from img2pdf import convert as img2pdf_convert
+            with open(file_path, 'rb') as f:
+                image_data = f.read()
+            with open(output_path, 'wb') as f:
+                f.write(img2pdf_convert(image_data))
+            logger.info(f"✅ Image to PDF conversion successful: {output_path}")
+            return output_path
+        except Exception as e:
+            logger.error(f"❌ Failed to convert image to PDF: {e}")
+            raise ValueError(f"Failed to convert image {file_path} to PDF: {e}")
+    
+    # SVG needs special handling (convert to PNG first, then to PDF)
+    if lower_path.endswith('.svg'):
+        logger.info(f"Converting SVG to PDF: {file_path}")
+        try:
+            # Try using cairosvg if available
+            from cairosvg import svg2pdf
+            svg2pdf(url=file_path, write_to=output_path)
+            logger.info(f"✅ SVG to PDF conversion successful: {output_path}")
+            return output_path
+        except ImportError:
+            # Fallback: try img2pdf with SVG (may not work for all SVGs)
+            try:
+                from img2pdf import convert as img2pdf_convert
+                with open(file_path, 'rb') as f:
+                    image_data = f.read()
+                with open(output_path, 'wb') as f:
+                    f.write(img2pdf_convert(image_data))
+                logger.info(f"✅ SVG to PDF conversion successful (via img2pdf): {output_path}")
+                return output_path
+            except Exception as e:
+                logger.error(f"❌ Failed to convert SVG to PDF: {e}")
+                raise ValueError(f"Failed to convert SVG {file_path} to PDF. Install cairosvg for better SVG support: {e}")
+        except Exception as e:
+            logger.error(f"❌ Failed to convert SVG to PDF: {e}")
+            raise ValueError(f"Failed to convert SVG {file_path} to PDF: {e}")
+    
+    # Office documents - use convert_doc_to_pdf
+    office_extensions = ('.docx', '.doc', '.odt', '.rtf', '.xlsx', '.xls', '.pptx', '.ppt')
+    if lower_path.endswith(office_extensions):
+        logger.info(f"Converting office document to PDF: {file_path}")
+        success = convert_doc_to_pdf(file_path, output_path)
+        if success:
+            return output_path
+        else:
+            raise ValueError(f"Failed to convert office document {file_path} to PDF")
+    
+    # HTML files - use convert_html_to_pdf
+    if lower_path.endswith(('.html', '.htm')):
+        logger.info(f"Converting HTML to PDF: {file_path}")
+        success = convert_html_to_pdf(file_path, output_path)
+        if success:
+            return output_path
+        else:
+            raise ValueError(f"Failed to convert HTML {file_path} to PDF")
+    
+    # Markdown files - use convert_markdown_file_to_pdf
+    markdown_extensions = ('.md', '.markdown', '.mdown', '.mkd', '.mdwn')
+    if lower_path.endswith(markdown_extensions):
+        logger.info(f"Converting Markdown to PDF: {file_path}")
+        success = convert_markdown_file_to_pdf(file_path, output_path)
+        if success:
+            return output_path
+        else:
+            raise ValueError(f"Failed to convert Markdown {file_path} to PDF")
+    
+    # Text files - treat as plain text and convert via fallback
+    if lower_path.endswith('.txt'):
+        logger.info(f"Converting text file to PDF: {file_path}")
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                text_content = f.read()
+            title = Path(file_path).stem or "Document"
+            success = _fallback_convert_text_to_pdf(text_content, output_path, title=title)
+            if success:
+                return output_path
+            else:
+                raise ValueError(f"Failed to convert text file {file_path} to PDF")
+        except Exception as e:
+            logger.error(f"❌ Failed to convert text file to PDF: {e}")
+            raise ValueError(f"Failed to convert text file {file_path} to PDF: {e}")
+    
+    # Unsupported format
+    raise ValueError(
+        f"Unsupported file format for PDF conversion: {file_path}. "
+        f"Supported formats: PDF, images (jpeg, jpg, png, bmp, svg), "
+        f"office documents (docx, doc, odt, rtf, xlsx, xls, pptx, ppt), "
+        f"HTML (html, htm), Markdown (md, markdown), and text files (txt)."
+    )
+
+
 def batch_convert_strings_to_pdf(content_list, output_dir):
     """
     Convert multiple content strings (HTML or Markdown) to PDF files.
