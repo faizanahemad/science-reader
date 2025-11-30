@@ -1,6 +1,7 @@
 import os.path
 import shutil
 from datetime import datetime
+from textwrap import dedent
 from typing import Tuple
 
 import semanticscholar.Paper
@@ -337,52 +338,61 @@ class DocIndex:
             llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
             
             # Step 1: Identify document type and key aspects
-            identify_prompt = """
-Analyze the following document and:
-1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.) from the list of allowed document types.
-2. List the key aspects and key takeaways that should be included in a highly detailed and comprehensive summary for this type of document.
+            identify_prompt = dedent("""
+            Analyze the following document and:
+            1. Identify the type of document (e.g., research paper, technical report, business proposal, etc.) from the list of allowed document types.
+            2. List the key aspects and key takeaways that should be included in a highly detailed and comprehensive summary for this type of document.
 
-Allowed document types:
-```
-["scientific paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
-```
+            Allowed document types:
+            ```
+            ["scientific paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]
+            ```
 
-Scientific Papers can include research papers, technical papers, arxiv papers, aclanthology papers, aclweb papers as well.
-For scientific paper document type, just leave detailed_summary_prompt blank. We already have a detailed summary prompt for scientific papers.
-
-Document text:
-{text}
-
-Respond in the following xml like format:
-
-```xml
-<response>
-
-<document_type>
-[Your identified document type]
-</document_type>
-
-<key_aspects>
-[List of key aspects for understanding the document]
-</key_aspects>
-
-<key_takeaways>
-[Detailed list of key takeaways in bullet points]
-</key_takeaways>
+            Scientific Papers can include research papers, technical papers, arxiv papers, aclanthology papers, aclweb papers as well.
+            For scientific paper document type, just leave detailed_summary_prompt blank. We already have a detailed summary prompt for scientific papers.
 
 
-</response>
-```
+            Respond in the following xml like format:
+
+            ```xml
+            <response>
+
+            <document_type>
+            [Your identified document type]
+            </document_type>
+
+            <key_aspects>
+            [List of key aspects for understanding the document]
+            </key_aspects>
+
+            <key_takeaways>
+            [Detailed list of key takeaways in bullet points]
+            </key_takeaways>
+
+            <key_numbers>
+            [Detailed list of key numbers or values or metrics or statistics or data points or results in bullet points]
+            </key_numbers>
 
 
-Your response should be in the xml format given above. Write the response below.
-""".lstrip()
+            </response>
+            ```
+
+            Document text:
+
+            ```
+            {text}
+            ```
+
+
+            Your response should be in the xml format given above. Write the response below.
+            """)
             
             
-            identification = llm(identify_prompt.format(text=text[:3000]), temperature=0.7, stream=False)
+            identification = llm(identify_prompt.format(text=text[:64_000]), temperature=0.7, stream=False)
             document_type = identification.split("<document_type>")[1].split("</document_type>")[0].lower().strip()
             key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower().strip()
             key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower().strip()
+            key_numbers = identification.split("<key_numbers>")[1].split("</key_numbers>")[0].lower().strip()
             
             long_summary += f"\n\n<b> Document Type: {document_type} </b> \n </br>"
             yield f"\n\n<b> Document Type: {document_type} </b> \n </br>"
@@ -391,6 +401,9 @@ Your response should be in the xml format given above. Write the response below.
             
             long_summary += f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
             yield f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
+            
+            long_summary += f"\n\n<b> Key Numbers:</b> \n{key_numbers} \n \n </br>"
+            yield f"\n\n<b> Key Numbers:</b> \n{key_numbers} \n \n </br>"
             
             if document_type == "scientific paper" or document_type == "research paper":
                 detailed_summary_prompt = prompts.paper_summary_prompt
@@ -401,30 +414,31 @@ Your response should be in the xml format given above. Write the response below.
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
             # Step 2: Generate the comprehensive summary
-            summary_prompt = f"""We have read the document and following is the analysis of the document:
+            summary_prompt = dedent(f"""
+            We have read the document and following is the analysis of the document:
 
-Document Type: {{document_type}}
+            Document Type: {{document_type}}
 
-Key Aspects: 
-{{key_aspects}}
+            Key Aspects: 
+            {{key_aspects}}
 
-Key Takeaways: 
-{{key_takeaways}}
+            Key Takeaways: 
+            {{key_takeaways}}
 
-{'Use the below guidelines to generate an extensive, detailed, and in-depth summary:' + detailed_summary_prompt if detailed_summary_prompt else 'Use the below guidelines to generate an extensive, detailed, and in-depth summary:'}
+            {f"Use the below guidelines to generate an extensive, detailed, and in-depth summary: {detailed_summary_prompt} \n\n" if detailed_summary_prompt else "Use the below guidelines to generate an extensive, detailed, and in-depth summary: \n\n"}
 
-Write a comprehensive, detailed, and in-depth summary of the entire document. 
-The summary should provide a thorough understanding of the document's contents, main ideas, action items, key takeaways and all other significant details.
-Cover the key aspects in depth in your long and comprehensive report.
-All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
+            Write a comprehensive, detailed, and in-depth summary of the entire document. 
+            The summary should provide a thorough understanding of the document's contents, main ideas, action items, key takeaways and all other significant details.
+            Cover the key aspects in depth in your long and comprehensive report.
+            All sections must be detailed, comprehensive and in-depth. All sections must be rigorous, informative, easy to understand and follow.
 
-{math_formatting_instructions}
+            {math_formatting_instructions}
 
-Full document text:
-{{text}}
+            Full document text:
+            {{text}}
 
-Comprehensive and In-depth Summary:
-""".lstrip()
+            Write the Comprehensive and In-depth Summary.
+            """)
             llm_context = summary_prompt.format(document_type=document_type, key_aspects=key_aspects, key_takeaways=key_takeaways, detailed_summary_prompt=detailed_summary_prompt, text=text)
             
             

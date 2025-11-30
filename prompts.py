@@ -751,25 +751,21 @@ Continue the answer ('Answer till now') by incorporating additional information 
 Continue the answer using additional information from the documents.
 """,
             paper_details_map = {
-            "methodology": """
+            "methodology": f"""
 Read the document and provide information about "Motivation and Methodology" of the work.
 Cover the below points while answering and also add other necessary points as needed.
     - What do the authors do in this overall work (i.e. their methodology) with details, include all aspects of their methodology, provide comprehensive details and go deep into their work.
     - Detailed methodology and approach described in this work.
-    - what problem do they address ?
+    - Intuitive explanation of the methodology and approach.
+    - Mathematics and mathematical formulations and equations used in the work, their meaning and justification.
     - how do they solve the problem, provide details?
-    - Why do they solve this particular problem?
     - what is their justification in using this method? Why do they use this method? 
     - What mathematical formulations or equations are used in the work, their meaning and justification?
     - Is the proposed methodology just a simple extension of existing methods?
     
-Writing Instructions:
-- Write fully formed sentences and paragraphs with complete thoughts for ease of reading.
-- Write in a friendly and engaging tone in full sentences.
-- Be detail oriented and provide all necessary information.
-- Focus on readability, clarity and informativeness.
-- Explain the maths and mathematical concepts in detail with their mathematical formulation and their notation in detail.
+{math_formatting_instructions}
 
+Cover any other aspects of the methodology and approach that are not covered above but will aid in understanding the work and its implications and how we can replicate or extend the work.
 """,
             "previous_literature_and_differentiation": """
 Read the document and provide information about "Previous Literature and Background work" of the work.
