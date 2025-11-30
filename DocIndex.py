@@ -591,7 +591,7 @@ Respond in JSON format:
         logger.info(f"[semantic_search_document_small]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
         return self.brief_summary + raw_text
 
-    def semantic_search_document(self, query, token_limit=4096):
+    def semantic_search_document(self, query, token_limit=4096*2):
         st_time = time.time()
         tex_len = self.text_len
         if tex_len < token_limit:
@@ -599,7 +599,7 @@ Respond in JSON format:
             return text
         rem_word_len = token_limit - self.brief_summary_len
         rem_tokens = rem_word_len // self.chunk_size
-        if self.raw_index is None:
+        if self.raw_index is None or tex_len < 8_000:
             text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
             logger.warn(f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text.")
             return chunk_text_words(text, chunk_size=token_limit, chunk_overlap=0)[0]
@@ -636,7 +636,7 @@ Question or Query is given below.
 Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
 """
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
-        answer = get_async_future(cr, prompt, text, self.semantic_search_document, EXPENSIVE_LLM[0])
+        answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])
         tex_len = self.text_len
         if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
             raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
@@ -648,7 +648,7 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
                 raw_text += "\n\n" + small_raw_text
 
             prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
-            llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0] if detail_level >= 3 else CHEAP_LLM[0],
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0] if detail_level >= 3 else CHEAP_LLM[0],
                           use_gpt4=True,
                           use_16k=True)
             additional_info = get_async_future(llm, prompt, temperature=0.8)
@@ -660,8 +660,9 @@ Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
             additional_info = remove_bad_whitespaces(additional_info)
             logger.info(f"streaming_get_short_answer:: Answered by {(time.time()-ent_time):4f}s for additional info with additional_info_len = {len(additional_info.split())}")
             for t in additional_info:
-                yield t
                 answer += t
+                yield t
+                
 
 
         
