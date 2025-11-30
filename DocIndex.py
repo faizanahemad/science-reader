@@ -425,7 +425,7 @@ class DocIndex:
             Key Takeaways: 
             {{key_takeaways}}
 
-            {f"Use the below guidelines to generate an extensive, detailed, and in-depth summary: {detailed_summary_prompt} \\n\\n" if detailed_summary_prompt else "Use the below guidelines to generate an extensive, detailed, and in-depth summary: \\n\\n"}
+            {f"Use the below guidelines to generate an extensive, detailed, and in-depth summary: {detailed_summary_prompt}." if detailed_summary_prompt else "Use the below guidelines to generate an extensive, detailed, and in-depth summary."}
 
             Write a comprehensive, detailed, and in-depth summary of the entire document. 
             The summary should provide a thorough understanding of the document's contents, main ideas, action items, key takeaways and all other significant details.
