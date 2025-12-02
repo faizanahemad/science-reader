@@ -950,6 +950,9 @@ markdownParser.codespan = function (text) {
     return '<code class="inline-code">' + text + '</code>';
 };
 markdownParser.code = function (code, language) {
+    if (code.trim().startsWith('<div class="section-footer">')) {
+        return code;
+    }
     const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
     if (validLanguage === 'plaintext') {
         var highlighted = hljs.highlightAuto(code).value;
@@ -1409,6 +1412,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     var innerId = `section-details-${conversation_id}-${innerHash}`;
                                                     
                                                     innerSummary = innerSummary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
+                                                    innerSectionWithCode = innerSectionWithCode.trim();
+                                                    
                                                     innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
 <summary class="section-summary"><strong>${innerSummary}</strong></summary>
@@ -1416,11 +1421,14 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
 ${innerSectionWithCode}
 
+` + `
+
 <div class="section-footer">
 <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
 </div>
 </div>
-</details>`;
+</details>
+`;
                                                 }
                                             }
                                             

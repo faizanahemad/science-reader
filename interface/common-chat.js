@@ -1765,7 +1765,7 @@ var ChatManager = {
             var cardHeader = $(`<div class="card-header d-flex justify-content-between align-items-center" message-index="${index}" message-id=${message.message_id}>
                 <div class="d-flex align-items-center">
                     <input type="checkbox" class="history-message-checkbox mr-2" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
-                    <small><strong>` + senderText + `</strong></small>
+                    <small><small><strong>` + senderText + `</strong></small></small>
                     ${actionDropdown}
                 </div>
                 <div class="d-flex align-items-center">
@@ -1794,7 +1794,7 @@ var ChatManager = {
             
             if (message.sender == 'user') {
                 // messageElement.addClass('ml-md-auto');  // For right alignment
-                messageElement.css('background-color', '#faf5ff');  // Lighter shade of purple
+                messageElement.css('background-color', '#fdfdfd');  // Even lighter shade of purple
                 if (message.text.trim().length > 0) {
                     msgElements = [$(messageElement)]
                     initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
