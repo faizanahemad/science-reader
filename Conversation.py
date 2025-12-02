@@ -29,7 +29,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.DEBUG, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.ERROR, logging.ERROR, logging.INFO)
 import time
 import traceback
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
