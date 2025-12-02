@@ -3,6 +3,7 @@ import inspect
 import types
 import collections.abc  
 import shutil
+from textwrap import dedent
 
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent
@@ -28,7 +29,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.DEBUG, logging.ERROR, logging.INFO)
 import time
 import traceback
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
@@ -133,25 +134,31 @@ class Conversation:
 
     def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
         # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
-        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and system response. You will write in a compact manner using bullet points.
+        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.
 
 Previous messages: '''{previous_messages}'''
 
 Conversation Summary: '''{conversation_summary}'''
 
+---
+
 Older memory: '''{self.memory_pad}'''
+
+---
 
 User query: '''{queryText}'''
 
 Response: '''{responseText}'''
 
+---
+
 Only add new details, facts, numbers, metrics, short summarised code, from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
 Also extract user preference and behavior and goals, and any other information that will be useful to the user later.
-Refrain from adding any information that is already present in the older memory.
+Refrain from adding any information that is already present in the older memory. If new information overwrites or contradicts older information then prefer the new information in User Query or Response.
 Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
 Write the new extracted information below in bullet points.
 
-## New Information:
+Write new information below in bullet points.
 
 """
         llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
@@ -627,6 +634,187 @@ Compact list of bullet points:
         time_logger.info(f"Time taken to retrieve prior context = {time_spend} seconds")
         return results
 
+    @timer
+    def retrieve_prior_context_llm_based(self, query, past_message_ids=[], required_message_lookback=30):
+        """
+        Retrieves prior context from conversation messages using LLM-based extraction.
+        
+        For each window of 3 messages, an LLM extracts relevant facts, details, and information
+        that can help answer the user query. The extraction is done in parallel across all windows.
+        
+        Args:
+            query: The current user query that needs context for answering.
+            past_message_ids: Optional list of specific message IDs to consider. If provided,
+                             only these messages will be used for context extraction.
+            required_message_lookback: Maximum number of messages to look back (default 30).
+        
+        Returns:
+            dict: A dictionary containing:
+                - extracted_context: Concatenated bullet points of extracted facts from all windows.
+                - summary: The running summary of the conversation.
+                - window_count: Number of message windows processed.
+                - message_count: Total number of messages processed.
+        
+        The objective is to retrieve information useful for answering the query, not to answer
+        the query itself. Each window extraction runs in parallel for efficiency.
+        """
+        st = time.time()
+        time_logger.info(f"Starting retrieve_prior_context_llm_based, time = {time.time() - st:.2f}s")
+        running_summary = self.running_summary
+        
+        # Get messages asynchronously
+        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
+        memory, messages = [sleep_and_get_future_result(f) for f in futures]
+        time_logger.info(f"Got memory and messages, time = {time.time() - st:.2f}s")
+        # Handle empty messages
+        if not messages or len(messages) == 0:
+            time_logger.info(f"No messages found for context extraction, time = {time.time() - st:.2f}s")
+            return dict(
+                extracted_context="",
+                summary=running_summary,
+                window_count=0,
+                message_count=0
+            )
+        
+        # Filter messages by past_message_ids if provided
+        if past_message_ids and len(past_message_ids) > 0:
+            messages = [m for m in messages if m["message_id"] in past_message_ids]
+            required_message_lookback = min(required_message_lookback, 16)
+        
+        # Limit to required_message_lookback most recent messages
+        messages = messages[-required_message_lookback:] if len(messages) > required_message_lookback else messages
+        
+        # Handle case with very few messages
+        if len(messages) == 0:
+            time_logger.info(f"No messages after filtering for context extraction, time = {time.time() - st:.2f}s")
+            return dict(
+                extracted_context="",
+                summary=running_summary,
+                window_count=0,
+                message_count=0
+            )
+        
+        # Create non-overlapping windows of 3 messages (stride=3, window=3)
+        window_size = 3
+        stride = 3
+        message_windows = []
+        for i in range(0, len(messages), stride):
+            window = messages[i:i + window_size]
+            if len(window) > 0:  # Include even partial windows at the end
+                message_windows.append(window)
+        
+        # Prompt template for extracting relevant context from a message window
+        time_logger.info(f"Creating extraction prompt template")
+        
+        system = dedent(f"""
+        You are an assistant that extracts relevant information from conversation messages to help answer a user query.
+        You will write in compact bullet points.
+        You will include specific details like numbers, names, dates, code references, technical terms.
+        You will capture user preferences, constraints, and requirements mentioned.
+        You will note any decisions made or conclusions reached in the conversation.
+        You will focus on actual information extraction in bullet points format by writing in a very short and concise manner.
+        You will be brief and concise. Exact facts and numbers.
+        """)
+        extraction_prompt_template = """You are an assistant that extracts relevant information from conversation messages to help answer a user query.
+
+## User Query (to be answered later):
+{query}
+
+## Conversation Summary (for context):
+{summary}
+
+## Messages to Extract From:
+{messages_text}
+
+---
+
+## Your Task:
+Extract facts, details, numbers, code snippets, decisions, preferences, and any other information from the above messages that would be useful for answering the user query. 
+
+**Important Guidelines:**
+- Understand the goal of the user query and the conversation summary.
+- Focus ONLY on extracting relevant information, do NOT attempt to answer the user query.
+- Write in compact bullet points.
+- Include specific details like numbers, names, dates, code references, technical terms.
+- Capture user preferences, constraints, and requirements mentioned.
+- Note any decisions made or conclusions reached in the conversation.
+- If the messages contain nothing relevant to the query, write "No relevant information in this segment."
+- Focus on actual information extraction in bullet points format by writing in a very short and concise manner.
+- Be brief and concise.
+
+## Extracted Information (bullet points):
+"""
+        
+        # Create async futures for each window
+        time_logger.info(f"Creating async futures for {len(message_windows)} message windows")
+        extraction_futures = []
+        for window_idx, window in enumerate(message_windows):
+            # Format messages in this window
+            messages_text = '\n\n'.join([
+                f"<{m['sender']}>\n{extract_user_answer(m['text'])}\n</{m['sender']}>" 
+                for m in window
+            ])
+            
+            # Create the prompt for this window
+            prompt = extraction_prompt_template.format(
+                query=query,
+                summary=running_summary if running_summary else "(No summary available)",
+                messages_text=messages_text
+            )
+            
+            # Fire async LLM call
+            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0],  use_gpt4=False, use_16k=False)
+            future = get_async_future(llm, prompt, temperature=0.2, system=system,stream=False)
+            extraction_futures.append((window_idx, future))
+        
+        # Collect results in order
+        time_logger.info(f"Collecting results in order for {len(extraction_futures)} async futures")
+        extraction_results = []
+        for window_idx, future in extraction_futures:
+            try:
+                result = sleep_and_get_future_result(future, timeout=120)
+                if result and result.strip() and "No relevant information" not in result:
+                    extraction_results.append((window_idx, result.strip()))
+            except Exception as e:
+                error_logger.error(f"Error extracting context from window {window_idx}: {e}")
+                continue
+        
+        # Sort by window index to maintain chronological order
+        extraction_results.sort(key=lambda x: x[0])
+        
+        # Concatenate all extracted information
+        time_logger.info(f"Concatenating {len(extraction_results)} extracted information")
+        if extraction_results:
+            # Add window markers for clarity
+            extracted_parts = []
+            for window_idx, result in extraction_results:
+                # Clean up the result - remove excessive newlines
+                result = re.sub(r'\n{3,}', '\n\n', result)
+                extracted_parts.append(f"### Context from messages {window_idx * stride + 1}-{min((window_idx + 1) * stride, len(messages))}:\n{result}")
+            
+            extracted_context = "\n\n".join(extracted_parts)
+        else:
+            extracted_context = ""
+        
+        # Build the result dictionary
+        results = dict(
+            extracted_context=extracted_context,
+            summary=running_summary,
+            window_count=len(message_windows),
+            message_count=len(messages)
+        )
+        
+        # Log timing and statistics
+        time_spent = time.time() - st
+        logger.info(
+            f"LLM-based context extraction: {len(message_windows)} windows processed, "
+            f"{len(extraction_results)} yielded results, "
+            f"extracted_context length = {get_gpt4_word_count(extracted_context)} tokens"
+        )
+        time_logger.info(f"Time taken for LLM-based context retrieval = {time_spent:.2f} seconds")
+        
+        return results
+
     def get_conversation_history(self, query=""):
         """Generate a comprehensive conversation history combining summary and recent messages"""
         try:
@@ -779,6 +967,7 @@ Give 4 suggestions.
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
 You will also write a very short title for this conversation.
+Write in brief and concise manner.
 
 Your response will be in below xml style format:
 <summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
@@ -1977,7 +2166,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         prior_context_future = get_async_future(self.retrieve_prior_context,
                                                 query["messageText"], past_message_ids=past_message_ids,
                                                 required_message_lookback=message_lookback)
+        prior_context_llm_based_future = get_async_future(self.retrieve_prior_context_llm_based,
+                                                query["messageText"], past_message_ids=past_message_ids)
         prior_context = prior_context_future.result()
+        
         time_dict["prior_context_time"] = time.time() - st
         previous_messages = prior_context["previous_messages"]
         previous_messages_very_short = prior_context["previous_messages_very_short"]
@@ -2528,6 +2720,8 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
+        prior_context_llm_based = prior_context_llm_based_future.result()
+        prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
         new_line = "\n"
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
@@ -2829,10 +3023,10 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
 
         link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
-            link_result_text, web_text, doc_answer, summary_text, previous_messages,
+            link_result_text, web_text, doc_answer, summary_text, previous_messages + "\n\n" + prior_context_llm_based_context,
             query["messageText"], conversation_docs_answer)
         web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-            web_text, doc_answer, link_result_text, summary_text, previous_messages,
+            web_text, doc_answer, link_result_text, summary_text, previous_messages + "\n\n" + prior_context_llm_based_context,
             conversation_docs_answer)
         time_logger.info(
             f"Time to wait before preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
@@ -3798,17 +3992,17 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 16000
         l4 = 10000
     elif model == "gpt-4-96k":
-        l1 = 75000
-        l2 = 30000
-        l4 = 10000
+        l1 = 125000
+        l2 = 36000
+        l4 = 12000
     else:
         l1 = 2000
         l2 = 500
         l4 = 500
 
-    message_space = max(l2, l1 - len(enc.encode(user_message + conversation_docs_answer + link_result_text + doc_answer + web_text + summary_text)) - 750)
+    message_space = max(l2, l1 - len(enc.encode(user_message + conversation_docs_answer + link_result_text + doc_answer + web_text + summary_text)) - 1750)
     previous_messages = get_first_last_parts(previous_messages, 0, message_space)
-    summary_space = max(l4, l1 - len(enc.encode(user_message + previous_messages + conversation_docs_answer + link_result_text + doc_answer + web_text)) - 750)
+    summary_space = max(l4, l1 - len(enc.encode(user_message + previous_messages + conversation_docs_answer + link_result_text + doc_answer + web_text)) - 1750)
     summary_text = get_first_last_parts(summary_text, 0, summary_space)
     ctx_len_allowed = l1 - len(enc.encode(user_message + previous_messages + summary_text))
     conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)

@@ -4051,9 +4051,10 @@ print(manager["code_agent_prompt1"])
 persist_current_turn_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
 You will also write a very short title for this conversation.
+Write in brief and concise manner.
 
 Capture the salient, important and noteworthy aspects and details from the user query and system response in your summary. 
-Your summary should be detailed, comprehensive and in-depth.
+Your summary should be detailed, comprehensive and in-depth. Write in brief and concise manner.
 Capture all important details in your conversation summary including factual details, names and other details mentioned by the human and the AI. 
 Preserve important details that have been mentioned in the previous summary especially including factual details and references while adding more details from current user query and system response.
 Write down any special rules or instructions that the AI assistant should follow in the conversation as well in the summary.
