@@ -3171,9 +3171,10 @@ At the end write what we must make slides about as well.
 
                 
 
+        yield {"text": '', "status": "Buffering answer generator ..."}
         main_ans_gen = buffer_generator_async(main_ans_gen)
         
-            
+        yield {"text": '', "status": "Buffering answer generator done ..."}
 
 
         # Process reward evaluation before saving message
@@ -3209,6 +3210,7 @@ At the end write what we must make slides about as well.
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
         code_session = None
+        yield {"text": '', "status": "Starting to stream answer ..., prompt length: " + str(prompt_length)}
         for dcit in main_ans_gen:
             if self.is_cancelled():
                 logger.info(f"Response cancelled for conversation {self.conversation_id}")
