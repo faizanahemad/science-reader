@@ -271,6 +271,7 @@ Avoid writing code unless asked to or if needed explicitly.
                                                                                                                                                  "anthropic/claude-3.5-sonnet:beta",
                                                                                                                                                  "fireworks/firellava-13b",
                                                                                                                                                  "gpt-4-turbo",
+                                                                                                                                                 "gpt-5.1",
                                                                                                                                                  "gpt-4.5-preview",
                                                                                                                                                  "openai/gpt-4o-mini",
                                                                                                                                                  "openai/o1",
@@ -316,12 +317,14 @@ Avoid writing code unless asked to or if needed explicitly.
         system = f"{sys_init}\n{system.strip()}" if system is not None and len(system.strip()) > 0 else (sys_init)
         text_len = len(self.gpt4_enc.encode(text))
         logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-        tok_count = get_gpt3_word_count(system + text)
+        tok_count = get_gpt4_word_count(system + text)
         assertion_error_message = f"Model {self.model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
         if self.model_name in CHEAP_LONG_CONTEXT_LLM:
             assert tok_count < 600_000, assertion_error_message
         elif self.model_name in LONG_CONTEXT_LLM:
             assert tok_count < 900_000, assertion_error_message
+        elif self.model_name in EXPENSIVE_LLM:
+            assert tok_count < 200_000, assertion_error_message
         elif "google/gemini-flash-1.5" in self.model_name or "google/gemini-flash-1.5-8b" in self.model_name or "google/gemini-pro-1.5" in self.model_name:
             assert tok_count < 400_000, assertion_error_message
         elif "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
@@ -330,15 +333,15 @@ Avoid writing code unless asked to or if needed explicitly.
             assert tok_count < 100_000, assertion_error_message
             
         elif "mistralai" in self.model_name:
-            assert tok_count < 26000, assertion_error_message
+            assert tok_count < 146000, assertion_error_message
         elif "claude-3" in self.model_name:
             assert tok_count < 180_000, assertion_error_message
         elif "anthropic" in self.model_name:
-            assert tok_count < 100_000, assertion_error_message
+            assert tok_count < 160_000, assertion_error_message
         elif "openai" in self.model_name:
-            assert tok_count < 120_000, assertion_error_message
+            assert tok_count < 160_000, assertion_error_message
         elif self.model_name in VERY_CHEAP_LLM or self.model_name in CHEAP_LLM or self.model_name in EXPENSIVE_LLM:
-            assert tok_count < 100_000, assertion_error_message
+            assert tok_count < 160_000, assertion_error_message
         else:
             assert tok_count < 48000, assertion_error_message
         streaming_solution = call_with_stream(call_chat_model, stream, self.model_name, text, images, temperature,

@@ -4037,6 +4037,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-sonnet-4"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"
+    elif model_name == "mistralai/mistral-large-2512":
+        model_name = "mistralai/mistral-large-2512"
     elif model_name == "anthropic/claude-4-opus-20250522":
         model_name = "anthropic/claude-4-opus-20250522"
     elif model_name == "anthropic/claude-4-sonnet-20250522":
