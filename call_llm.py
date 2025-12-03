@@ -320,7 +320,7 @@ Avoid writing code unless asked to or if needed explicitly.
         tok_count = get_gpt4_word_count(system + text)
         assertion_error_message = f"Model {self.model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
         if self.model_name in CHEAP_LONG_CONTEXT_LLM:
-            assert tok_count < 600_000, assertion_error_message
+            assert tok_count < 800_000, assertion_error_message
         elif self.model_name in LONG_CONTEXT_LLM:
             assert tok_count < 900_000, assertion_error_message
         elif self.model_name in EXPENSIVE_LLM:
