@@ -316,6 +316,8 @@ Few text chunks from the document to answer the question below:
 '''{{fragment}}'''
 <|/document|>
 
+Provide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.
+
 Write informative, comprehensive and detailed answer below.
 """,        
 
