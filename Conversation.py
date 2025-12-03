@@ -3058,6 +3058,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             logger.info(f"Response cancelled for conversation {self.conversation_id}")
             answer += "\n\n**Response was cancelled by user**"
             yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
+        yield {"text": '', "status": "Preparing images if any attached documents are images ..."}
         images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)) and agent is None
         if isinstance(model_name, (list, tuple)):
@@ -3065,6 +3066,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
         is_slide_agent = agent is not None and (isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent))
         storyboard_context = None
+        yield {"text": '', "status": f"Starting to prepare slides if {is_slide_agent} ..."}
         if is_slide_agent:
             # For slide agents, get the complete HTML response at once
             context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
@@ -3098,8 +3100,9 @@ At the end write what we must make slides about as well.
 
             storyboard = agent._generate_storyboard("<main-content>\n" + prompt + "\n</main-content>", "8-20")
             storyboard_context = agent._storyboard_to_context(storyboard)
-            
+        yield {"text": '', "status": f" Slides prepared if {is_slide_agent} and storyboard_context is not None ..."}
         if self.is_cancelled():
+            yield {"text": '', "status": "Response cancelled for conversation " + self.conversation_id + " ..."}
             main_ans_gen = iter([])  # empty generator of string
         elif model_name == FILLER_MODEL:
             # main_ans_gen = a generator that yields Acked.
@@ -3162,6 +3165,7 @@ At the end write what we must make slides about as well.
                     if "Debug LLM" in preambles:
                         llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     else:
+                        yield {"text": '', "status": "Calling LLM for answer generation ..."}
                         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
             else:
