@@ -3165,9 +3165,11 @@ At the end write what we must make slides about as well.
                     if "Debug LLM" in preambles:
                         llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     else:
-                        yield {"text": '', "status": "Calling LLM for answer generation ..."}
+                        yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " ..."}
                         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " done ..."}
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " stream started ..."}
             else:
                 main_ans_gen =  iter([])  # empty generator of string
 
