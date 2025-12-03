@@ -2722,6 +2722,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         prior_context_llm_based = prior_context_llm_based_future.result()
         prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
+        yield {"text": '', "status": "Prior context LLM based extraction done with len = " + str(len(prior_context_llm_based_context.split())) + " tokens ..."}
         new_line = "\n"
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())

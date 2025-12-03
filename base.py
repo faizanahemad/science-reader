@@ -192,9 +192,10 @@ Only provide answer from the document given above.
         join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
             x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
             y) + "\n<|/LLM_2|>"
-        result = join_two_futures(get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False),
-                                  get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
-                                  )
+        # result = join_two_futures(get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False),
+        #                           get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
+        #                           )
+        result = get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False)
 
         result = sleep_and_get_future_result(result)
         assert isinstance(result, str)
@@ -256,7 +257,7 @@ Only provide answer from the document given above.
             preferred_model = LONG_CONTEXT_LLM[0]
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
         initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[0], 200_000),
-                                                   get_async_future(self.get_one, context_user_query, text_document, preferred_model, 200_000), join_method)
+                                                   get_async_future(self.get_one, context_user_query + "\n\nProvide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.\n", text_document, preferred_model, 200_000), join_method)
         global_reading = None
         try:
             if self.provide_short_responses:
