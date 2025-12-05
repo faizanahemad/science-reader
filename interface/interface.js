@@ -171,7 +171,7 @@ function interface_readiness() {
         pdfTabIsActive();
     });
 
-    active_tab = "finchat-tab" // search-tab finchat-tab assistant-tab
+    active_tab = "assistant-tab" // search-tab finchat-tab assistant-tab
 
     $("a#search-tab.nav-link").removeClass('active');
     $("a#pdf-tab.nav-link").removeClass('active');

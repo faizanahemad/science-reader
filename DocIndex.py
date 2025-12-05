@@ -1537,30 +1537,33 @@ class DocIndex:
         """)
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
         answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])
+        if False:
 
-        prompt2 = dedent(f"""
-        Provide a critical, skeptical analysis of the document's ability to answer the question or query given below. 
-        Focus on identifying gaps, inconsistencies, limitations, and areas where the document is insufficient or lacks depth.
-        Question or Query is given below.
-        
-        <|Query and Conversation Summary|>
-        {query}
-        <|/Query and Conversation Summary|>
+            prompt2 = dedent(f"""
+            Provide a critical, skeptical analysis of the document's ability to answer the question or query given below. 
+            Focus on identifying gaps, inconsistencies, limitations, and areas where the document is insufficient or lacks depth.
+            Question or Query is given below.
+            
+            <|Query and Conversation Summary|>
+            {query}
+            <|/Query and Conversation Summary|>
 
-        Your task is to:
-        1. Critically evaluate what the document LACKS in addressing this query, justifying with facts, numbers and evidence from the document.
-        2. Point out any inconsistencies, contradictions, or unclear explanations
-        3. Identify missing information, data, or evidence that would be needed for a complete answer
-        4. Suggest what additional sources, research, or information would be required. Present the facts, numbers and evidence from the document that can help.
-        5. Highlight any biases, assumptions, or methodological flaws in the document
-        6. Provide constructive criticism on how the document could be improved to better address the query. What facts, numbers and evidence from the document can be improved or further explored to answer the query.
-        7. Then write an answer for the question (with facts and anecdotes from the document) using the document as reference despite the limitations and gaps identified.
-        8. Write in short and concise manner.
+            Your task is to:
+            1. Critically evaluate what the document LACKS in addressing this query, justifying with facts, numbers and evidence from the document.
+            2. Point out any inconsistencies, contradictions, or unclear explanations
+            3. Identify missing information, data, or evidence that would be needed for a complete answer
+            4. Suggest what additional sources, research, or information would be required. Present the facts, numbers and evidence from the document that can help.
+            5. Highlight any biases, assumptions, or methodological flaws in the document
+            6. Provide constructive criticism on how the document could be improved to better address the query. What facts, numbers and evidence from the document can be improved or further explored to answer the query.
+            7. Then write an answer for the question (with facts and anecdotes from the document) using the document as reference despite the limitations and gaps identified.
+            8. Write in short and concise manner.
 
-        Write a {'detailed and comprehensive ' if detail_level >= 3 else ''}critical analysis focusing on limitations and gaps rather than what the document does well.
-        """)
-        cr2 = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
-        answer_sceptical = get_async_future(cr2, prompt2, text, self.semantic_search_document, VERY_CHEAP_LLM[0])
+            Write a {'detailed and comprehensive ' if detail_level >= 3 else ''}critical analysis focusing on limitations and gaps rather than what the document does well.
+            """)
+            cr2 = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
+            answer_sceptical = get_async_future(cr2, prompt2, text, self.semantic_search_document, VERY_CHEAP_LLM[0])
+        else:
+            answer_sceptical = wrap_in_future(("", ''))
 
 
         tex_len = self.text_len
@@ -1570,7 +1573,7 @@ class DocIndex:
         answer_sceptical, _ = answer_sceptical
         answer_sceptical = remove_bad_whitespaces(answer_sceptical)
         answer = remove_bad_whitespaces(answer)
-        answer = answer + "\n\n<critical_analysis>\n" + answer_sceptical + "\n</critical_analysis>\n"
+        answer = answer + (("\n\n<critical_analysis>\n" + answer_sceptical + "\n</critical_analysis>\n") if len(answer_sceptical.strip()) > 0 else "")
         len_answer = len(re.findall(r'\S+', answer))
         for t in answer:
             yield t
