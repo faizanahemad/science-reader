@@ -1837,6 +1837,8 @@ Write the useful information extracted from the above conversation messages and 
                           "Latex Eqn",
                           "Explore",
             "Comparison",
+            "Google GL",
+            
         ]
         return preamble_names
 
@@ -2208,7 +2210,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
         preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
-        if provide_detailed_answers >= 3 and "Short reply" not in preambles:
+        if provide_detailed_answers >= 3 and "Short reply" not in preambles and "Short" not in preambles:
             preambles.append("Long")
         science_sites_count = count_science_urls(query["messageText"])
         if science_sites_count > 0:
@@ -2411,7 +2413,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                                          attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix, ppt_answer=checkboxes["ppt_answer"])
         yield {"text": '', "status": "Preamble got ..."}
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
-        previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
+        retrieval_preambles, _ = self.get_preamble(retrieval_preambles, '')
+        previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "\n<|/previous_context|>\n\n"
         link_context = previous_context_and_preamble + query['messageText']
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
@@ -2422,13 +2425,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
 
         prior_chat_summary_future = None
-        if enable_planner:
-            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, previous_context + "\n\n Current User Query or message:\n" + query["messageText"])
-            
-        
-        
-        
-
         if all_docs_referenced:
             all_docs = self.get_uploaded_documents()
             all_doc_ids = ["#doc_{}".format(idx+1) for idx, d in enumerate(all_docs)]
@@ -2526,6 +2522,10 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
                 attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
+
+        preamble, _ = self.get_preamble(preambles,
+                                     checkboxes["field"] if "field" in checkboxes else None,
+                                     False, prefix='', ppt_answer=False)
 
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
         plot_prefix = f"plot-{prefix}-"
