@@ -735,6 +735,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
 - Understand the goal of the user query and the conversation summary.
 - Focus ONLY on extracting relevant information, do NOT attempt to answer the user query.
 - Write in compact bullet points.
+- When you mention a document, mention the document id and title.
 - Include specific details like numbers, names, dates, code references, technical terms.
 - Capture user preferences, constraints, and requirements mentioned.
 - Note any decisions made or conclusions reached in the conversation.
@@ -763,7 +764,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             )
             
             # Fire async LLM call
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0],  use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0],  use_gpt4=False, use_16k=False)
             future = get_async_future(llm, prompt, temperature=0.2, system=system,stream=False)
             extraction_futures.append((window_idx, future))
         
@@ -2166,8 +2167,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         prior_context_future = get_async_future(self.retrieve_prior_context,
                                                 query["messageText"], past_message_ids=past_message_ids,
                                                 required_message_lookback=message_lookback)
-        prior_context_llm_based_future = get_async_future(self.retrieve_prior_context_llm_based,
+        if message_lookback >= 4:
+            prior_context_llm_based_future = get_async_future(self.retrieve_prior_context_llm_based,
                                                 query["messageText"], past_message_ids=past_message_ids)
+        else:
+            prior_context_llm_based_future = wrap_in_future(dict(
+                extracted_context='',
+                summary='',
+                window_count=0,
+                message_count=0
+            ))
+        
         prior_context = prior_context_future.result()
         
         time_dict["prior_context_time"] = time.time() - st
@@ -2340,7 +2350,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
             answer += "<answer>\n"
             if is_dense:
-                summary = make_stream(attached_docs[0].get_chain_of_density_summary(), True)
+                summary = make_stream(attached_docs[0].get_doc_long_summary_v2(), True)
             else:
                 summary = make_stream(attached_docs[0].get_doc_long_summary(), True)
             for ans in summary:
@@ -2960,7 +2970,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         prior_chat_summary = ""
         wt_prior_ctx = time.time()
         summary_text = summary_text_init
-        while time.time() - wt_prior_ctx < 10 and prior_chat_summary_future is not None:
+        while time.time() - wt_prior_ctx < 20 and prior_chat_summary_future is not None:
             if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
                 prior_chat_summary = prior_chat_summary_future.result()
                 summary_text = prior_chat_summary + "\n" + summary_text
@@ -3039,6 +3049,16 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                                                        doc_answer=doc_answer, web_text=web_text,
                                                        link_result_text=link_result_text,
                                                        conversation_docs_answer=conversation_docs_answer)
+        prompt_metrics = {
+            "prompt_length": len(enc.encode(prompt)),
+            "summary_text_length": len(enc.encode(summary_text)),
+            "previous_messages_length": len(enc.encode(previous_messages if agent is None else previous_messages_short)),
+            "doc_answer_length": len(enc.encode(doc_answer)),
+            "web_text_length": len(enc.encode(web_text)),
+            "link_result_text_length": len(enc.encode(link_result_text)),
+            "conversation_docs_answer_length": len(enc.encode(conversation_docs_answer))
+        }
+        time_logger.info(f"Prompt length: {prompt_metrics['prompt_length']}, summary_text length: {prompt_metrics['summary_text_length']}, previous_messages length: {prompt_metrics['previous_messages_length']}, doc_answer length: {prompt_metrics['doc_answer_length']}, web_text length: {prompt_metrics['web_text_length']}, link_result_text length: {prompt_metrics['link_result_text_length']}, conversation_docs_answer length: {prompt_metrics['conversation_docs_answer_length']}")
 
         prompt = remove_bad_whitespaces_easy(prompt)
         time_logger.info(
@@ -3168,9 +3188,13 @@ At the end write what we must make slides about as well.
                     else:
                         yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " ..."}
                         llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " done ..."}
-                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
-                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " stream started ..."}
+                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + f" done, time from start = {(time.time() - st):.2f} ..."}
+                    try:
+                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                    except Exception as e:
+                        traceback.print_exc()
+                        raise e
+                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + f" stream started, time from start =  {(time.time() - st):.2f}   ..."}
             else:
                 main_ans_gen =  iter([])  # empty generator of string
 
@@ -3226,10 +3250,10 @@ At the end write what we must make slides about as well.
                 break
             if isinstance(dcit, dict):
                 txt = dcit["text"]
-                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length)
+                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
             else:
                 txt = dcit
-                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length)
+                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
             yield {"text": txt, "status": status}
             answer += str(txt)
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string

@@ -122,6 +122,11 @@ def ChunkTextSentences(text_document: str, chunk_size: int = 3400, chunk_overlap
     text_splitter = SentenceSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap, backup_separators=["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", "</br>", "<br>", "<br/>", "<br />", "<p>", "</p>", ])
     return text_splitter.split_text(text_document)
 
+# Import RecursiveChunkTextSplitter from separate module
+# This class uses tiktoken for token-based chunking with divide-and-conquer approach
+# Run `python text_splitter.py` to execute tests and benchmarks
+from text_splitter import RecursiveChunkTextSplitter
+
 
 class ContextualReader:
     def __init__(self, keys, provide_short_responses=False, scan=False):
@@ -151,24 +156,38 @@ Only provide answer from the document given above.
         # If no relevant information is found in given context, then output "No relevant information found." only.
         
     def get_one(self, context, document, model_name=LONG_CONTEXT_LLM[0], limit=64_000):
-        document = " ".join(document.split()[:limit])
-        prompt = self.prompt.format(context=context, document=document)
-        if get_gpt3_word_count(prompt) > 100_000:
-            limit = limit//2
-            document = " ".join(document.split()[:limit])
-            prompt = self.prompt.format(context=context, document=document)
-        try:
-            llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
-            result = llm(prompt, temperature=0.4, stream=False)
-        except Exception as e:
-            document = " ".join(document.split()[:limit//2])
-            traceback.print_exc()
-
-            prompt = self.prompt.format(context=context, document=document)
-            llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
-            result = llm(prompt, temperature=0.4, stream=False)
-        assert isinstance(result, str)
-        return result
+        splitter = RecursiveChunkTextSplitter(limit, 256)
+        chunks = splitter(document)
+        results = []
+        # Create async futures for all chunks
+        futures = []
+        for chunk in chunks:
+            prompt = self.prompt.format(context=context, document=chunk)
+            try:
+                llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
+                future = get_async_future(llm, prompt, temperature=0.4, stream=False)
+                futures.append(future)
+            except Exception as e:
+                llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+                future = get_async_future(llm, prompt, temperature=0.4, stream=False)
+                futures.append(future)
+                traceback.print_exc()
+                continue
+        
+        # Wait for all results and collect them in order
+        for future in futures:
+            try:
+                result = sleep_and_get_future_result(future)
+                results.append(result)
+            except Exception as e:
+                traceback.print_exc()
+                llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+                result = llm(prompt, temperature=0.4, stream=False)
+                results.append(result)
+                continue
+        
+        assert isinstance(result, str) and len(result) > 0
+        return "\n---\n".join(results)
 
     def get_one_chunked(self, context, document, model_name=CHEAP_LONG_CONTEXT_LLM[0], limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
         try:
@@ -188,16 +207,24 @@ Only provide answer from the document given above.
 
     def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
         fragments_text = self.get_relevant_text(context, document, retriever)
-        prompt = self.prompt.format(context=context, document=fragments_text)
-        join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
-            x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
-            y) + "\n<|/LLM_2|>"
+        context_len = get_gpt4_word_count(context)
+        fragments_text_len = get_gpt4_word_count(fragments_text)
+        
+        prompt = self.prompt.format(context=context + "\nTry to answer and extract some facts and numbers even if the document may not be directly related. Please try to answer the question with some details and information from the document.\n", 
+        document=fragments_text)
+        prompt_len = get_gpt4_word_count(prompt)
+        logger.info(f"[ContextualReader] RAG module: context_len = {context_len}, fragments_text_len = {fragments_text_len}, prompt_len = {prompt_len}")
+        # join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
+        #     x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
+        #     y) + "\n<|/LLM_2|>"
         # result = join_two_futures(get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False),
         #                           get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
         #                           )
-        result = get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False)
 
-        result = sleep_and_get_future_result(result)
+        cheap_llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0])
+        result = cheap_llm(prompt, temperature=0.4, stream=False)
+        
+        
         assert isinstance(result, str)
         return result
 
@@ -236,11 +263,25 @@ Only provide answer from the document given above.
             sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
             top_chunks = sorted_chunks[:6]
         else:
-            top_chunks = retriever(document, 16_000)
+            try:
+                top_chunks = retriever(document, 64_000)
+            except Exception as e:
+                logger.error(f"[ContextualReader] Error in retriever: {e}")
+                traceback.print_exc()
+                raise e
+        # stacktrace = dump_stack()
+        # logger.info(f"[ContextualReader], Retriever = {retriever.__name__ if retriever is not None else 'None'}, Stack trace: \n{stacktrace}")
+        top_chunks_count = len(top_chunks.split()) if isinstance(top_chunks, str) else len(top_chunks)
+        top_chunks = set(top_chunks) if isinstance(top_chunks, list) else top_chunks
+        top_chunks_count_new = len(top_chunks) if isinstance(top_chunks, set) else len(top_chunks.split())
         top_chunks_text = ""
-        for idx, tc in enumerate(top_chunks):
-            top_chunks_text += f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n"
+        if isinstance(top_chunks, list):
+            for idx, tc in enumerate(top_chunks):
+                top_chunks_text += f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n" if isinstance(tc, tuple) else f"Retrieved relevant text chunk {idx + 1}:\n{tc}\n\n"
+        else:
+            top_chunks_text += f"Retrieved relevant text chunk:\n{top_chunks}\n\n"
         top_chunks = top_chunks_text
+        top_chunks_text_len = get_gpt4_word_count(top_chunks_text)
         return top_chunks
 
     def scan(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
@@ -256,8 +297,8 @@ Only provide answer from the document given above.
         elif preferred_model is None and doc_word_count > 200_000:
             preferred_model = LONG_CONTEXT_LLM[0]
         join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
-        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[0], 200_000),
-                                                   get_async_future(self.get_one, context_user_query + "\n\nProvide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.\n", text_document, preferred_model, 200_000), join_method)
+        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[1], 400_000),
+                                                   get_async_future(self.get_one, context_user_query + "\n\nProvide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.\nTry to answer and extract some facts and numbers even if the document may not be directly related.\n", text_document, preferred_model, 200_000), join_method)
         global_reading = None
         try:
             if self.provide_short_responses:
@@ -286,6 +327,8 @@ Only provide answer from the document given above.
             y) + "\n<|/RAG LLM|>"
         final_future = join_two_futures(main_future, global_reading, join_method)
         final_result = sleep_and_get_future_result(final_future)
+        logger.info(f"[ContextualReader] Total time taken = {time.time()-st:.2f} seconds for document word count = {doc_word_count}")
+        logger.info(f"[ContextualReader] final_result len = {len(final_result.split())} words, RAG based answer len = {len(main_future.result().split())}, global reading len = {len(global_reading.result().split())} words.")
         return final_result, final_future
 
 
@@ -2790,8 +2833,9 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     start_time = time.time()
     query_string = (
                        f"Previous context: '''{current_doc_summary}'''\n" if len(
-                           current_doc_summary.strip()) > 0 else '') + f"Focus on this Current query: '''{query}'''"
+                           current_doc_summary.strip()) > 0 else '') + f"Focus on this Current conversation summary and query: \n'''\n{query}\n'''\n"
     image_condition = all([doc.doc_type=="image" for doc in additional_docs]) and len(additional_docs) <= 3
+    provide_raw_text = False
 
     if provide_raw_text or image_condition:
         per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(additional_docs)
@@ -2805,15 +2849,13 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
     if (not provide_raw_text or provide_detailed_answers >= 2 ) and not image_condition:
         futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 2 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
         answers = [sleep_and_get_future_result(future) for future in futures]
-        logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
+        logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, query len = {len(query.split())}")
         answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
 
-        if provide_detailed_answers >= 4:
+        if provide_detailed_answers >= 4 and len(additional_docs) > 1:
             stage_1_answers = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]
             joined_answers = "\n\n".join(stage_1_answers)
-            query_string = (
-                               f"Previous context and conversation details between human and AI assistant: '''{current_doc_summary}'''\n" if len(
-                                   current_doc_summary.strip()) > 0 else '') + f"Current query: '''{query}'''" + f"\n\nAnswers:\n{joined_answers}"
+            query_string = query_string + f"\n\nStage 1 Answers from multiple documents:\n{joined_answers}\n\nNow based on these answers, we want to refine the answer from this document and provide a more comprehensive answer which compares and contrasts the answers from the multiple documents to add more context.\n\n"
             futures = [pdf_process_executor.submit(doc.get_short_answer, query_string,
                                                    defaultdict(lambda: provide_detailed_answers, {
                                                        "provide_detailed_answers": 2}),
@@ -2853,7 +2895,7 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
         read_text = new_line.join(read_text)
     dedup_results = [{"link": doc.doc_source, "title": doc.title} for doc in additional_docs]
     time_spent = time.time() - start_time
-    logger.info(f"[get_multiple_answers]: Time spent = {time_spent:.2f}, Query = ```{query}```\nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}")
+    logger.info(f"[get_multiple_answers]: Time spent = {time_spent:.2f}, \nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}")
     return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
 
 

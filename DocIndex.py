@@ -2,7 +2,7 @@ import os.path
 import shutil
 from datetime import datetime
 from textwrap import dedent
-from typing import Tuple
+from typing import Tuple, List
 
 import semanticscholar.Paper
 from filelock import FileLock, Timeout
@@ -88,6 +88,818 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
     return db
 
 
+# =============================================================================
+# Multi-Facet Document Summarizer
+# =============================================================================
+
+class MultiFacetDocSummarizer:
+    """
+    A comprehensive document summarizer that generates multiple types of summaries/analyses.
+    
+    This class provides 6 different perspectives on a document:
+    1. detailed - Long and detailed summary
+    2. facts_stats - Facts, statistics and numbers in bullet points
+    3. key_notes - Key notes, findings, and opinions
+    4. complex_faq - Complex questions and their detailed answers
+    5. nitpicks - Issues, shortcomings, and areas for improvement
+    6. agentic_qa - Agentic Q&A session with one LLM asking, another answering
+    
+    All aspects are processed in parallel for efficiency.
+    
+    Usage:
+        summarizer = MultiFacetDocSummarizer(api_keys, model_name="gpt-4", aspects=["detailed", "facts_stats"])
+        for chunk in summarizer.summarize(document_text):
+            print(chunk)
+    """
+    
+    # Available aspects with their display titles
+    ASPECT_TITLES = {
+        "detailed": "📚 Detailed Summary",
+        "facts_stats": "📊 Facts, Statistics & Numbers",
+        "key_notes": "📝 Key Notes, Findings & Opinions",
+        "complex_faq": "❓ Complex FAQ",
+        "nitpicks": "🔎 Critical Analysis & Nitpicks",
+        "agentic_qa": "🤖 Agentic Q&A Session",
+        "topic_deep_dive": "🔬 Topic Deep Dive Analysis",
+    }
+    
+    ALL_ASPECTS = list(ASPECT_TITLES.keys())
+    
+    def __init__(
+        self, 
+        api_keys: dict, 
+        model_name: str = None, 
+        aspects: List[str] = None,
+        chunk_size: int = 64000,
+        chunk_overlap: int = 500
+    ):
+        """
+        Initialize the multi-facet document summarizer.
+        
+        Args:
+            api_keys: Dictionary containing API keys for LLM services
+            model_name: LLM model to use (default: CHEAP_LONG_CONTEXT_LLM[0])
+            aspects: List of aspect IDs to generate (default: all 7 aspects)
+                     Valid options: "detailed", "facts_stats", "key_notes", 
+                                   "complex_faq", "nitpicks", "agentic_qa", "topic_deep_dive"
+            chunk_size: Maximum tokens per chunk for processing (default: 64000)
+            chunk_overlap: Token overlap between chunks (default: 500)
+        """
+        self.api_keys = api_keys
+        self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        
+        # Validate and set aspects
+        if aspects is None:
+            self.aspects = self.ALL_ASPECTS.copy()
+        else:
+            invalid = set(aspects) - set(self.ALL_ASPECTS)
+            if invalid:
+                raise ValueError(f"Invalid aspects: {invalid}. Valid options: {self.ALL_ASPECTS}")
+            self.aspects = aspects
+        
+        # Map aspect IDs to their generator methods
+        self._aspect_methods = {
+            "detailed": self._generate_detailed,
+            "facts_stats": self._generate_facts_stats,
+            "key_notes": self._generate_key_notes,
+            "complex_faq": self._generate_complex_faq,
+            "nitpicks": self._generate_nitpicks,
+            "agentic_qa": self._generate_agentic_qa,
+            "topic_deep_dive": self._generate_topic_deep_dive,
+        }
+    
+    def _get_splitter(self, chunk_size: int = None, chunk_overlap: int = None):
+        """Get a configured text splitter instance."""
+        from text_splitter import RecursiveChunkTextSplitter
+        return RecursiveChunkTextSplitter(
+            chunk_size=chunk_size or self.chunk_size, 
+            chunk_overlap=chunk_overlap or self.chunk_overlap
+        )
+    
+    def _get_llm(self, model_name: str = None):
+        """Get a configured LLM instance."""
+        return CallLLm(self.api_keys, model_name=model_name or self.model_name)
+    
+    def _process_chunks_parallel(
+        self, 
+        chunks: List[str], 
+        prompt_template: str, 
+        temperature: float = 0.5
+    ) -> List[str]:
+        """
+        Process multiple chunks in parallel using the LLM.
+        
+        Args:
+            chunks: List of text chunks to process
+            prompt_template: Prompt template with {text} placeholder
+            temperature: LLM temperature setting
+            
+        Returns:
+            List of LLM responses for each chunk
+        """
+        llm = self._get_llm()
+        
+        if len(chunks) == 1:
+            return [llm(prompt_template.format(text=chunks[0]), temperature=temperature, stream=False)]
+        
+        futures = []
+        for chunk in chunks:
+            prompt = prompt_template.format(text=chunk)
+            future = get_async_future(llm, prompt, temperature=temperature, stream=False)
+            futures.append(future)
+        
+        return [sleep_and_get_future_result(f) for f in futures]
+    
+    def _generate_detailed(self, text: str) -> str:
+        """Generate a long and detailed summary of the document."""
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        prompt_template = dedent("""
+        You are an expert document analyst. Write a long, detailed, and comprehensive summary of the following document section.
+        
+        Your summary should:
+        - Cover all major topics, arguments, and conclusions
+        - Preserve important details and nuances
+        - Maintain logical flow and structure
+        - Include relevant context and background information
+        - Be thorough yet readable
+        
+        {math_instructions}
+        
+        Document section:
+        ```
+        {{text}}
+        ```
+        
+        Write a detailed and comprehensive summary:
+        """).format(math_instructions='')
+        
+        chunk_summaries = self._process_chunks_parallel(chunks, prompt_template, temperature=0.5)
+        
+        if len(chunk_summaries) == 1:
+            return chunk_summaries[0]
+        
+        # Combine chunk summaries
+        combine_prompt = dedent("""
+        You are an expert document analyst. Combine the following section summaries into one cohesive, 
+        comprehensive, and detailed summary. Ensure smooth transitions, remove redundancy, and maintain 
+        all important information.
+        
+        {math_instructions}
+        
+        Section summaries:
+        {summaries}
+        
+        Write the combined comprehensive summary:
+        """).format(
+            math_instructions='', 
+            summaries="\n\n---\n\n".join(chunk_summaries)
+        )
+        
+        llm = self._get_llm()
+        return llm(combine_prompt, temperature=0.4, stream=False)
+    
+    def _generate_facts_stats(self, text: str) -> str:
+        """Extract facts, statistics, and numbers in bullet point format."""
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        prompt_template = dedent("""
+        You are a meticulous data analyst. Extract ALL facts, statistics, numbers, metrics, and quantitative data from the following text.
+        
+        Format your response as concise bullet points. For each item include:
+        - The specific number, statistic, or fact
+        - Brief context (what it refers to)
+        - Source/location in document if mentioned
+        
+        Categories to look for:
+        • Percentages and ratios
+        • Dates and time periods
+        • Financial figures (revenue, costs, etc.)
+        • Performance metrics
+        • Population/sample sizes
+        • Measurements and quantities
+        • Rankings and comparisons
+        • Key factual claims
+        
+        Document section:
+        ```
+        {text}
+        ```
+        
+        Extract all facts, stats, and numbers in bullet point format:
+        """)
+        
+        chunk_results = self._process_chunks_parallel(chunks, prompt_template, temperature=0.3)
+        
+        if len(chunk_results) == 1:
+            return chunk_results[0]
+        
+        # Consolidate
+        combine_prompt = dedent("""
+        Consolidate the following extracted facts, statistics, and numbers. 
+        Remove duplicates, organize by category, and ensure concise bullet point format.
+        
+        Extracted data:
+        {data}
+        
+        Provide the consolidated, deduplicated list organized by category:
+        """).format(data="\n\n".join(chunk_results))
+        
+        llm = self._get_llm(CHEAP_LLM[0])
+        return llm(combine_prompt, temperature=0.2, stream=False)
+    
+    def _generate_key_notes(self, text: str) -> str:
+        """Extract key notes, findings, and opinions in concise format."""
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        prompt_template = dedent("""
+        You are an expert analyst. Extract all KEY notes, findings, and opinions from the following text.
+        
+        Organize your extraction into three sections:
+        
+        ## Key Notes
+        - Important observations and points to remember
+        - Critical information that readers should note
+        
+        ## Findings
+        - Research results and discoveries
+        - Conclusions drawn from evidence
+        - Outcomes and results mentioned
+        
+        ## Opinions & Assessments
+        - Author's viewpoints and judgments
+        - Recommendations and suggestions
+        - Evaluative statements and critiques
+        
+        Be concise but capture the essence of each point.
+        
+        Document section:
+        ```
+        {text}
+        ```
+        
+        Extract key notes, findings, and opinions:
+        """)
+        
+        chunk_results = self._process_chunks_parallel(chunks, prompt_template, temperature=0.4)
+        
+        if len(chunk_results) == 1:
+            return chunk_results[0]
+        
+        # Consolidate
+        combine_prompt = dedent("""
+        Consolidate the following key notes, findings, and opinions from different sections of a document.
+        Organize into three clear sections (Key Notes, Findings, Opinions & Assessments).
+        Remove redundancy while preserving all unique insights.
+        
+        Extracted content:
+        {content}
+        
+        Provide the consolidated key notes, findings, and opinions:
+        """).format(content="\n\n---\n\n".join(chunk_results))
+        
+        llm = self._get_llm(CHEAP_LLM[0])
+        return llm(combine_prompt, temperature=0.3, stream=False)
+    
+    def _generate_complex_faq(self, text: str) -> str:
+        """Generate complex questions and detailed answers as FAQ document."""
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        prompt_template = dedent("""
+        You are an expert educator creating challenging exam questions. Based on the following text, 
+        generate complex, thought-provoking questions and their detailed answers.
+        
+        Types of questions to create:
+        1. **Analytical Questions**: Questions requiring analysis of relationships, causes, and effects
+        2. **Synthesis Questions**: Questions requiring combining ideas from different parts
+        3. **Evaluation Questions**: Questions requiring critical judgment and assessment
+        4. **Application Questions**: Questions about applying concepts to new situations
+        5. **Edge Case Questions**: Questions about limitations, exceptions, and boundary conditions
+        
+        For each question:
+        - Make it genuinely challenging (not simple recall)
+        - Provide a comprehensive, well-reasoned answer
+        - Reference specific parts of the text when relevant
+        
+        {math_instructions}
+        
+        Document section:
+        ```
+        {{text}}
+        ```
+        
+        Generate 5-7 complex FAQ entries in this format:
+        
+        ### Q1: [Complex Question]
+        **Answer:** [Detailed answer]
+        
+        ### Q2: [Complex Question]
+        **Answer:** [Detailed answer]
+        
+        (continue for all questions)
+        """).format(math_instructions='')
+        
+        chunk_faqs = self._process_chunks_parallel(chunks, prompt_template, temperature=0.6)
+        
+        if len(chunk_faqs) == 1:
+            return chunk_faqs[0]
+        
+        # Combine and curate
+        combine_prompt = dedent("""
+        You have multiple sets of complex FAQ entries from different sections of a document.
+        Combine them into one cohesive FAQ document:
+        
+        1. Remove duplicate or highly similar questions
+        2. Keep the most challenging and insightful questions
+        3. Ensure answers are comprehensive and accurate
+        4. Organize questions from foundational to advanced
+        5. Aim for 10-15 high-quality FAQ entries total
+        
+        {math_instructions}
+        
+        FAQ entries to consolidate:
+        {faqs}
+        
+        Provide the consolidated Complex FAQ document:
+        """).format(
+            math_instructions='', 
+            faqs="\n\n---\n\n".join(chunk_faqs)
+        )
+        
+        llm = self._get_llm()
+        return llm(combine_prompt, temperature=0.5, stream=False)
+    
+    def _generate_nitpicks(self, text: str) -> str:
+        """Identify issues, shortcomings, and areas for improvement."""
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        prompt_template = dedent("""
+        You are a critical reviewer and editor. Analyze the following text for issues, shortcomings, and areas of improvement.
+        
+        Look for:
+        
+        ## Logical Issues
+        - Logical fallacies or weak arguments
+        - Unsupported claims
+        - Contradictions or inconsistencies
+        
+        ## Missing Information
+        - Important topics not covered
+        - Unexplained concepts or terms
+        - Missing context or background
+        
+        ## Clarity Issues
+        - Ambiguous statements
+        - Confusing explanations
+        - Poor organization
+        
+        ## Methodological Concerns (if applicable)
+        - Sample size issues
+        - Selection bias
+        - Confounding variables
+        - Validity concerns
+        
+        ## Minor Nitpicks
+        - Small errors or typos noticed
+        - Formatting issues
+        - Citation/reference problems
+        
+        Be specific and constructive in your critique.
+        
+        Document section:
+        ```
+        {text}
+        ```
+        
+        Provide your critical analysis:
+        """)
+        
+        chunk_critiques = self._process_chunks_parallel(chunks, prompt_template, temperature=0.5)
+        
+        if len(chunk_critiques) == 1:
+            return chunk_critiques[0]
+        
+        # Consolidate
+        combine_prompt = dedent("""
+        Consolidate the following critical analyses from different sections of a document.
+        
+        Instructions:
+        1. Group issues by category (Logical, Missing Info, Clarity, Methodological, Nitpicks)
+        2. Remove duplicate concerns
+        3. Prioritize by severity (major issues first)
+        4. Be constructive - note both issues and potential solutions
+        
+        Critical analyses:
+        {critiques}
+        
+        Provide the consolidated critical analysis:
+        """).format(critiques="\n\n---\n\n".join(chunk_critiques))
+        
+        llm = self._get_llm(CHEAP_LLM[0])
+        return llm(combine_prompt, temperature=0.4, stream=False)
+    
+    def _generate_agentic_qa(self, text: str) -> str:
+        """
+        Generate agentic Q&A with one LLM asking questions, another answering.
+        
+        This method is fully parallelized:
+        1. Question generation runs in parallel across all chunks
+        2. Answer generation runs in parallel for each chunk's questions
+        """
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        
+        # Limit chunks to process (first 8 for questions, use all for context)
+        question_chunks = chunks[:8]
+        full_text = "\n\n".join(chunks)[:100000]  # Limit context size
+        
+        # Question generation prompt
+        question_prompt = dedent("""
+        You are a brilliant, curious intellectual who has just read a fascinating document. 
+        Generate stimulating, thought-provoking questions that:
+        
+        1. **Challenge assumptions** - Question the underlying premises
+        2. **Seek deeper understanding** - Ask "why" and "how" questions
+        3. **Explore implications** - What does this mean for the future?
+        4. **Connect to broader context** - How does this relate to other fields/ideas?
+        5. **Probe edge cases** - What about unusual situations?
+        6. **Question methodology** - How do we know this is true?
+        7. **Seek practical applications** - How can this be used?
+        
+        Be genuinely curious and intellectually rigorous. Avoid simple factual questions.
+        
+        Document:
+        ```
+        {text}
+        ```
+        
+        Generate 5-8 stimulating questions (just the questions, numbered):
+        """)
+        
+        # =====================================================================
+        # PHASE 1: Generate questions in parallel for all chunks
+        # =====================================================================
+        question_futures = []
+        for chunk in question_chunks:
+            llm_questioner = self._get_llm(CHEAP_LLM[0])
+            prompt = question_prompt.format(text=chunk)
+            future = get_async_future(llm_questioner, prompt, temperature=0.7, stream=False)
+            question_futures.append(future)
+        
+        # Wait for all question generation to complete
+        all_questions = [sleep_and_get_future_result(f) for f in question_futures]
+        
+        # =====================================================================
+        # PHASE 2: Answer each chunk's questions in parallel
+        # =====================================================================
+        answer_prompt_template = dedent("""
+        You are a knowledgeable expert who has deeply studied the following document. 
+        Answer the questions below with insight, nuance, and intellectual rigor.
+        
+        For each answer:
+        - Be concise but substantive (2-4 paragraphs per answer)
+        - Reference specific parts of the document when relevant
+        - Acknowledge uncertainty or limitations where appropriate
+        - Provide your own thoughtful analysis, not just summary
+        
+        {math_instructions}
+        
+        Document:
+        ```
+        {text}
+        ```
+        
+        Questions to answer:
+        {questions}
+        
+        Provide your answers in this format:
+        
+        ---
+        
+        **🎯 Q:** [Question]
+        
+        **💡 Answer:** [Your insightful answer]
+        
+        ---
+        
+        (continue for all questions)
+        """).format(math_instructions='', text=full_text, questions="{questions}")
+        
+        # Launch answer generation in parallel for each question batch
+        answer_futures = []
+        for questions in all_questions:
+            if questions.strip():  # Only process non-empty question batches
+                llm_answerer = self._get_llm()
+                prompt = answer_prompt_template.format(questions=questions)
+                future = get_async_future(llm_answerer, prompt, temperature=0.6, stream=False)
+                answer_futures.append(future)
+        
+        # Wait for all answer generation to complete
+        all_answers = [sleep_and_get_future_result(f) for f in answer_futures]
+        
+        # =====================================================================
+        # Combine all Q&A sessions
+        # =====================================================================
+        header = dedent("""
+        # 🔍 Agentic Q&A Session
+        
+        *An intellectual dialogue exploring the document through probing questions and expert answers.*
+        
+        """)
+        
+        # Combine all answers with section dividers
+        combined_dialogue = "\n\n".join(all_answers)
+        
+        return header + combined_dialogue
+    
+    def _generate_topic_deep_dive(self, text: str) -> str:
+        """
+        Generate a deep dive analysis organized by topics and sections.
+        
+        This is a 2-step parallel process:
+        1. Extract topics from up to 8 chunks in parallel (no consolidation LLM call)
+        2. For each unique topic, run a single comprehensive LLM call to get
+           summary, facts, takeaways, analysis, detailed notes, and implications
+        
+        Args:
+            text: The document text to analyze
+            
+        Returns:
+            Comprehensive topic-by-topic analysis
+        """
+        splitter = self._get_splitter()
+        chunks = splitter(text)
+        full_text = self._get_splitter(chunk_size=500_000, chunk_overlap=1_000)(text)[:1]
+        full_text = "\n\n".join(full_text)
+        
+        # =====================================================================
+        # PHASE 1: Extract topics from chunks (parallel, no consolidation LLM)
+        # =====================================================================
+        topic_extraction_prompt = dedent("""
+        You are an expert document analyst. Analyze the following document section and identify 
+        the main topics, sections, and themes covered.
+        
+        For each topic/section you identify, provide:
+        1. **Topic Name**: A clear, descriptive name
+        2. **Keywords**: 3-5 key terms associated with this topic
+        3. **Brief Description**: 1-2 sentences describing what this topic covers
+        
+        Focus on substantive topics that would benefit from deeper analysis.
+        Aim for 2-4 distinct topics from this section.
+        
+        Document section:
+        ```
+        {text}
+        ```
+        
+        List the topics in this exact format (use --- as separator between topics):
+        
+        ### Topic: [Topic Name]
+        **Keywords:** keyword1, keyword2, keyword3
+        **Description:** Brief description of the topic
+        
+        ---
+        
+        (repeat for each topic, separated by ---)
+        """)
+        
+        # Extract topics from chunks in parallel (up to 8 chunks)
+        topic_futures = []
+        for chunk in chunks[:8]:
+            llm = self._get_llm(CHEAP_LLM[0])
+            prompt = topic_extraction_prompt.format(text=chunk)
+            future = get_async_future(llm, prompt, temperature=0.5, stream=False)
+            topic_futures.append(future)
+        
+        # Wait for topic extraction
+        chunk_topics = [sleep_and_get_future_result(f) for f in topic_futures]
+        
+        # Parse and deduplicate topics locally (no LLM consolidation)
+        all_topics = {}  # Use dict to deduplicate by normalized topic name
+        
+        for chunk_result in chunk_topics:
+            topic_blocks = [t.strip() for t in chunk_result.split("---") if t.strip() and "Topic:" in t]
+            
+            for topic_block in topic_blocks:
+                topic_name = "Unknown Topic"
+                keywords = ""
+                description = ""
+                
+                if "Topic:" in topic_block:
+                    try:
+                        topic_name = topic_block.split("Topic:")[1].split("\n")[0].strip().strip("#").strip()
+                    except:
+                        pass
+                
+                if "Keywords:" in topic_block:
+                    try:
+                        keywords = topic_block.split("Keywords:")[1].split("\n")[0].strip().strip("*").strip()
+                    except:
+                        pass
+                
+                if "Description:" in topic_block:
+                    try:
+                        description = topic_block.split("Description:")[1].split("\n")[0].strip().strip("*").strip()
+                    except:
+                        pass
+                
+                # Normalize topic name for deduplication (lowercase, strip)
+                normalized_name = topic_name.lower().strip()
+                
+                if normalized_name and normalized_name != "unknown topic":
+                    if normalized_name not in all_topics:
+                        all_topics[normalized_name] = {
+                            "name": topic_name,
+                            "keywords": set(k.strip() for k in keywords.split(",") if k.strip()),
+                            "description": description
+                        }
+                    else:
+                        # Merge keywords from duplicate topics
+                        all_topics[normalized_name]["keywords"].update(
+                            k.strip() for k in keywords.split(",") if k.strip()
+                        )
+                        # Keep longer description
+                        if len(description) > len(all_topics[normalized_name]["description"]):
+                            all_topics[normalized_name]["description"] = description
+        
+        # Convert to list and limit to 8 topics
+        unique_topics = [
+            {
+                "name": data["name"],
+                "keywords": ", ".join(list(data["keywords"])[:6]),
+                "description": data["description"]
+            }
+            for data in list(all_topics.values())[:8]
+        ]
+        
+        # =====================================================================
+        # PHASE 2: Single comprehensive LLM call per topic (parallel)
+        # =====================================================================
+        comprehensive_prompt = dedent("""
+        You are an expert document analyst. Provide a comprehensive deep-dive analysis of the topic 
+        "{topic}" as covered in the document below.
+        
+        **Topic:** {topic}
+        **Keywords to focus on:** {keywords}
+        **Topic Description:** {description}
+        
+        {math_instructions}
+        
+        Document:
+        ```
+        {text}
+        ```
+        
+        Provide your analysis in the following structured format:
+        
+        ### 📝 Summary
+        A detailed summary of this topic (3-5 paragraphs covering main concepts, how the topic is developed, key arguments).
+        
+        ### 📊 Facts & Data
+        All facts, statistics, numbers, dates, named entities, and concrete data related to this topic (bullet points).
+        
+        ### 💡 Key Takeaways
+        The most important insights, conclusions, and actionable points from this topic (bullet points).
+        
+        ### 🔍 Critical Analysis
+        Critical evaluation including strengths, weaknesses, assumptions, evidence quality, biases, and unanswered questions.
+        
+        ### 📋 Detailed Notes
+        Comprehensive notes covering technical details, methodologies, definitions, and explanations.
+        
+        ### 🔗 Implications & Connections
+        Broader implications, connections to other fields, practical applications, future directions, and how this relates to other topics.
+        
+        Write your comprehensive analysis below:
+        """)
+        
+        # Launch parallel analysis for each topic
+        topic_futures = []
+        for topic in unique_topics:
+            llm = self._get_llm()
+            prompt = comprehensive_prompt.format(
+                topic=topic["name"],
+                keywords=topic["keywords"],
+                description=topic["description"],
+                text=full_text,
+                math_instructions=''
+            )
+            future = get_async_future(llm, prompt, temperature=0.5, stream=False)
+            topic_futures.append({
+                "name": topic["name"],
+                "keywords": topic["keywords"],
+                "future": future
+            })
+        
+        # =====================================================================
+        # Collect results and format output
+        # =====================================================================
+        header = dedent("""
+        # 🔬 Topic Deep Dive Analysis
+        
+        *A comprehensive exploration of key topics and themes in the document.*
+        
+        """)
+        
+        # Add table of contents
+        toc = "\n## 📑 Topics Covered\n\n"
+        for i, topic in enumerate(unique_topics, 1):
+            toc += f"{i}. **{topic['name']}** - {topic['keywords']}\n"
+        toc += "\n---\n"
+        
+        result_sections = [header, toc]
+        
+        for topic_data in topic_futures:
+            topic_name = topic_data["name"]
+            keywords = topic_data["keywords"]
+            future = topic_data["future"]
+            
+            # Topic header
+            topic_header = f"\n\n## 📌 {topic_name}\n\n"
+            topic_header += f"**Keywords:** {keywords}\n\n"
+            result_sections.append(topic_header)
+            
+            try:
+                result = sleep_and_get_future_result(future)
+                result_sections.append(result)
+            except Exception as e:
+                result_sections.append(f"*Error generating analysis for this topic: {str(e)}*\n")
+            
+            result_sections.append("\n\n---\n")
+        
+        return "".join(result_sections)
+    
+    def summarize(self, text: str):
+        """
+        Generate multi-facet summary of the document.
+        
+        This is the main entry point. It launches all selected aspects in parallel
+        and yields results as they complete.
+        
+        Args:
+            text: The document text to summarize
+            
+        Yields:
+            Formatted strings for each section of the summary
+        """
+        # Yield header
+        header = dedent("""
+        # 📖 Multi-Facet Document Summary
+        
+        *A comprehensive analysis of the document from multiple perspectives.*
+        
+        ---
+        
+        """)
+        yield header
+        
+        # Launch all aspects in parallel
+        futures = {}
+        for aspect_id in self.aspects:
+            method = self._aspect_methods[aspect_id]
+            future = get_async_future(method, text)
+            futures[aspect_id] = future
+        
+        # Yield results in order
+        for aspect_id in self.aspects:
+            title = self.ASPECT_TITLES[aspect_id]
+            future = futures[aspect_id]
+            
+            # Section header
+            section_header = f"\n\n## {title}\n\n"
+            yield section_header
+            
+            try:
+                result = sleep_and_get_future_result(future)
+                yield result
+            except Exception as e:
+                error_msg = f"*Error generating this section: {str(e)}*\n"
+                yield error_msg
+                logger.error(f"Error in {aspect_id}: {e}")
+            
+            # Section separator
+            yield "\n\n---\n"
+    
+    def summarize_sync(self, text: str) -> str:
+        """
+        Generate multi-facet summary synchronously (non-streaming).
+        
+        Args:
+            text: The document text to summarize
+            
+        Returns:
+            Complete summary as a single string
+        """
+        return "".join(self.summarize(text))
+
+
 class DocIndex:
     def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage, keys):
         init_start = time.time()
@@ -160,12 +972,19 @@ class DocIndex:
             brief_summary = self.title + "\n" + self.short_summary
             brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
             self._brief_summary = brief_summary
-            # _ = get_async_future(self.get_doc_long_summary)
+            
             text = self.brief_summary + doc_text
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
             self._raw_index = sleep_and_get_future_result(raw_index_future)
             self._raw_index_small = sleep_and_get_future_result(raw_index_small_future)
+            def get_summary(stream):
+                return "".join(convert_stream_to_iterable(stream))
+            f1 = get_async_future(get_summary, self.get_doc_long_summary())
+            f2 = get_async_future(get_summary, self.get_doc_long_summary_v2())
+            while not f1.done() or not f2.done():
+                time.sleep(1)
+            # self._long_summary = "".join(f1.result()) + "".join(f2.result())
             time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
         set_raw_index_small()
 
@@ -322,7 +1141,8 @@ class DocIndex:
     def get_doc_long_summary(self):
         # while hasattr(self, "long_summary_waiting") and time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
         #     time.sleep(0.1)
-        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        text = self.brief_summary + "\n---\n" + self.get_doc_data("static_data", "doc_text")
+        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
         long_summary = ""
         if hasattr(self, "_long_summary"):
             yield self._long_summary
@@ -410,7 +1230,7 @@ class DocIndex:
             else:
                 detailed_summary_prompt = ""
             logger.info(f"Document Type: {document_type}, ")
-            if document_type not in ["scientific paper", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
+            if document_type not in ["scientific paper", "technical report", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
                 raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
             
             # Step 2: Generate the comprehensive summary
@@ -443,9 +1263,10 @@ class DocIndex:
             
             
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
-        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
+        method_ans_generator = None
+        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"] and False:
         
-            llm2 = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[1])
+            llm2 = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
             method_prompt = prompts.paper_details_map["methodology"]
             method_prompt += "\n\n<context>\n" + text + f"\n</context>\n{math_formatting_instructions}\n\nWrite a detailed and comprehensive explanation of the methodology used in the paper covering the mathematical details as well as the intuition behind the methodology."
             method_ans_generator = llm2(method_prompt, temperature=0.7, stream=True)
@@ -454,7 +1275,7 @@ class DocIndex:
             long_summary += ans
             yield ans
             
-        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"]:
+        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"] and method_ans_generator is not None:
             long_summary += "\n\n ## More Details on their methodology \n"
             yield "\n\n ## More Details on their methodology \n"
             for ans in method_ans_generator:
@@ -463,6 +1284,50 @@ class DocIndex:
         setattr(self, "_long_summary", long_summary)
         self.save_local()
 
+    def get_doc_long_summary_v2(self, model_name: str = None, aspects: List[str] = None):
+        """
+        Generate a comprehensive multi-facet summary of the document.
+        
+        This method creates different types of summaries/analyses based on selected aspects.
+        Uses the MultiFacetDocSummarizer class for the actual generation.
+        
+        Args:
+            model_name: LLM model to use (default: CHEAP_LONG_CONTEXT_LLM[0])
+            aspects: List of aspect IDs to include (default: all 6 aspects)
+                     Options: "detailed", "facts_stats", "key_notes", "complex_faq", 
+                              "nitpicks", "agentic_qa"
+        
+        Yields:
+            Formatted strings for each section of the multi-facet summary
+        """
+        if model_name is None:
+            model_name = CHEAP_LONG_CONTEXT_LLM[0]
+        if aspects is None:
+            aspects = ["detailed", "facts_stats", "key_notes", "complex_faq", "nitpicks", "agentic_qa"]
+        # Check if already cached (only for default full summary)
+        cache_key = f"_long_summary_v2"
+        if hasattr(self, cache_key):
+            yield getattr(self, cache_key)
+            return
+        
+        # Get the document text
+        text = self.brief_summary + "\n---\n" + self.get_doc_data("static_data", "doc_text")
+        
+        # Create summarizer and generate
+        summarizer = MultiFacetDocSummarizer(
+            api_keys=self.get_api_keys(),
+            model_name=model_name,
+            aspects=aspects
+        )
+        
+        full_summary = ""
+        for chunk in summarizer.summarize(text):
+            full_summary += chunk
+            yield chunk
+        
+        # Cache the result
+        setattr(self, cache_key, full_summary)
+        self.save_local()
         
     
     def get_chain_of_density_summary(self):
@@ -590,10 +1455,15 @@ class DocIndex:
     def semantic_search_document_small(self, query, token_limit=4096):
         st_time = time.time()
         tex_len = self.text_len
-        if tex_len < token_limit:
-            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        stream1 = self.get_doc_long_summary()
+        summary_text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        summary_text_len = get_gpt4_word_count(summary_text)
+        if tex_len + summary_text_len < token_limit:
+            text = summary_text + self.get_doc_data("static_data", "doc_text")
             return text
-        rem_word_len = token_limit - self.brief_summary_len
+        rem_word_len = max(0, token_limit - (self.brief_summary_len + len(summary_text.split())))
+        if rem_word_len <= 0:
+            return summary_text
         rem_tokens = rem_word_len // self.chunk_size
         if self.raw_index_small is None:
             logger.warn(
@@ -601,27 +1471,41 @@ class DocIndex:
             return self.semantic_search_document(query, token_limit)
         raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
 
-        raw_text = "\n".join([f"Small Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
-        logger.info(f"[semantic_search_document_small]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
-        return self.brief_summary + raw_text
+        raw_text = "\n---\n".join([f"Small Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        raw_text_len = get_gpt4_word_count(raw_text)
+        logger.info(f"[semantic_search_document_small]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {raw_text_len}")
+        
+        return summary_text + "\n---\n" + raw_text
 
-    def semantic_search_document(self, query, token_limit=4096*2):
+    def semantic_search_document(self, query, token_limit=4096*4):
+        # stacktrace = dump_stack()
+        # logger.info(f"[semantic_search_document]:: Stack trace: \n{stacktrace}")
         st_time = time.time()
         tex_len = self.text_len
-        if tex_len < token_limit:
-            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        stream1 = self.get_doc_long_summary()
+        summary_text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        stream2 = self.get_doc_long_summary_v2()
+        ls2 = convert_stream_to_iterable(stream2)
+        summary_text = summary_text + "\n---\n" + ls2 + "\n---\n"
+        summary_text_len = get_gpt4_word_count(summary_text)
+        if tex_len + summary_text_len < token_limit:
+            text = summary_text + self.get_doc_data("static_data", "doc_text")
             return text
-        rem_word_len = token_limit - self.brief_summary_len
+        rem_word_len = max(0, token_limit - (self.brief_summary_len + len(summary_text.split())))
+        if rem_word_len <= 0:
+            return summary_text
         rem_tokens = rem_word_len // self.chunk_size
         if self.raw_index is None or tex_len < 8_000:
-            text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+            text = summary_text + self.get_doc_data("static_data", "doc_text")
             logger.warn(f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text.")
             return chunk_text_words(text, chunk_size=token_limit, chunk_overlap=0)[0]
         raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
 
-        raw_text = "\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
-        logger.info(f"[semantic_search_document]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {len(raw_text.split())}")
-        return self.brief_summary + raw_text
+        raw_text = "\n---\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        raw_text_len = get_gpt4_word_count(raw_text)
+        logger.info(f"[semantic_search_document]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {raw_text_len}")
+        
+        return summary_text + "\n---\n" + raw_text
 
     
     @streaming_timer
@@ -643,15 +1527,49 @@ class DocIndex:
         # For level 3, 4 both approaches use gpt3.5-16k + gpt4-16k
 
         additional_info = None
-        text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
+        stream1 = self.get_doc_long_summary()
+        text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        stream2 = self.get_doc_long_summary_v2()
+        ls2 = convert_stream_to_iterable(stream2)
+        text = text + "\n---\n" + ls2 + "\n---\n" + self.get_doc_data("static_data", "doc_text")
         prompt = dedent(f"""
         Answer the question or query in detail given below using the given context as reference. 
         Question or Query is given below.
+        
+        <|Query and Conversation Summary|>
         {query}
+        <|/Query and Conversation Summary|>
+
         Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
         """)
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
         answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])
+
+        prompt2 = dedent(f"""
+        Provide a critical, skeptical analysis of the document's ability to answer the question or query given below. 
+        Focus on identifying gaps, inconsistencies, limitations, and areas where the document is insufficient or lacks depth.
+        Question or Query is given below.
+        
+        <|Query and Conversation Summary|>
+        {query}
+        <|/Query and Conversation Summary|>
+
+        Your task is to:
+        1. Critically evaluate what the document LACKS in addressing this query
+        2. Point out any inconsistencies, contradictions, or unclear explanations
+        3. Identify missing information, data, or evidence that would be needed for a complete answer
+        4. Suggest what additional sources, research, or information would be required
+        5. Highlight any biases, assumptions, or methodological flaws in the document
+        6. Provide constructive criticism on how the document could be improved to better address the query
+        7. Then write an answer for the question using the document as reference despite the limitations and gaps identified.
+        8. Write in short and concise manner.
+
+        Write a {'detailed and comprehensive ' if detail_level >= 3 else ''}critical analysis focusing on limitations and gaps rather than what the document does well.
+        """)
+        cr2 = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
+        answer_sceptical = get_async_future(cr2, prompt2, text, self.semantic_search_document, VERY_CHEAP_LLM[0])
+
+
         tex_len = self.text_len
         if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
             raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
@@ -662,7 +1580,7 @@ class DocIndex:
                 small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
                 raw_text += "\n\n" + small_raw_text
 
-            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary='')
+            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary=self.get_doc_long_summary_v2() + "\n---\n" + self.get_doc_long_summary())
             llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0] if detail_level >= 3 else CHEAP_LLM[0],
                           use_gpt4=True,
                           use_16k=True)
@@ -670,6 +1588,14 @@ class DocIndex:
 
         answer = sleep_and_get_future_result(answer) if sleep_and_get_future_exception(answer) is None else ""
         answer, _ = answer
+        answer_sceptical = sleep_and_get_future_result(answer_sceptical) if sleep_and_get_future_exception(answer_sceptical) is None else ""
+        answer_sceptical, _ = answer_sceptical
+        answer_sceptical = remove_bad_whitespaces(answer_sceptical)
+        answer = remove_bad_whitespaces(answer)
+        answer = answer + "\n\n<critical_analysis>\n" + answer_sceptical + "\n</critical_analysis>\n"
+        len_answer = len(re.findall(r'\S+', answer))
+        for t in answer:
+            yield t
         if additional_info is not None:
             additional_info = sleep_and_get_future_result(additional_info) if additional_info.exception() is None else ""
             additional_info = remove_bad_whitespaces(additional_info)
@@ -677,12 +1603,9 @@ class DocIndex:
             for t in additional_info:
                 answer += t
                 yield t
-                
+        logger.info(f"[DocIndex] [streaming_get_short_answer] final_result len = {len(answer.split())} words.")
+        yield ""
 
-
-        
-
-    
     def get_short_info(self):
         source = self.doc_source
         if self.is_local:
@@ -1174,14 +2097,12 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         
     doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
     doc_text_len = len(doc_text.split())
-    if doc_text_len < 8000:
+    if doc_text_len < 16000:
         chunk_size = LARGE_CHUNK_LEN // 8
-    elif doc_text_len < 16000:
+    elif doc_text_len < 128_000:
         chunk_size = LARGE_CHUNK_LEN // 4
-    elif doc_text_len < 32000:
-        chunk_size = LARGE_CHUNK_LEN // 2
     else:
-        chunk_size = LARGE_CHUNK_LEN
+        chunk_size = LARGE_CHUNK_LEN // 2
     chunk_overlap = min(chunk_size//2, 128)
     chunk_size = max(chunk_size, chunk_overlap*2)
     if not is_image:
@@ -1224,4 +2145,443 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         raise e
     
     return doc_index
+
+
+# =============================================================================
+# Multi-Document Answer Agent
+# =============================================================================
+
+class MultiDocAnswerAgent:
+    """
+    An agent that answers queries using multiple DocIndex documents.
+    
+    This agent gathers context from multiple documents, reformulates queries for
+    better comprehension, and synthesizes answers from all document sources.
+    Supports two detail levels for varying depth of response.
+    
+    Flow:
+    1. Reformulate user query based on query, conversation context, and doc summaries
+    2. Query each DocIndex in parallel with the reformulated query
+    3. Synthesize all answers into a final response
+    4. If detail_level=1, do a second pass for additional justification and depth
+    
+    Usage:
+        agent = MultiDocAnswerAgent(docs=[doc1, doc2], model_name="gpt-4", detail_level=1)
+        for chunk in agent(query="What is X?", conversation_summary="We discussed Y"):
+            print(chunk)
+    """
+    
+    # Token limit for context (using tiktoken gpt-4 encoder)
+    MAX_CONTEXT_TOKENS = 150_000
+    
+    def __init__(
+        self, 
+        docs: List['DocIndex'],
+        api_keys: dict,
+        model_name: str = None,
+        detail_level: int = 0
+    ):
+        """
+        Initialize the multi-document answer agent.
+        
+        Args:
+            docs: List of DocIndex objects to query
+            api_keys: Dictionary containing API keys for LLM services
+            model_name: LLM model to use (default: CHEAP_LONG_CONTEXT_LLM[0])
+            detail_level: 0 for single-pass answer, 1 for two-pass with justification
+        """
+        if not docs:
+            raise ValueError("At least one DocIndex must be provided")
+        
+        self.docs = docs
+        self.api_keys = api_keys
+        self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
+        self.detail_level = detail_level
+        
+        # Initialize tiktoken encoder for token counting
+        import tiktoken
+        self.encoder = tiktoken.encoding_for_model("gpt-4")
+    
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text using tiktoken."""
+        return len(self.encoder.encode(text))
+    
+    def _get_llm(self, model_name: str = None):
+        """Get a configured LLM instance."""
+        return CallLLm(self.api_keys, model_name=model_name or self.model_name)
+    
+    def _get_doc_summaries(self) -> str:
+        """Get brief summaries from all documents."""
+        summaries = []
+        for i, doc in enumerate(self.docs):
+            title = getattr(doc, 'title', f'Document {i+1}')
+            brief = doc.brief_summary if hasattr(doc, 'brief_summary') else ''
+            summaries.append(f"**Document {i+1}: {title}**\n{brief}")
+        return "\n\n".join(summaries)
+    
+    def _reformulate_query(
+        self, 
+        query: str, 
+        conversation_summary: str = None,
+        conversation_history: str = None
+    ) -> str:
+        """
+        Reformulate the user query to be more detailed and elaborate.
+        
+        Uses the original query, conversation context, and document summaries
+        to create a more comprehensive query for document search.
+        
+        Args:
+            query: Original user query
+            conversation_summary: Optional summary of conversation so far
+            conversation_history: Optional full conversation history
+            
+        Returns:
+            Reformulated, more detailed query
+        """
+        doc_summaries = self._get_doc_summaries()
+        
+        context_parts = []
+        if conversation_summary:
+            context_parts.append(f"**Conversation Summary:**\n{conversation_summary}")
+        if conversation_history:
+            context_parts.append(f"**Recent Conversation:**\n{conversation_history}")
+        
+        context_str = "\n\n".join(context_parts) if context_parts else "No prior conversation context."
+        
+        prompt = dedent(f"""
+        You are a query reformulation expert. Your task is to take a user's query and reformulate it 
+        into a more detailed, comprehensive question that will help retrieve better information from documents.
+        
+        **Available Documents:**
+        {doc_summaries}
+        
+        **Conversation Context:**
+        {context_str}
+        
+        **Original User Query:**
+        {query}
+        
+        **Instructions:**
+        1. Expand the query to be more specific and detailed
+        2. Include relevant context from the conversation if applicable
+        3. Consider what aspects of the documents might be relevant
+        4. Make the query self-contained (understandable without conversation context)
+        5. Keep the reformulated query focused but comprehensive
+        
+        **Reformulated Query:**
+        """)
+        
+        llm = self._get_llm(CHEAP_LLM[0])
+        reformulated = llm(prompt, temperature=0.3, stream=False)
+        return reformulated.strip()
+    
+    def _query_docs_parallel(self, query: str, mode: dict = None) -> List[Tuple[str, str]]:
+        """
+        Query all documents in parallel and gather their answers.
+        
+        Args:
+            query: The query to send to each document
+            mode: Optional mode dict for get_short_answer
+            
+        Returns:
+            List of (doc_title, answer) tuples
+        """
+        if mode is None:
+            mode = defaultdict(lambda: False)
+            mode["provide_detailed_answers"] = 2
+        
+        # Launch all queries in parallel
+        futures = []
+        for doc in self.docs:
+            future = get_async_future(doc.get_short_answer, query, mode)
+            futures.append((doc, future))
+        
+        # Gather results
+        results = []
+        for doc, future in futures:
+            try:
+                answer = sleep_and_get_future_result(future)
+                title = getattr(doc, 'title', doc.doc_source)
+                results.append((title, answer))
+            except Exception as e:
+                title = getattr(doc, 'title', doc.doc_source)
+                results.append((title, f"Error retrieving answer: {str(e)}"))
+                logger.error(f"Error querying doc {title}: {e}")
+        
+        return results
+    
+    def _format_doc_answers(self, doc_answers: List[Tuple[str, str]]) -> str:
+        """Format document answers for inclusion in prompts."""
+        formatted = []
+        for i, (title, answer) in enumerate(doc_answers):
+            formatted.append(f"### Source {i+1}: {title}\n\n{answer}")
+        return "\n\n---\n\n".join(formatted)
+    
+    def _can_include_history(
+        self, 
+        query: str,
+        doc_answers_text: str,
+        conversation_summary: str = None,
+        conversation_history: str = None
+    ) -> bool:
+        """
+        Check if conversation history can be included within token limit.
+        
+        Args:
+            query: Reformulated query
+            doc_answers_text: Formatted document answers
+            conversation_summary: Conversation summary
+            conversation_history: Full conversation history
+            
+        Returns:
+            True if history can be included, False otherwise
+        """
+        total_tokens = self._count_tokens(query)
+        total_tokens += self._count_tokens(doc_answers_text)
+        if conversation_summary:
+            total_tokens += self._count_tokens(conversation_summary)
+        if conversation_history:
+            total_tokens += self._count_tokens(conversation_history)
+        
+        # Leave room for prompt template and response
+        return total_tokens < (self.MAX_CONTEXT_TOKENS - 10000)
+    
+    def _generate_final_answer(
+        self,
+        reformulated_query: str,
+        doc_answers: List[Tuple[str, str]],
+        conversation_summary: str = None,
+        conversation_history: str = None,
+        previous_answer: str = None,
+        is_refinement: bool = False
+    ) -> str:
+        """
+        Generate the final synthesized answer from all document sources.
+        
+        Args:
+            reformulated_query: The reformulated user query
+            doc_answers: List of (title, answer) tuples from each document
+            conversation_summary: Optional conversation summary
+            conversation_history: Optional conversation history
+            previous_answer: Previous answer (for refinement pass)
+            is_refinement: Whether this is a refinement/justification pass
+            
+        Returns:
+            Synthesized final answer
+        """
+        doc_answers_text = self._format_doc_answers(doc_answers)
+        
+        # Check if we can include history
+        include_history = self._can_include_history(
+            reformulated_query, doc_answers_text, 
+            conversation_summary, conversation_history
+        )
+        
+        # Build context sections
+        context_parts = []
+        if conversation_summary:
+            context_parts.append(f"**Conversation Summary:**\n{conversation_summary}")
+        if include_history and conversation_history:
+            context_parts.append(f"**Conversation History:**\n{conversation_history}")
+        elif conversation_history and not include_history:
+            context_parts.append("*(Conversation history omitted due to length)*")
+        
+        context_str = "\n\n".join(context_parts) if context_parts else ""
+        
+        if is_refinement and previous_answer:
+            prompt = dedent(f"""
+            You are an expert analyst synthesizing information from multiple document sources.
+            
+            **User Query:**
+            {reformulated_query}
+            
+            {f"**Context:**{chr(10)}{context_str}" if context_str else ""}
+            
+            **Previous Answer:**
+            {previous_answer}
+            
+            **Additional Information and Justifications from Documents:**
+            {doc_answers_text}
+            
+            **Instructions:**
+            1. Review the previous answer and the additional document information
+            2. Incorporate new details, evidence, and justifications
+            3. Correct any inaccuracies found in the previous answer
+            4. Provide specific citations and references from the documents
+            5. Create a comprehensive, well-supported final answer
+            6. Maintain clear structure with sections if appropriate
+            
+            {math_formatting_instructions}
+            
+            **Refined Final Answer:**
+            """)
+        else:
+            prompt = dedent(f"""
+            You are an expert analyst synthesizing information from multiple document sources.
+            
+            **User Query:**
+            {reformulated_query}
+            
+            {f"**Context:**{chr(10)}{context_str}" if context_str else ""}
+            
+            **Information from Documents:**
+            {doc_answers_text}
+            
+            **Instructions:**
+            1. Synthesize information from all document sources
+            2. Provide a comprehensive, coherent answer to the query
+            3. Cite specific sources when making claims
+            4. Note any contradictions or gaps between sources
+            5. Structure the answer clearly with sections if appropriate
+            6. Be thorough but concise
+            
+            {math_formatting_instructions}
+            
+            **Answer:**
+            """)
+        
+        llm = self._get_llm()
+        return llm(prompt, temperature=0.5, stream=False)
+    
+    def _get_justification_answers(
+        self, 
+        reformulated_query: str, 
+        previous_answer: str
+    ) -> List[Tuple[str, str]]:
+        """
+        Query documents for additional justification and details based on previous answer.
+        
+        Args:
+            reformulated_query: The reformulated query
+            previous_answer: The initial answer to justify/expand
+            
+        Returns:
+            List of (doc_title, justification) tuples
+        """
+        justification_query = dedent(f"""
+        Based on the following query and initial answer, provide additional information, 
+        evidence, and justification from your content. Focus on:
+        1. Supporting evidence for claims made in the answer
+        2. Additional relevant details not covered
+        3. Any contradictory information or caveats
+        4. Specific data, quotes, or references
+        
+        **Original Query:**
+        {reformulated_query}
+        
+        **Initial Answer to Justify/Expand:**
+        {previous_answer}
+        
+        **Provide additional information and justification:**
+        """)
+        
+        mode = defaultdict(lambda: False)
+        mode["provide_detailed_answers"] = 3  # Higher detail for justification
+        
+        return self._query_docs_parallel(justification_query, mode)
+    
+    def __call__(
+        self,
+        query: str,
+        conversation_summary: str = None,
+        conversation_history: str = None
+    ):
+        """
+        Answer a query using multiple documents.
+        
+        This is the main entry point. It reformulates the query, queries all documents
+        in parallel, and synthesizes a final answer. If detail_level=1, performs a
+        second pass for additional justification.
+        
+        Args:
+            query: User's question or query
+            conversation_summary: Optional summary of conversation so far
+            conversation_history: Optional full conversation history text
+            
+        Yields:
+            Chunks of the answer as they are generated
+        """
+        # Step 1: Reformulate the query
+        yield "🔄 *Reformulating query for comprehensive search...*\n\n"
+        
+        reformulated_query = self._reformulate_query(
+            query, conversation_summary, conversation_history
+        )
+        
+        yield f"**Reformulated Query:**\n> {reformulated_query}\n\n"
+        yield "---\n\n"
+        
+        # Step 2: Query all documents in parallel
+        yield f"📚 *Querying {len(self.docs)} document(s)...*\n\n"
+        
+        doc_answers = self._query_docs_parallel(reformulated_query)
+        
+        yield f"✅ *Received answers from {len(doc_answers)} document(s)*\n\n"
+        yield "---\n\n"
+        
+        # Step 3: Generate initial synthesized answer
+        yield "🧠 *Synthesizing answer from all sources...*\n\n"
+        
+        initial_answer = self._generate_final_answer(
+            reformulated_query=reformulated_query,
+            doc_answers=doc_answers,
+            conversation_summary=conversation_summary,
+            conversation_history=conversation_history,
+            is_refinement=False
+        )
+        
+        # If detail_level is 0, we're done
+        if self.detail_level == 0:
+            yield "## Answer\n\n"
+            yield initial_answer
+            return
+        
+        # Step 4: For detail_level 1, do refinement pass
+        yield "## Initial Answer\n\n"
+        yield initial_answer
+        yield "\n\n---\n\n"
+        yield "🔍 *Gathering additional justification and details...*\n\n"
+        
+        # Query documents again for justification
+        justification_answers = self._get_justification_answers(
+            reformulated_query, initial_answer
+        )
+        
+        yield f"✅ *Received additional context from {len(justification_answers)} document(s)*\n\n"
+        yield "---\n\n"
+        
+        # Step 5: Generate refined final answer
+        yield "🎯 *Generating refined answer with additional justification...*\n\n"
+        
+        refined_answer = self._generate_final_answer(
+            reformulated_query=reformulated_query,
+            doc_answers=justification_answers,
+            conversation_summary=conversation_summary,
+            conversation_history=conversation_history,
+            previous_answer=initial_answer,
+            is_refinement=True
+        )
+        
+        yield "## Refined Answer (with Justification)\n\n"
+        yield refined_answer
+    
+    def answer_sync(
+        self,
+        query: str,
+        conversation_summary: str = None,
+        conversation_history: str = None
+    ) -> str:
+        """
+        Answer a query synchronously (non-streaming).
+        
+        Args:
+            query: User's question or query
+            conversation_summary: Optional summary of conversation so far
+            conversation_history: Optional full conversation history text
+            
+        Returns:
+            Complete answer as a single string
+        """
+        return "".join(self(query, conversation_summary, conversation_history))
 

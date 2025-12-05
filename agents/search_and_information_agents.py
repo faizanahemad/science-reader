@@ -1407,9 +1407,9 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
 
     
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        web_search_agent = WebSearchWithAgent(self.keys, VERY_CHEAP_LLM[0], max(self.detail_level - 1, 1), self.timeout)
-        perplexity_search_agent = PerplexitySearchAgent(self.keys, VERY_CHEAP_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
-        jina_search_agent = JinaSearchAgent(self.keys, VERY_CHEAP_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
+        web_search_agent = WebSearchWithAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout)
+        perplexity_search_agent = PerplexitySearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
+        jina_search_agent = JinaSearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
         
         web_search_results = get_async_future(self.extract_answer, web_search_agent.__call__, text, images, temperature, stream, max_tokens, system, web_search)
         perplexity_results = get_async_future(self.extract_answer, perplexity_search_agent.__call__, text, images, temperature, stream, max_tokens, system, web_search)

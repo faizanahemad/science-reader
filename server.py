@@ -1,3 +1,6 @@
+import os
+print(os.environ.get("openAIKey", "No API Key Found"))
+
 import tempfile
 from functools import wraps
 import ast

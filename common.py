@@ -30,8 +30,7 @@ from tenacity import RetryError
 from convert_markdown_to_pdf import convert_markdown_to_pdf
 
 USE_OPENAI_API = True
-SMALL_CHUNK_LEN = 386
-LARGE_CHUNK_LEN = 6144
+LARGE_CHUNK_LEN = 4096
 TOKEN_LIMIT_FOR_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_DETAILED", 13000))
 TOKEN_LIMIT_FOR_EXTRA_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_EXTRA_DETAILED", 25000))
 TOKEN_LIMIT_FOR_SUPER_DETAILED = int(os.getenv("TOKEN_LIMIT_FOR_SUPER_DETAILED", 50000))
@@ -55,7 +54,7 @@ SCIENCE_KEYS = [
 
 OPENROUTER_LLM = ["google/gemini-2.5-flash", "google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta",]
             
-VERY_CHEAP_LLM = ["google/gemini-2.5-flash", "google/gemini-2.5-flash-preview","google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
+VERY_CHEAP_LLM = ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-flash-preview","google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
 CHEAP_LLM = ["anthropic/claude-haiku-4.5", "gpt-4o", "openai/gpt-5-mini", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
 EXPENSIVE_LLM = ["anthropic/claude-sonnet-4.5","openai/gpt-5.1", "anthropic/claude-sonnet-4", "openai/gpt-5-chat", "gpt-5", "mistralai/mistral-large-2512",   "qwen/qwen3-coder-plus", "openai/gpt-5", "openai/gpt-5.1-chat", "gpt-5.1-codex", "google/gemini-3-pro-preview", "anthropic/claude-opus-4.5", "gpt-5.1"]
 UNUSED_EXPENSIVE_LLM =  ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
@@ -2977,28 +2976,97 @@ def fix_broken_json(broken_json: str) -> str:
         raise ValueError(f"Failed to fix JSON: {str(e)}")
 
 
-
-    
-
-    
-
-
+import inspect
+import linecache
+import threading
+import os
 
 
+def dump_stack(skip: int = 0, detailed: bool = False) -> str:
+    """
+    Return a string representation of the current stack.
 
+    Args:
+        skip (int): number of stack frames to skip from the top
+                    (e.g. skip=1 to hide this dump_stack frame itself).
+        detailed (bool): if False, each frame is one line (compact mode).
+                         if True, include source context and locals (verbose).
 
+    Returns:
+        str: multi-line string suitable for logging/printing.
+    """
+    lines = []
+    thread = threading.current_thread()
 
+    lines.append("=== STACK TRACE ===")
+    lines.append(f"Thread: name={thread.name!r}, ident={thread.ident}")
+    lines.append(f"Process PID: {os.getpid()}")
+    lines.append("")
 
+    stack = inspect.stack()
 
+    if not detailed:
+        # Compact / 1-line-per-frame mode
+        for i, frame_info in enumerate(stack[skip:], start=0):
+            filename = frame_info.filename
+            lineno = frame_info.lineno
+            function = frame_info.function
+            code_line = (
+                frame_info.code_context[0].strip()
+                if frame_info.code_context
+                else ""
+            )
+            lines.append(
+                f"#{i} {filename}:{lineno} in {function} -> {code_line}"
+            )
+        return "\n".join(lines)
 
+    # Detailed mode (original verbose behavior)
+    for i, frame_info in enumerate(stack[skip:], start=0):
+        frame = frame_info.frame
+        filename = frame_info.filename
+        lineno = frame_info.lineno
+        function = frame_info.function
+        code_context = frame_info.code_context[0].rstrip("\n") if frame_info.code_context else ""
+        locals_snapshot = frame.f_locals
 
+        lines.append(f"Frame #{i}:")
+        lines.append(f"  File: {filename}")
+        lines.append(f"  Line: {lineno}")
+        lines.append(f"  Function: {function}")
 
+        # surrounding source lines
+        context_before = 2
+        context_after = 2
+        start = max(1, lineno - context_before)
+        end = lineno + context_after
 
+        lines.append("  Source context:")
+        for lno in range(start, end + 1):
+            src_line = linecache.getline(filename, lno)
+            if not src_line:
+                continue
+            prefix = "->" if lno == lineno else "  "
+            lines.append(f"    {prefix} {lno:4d}: {src_line.rstrip()}")
 
+        if code_context:
+            lines.append(f"  Current line: {code_context}")
 
+        # local variables (limited)
+        lines.append("  Locals:")
+        max_locals = 20
+        for j, (k, v) in enumerate(locals_snapshot.items()):
+            if j >= max_locals:
+                lines.append("    ... (locals truncated)")
+                break
+            try:
+                repr_v = repr(v)
+            except Exception:
+                repr_v = "<unrepr-able>"
+            if len(repr_v) > 500:
+                repr_v = repr_v[:497] + "..."
+            lines.append(f"    {k} = {repr_v}")
 
+        lines.append("")
 
-
-
-
-
+    return "\n".join(lines)

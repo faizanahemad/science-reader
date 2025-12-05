@@ -2724,17 +2724,22 @@ Today's date is:
 
 Answer the user's query or message using the following information:
 
-{conversation_docs_answer}
-{doc_answer}
-{web_text}
-{link_result_text}
-{summary_text}
-{permanent_instructions}
-
 <|previous_messages|>
 {previous_messages}
 <|/previous_messages|>
 
+<|Conversation Summary|>
+{summary_text}
+<|/Conversation Summary|>
+
+{conversation_docs_answer}
+{doc_answer}
+{web_text}
+{link_result_text}
+
+<|More Instructions to follow|>
+{permanent_instructions}
+<|/More Instructions to follow|>
 
 The most recent message of the conversation sent by the user now to which we will be replying is given below.
 user's most recent message:
