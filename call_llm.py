@@ -327,7 +327,9 @@ Avoid writing code unless asked to or if needed explicitly.
             assert tok_count < 200_000, assertion_error_message
         elif "google/gemini-flash-1.5" in self.model_name or "google/gemini-flash-1.5-8b" in self.model_name or "google/gemini-pro-1.5" in self.model_name:
             assert tok_count < 400_000, assertion_error_message
-        elif "gemini" in self.model_name or "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
+        elif "gemini" in self.model_name:
+            assert tok_count < 500_000, assertion_error_message
+        elif "cohere/command-r-plus" in self.model_name or "llama-3.1" in self.model_name or "deepseek" in self.model_name or "jamba-1-5" in self.model_name:
             assert tok_count < 100_000
         elif "mistralai/pixtral-large-2411" in self.model_name or "mistralai/mistral-large-2411" in self.model_name:
             assert tok_count < 100_000, assertion_error_message

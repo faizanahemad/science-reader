@@ -2195,12 +2195,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             "permanentText"] + "\n") if "permanentText" in checkboxes and len(
             checkboxes["permanentText"].strip()) > 0 else ""
 
-        yield {"text": '', "status": "Getting planner response ..."}
-        planner_prompt = prompts.planner_checker_prompt.format(permanent_instructions=permanent_instructions, doc_details=self.doc_infos,
-                                              summary_text=summary, previous_messages=remove_code_blocks(previous_messages_very_short), context=remove_code_blocks(query["messageText"]))
-
-        st_planner = time.time()
-        time_dict["before_planner_time"] = time.time() - st
         checkboxes["need_diagram"] = checkboxes["draw"] if "draw" in checkboxes and bool(checkboxes["draw"]) else False
         checkboxes["code_execution"] = checkboxes["execute"] if "execute" in checkboxes and bool(checkboxes["execute"]) else False
         
@@ -2209,16 +2203,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             permanent_instructions += "User has requested to execute the code and write executable code which we can run.\n"
         if checkboxes["need_diagram"]:
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
-        if enable_planner:
-            # TODO: use gpt4o with planner. Don't execute code unless user has asked to explicitly execute code.
-            planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)(planner_prompt,
-                                                                                          temperature=0.2, stream=True)
-        elif checkboxes["googleScholar"] or checkboxes["perform_web_search"] or checkboxes["code_execution"] or checkboxes["need_diagram"]:
-            planner_text_gen = ""
-        else:
-            planner_text_gen = ""
-            # planner_text_gen = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)(planner_prompt, temperature=0.2, stream=True)
-
 
         google_scholar = checkboxes["googleScholar"]
         searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
@@ -2240,41 +2224,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         
         if science_sites_count > 1:
             preambles.append("Comparison")
-
-        tell_me_more = False
-        tell_me_more_msg_resp = None
-        previous_message_config = None
-        prev_attached_docs, prev_attached_docs_names = None, None
-        prev_attached_docs_data, prev_attached_docs_names_data = None, None
-        if "tell_me_more" in checkboxes and checkboxes["tell_me_more"]:
-            tell_me_more = True
-            query["messageText"] = query["messageText"] + "\n" + "Tell me more about what we discussed in our last message.\n"
-            enablePreviousMessages = max(2, 6 if enablePreviousMessages == "infinite" else int(enablePreviousMessages))
-            messages = self.get_field("messages")
-            if len(messages) >= 2:
-                last_message = messages[-1]
-                last_user_message = messages[-2]
-                assert "config" in last_message
-                previous_message_config = last_message["config"]
-                tell_me_more_msg_resp = "User:" + "\n'''" + last_user_message["text"] + "'''\nResponse:\n'''" + last_message["text"] + "'''\n"
-                query["links"].extend(previous_message_config["links"])
-                if "use_attached_docs" in previous_message_config and previous_message_config["use_attached_docs"]:
-                    mtext = " ".join(previous_message_config["attached_docs_names"]) if "attached_docs_names" in previous_message_config else ""
-                    mtext += " ".join(previous_message_config["attached_docs_names_data"]) if "attached_docs_names_data" in previous_message_config else ""
-                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": mtext}, False)
-                    _, _, _, (prev_attached_docs, prev_attached_docs_names), (prev_attached_docs_data, prev_attached_docs_names_data) = prev_attached_docs_future.result()
-                else:
-                    prev_attached_docs_future = get_async_future(self.get_uploaded_documents_for_query,
-                                                                 {"messageText": last_user_message["text"]}, False)
-                    _, _, _, (prev_attached_docs, prev_attached_docs_names), (prev_attached_docs_data, prev_attached_docs_names_data) = prev_attached_docs_future.result()
-                if "link_context" in previous_message_config:
-                    previous_message_config["link_context"] = "\n" + previous_message_config["link_context"]
-                if "perform_web_search" in previous_message_config and previous_message_config["perform_web_search"]:
-                    checkboxes["perform_web_search"] = True
-                    previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
-                if "googleScholar" in previous_message_config and previous_message_config["googleScholar"]:
-                    checkboxes["googleScholar"] = True
-                    previous_message_config["web_search_user_query"] = "\n" + previous_message_config["web_search_user_query"]
 
 
         
@@ -2462,8 +2411,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         yield {"text": '', "status": "Preamble got ..."}
         previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
         previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "<|/previous_context|>\n"
-        link_context = previous_context_and_preamble + query['messageText'] + (
-            previous_message_config["link_context"] if tell_me_more else '')
+        link_context = previous_context_and_preamble + query['messageText']
         if len(links) > 0:
             yield {"text": '', "status": "Reading your provided links."}
             link_future = get_async_future(read_over_multiple_links, links, [""] * len(links),
@@ -2478,55 +2426,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
         
         
-        planner_text = ''
-        for t in planner_text_gen:
-            yield {"text": '', "status": "Getting planner response by words ..."}
-            if len(planner_text.strip()) == 0:
-                time_dict["planner_first_word"] = time.time() - st
-                time_logger.info(f"Time to get first word of planner text = {time.time() - st_planner:.2f} seconds with full text as \n{t}")
-            planner_text += t
-            if "<planner>" in planner_text and "</planner>" in planner_text:
-                # use regex to get planner plan
-                # get planner text along with planner tags included in the result text.
-                time_dict["planner_full"] = time.time() - st
-                planner_text_full = planner_text
-                time_logger.info(f"Time to get planner text = {time.time() - st_planner:.2f} seconds with full text as \n{planner_text_full}")
-                planner_text = re.search(r'<planner>(.*?)</planner>', planner_text, re.DOTALL).group(1)
-                planner_text = "<planner>" + planner_text + "</planner>"
-                planner_dict = xml_to_dict(planner_text)
-
-                if "is_diagram_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["is_diagram_asked_explicitly"]):
-                    checkboxes["need_diagram"] = True
-                    if "diagram_type_asked" in planner_dict and (planner_dict["diagram_type_asked"].strip().lower() == "drawio" or planner_dict["diagram_type_asked"].strip().lower() == "mermaid"):
-                        preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
-                if "python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly"]):
-                    checkboxes["code_execution"] = True
-                    
-                    
-                if "web_search_asked_explicitly" in planner_dict and string_indicates_true(planner_dict["web_search_asked_explicitly"]) and len(links) == 0:
-                    checkboxes["perform_web_search"] = True
-                    if "web_search_queries" in planner_dict and len(planner_dict["web_search_queries"]) > 0:
-                        if "search" in query and isinstance(query["search"], list):
-                            query["search"].extend(planner_dict["web_search_queries"])
-                        else:
-                            query["search"] = planner_dict["web_search_queries"]
-                    if 'web_search_type' in planner_dict and planner_dict['web_search_type'].strip().lower() != "none" and planner_dict[
-                        'web_search_type'].strip().lower() != "" and planner_dict['web_search_type'] is not None and planner_dict[
-                        'web_search_type'].strip().lower() != "na":
-                        if planner_dict['web_search_type'].strip().lower() == "academic":
-                            checkboxes["googleScholar"] = True
-
-                if "read_uploaded_document" in planner_dict and string_indicates_true(planner_dict["read_uploaded_document"]):
-                    document_ids = planner_dict["documents_to_read"]
-                    query["messageText"] = query["messageText"] + "\n" + (" ".join(document_ids))
-                    time_logger.info(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
-                    print(f"Documents to read: {document_ids} and message text is \n\n{query['messageText']}\n\n")
-
-                break
-        et_planner = time.time()
-        yield {"text": '', "status": "Getting planner response ended ..."}
-        time_logger.info(
-            f"Planner Module Time to exec: {et_planner - st_planner: .2f} seconds, Planner text: \n{planner_text}\n and message text is \n\n{query['messageText']}\n\n")
         attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
         user_query = query['messageText']
         use_memory_pad = False
@@ -2560,17 +2459,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             create_tmp_marker_file(web_search_tmp_marker_name)
             time_dict["web_search_start"] = time.time() - st
             yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
-            message_config["web_search_user_query"] = user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '')
-            previous_turn_results = dict(queries=previous_message_config["web_search_queries"], links=previous_message_config["web_search_links_unread"]) if tell_me_more else None
+            message_config["web_search_user_query"] = user_query
             time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
-            web_results = get_async_future(web_search_queue, user_query + (previous_message_config["web_search_user_query"] if tell_me_more else ''), 'helpful ai assistant',
+            web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
                                            previous_context,
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results=previous_turn_results,
+                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results='',
                                            gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
             
             
             perplexity_agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=(10 if provide_detailed_answers >= 3 else 5) if provide_detailed_answers >= 2 else 3)
-            perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + (previous_message_config["web_search_user_query"] if tell_me_more else '') + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
+            perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
         if userData is not None:
             user_info_text = f"""Few details about the user and how they want us to respond to them:
@@ -2619,15 +2517,6 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
-        if prev_attached_docs is not None:
-            attached_docs.extend(prev_attached_docs)
-            attached_docs_names.extend(prev_attached_docs_names)
-            query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
-
-        if prev_attached_docs_data is not None:
-            attached_docs_data.extend(prev_attached_docs_data)
-            attached_docs_data_names.extend(prev_attached_docs_names_data)
-            query["messageText"] = query["messageText"] + "\n" + " ".join(attached_docs_names) + "\n"
         if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
             prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"]) if prior_chat_summary_future is None else prior_chat_summary_future
             message_lookback = min(4, message_lookback)
@@ -2663,7 +2552,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                     yield {"text": image_md, "status": "Reading your attached documents."}
             yield {"text": '', "status": "Reading your attached documents."}
             conversation_docs_future = get_async_future(get_multiple_answers,
-                                                        previous_context_and_preamble + query["messageText"] + (f"\nPreviously we talked about: \n'''{tell_me_more_msg_resp}'''\n" if tell_me_more and tell_me_more_msg_resp is not None else ''),
+                                                        previous_context_and_preamble + query["messageText"],
                                                         attached_docs,
                                                         summary if message_lookback >= 0 else '',
                                                         max(0, int(provide_detailed_answers)),

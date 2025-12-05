@@ -301,25 +301,7 @@ class CustomPrompts:
         # 4. Provide code in python if asked for code or implementation.
         # Use markdown formatting to typeset and format your answer better.
         
-        self.gpt4_prompts = dict(
-            short_streaming_answer_prompt=f"""Answer the question or query given below using the given context (text chunks of larger document) as a helpful reference. 
-Question or Query is given below.
-<|query|>
-{{query}}
-<|/query|>
-
-<|document|>
-Summary of the document is given below:
-
-{{full_summary}}
-Few text chunks from the document to answer the question below:
-'''{{fragment}}'''
-<|/document|>
-
-Provide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.
-
-Write informative, comprehensive and detailed answer below.
-""",        
+        self.gpt4_prompts = dict(       
 
             web_search_question_answering_prompt=f"""<task>Your role is to provide an answer to the user question incorporating the additional information you are provided within your response.</task>
 Question is given below:
@@ -934,12 +916,6 @@ Writing Instructions:
 
 
 
-    @property
-    def short_streaming_answer_prompt(self):
-        prompts = self.prompts
-        return prompts["short_streaming_answer_prompt"]
-
-
 
     @property
     def persist_current_turn_prompt(self):
@@ -1073,96 +1049,7 @@ If any pandas data files are given in input folder (our coding environment) then
         return rules
 
 
-    @property
-    def query_is_answered_by_search(self):
-        """"""
-        import datetime
-        date = datetime.datetime.now().strftime("%d %B %Y")
-        year = datetime.datetime.now().strftime("%Y")
-        month = datetime.datetime.now().strftime("%B")
-        day = datetime.datetime.now().strftime("%d")
-        import re
-
-        def parse_llm_output(llm_output):
-            # Initialize a dictionary to hold the parsed data
-            parsed_data = {
-                "thoughts": None,
-                "answered_already_by_previous_search": None,
-                "web_search_needed": None,
-                "web_search_queries": []
-            }
-
-            # Define regex patterns for extracting information
-            thoughts_pattern = r"<thoughts>(.*?)</thoughts>"
-            answered_already_pattern = r"<answered_already_by_previous_search>(.*?)</answered_already_by_previous_search>"
-            web_search_needed_pattern = r"<web_search_needed>(.*?)</web_search_needed>"
-            web_search_queries_pattern = r"<query>(.*?)</query>"
-
-            # Extract information using regex
-            thoughts_match = re.search(thoughts_pattern, llm_output, re.DOTALL)
-            answered_already_match = re.search(answered_already_pattern, llm_output, re.DOTALL)
-            web_search_needed_match = re.search(web_search_needed_pattern, llm_output, re.DOTALL)
-            web_search_queries_matches = re.findall(web_search_queries_pattern, llm_output, re.DOTALL)
-
-            # Update the dictionary with the extracted information
-            if thoughts_match:
-                parsed_data["thoughts"] = thoughts_match.group(1).strip()
-            if answered_already_match:
-                parsed_data["answered_already_by_previous_search"] = answered_already_match.group(
-                    1).strip().lower() == "yes"
-            if web_search_needed_match:
-                parsed_data["web_search_needed"] = web_search_needed_match.group(1).strip().lower() == "yes"
-            if web_search_queries_matches:
-                parsed_data["web_search_queries"] = [query.strip() for query in web_search_queries_matches]
-
-            return parsed_data
-
-        prompt = f"""You are an expert AI system which determines whether our search results are useful and can answer a user query or not. If our search results can't answer the user query satisfactorily then you will decide if we need to do more web search and write two new web search queries for performing search again.
-If our search results answer the query nicely and satisfactorily then <answered_already_by_previous_search> will be yes. If our search queries are sensible and work well to represent what should be searched then <answered_already_by_previous_search> will be yes. 
-Usually our searches work well and we don't need to do more web search and <web_search_needed> will be no. Decide to do further web search only if absolutely needed and if our queries are not related or useful for user message. Mostly put <web_search_needed> as no.
-{self.date_string} 
-
-Previous web search queries are given below (empty if no web search done previously):
-'''{{previous_web_search_queries}}'''
-
-Previous web search results are given below (empty if no web search done previously):
-'''{{previous_web_search_results}}'''
-
-Previous web search results text is given below:
-'''{{previous_web_search_results_text}}'''
-
-Conversation context:
-'''{{context}}'''
-
-Current user message is given below: 
-'''{{query}}'''
-
-# Note: You can use the current date ({date}) and year ({year}) in the web search queries that you write. If our search queries are sensible and correct for user message and work well to represent what should be searched then <answered_already_by_previous_search> will be yes and <web_search_needed> will be no.
-
-Output Template for our decision planner xml is given below.
-<planner>
-    <thoughts>Your thoughts in short on whether the previous web search queries and previous web search results are sufficient to answer the user message written shortly.</thoughts>
-    <answered_already_by_previous_search>no</answered_already_by_previous_search>
-    <web_search_needed>yes/no</web_search_needed>
-    <web_search_queries>
-        <query>web search query 1</query>
-        <query>web search query 2 with year ({year}) or date ({date}) if needed</query>
-    </web_search_queries>
-</planner>
-
-<web_search_queries> will be empty if no web search is needed, and not needed in the planner xml at all.
-
-planner xml template if the user query is already answered by previous search:
-<planner>
-    <thoughts>Your thoughts on how the web search queries and previous web search results are sufficient to answer the user message.</thoughts>
-    <answered_already_by_previous_search>yes</answered_already_by_previous_search>
-    <web_search_needed>no</web_search_needed>
-    <web_search_queries></web_search_queries>
-</planner>
-
-Write your output decision in the above planner xml format.
-"""
-        return prompt, parse_llm_output
+    
 
     @property
     def date_string(self):
@@ -1178,82 +1065,6 @@ Write your output decision in the above planner xml format.
         return f"The current date is '{date}', year is {year}, month is {month}, day is {day}. It is a {weekday_name}. The current time is {time}."
 
     
-    @property
-    def planner_checker_prompt(self):
-        
-        web_search_prompt = f"""You are an expert AI assistant who decides what plan to follow to best answer to a user's message and then answers the user's message if needed by themselves. You are able to determine which functions to call (function calling and tool usage) and what plan to use to best answer a query and help an user.
-{self.date_string}
-
-Now based on given user message and conversation context we need to decide a plan of execution to best answer the user's query in the planner xml format given below.
-
-Your output should look be a valid xml tree with our plan of execution like below example format.
-<planner>
-    <is_diagram_asked_explicitly>yes/no</is_diagram_asked_explicitly>
-    <diagram_type_asked>drawio/mermaid/matplotlib/other_python_library/none</diagram_type_asked>
-    <python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>
-    <web_search_asked_explicitly>yes/no</web_search_asked_explicitly>
-    <web_search_type>general/academic</web_search_type>
-    <web_search_queries>
-        <query>diverse google search query based on given document</query>
-        <query>search engine optimised query based on the question and conversation</query>
-    </web_search_queries>
-    <read_uploaded_document>yes/no</read_uploaded_document>
-    <documents_to_read>
-        <document_id>#doc_2</document_id>
-        <document_id>#doc_3</document_id>
-        <document_id>#doc_3</document_id>
-    </documents_to_read>
-</planner>
-
-<document_search_queries> will be empty if no documents are uploaded or no documents need to be read.
-<web_search_queries> will be empty if no web search is needed.
-web_search will be yes if user has asked for web search explicitly.
-Web search type can be general or academic. If the question is looking for general information then choose general web search type. If the question is looking for academic or research papers then choose academic as web search type.
-Generate 2 well specified and diverse web search queries if web search is needed. 
-
-{{permanent_instructions}}
-
-
-Previous User Messages:
-'''{{previous_messages}}'''
-
-If we have any documents uploaded then you will be given the document id, title and context so that you can decide if we need to read the document or not.
-Document Number can be derived from the document id as #doc_<number> . Docs uploaded later (most recent) in conversation are given higher doc numbers.
-Usually if we ask do something with a document (without the document id) then we need to read the most recent document.
-For example, if we ask something like "Summarize the document" and we have 3 documents uploaded as #doc_1, #doc_2, #doc_3 then we need to read #doc_3.
-Another example, if we ask something like "Tell me about their methods" and we have 3 scientific documents uploaded as #doc_2, #doc_3, #doc_4 then we need to read #doc_4.
-On the other hand, if we ask questions like "Compare their methods" and we have 3 scientific documents uploaded as #doc_1, #doc_2, #doc_3 then we need to read #doc_1, #doc_2, #doc_3 (all documents).
-
-Available Document Details (empty if no documents are uploaded, for read_uploaded_document is
-'''{{doc_details}}'''
-
-Conversation context and summary:
-'''{{summary_text}}'''
-
-
-Current user message: 
-'''{{context}}'''
-
-Your answer should be a valid xml tree with our reasons and decisions in below example format.
-
-<planner>
-    <is_diagram_asked_explicitly>yes/no</is_diagram_asked_explicitly>
-    <python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>yes/no</python_code_execution_or_data_analysis_or_matplotlib_asked_explicitly>
-    <web_search_asked_explicitly>yes/no</web_search_asked_explicitly>
-    <web_search_type>general/academic</web_search_type>
-    <web_search_queries>
-        <query>diverse google search query based on given document</query>
-        <query>search engine optimised query based on the question and conversation</query>
-    </web_search_queries>
-    <read_uploaded_document>yes/no</read_uploaded_document>
-    <documents_to_read>
-        <document_id>#doc_<number></document_id>
-    </documents_to_read>
-</planner>
-
-Valid xml planner tree with our reasons and decisions:
-"""
-        return web_search_prompt
 
     
     @property

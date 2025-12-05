@@ -1445,13 +1445,6 @@ class DocIndex:
         random_identifier = str(uuid.uuid4())
         yield ""
 
-
-    @property
-    def short_streaming_answer_prompt(self):
-        return prompts.short_streaming_answer_prompt
-
-
-
     def semantic_search_document_small(self, query, token_limit=4096):
         st_time = time.time()
         tex_len = self.text_len
@@ -1555,13 +1548,13 @@ class DocIndex:
         <|/Query and Conversation Summary|>
 
         Your task is to:
-        1. Critically evaluate what the document LACKS in addressing this query
+        1. Critically evaluate what the document LACKS in addressing this query, justifying with facts, numbers and evidence from the document.
         2. Point out any inconsistencies, contradictions, or unclear explanations
         3. Identify missing information, data, or evidence that would be needed for a complete answer
-        4. Suggest what additional sources, research, or information would be required
+        4. Suggest what additional sources, research, or information would be required. Present the facts, numbers and evidence from the document that can help.
         5. Highlight any biases, assumptions, or methodological flaws in the document
-        6. Provide constructive criticism on how the document could be improved to better address the query
-        7. Then write an answer for the question using the document as reference despite the limitations and gaps identified.
+        6. Provide constructive criticism on how the document could be improved to better address the query. What facts, numbers and evidence from the document can be improved or further explored to answer the query.
+        7. Then write an answer for the question (with facts and anecdotes from the document) using the document as reference despite the limitations and gaps identified.
         8. Write in short and concise manner.
 
         Write a {'detailed and comprehensive ' if detail_level >= 3 else ''}critical analysis focusing on limitations and gaps rather than what the document does well.
@@ -1571,21 +1564,6 @@ class DocIndex:
 
 
         tex_len = self.text_len
-        if (detail_level >= 3 or tex_len > 48000) and self.raw_index is not None:
-            raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, 32_000//self.chunk_size))[1:]
-            raw_text = "\n\n".join([n.page_content for n in raw_nodes])
-            if (detail_level >= 4 or len(raw_nodes) == 0) and self.raw_index_small is not None:
-                small_raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff,
-                                                                          12_000 // self.chunk_size))
-                small_raw_text = "\n\n".join([n.page_content for n in small_raw_nodes])
-                raw_text += "\n\n" + small_raw_text
-
-            prompt = self.short_streaming_answer_prompt.format(query=query, fragment=self.brief_summary + raw_text, full_summary=self.get_doc_long_summary_v2() + "\n---\n" + self.get_doc_long_summary())
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0] if detail_level >= 3 else CHEAP_LLM[0],
-                          use_gpt4=True,
-                          use_16k=True)
-            additional_info = get_async_future(llm, prompt, temperature=0.8)
-
         answer = sleep_and_get_future_result(answer) if sleep_and_get_future_exception(answer) is None else ""
         answer, _ = answer
         answer_sceptical = sleep_and_get_future_result(answer_sceptical) if sleep_and_get_future_exception(answer_sceptical) is None else ""
@@ -1596,13 +1574,6 @@ class DocIndex:
         len_answer = len(re.findall(r'\S+', answer))
         for t in answer:
             yield t
-        if additional_info is not None:
-            additional_info = sleep_and_get_future_result(additional_info) if additional_info.exception() is None else ""
-            additional_info = remove_bad_whitespaces(additional_info)
-            logger.info(f"streaming_get_short_answer:: Answered by {(time.time()-ent_time):4f}s for additional info with additional_info_len = {len(additional_info.split())}")
-            for t in additional_info:
-                answer += t
-                yield t
         logger.info(f"[DocIndex] [streaming_get_short_answer] final_result len = {len(answer.split())} words.")
         yield ""
 

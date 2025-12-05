@@ -221,7 +221,7 @@ Only provide answer from the document given above.
         #                           get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
         #                           )
 
-        cheap_llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0])
+        cheap_llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[1])
         result = cheap_llm(prompt, temperature=0.4, stream=False)
         
         
@@ -2855,12 +2855,14 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
         if provide_detailed_answers >= 4 and len(additional_docs) > 1:
             stage_1_answers = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]
             joined_answers = "\n\n".join(stage_1_answers)
-            query_string = query_string + f"\n\nStage 1 Answers from multiple documents:\n{joined_answers}\n\nNow based on these answers, we want to refine the answer from this document and provide a more comprehensive answer which compares and contrasts the answers from the multiple documents to add more context.\n\n"
+            query_string = query_string + f"\n\nStage 1 Answers from multiple documents:\n```\n{joined_answers}\n```\n\nNow based on these answers, we want to refine the answer from this document and compare and contrast this answer with the answers from the multiple documents to add more context and comparative analysis. Comparison with Answers from multiple documents is needed.\n\n"
             futures = [pdf_process_executor.submit(doc.get_short_answer, query_string,
                                                    defaultdict(lambda: provide_detailed_answers, {
                                                        "provide_detailed_answers": 2}),
                                                    False) for doc in additional_docs]
             answers_stage_2 = [sleep_and_get_future_result(future) for future in futures]
+            
+            joined_answers_stage_2 = "\n\n".join(answers_stage_2)
             answers_stage_2 = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in
                        zip(answers_stage_2, additional_docs)]
             answers = [{"link": doc.doc_source, "title": doc.title, "text": a1["text"] + "\n" + a2["text"]} for a1, a2, doc in zip(answers, answers_stage_2, additional_docs)]
