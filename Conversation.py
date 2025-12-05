@@ -2237,6 +2237,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                           l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
         attached_docs = re.findall(r'#doc_\d+', query['messageText'])
+        all_docs_referenced = "#doc_all" in query['messageText'] or "#all_docs" in query['messageText'] or "#all_doc" in query['messageText']
         
         # if any of the patterns are present in query['messageText'], then set links to [], don't process links
         if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText'] or "no_link_processing" in query['messageText'] or "no_link_parsing" in query['messageText']  or "no_links_parsing" in query['messageText'] or "parse_no_links" in query['messageText'] or "parse_no_link" in query['messageText'] or "avoid_links_processing" in query['messageText'] or "avoid_link_parsing" in query['messageText'] or "avoid_link_processing" in query['messageText']:
@@ -2426,7 +2427,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
         
         
-        attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
+        
+
+        if all_docs_referenced:
+            all_docs = self.get_uploaded_documents()
+            all_doc_ids = ["#doc_{}".format(idx+1) for idx, d in enumerate(all_docs)]
+            attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": " ".join(all_doc_ids)})
+        else:
+            attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
+
         user_query = query['messageText']
         use_memory_pad = False
         if "memory pad" in user_query or "memory_pad" in user_query or ("use_memory_pad" in checkboxes and checkboxes["use_memory_pad"]):
@@ -2510,8 +2519,12 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         link_result_text = ''
         full_doc_texts = {}
 
-        query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
-            attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
+        if all_docs_referenced:
+            _, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
+                attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
+        else:
+            query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
+                attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
         attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
 
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
