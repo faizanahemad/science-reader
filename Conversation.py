@@ -807,8 +807,12 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                 if result and result.strip() and "No relevant information" not in result:
                     extraction_results.append((window_idx, result.strip()))
             except Exception as e:
-                error_logger.error(f"Error extracting context from window {window_idx}: {e}")
+                error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
                 error_logger.error(f"Execution trace: {future.execution_trace}")
+                print(f"model_name = {llm.model_name}, future.execution_trace = \n\n{future.execution_trace}")
+                print(llm.model_name)
+                print(llm.keys)
+                print(f"type prompt = {type(prompt)}, type system = {type(system)}")
                 continue
         
         # Sort by window index to maintain chronological order
