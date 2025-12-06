@@ -61,16 +61,19 @@ def is_dillable(obj):
 
 executor = ThreadPoolExecutor(max_workers=256)
 
-def make_async(fn):
+def make_async(fn, execution_trace=""):
     def async_fn(*args, **kwargs):
         func_part = partial(fn, *args, **kwargs)
         future = executor.submit(func_part)
+        setattr(future, "execution_trace", execution_trace)
         return future
     return async_fn
 
 def get_async_future(fn, *args, **kwargs):
+    import traceback
+    execution_trace = traceback.format_exc()
     # Make your function async
-    afn = make_async(fn)
+    afn = make_async(fn, execution_trace)
     # This will return a Future object, you can call .result() on it to get the result
     future = afn(*args, **kwargs)
     return future

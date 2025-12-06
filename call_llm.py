@@ -4,6 +4,7 @@ import string
 import uuid
 from datetime import datetime
 from uuid import uuid4
+import dill
 
 import pandas as pd
 from copy import deepcopy, copy
@@ -209,6 +210,19 @@ def call_chat_model_original(model, text, images, temperature, system, keys):
             
     except Exception as e:
         logger.error(f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}")
+        # Save function parameters to JSON for debugging/replay
+        error_data = {
+            "model": model,
+            "text": text,
+            "images": images,
+            "temperature": temperature,
+            "system": system,
+            "keys": keys,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+        with open("error.json", "w") as f:
+            json.dump(error_data, f, indent=2)
         traceback.print_exc()
         raise e
 
@@ -672,3 +686,72 @@ Would you like me to dive deeper into any specific area, such as the mathematics
                 
         else:
             yield mock_response
+
+
+def test_error_replay(error_file: str = "error.json"):
+    """
+    Reads the error.json file saved during a failed call to call_chat_model_original
+    and replays the call with the same parameters. This is useful for debugging
+    errors that occurred during LLM calls.
+    
+    Args:
+        error_file: Path to the error JSON file (default: "error.json")
+    
+    Returns:
+        The full response text from the replayed call, or None if the file doesn't exist.
+    
+    Purpose:
+        This function allows developers to reproduce and debug failed LLM calls
+        by replaying them with the exact same parameters that caused the error.
+    """
+    if not os.path.exists(error_file):
+        logger.error(f"[test_error_replay]: Error file '{error_file}' not found")
+        print(f"Error file '{error_file}' not found. Run call_chat_model_original first to generate an error.")
+        return None
+    
+    with open(error_file, "r") as f:
+        error_data = json.load(f)
+    
+    print(f"Replaying error from: {error_data.get('timestamp', 'unknown')}")
+    print(f"Original error: {error_data.get('error', 'unknown')}")
+    print(f"Model: {error_data['model']}")
+    print(f"Text length: {len(error_data['text'])} chars")
+    print(f"Number of images: {len(error_data['images'])}")
+    print("-" * 50)
+    
+    # Extract parameters for the call
+    model = error_data["model"]
+    text = error_data["text"]
+    images = error_data["images"]
+    temperature = error_data["temperature"]
+    system = error_data["system"]
+    keys = error_data["keys"]
+    
+    # Call the function and collect the streamed response
+    full_response = ""
+    try:
+        for chunk in call_chat_model_original(model, text, images, temperature, system, keys):
+            print(chunk, end="", flush=True)
+            full_response += chunk
+        print("\n" + "-" * 50)
+        print("Replay completed successfully!")
+        return full_response
+    except Exception as e:
+        print(f"\n\nReplay failed with error: {e}")
+        traceback.print_exc()
+        return None
+
+
+if __name__ == "__main__":
+    import sys
+    
+    # Default to error.json, but allow passing a custom file path as argument
+    error_file = sys.argv[1] if len(sys.argv) > 1 else "error.json"
+    
+    print(f"Testing error replay with file: {error_file}")
+    print("=" * 50)
+    
+    result = test_error_replay(error_file)
+    
+    if result:
+        print(f"\nTotal response length: {len(result)} chars")

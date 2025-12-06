@@ -2429,7 +2429,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         message_config["searches"] = searches
         original_user_query = user_query
 
-
         message_config["perform_web_search"] = perform_web_search
         perform_web_search = perform_web_search and FILLER_MODEL not in model_name
         message_config["links"] = query['links']
@@ -2438,6 +2437,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         web_search_tmp_marker_name = None
         perplexity_results_future = None
+
+        yield {"text": '', "status": "Performing web search if asked by user ..."}
         if google_scholar or perform_web_search:
             web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
             create_tmp_marker_file(web_search_tmp_marker_name)
@@ -2505,8 +2506,11 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         preamble, _ = self.get_preamble(preambles,
                                      checkboxes["field"] if "field" in checkboxes else None,
                                      False, prefix='', ppt_answer=False)
+        yield {"text": '', "status": "Preamble got ..."}
 
+        yield {"text": '', "status": "Getting coding rules ..."}
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
+        yield {"text": '', "status": "Coding rules got ..."}
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
         if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) == 1 and len(
@@ -2550,6 +2554,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         doc_answer = ''
 
         web_text = ''
+        yield {"text": '', "status": "Getting web text if asked by user ..."}
 
 
 
@@ -2603,11 +2608,14 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 yield {"text": 'document reading failed', "status": "document reading failed"}
                 time.sleep(3.0)
 
+        yield {"text": '', "status": "Prior context extraction started ..."}
         prior_context = prior_context_future.result()
+        yield {"text": '', "status": "Prior context extraction done ..."}
         previous_messages = prior_context["previous_messages"]
         previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
+        yield {"text": '', "status": "Prior context got ..."}
         prior_context_llm_based = prior_context_llm_based_future.result()
         prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
         yield {"text": '', "status": "Prior context LLM based extraction done with len = " + str(len(prior_context_llm_based_context.split())) + " tokens ..."}
@@ -2797,6 +2805,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
                 get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
                 return
 
+        yield {"text": "", "status": "Web search finally done ... "}
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
         if (len(links)==1 and len(attached_docs) == 0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
