@@ -738,12 +738,11 @@ Compact list of bullet points:
         system = dedent(f"""
         You are an assistant that extracts relevant information from conversation messages to help answer a user query.
         You will write in compact bullet points.
-        You will include specific details like numbers, names, dates, code references, technical terms.
-        You will capture user preferences, constraints, and requirements mentioned.
-        You will note any decisions made or conclusions reached in the conversation.
+        You will include specific details like numbers, names, dates, code references, technical terms, etc.
         You will focus on actual information extraction in bullet points format by writing in a very short and concise manner.
         You will be brief and concise. Exact facts and numbers.
         Be short, brief and concise.
+        If the messages contain nothing relevant to the query, write "No relevant information in this segment."
         """)
         extraction_prompt_template = """You are an assistant that extracts relevant information from conversation messages to help answer a user query.
 
@@ -808,15 +807,17 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                 result = sleep_and_get_future_result(future, timeout=120)
                 if result and result.strip() and "No relevant information" not in result:
                     extraction_results.append((window_idx, result.strip()))
+                    time_logger.info(f"Extracted context from window {window_idx + 1} of {len(message_windows)}, with len = {len(result.strip().split())} tokens and dtype = {type(result.strip())}")
                     success_and_failed_windows.append((window_idx, True, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
             except Exception as e:
                 error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
-                
+                time_logger.info(f"Error extracting context from window {window_idx + 1} of {len(message_windows)}, with error = {e}")
                 
                 success_and_failed_windows.append((window_idx, False, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
                 continue
         
         
+        time_logger.info(f"Time taken to extract context = {time.time() - st:.2f} seconds")
         time_logger.info(f"Success and failed windows = {json.dumps(success_and_failed_windows, indent=4)}")
         # Sort by window index to maintain chronological order
         extraction_results.sort(key=lambda x: x[0])
