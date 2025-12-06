@@ -795,6 +795,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             # Fire async LLM call
             llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[2],  use_gpt4=False, use_16k=False)
             future = get_async_future(llm, prompt, temperature=0.2, system=system,stream=False)
+            time_logger.info(f"Prompt length = {get_gpt4_word_count(prompt)} tokens and dtype = {type(prompt)}, model_name = {llm.model_name}, system type = {type(system)}")
             extraction_futures.append((window_idx, future))
         
         # Collect results in order
@@ -3114,6 +3115,7 @@ At the end write what we must make slides about as well.
                     main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
                     main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
                 else:
+                    model_name = model_name[0] if isinstance(model_name, (list, tuple)) else model_name
                     if "Debug LLM" in preambles:
                         llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
                     else:
