@@ -689,8 +689,8 @@ const DoubtManager = {
                     }
                     
                     // Scroll to bottom
-                    const messagesContainer = $('#doubt-chat-messages');
-                    messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                    // const messagesContainer = $('#doubt-chat-messages');
+                    // messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
                     
                     return;
                 }
@@ -808,8 +808,8 @@ const DoubtManager = {
                         }
                         
                         // Scroll to bottom after completion
-                        const messagesContainer = $('#doubt-chat-messages');
-                        messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                        // const messagesContainer = $('#doubt-chat-messages');
+                        // messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
                         
                         return;
                     }
