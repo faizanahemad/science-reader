@@ -807,12 +807,12 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                 result = sleep_and_get_future_result(future, timeout=120)
                 if result and result.strip() and "No relevant information" not in result:
                     extraction_results.append((window_idx, result.strip()))
-                    success_and_failed_windows.append((window_idx, True))
+                    success_and_failed_windows.append((window_idx, True, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
             except Exception as e:
                 error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
                 
-                error_logger.error(f"model_name = {llm.model_name}, future.execution_trace = \n\n{future.execution_trace if hasattr(future, 'execution_trace') else 'No execution trace'}\n\n, keys = {llm.keys}")
-                success_and_failed_windows.append((window_idx, False))
+                
+                success_and_failed_windows.append((window_idx, False, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
                 continue
         
         
