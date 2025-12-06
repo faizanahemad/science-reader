@@ -695,13 +695,42 @@ Compact list of bullet points:
             )
         
         # Create non-overlapping windows of 3 messages (stride=3, window=3)
-        window_size = 3
-        stride = 3
+        # Create non-overlapping windows with variable sizes
+        # Recent messages (end of array) use smaller windows (3)
+        # Older messages (beginning of array) use larger windows (5, then 4)
         message_windows = []
-        for i in range(0, len(messages), stride):
+        i = 0
+        
+        temp_messages = messages.copy()
+        messages = messages[:-2]
+        while i < len(messages):
+            # Determine window size and stride based on position from the end
+            remaining_messages = len(messages) - i
+            
+            if remaining_messages <= 6:  # Last 6 messages: use window_size=3, stride=3
+                window_size = 3
+                stride = 3
+            elif remaining_messages <= 14:  # Next 8 messages: use window_size=4, stride=4
+                window_size = 4
+                stride = 4
+            else:  # Earlier messages: use window_size=5, stride=5
+                window_size = 5
+                stride = 5
+            
             window = messages[i:i + window_size]
             if len(window) > 0:  # Include even partial windows at the end
                 message_windows.append(window)
+            
+            i += stride
+        
+        # If the last window has only one message, merge it with the previous window
+        if len(message_windows) > 1 and len(message_windows[-1]) == 1:
+            # Merge the last single message into the previous window
+            message_windows[-2].extend(message_windows[-1])
+            # Remove the last window
+            message_windows.pop()
+
+        messages = temp_messages
         
         # Prompt template for extracting relevant context from a message window
         time_logger.info(f"Creating extraction prompt template")
