@@ -1784,66 +1784,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         query["messageText"] = restore_code_blocks(messageText, code_blocks)
         return query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (attached_docs_data, attached_docs_data_names)
 
-    def get_prior_messages_summary(self, query:str)->str:
-        summary_lookback = 12
-        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
-        memory, messages = [f.result() for f in futures]
-        previous_messages = messages[-16:]
-        previous_messages = [{"sender": m["sender"],"text": extract_user_answer(m["text"])} for m in previous_messages]
-        if len(previous_messages) < 2:
-            return ""
-        prev_msg_text = []
-        for m in reversed(previous_messages):
-            prev_msg_text.append(f"{m['sender']}:\n'''{m['text']}'''")
-            if get_gpt3_word_count("\n\n".join(prev_msg_text)) > 96000:
-                break
-        previous_messages = "\n\n".join(reversed(prev_msg_text))
-        running_summary = self.running_summary
-
-        if memory is not None and len(memory["running_summary"]) > 4:
-            summary_nodes = memory["running_summary"][-4:-3]
-        else:
-            summary_nodes = []
-
-        summary_nodes = summary_nodes + [running_summary]
-        summary_text = []
-        for s in reversed(summary_nodes):
-            summary_text.append(s)
-            if get_gpt3_word_count("\n\n".join(summary_text)) > 12_000:
-                break
-        summary_nodes = "\n".join(reversed(summary_text))
-        system = f"""You are given conversation details between a user and assistant. 
-You will perform useful information retrieval only based on user query.
-Extract revelant information from past messages and summary which are relevant to the current user query. 
-For code, tables and other information which involves formatting extract them verbatim and just copy paste from the previous conversation messages.
-Only extract relevant information, instruction, code and facts which are relevant to the current user query. 
-Don't provide answer to the user query, just remember to extract information from the conversation.
-"""
-        prompt = f"""You are given conversation details between a user and assistant. 
-You will perform useful information retrieval only based on user query.
-Extract revelant information from past messages and summary which are relevant to the current user query. 
-For code and other information which involves formatting extract them verbatim and just copy paste from the previous conversation messages.
-Only extract relevant information, instruction, code and facts which are relevant to the current user query. Don't answer the user query, only extract information from previous messages.
-
-The current user query is as follows:
-'''{query}'''
-
-Extract relevant information that might be useful in answering the above user query from the following conversation messages:
-'''{previous_messages}'''
-
-The summary of the conversation is as follows:
-'''{summary_nodes}'''
-
-Now lets extract relevant information for answering the current user query from the above conversation messages and summary. 
-For certain type of information, like code, tables, equations, etc, extract them verbatim and paste it below if they are relevant to the user query.
-Extract information in a concise and short manner suitable for a recap.
-Write the useful information extracted from the above conversation messages and summary below in a brief, concise and short manner:
-"""
-        final_information = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False,
-                                use_16k=False)(prompt, system=system, temperature=0.2, stream=False)
-        # We return a string
-        final_information = " ".join(final_information.split()[:4000])
-        return final_information
+    
     @property
     def max_time_to_wait_for_web_results(self):
         return MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
@@ -2560,9 +2501,6 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
-        if (google_scholar or perform_web_search or len(links) > 0 or len(attached_docs) > 0 or provide_detailed_answers >=3) and message_lookback >= 1 and provide_detailed_answers >=3 and len(past_message_ids) == 0:
-            prior_chat_summary_future = get_async_future(self.get_prior_messages_summary, query["messageText"]) if prior_chat_summary_future is None else prior_chat_summary_future
-            message_lookback = min(4, message_lookback)
         if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) == 1 and len(
             searches) == 0):
             provide_detailed_answers = 2
@@ -2899,17 +2837,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
             return
         yield {"text": '', "status": "getting previous context"}
-        prior_chat_summary = ""
-        wt_prior_ctx = time.time()
         summary_text = summary_text_init
-        while time.time() - wt_prior_ctx < 20 and prior_chat_summary_future is not None:
-            if prior_chat_summary_future.done() and not prior_chat_summary_future.exception():
-                prior_chat_summary = prior_chat_summary_future.result()
-                summary_text = prior_chat_summary + "\n" + summary_text
-                break
-            if prior_chat_summary_future.exception() is not None:
-                break
-            time.sleep(0.5)
         time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
 
 
@@ -3148,7 +3076,7 @@ At the end write what we must make slides about as well.
             yield {"text": "\n", "status": "reward evaluation complete"}
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
-            f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, llm extracted prior chat info len: {len(enc.encode(prior_chat_summary))}, summary text length: {len(enc.encode(summary_text))}, 
+            f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
         last few messages length: {len(enc.encode(previous_messages))}, doc answer length: {len(enc.encode(doc_answer))}, 
         conversation_docs_answer length: {len(enc.encode(conversation_docs_answer))},  
         web text length: {len(enc.encode(web_text))}, 
