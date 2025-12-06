@@ -743,6 +743,7 @@ Compact list of bullet points:
         You will note any decisions made or conclusions reached in the conversation.
         You will focus on actual information extraction in bullet points format by writing in a very short and concise manner.
         You will be brief and concise. Exact facts and numbers.
+        Be short, brief and concise.
         """)
         extraction_prompt_template = """You are an assistant that extracts relevant information from conversation messages to help answer a user query.
 
@@ -770,7 +771,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
 - Note any decisions made or conclusions reached in the conversation.
 - If the messages contain nothing relevant to the query, write "No relevant information in this segment."
 - Focus on actual information extraction in bullet points format by writing in a very short and concise manner.
-- Be brief and concise.
+- Be short, brief and concise.
 
 ## Extracted Information (bullet points):
 """
@@ -793,7 +794,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             )
             
             # Fire async LLM call
-            llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0],  use_gpt4=False, use_16k=False)
+            llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[2],  use_gpt4=False, use_16k=False)
             future = get_async_future(llm, prompt, temperature=0.2, system=system,stream=False)
             time_logger.info(f"Prompt length = {get_gpt4_word_count(prompt)} tokens and dtype = {type(prompt)}, model_name = {llm.model_name}, system type = {type(system)}")
             extraction_futures.append((window_idx, future))
