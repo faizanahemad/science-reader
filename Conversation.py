@@ -29,7 +29,7 @@ pd.set_option('max_colwidth', 800)
 pd.set_option('display.max_columns', 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.ERROR, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
 import time
 import traceback
 from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
@@ -801,17 +801,22 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
         # Collect results in order
         time_logger.info(f"Collecting results in order for {len(extraction_futures)} async futures")
         extraction_results = []
+        success_and_failed_windows = []
         for window_idx, future in extraction_futures:
             try:
                 result = sleep_and_get_future_result(future, timeout=120)
                 if result and result.strip() and "No relevant information" not in result:
                     extraction_results.append((window_idx, result.strip()))
+                    success_and_failed_windows.append((window_idx, True))
             except Exception as e:
                 error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
                 
                 error_logger.error(f"model_name = {llm.model_name}, future.execution_trace = \n\n{future.execution_trace if hasattr(future, 'execution_trace') else 'No execution trace'}\n\n, keys = {llm.keys}")
+                success_and_failed_windows.append((window_idx, False))
                 continue
         
+        
+        time_logger.info(f"Success and failed windows = {success_and_failed_windows}")
         # Sort by window index to maintain chronological order
         extraction_results.sort(key=lambda x: x[0])
         
@@ -2840,7 +2845,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             return
         yield {"text": '', "status": "getting previous context"}
         summary_text = summary_text_init
-        time_logger.info(f"Time to wait for prior context with 16K LLM: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
+        time_logger.info(f"Time to wait from start time to wait = {(time.time() - st):.2f}")
 
 
 
