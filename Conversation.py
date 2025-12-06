@@ -808,6 +808,7 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                     extraction_results.append((window_idx, result.strip()))
             except Exception as e:
                 error_logger.error(f"Error extracting context from window {window_idx}: {e}")
+                error_logger.error(f"Execution trace: {future.execution_trace}")
                 continue
         
         # Sort by window index to maintain chronological order
