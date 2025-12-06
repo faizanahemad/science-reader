@@ -2907,7 +2907,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
             web_text, doc_answer, link_result_text, summary_text, previous_messages + "\n\n" + prior_context_llm_based_context,
             conversation_docs_answer)
         time_logger.info(
-            f"Time to wait before preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
+            f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}")
         yield {"text": '', "status": "Preparing prompt ..."}
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
@@ -2929,7 +2929,7 @@ Write the extracted user preferences and user memory below in bullet points. Wri
 
         prompt = remove_bad_whitespaces_easy(prompt)
         time_logger.info(
-            f"Time to wait till after preparing prompt: {(time.time() - wt_prior_ctx):.2f} and from start time to wait = {(time.time() - st):.2f}")
+            f"Time to wait till from start time to wait = {(time.time() - st):.2f}")
         # Lets log all things that went into making the prompt.
         # logger.info(f"query: {query['messageText']}")
         # logger.info(f"summary_text: {summary_text}")
