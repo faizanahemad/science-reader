@@ -2,7 +2,7 @@ import tempfile
 from functools import wraps
 import ast
 import traceback
-from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string
+from flask import Flask, render_template, request, jsonify, send_file, session, redirect, url_for, render_template_string, Response
 from flask_cors import CORS, cross_origin
 from common import COMMON_SALT_STRING, USE_OPENAI_API
 from transcribe_audio import transcribe_audio as run_transcribe_audio
@@ -3046,6 +3046,237 @@ def clear_doubt(conversation_id, message_id):
     except Exception as e:
         logger.error(f"Error clearing doubt for {conversation_id}, message {message_id}: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+# Temporary LLM action endpoint - ephemeral, no database storage
+@app.route('/temporary_llm_action', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def temporary_llm_action():
+    """
+    Execute an ephemeral LLM action without database persistence.
+    
+    This endpoint handles context menu actions like:
+    - explain: Explain the selected text
+    - critique: Provide critical analysis
+    - expand: Expand on the selected text
+    - eli5: Explain like I'm 5 with intuition
+    - ask_temp: Temporary chat conversation
+    
+    Unlike clear_doubt, this does NOT save anything to the database.
+    """
+    email, name, loggedin = check_login(session)
+    keys = keyParser(session)
+    
+    try:
+        data = request.json
+        action_type = data.get('action_type', 'explain')
+        selected_text = data.get('selected_text', '')
+        user_message = data.get('user_message', '')
+        message_id = data.get('message_id')
+        message_text = data.get('message_text', '')
+        conversation_id = data.get('conversation_id')
+        history = data.get('history', [])  # Previous conversation history
+        with_context = data.get('with_context', False)  # Whether to include conversation context
+        
+        logger.info(f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}")
+        
+        # Load conversation if available for context
+        conversation = None
+        if conversation_id and checkConversationExists(email, conversation_id):
+            try:
+                conversation = conversation_cache[conversation_id]
+                conversation = set_keys_on_docs(conversation, keys)
+            except Exception as e:
+                logger.warning(f"Could not load conversation {conversation_id}: {e}")
+                conversation = None
+        
+        def generate_temporary_llm_stream():
+            try:
+                # Send initial status
+                status_msg = f"Processing {action_type}..."
+                if with_context:
+                    status_msg = f"Processing {action_type} with conversation context..."
+                yield json.dumps({
+                    "text": "",
+                    "status": status_msg,
+                    "type": "temporary_llm"
+                }) + '\n'
+                
+                # Generate response using conversation method or direct LLM call
+                if conversation:
+                    response_generator = conversation.temporary_llm_action(
+                        action_type=action_type,
+                        selected_text=selected_text,
+                        user_message=user_message,
+                        message_context=message_text,
+                        message_id=message_id,  # Pass message_id for context enrichment
+                        history=history,
+                        with_context=with_context  # Pass the context flag
+                    )
+                else:
+                    # Fallback: Direct LLM call without conversation context
+                    response_generator = direct_temporary_llm_action(
+                        keys=keys,
+                        action_type=action_type,
+                        selected_text=selected_text,
+                        user_message=user_message,
+                        history=history
+                    )
+                
+                accumulated_text = ""
+                
+                for chunk in response_generator:
+                    if chunk:
+                        accumulated_text += chunk
+                        yield json.dumps({
+                            "text": chunk,
+                            "status": f"Processing {action_type}...",
+                            "type": "temporary_llm"
+                        }) + '\n'
+                
+                # Final status
+                yield json.dumps({
+                    "text": "",
+                    "status": "Complete!",
+                    "type": "temporary_llm",
+                    "completed": True
+                }) + '\n'
+                
+                logger.info(f"Completed temporary LLM action: {action_type}")
+                
+            except Exception as e:
+                logger.error(f"Error in temporary LLM streaming: {str(e)}")
+                yield json.dumps({
+                    "text": "",
+                    "status": f"Error: {str(e)}",
+                    "type": "temporary_llm",
+                    "error": True
+                }) + '\n'
+        
+        return Response(generate_temporary_llm_stream(), content_type='text/plain')
+    
+    except Exception as e:
+        logger.error(f"Error in temporary LLM action: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+def direct_temporary_llm_action(keys, action_type, selected_text, user_message="", history=None):
+    """
+    Direct LLM call for temporary actions when no conversation context is available.
+    
+    This is a fallback function that generates responses without conversation context.
+    """
+    from call_llm import CallLLm
+    from common import EXPENSIVE_LLM
+    
+    # Build prompt based on action type
+    prompts = {
+        'explain': f"""You are an expert educator. Please explain the following text clearly and thoroughly.
+
+**Text to explain:**
+```
+{selected_text}
+```
+
+Provide a clear, comprehensive explanation that:
+1. Breaks down complex concepts
+2. Uses simple language where possible
+3. Provides examples or analogies when helpful
+4. Highlights key points and their significance
+
+Your explanation:""",
+
+        'critique': f"""You are a critical analyst. Please provide a thoughtful critique of the following text.
+
+**Text to critique:**
+```
+{selected_text}
+```
+
+Analyze this text by considering:
+1. Strengths and weaknesses
+2. Logical consistency
+3. Missing information or gaps
+4. Potential biases or assumptions
+5. Areas for improvement
+
+Your critique:""",
+
+        'expand': f"""You are a knowledgeable expert. Please expand on the following text with more details and depth.
+
+**Text to expand:**
+```
+{selected_text}
+```
+
+Provide an expanded version that:
+1. Adds more context and background
+2. Explores related concepts
+3. Provides additional examples
+4. Discusses implications and applications
+5. Connects to broader topics
+
+Your expanded explanation:""",
+
+        'eli5': f"""You are explaining to a curious 5-year-old. Please explain the following text using simple words, fun analogies, and clear examples.
+
+**Text to explain simply:**
+```
+{selected_text}
+```
+
+Rules for your explanation:
+1. Use very simple words a child would understand
+2. Use fun analogies (like toys, animals, or everyday things)
+3. Be engaging and friendly
+4. Break things into tiny, easy steps
+5. Include a simple "the big idea is..." summary at the end
+
+Your simple explanation:""",
+
+        'ask_temp': f"""You are a helpful assistant having a conversation. The user has selected some text and wants to discuss it.
+
+**Selected text for context:**
+```
+{selected_text}
+```
+
+**User's question/message:**
+{user_message}
+
+Please respond helpfully and conversationally:"""
+    }
+    
+    # Handle conversation history for ask_temp
+    if action_type == 'ask_temp' and history:
+        history_text = "\n\n**Previous conversation:**\n"
+        for msg in history:
+            role = "User" if msg.get('role') == 'user' else "Assistant"
+            history_text += f"{role}: {msg.get('content', '')}\n"
+        prompts['ask_temp'] = prompts['ask_temp'].replace(
+            "**User's question/message:**",
+            history_text + "\n**User's latest question/message:**"
+        )
+    
+    prompt = prompts.get(action_type, prompts['explain'])
+    
+    # Initialize LLM and generate response
+    llm = CallLLm(keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
+    
+    response_stream = llm(
+        prompt,
+        images=[],
+        temperature=0.4,
+        stream=True,
+        max_tokens=2000,
+        system="You are a helpful, clear, and engaging assistant. Respond concisely but thoroughly."
+    )
+    
+    for chunk in response_stream:
+        if chunk:
+            yield chunk
+
 
 @app.route('/get_doubt/<doubt_id>', methods=['GET'])
 @limiter.limit("100 per minute")

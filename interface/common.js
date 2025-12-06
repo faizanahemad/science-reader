@@ -717,6 +717,19 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
             return;
         }
         
+        // Check if card is in temp LLM messages (modal)
+        const tempLLMMessages = $('#temp-llm-messages');
+        if (tempLLMMessages.length > 0 && tempLLMMessages.find(cardElem).length > 0) {
+            // Card is inside temp LLM modal
+            const cardRelativeTop = cardElem.position().top;
+            
+            // Scroll temp LLM messages container to show the top of the card
+            tempLLMMessages.animate({
+                scrollTop: tempLLMMessages.scrollTop() + cardRelativeTop
+            }, 300, 'swing');
+            return;
+        }
+        
         // Check if card is in chat view
         const chatView = $('#chatView');
         if (chatView.length > 0 && chatView.find(cardElem).length > 0) {
@@ -730,15 +743,15 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
             return;
         }
         
-        // Check if card is in any modal body
-        const modalBody = cardElem.closest('.modal-body');
-        if (modalBody.length > 0) {
-            // Card is in a modal
+        // Check if card is in any modal body with overflow-y scroll container
+        const scrollableParent = cardElem.closest('[style*="overflow-y: auto"], [style*="overflow-y:auto"], .modal-body');
+        if (scrollableParent.length > 0) {
+            // Card is in a scrollable container
             const cardRelativeTop = cardElem.position().top;
             
-            // Scroll modal body to show the top of the card
-            modalBody.animate({
-                scrollTop: modalBody.scrollTop() + cardRelativeTop
+            // Scroll the parent container to show the top of the card
+            scrollableParent.animate({
+                scrollTop: scrollableParent.scrollTop() + cardRelativeTop
             }, 300, 'swing');
             return;
         }

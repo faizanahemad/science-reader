@@ -3808,6 +3808,234 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             logger.error(traceback.format_exc())
             yield f"I apologize, but I encountered an error while trying to clear your doubt: {error_msg}"
 
+    def temporary_llm_action(self, action_type, selected_text, user_message="", message_context="", message_id=None, history=None, with_context=False):
+        """
+        Execute an ephemeral LLM action without persistence.
+        
+        This method handles context menu actions like:
+        - explain: Explain the selected text clearly
+        - critique: Provide critical analysis
+        - expand: Expand on the selected text
+        - eli5: Explain like I'm 5 with intuition
+        - ask_temp: Temporary chat conversation
+        
+        Unlike clear_doubt, this does NOT save anything to the database.
+        The conversation is ephemeral and exists only in memory.
+        
+        Args:
+            action_type: The type of action ('explain', 'critique', 'expand', 'eli5', 'ask_temp')
+            selected_text: The text the user selected for the action
+            user_message: Optional user message (used for ask_temp)
+            message_context: Additional context from the message where selection was made
+            message_id: Optional message ID for getting context around that message
+            history: Optional conversation history for multi-turn ask_temp
+            with_context: Whether to include rich conversation context using get_context_around_message
+            
+        Yields:
+            Chunks of the LLM response as they are generated
+        """
+        from call_llm import CallLLm
+        import traceback
+        
+        try:
+            # Get conversation context
+            conversation_summary = self.running_summary
+            
+            # Build context text
+            context_text = ""
+            
+            # If with_context is True and we have a message_id, get rich context
+            if with_context and message_id:
+                try:
+                    target_message, context_messages = self.get_context_around_message(
+                        message_id, 
+                        context_messages_before=4, 
+                        context_messages_after=2
+                    )
+                    
+                    if context_messages:
+                        context_text += "## Relevant Conversation Context\n\n"
+                        for msg in context_messages:
+                            sender_label = "**User**" if msg["sender"] == "user" else "**Assistant**"
+                            is_target = msg.get("message_id") == message_id
+                            marker = " ← **[SELECTED FROM THIS MESSAGE]**" if is_target else ""
+                            # Truncate long messages
+                            msg_text = msg['text']
+                            context_text += f"{sender_label}{marker}:\n{msg_text}\n\n"
+                        context_text += "---\n\n"
+                except Exception as ctx_err:
+                    logger.warning(f"Could not get context around message {message_id}: {ctx_err}")
+            
+            if conversation_summary and len(conversation_summary) > 0:
+                if isinstance(conversation_summary, list):
+                    summary_text = "\n".join(conversation_summary[-3:])  # Last 3 summaries
+                else:
+                    summary_text = str(conversation_summary)
+                context_text += f"## Conversation Summary\n{summary_text}\n\n"
+            
+            if message_context and len(message_context.strip()) > 0 and not with_context:
+                # Only add message_context if we didn't already get rich context
+                context_text += f"## Message Context\n```\n{message_context}\n```\n\n"
+            
+            # Build prompt based on action type
+            prompts = {
+                'explain': f"""You are an expert educator. Please explain the following text clearly and thoroughly.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Text to Explain
+```
+{selected_text}
+```
+
+Provide a clear, comprehensive explanation that:
+1. Breaks down complex concepts into understandable parts
+2. Uses simple language where possible
+3. Provides relevant examples or analogies
+4. Highlights key points and their significance
+5. Connects to related concepts when helpful
+
+**Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
+
+Your explanation:""",
+
+                'critique': f"""You are a critical analyst with expertise in multiple domains. Please provide a thoughtful critique of the following text.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Text to Critique
+```
+{selected_text}
+```
+
+Analyze this text by considering:
+1. **Strengths**: What does this text do well?
+2. **Weaknesses**: Where does it fall short?
+3. **Logic**: Is the reasoning sound? Any logical fallacies?
+4. **Evidence**: Are claims well-supported?
+5. **Gaps**: What's missing or unexplained?
+6. **Biases**: Any potential biases or assumptions?
+7. **Improvements**: How could this be better?
+
+**Important:** Don't use LaTeX or math notation. Be constructive in your critique.
+
+Your critique:""",
+
+                'expand': f"""You are a knowledgeable expert. Please expand on the following text with more details, depth, and related information.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Text to Expand
+```
+{selected_text}
+```
+
+Provide an expanded version that:
+1. **Context**: Adds more background and context
+2. **Details**: Dives deeper into the specifics
+3. **Examples**: Provides concrete examples
+4. **Connections**: Links to related concepts
+5. **Implications**: Discusses broader implications
+6. **Applications**: Explores practical applications
+
+**Important:** Don't use LaTeX or math notation. Make the expansion thorough but organized.
+
+Your expanded explanation:""",
+
+                'eli5': f"""You are explaining to a curious 5-year-old. Please explain the following text using very simple words, fun analogies, and clear examples.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Text to Explain Simply
+```
+{selected_text}
+```
+
+Rules for your ELI5 explanation:
+1. 🎯 Use VERY simple words a child would understand
+2. 🎨 Use fun analogies (toys, animals, everyday things)
+3. 😊 Be friendly and engaging
+4. 📚 Break things into tiny, easy steps
+5. 🌟 End with "The Big Idea Is..." summary
+6. ❌ NO technical jargon or complex terms
+7. 💡 Include intuition - help understand the "why"
+
+**Important:** Don't use LaTeX or math notation. Keep it simple and fun!
+
+Your simple explanation:""",
+
+                'ask_temp': f"""You are a helpful assistant having a thoughtful conversation. The user has selected some text and wants to discuss it.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Selected Text for Context
+```
+{selected_text}
+```
+
+{self._format_temp_history(history) if history else ""}
+
+## User's Question/Message
+{user_message if user_message else "Please help me understand this better."}
+
+Please respond helpfully, clearly, and conversationally. Address the user's question directly.
+
+**Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
+
+Your response:"""
+            }
+            
+            if user_message:
+                prompt = prompts['ask_temp']
+            else:
+                prompt = prompts.get(action_type, prompts['explain'])
+            
+            # Initialize LLM
+            api_keys = self.get_api_keys()
+            llm = CallLLm(api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
+            
+            # Generate streaming response
+            response_stream = llm(
+                prompt,
+                images=[],
+                temperature=0.4,
+                stream=True,
+                max_tokens=2000,
+                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation."
+            )
+            
+            # Stream the response
+            for chunk in response_stream:
+                if chunk:
+                    yield chunk
+                    
+        except Exception as e:
+            error_msg = f"Error in temporary LLM action: {str(e)}"
+            logger.error(f"Error in temporary_llm_action ({action_type}): {error_msg}")
+            logger.error(traceback.format_exc())
+            yield f"I apologize, but I encountered an error: {error_msg}"
+    
+    def _format_temp_history(self, history):
+        """
+        Format conversation history for the temporary chat prompt.
+        
+        Args:
+            history: List of message dicts with 'role' and 'content' keys
+            
+        Returns:
+            Formatted string of conversation history
+        """
+        if not history:
+            return ""
+        
+        history_text = "## Previous Conversation\n"
+        for msg in history[-6:]:  # Last 6 messages
+            role = "User" if msg.get('role') == 'user' else "Assistant"
+            content = msg.get('content', '')[:1000]  # Truncate long messages
+            history_text += f"**{role}:** {content}\n\n"
+        
+        return history_text
+
 
 class TemporaryConversation(Conversation):
     def __init__(self) -> None:
