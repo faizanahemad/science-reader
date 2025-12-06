@@ -208,8 +208,8 @@ def call_chat_model_original(model, text, images, temperature, system, keys):
             # (In practice, "finish_reason" might be included in the last chunk.)
             
     except Exception as e:
-        logger.error(f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}")
-        traceback.print_exc(limit=4)
+        logger.error(f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}")
+        traceback.print_exc(limit=16)
         raise e
 
 
