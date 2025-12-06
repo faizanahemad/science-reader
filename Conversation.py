@@ -804,16 +804,18 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
         success_and_failed_windows = []
         for window_idx, future in extraction_futures:
             try:
+                time_logger.info(f"Waiting for result from window {window_idx + 1} of {len(message_windows)}")
                 result = sleep_and_get_future_result(future, timeout=120)
+                time_logger.info(f"Result from window {window_idx + 1} of {len(message_windows)} obtained")
                 if result and result.strip() and "No relevant information" not in result:
                     extraction_results.append((window_idx, result.strip()))
                     time_logger.info(f"Extracted context from window {window_idx + 1} of {len(message_windows)}, with len = {len(result.strip().split())} tokens and dtype = {type(result.strip())}")
-                    success_and_failed_windows.append((window_idx, True, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
+                    success_and_failed_windows.append((window_idx, True, {"model_name": llm.model_name, "prompt": str(type(prompt)), "system": str(type(system))}))
             except Exception as e:
                 error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
                 time_logger.info(f"Error extracting context from window {window_idx + 1} of {len(message_windows)}, with error = {e}")
                 
-                success_and_failed_windows.append((window_idx, False, {"model_name": llm.model_name, "prompt": type(prompt), "system": type(system)}))
+                success_and_failed_windows.append((window_idx, False, {"model_name": llm.model_name, "prompt": str(type(prompt)), "system": str(type(system))}))
                 continue
         
         
