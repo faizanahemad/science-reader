@@ -2269,12 +2269,14 @@ greet("World");</code></pre>
     document.addEventListener('click', function(event) {
         if (event.target.classList.contains('details-close-btn')) {
             // Find the parent details element
-            let details = event.target.closest('details');
+            let detailsId = event.target.getAttribute('data-details-id');
+            let details = detailsId ? document.getElementById(detailsId) : event.target.closest('details');
+            
             if (details) {
                 // Close the details element
                 details.removeAttribute('open');
-                // REMOVED: Auto-scroll to summary - was interrupting user reading
-                // details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
+                // Scroll to the summary
+                details.querySelector('summary').scrollIntoView({behavior: 'smooth'});
             }
         }
     });

@@ -195,7 +195,7 @@ document.addEventListener('click', function(event) {
             raise ValueError(f"Invalid response type: {type(response)}")
     
     # Start the details section
-    yield f"\n<details {open_attr}>\n<summary><strong>{header}</strong></summary>\n\n"
+    yield f"\n<details {open_attr} id='details-{hashString}'>\n<summary><strong>{header}</strong></summary>\n\n"
     
     # Stream the content
     for chunk in response:
@@ -203,7 +203,7 @@ document.addEventListener('click', function(event) {
     
     # Add the close button if requested
     if add_close_button:
-        yield "\n<button class='details-close-btn'>Close</button>\n"
+        yield f"\n<button class='details-close-btn' data-details-id='details-{hashString}'>Close</button>\n"
     
     # Close the details section
     yield "</details>\n\n"
