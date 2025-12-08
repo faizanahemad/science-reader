@@ -1533,7 +1533,7 @@ class DocIndex:
         {query}
         <|/Query and Conversation Summary|>
 
-        Write {'detailed and comprehensive ' if detail_level >= 3 else ''}answer.
+        Write {'detailed and comprehensive ' if detail_level >= 3 else 'direct and concise '}answer.
         """)
         cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
         answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])

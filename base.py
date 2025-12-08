@@ -181,9 +181,6 @@ Only provide answer from the document given above.
                 results.append(result)
             except Exception as e:
                 traceback.print_exc()
-                llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
-                result = llm(prompt, temperature=0.4, stream=False)
-                results.append(result)
                 continue
         
         assert isinstance(result, str) and len(result) > 0
