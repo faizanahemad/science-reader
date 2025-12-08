@@ -132,6 +132,30 @@ Other instructions:
 
 """.lstrip()
 
+# TLDR prompt for generating short summaries of long answers
+tldr_summary_prompt = """You are a skilled summarizer. Your task is to create a TLDR (Too Long; Didn't Read) summary of a detailed answer.
+
+**Context:**
+- User's original question: {query}
+- Conversation summary so far: {summary}
+
+**The full answer to summarize:**
+{answer}
+
+**Instructions:**
+1. Create a concise TLDR summary of the above answer in few bullet points or 3-4 short paragraphs.
+2. Focus on the key takeaways, main points, and actionable insights from the actual answer provided. Don't forget to also include any key information or insights from the answer as well.
+3. Do NOT add any new information, opinions, or details that are not in the original answer.
+4. This is strictly a summarization/paraphrasing task - only condense what is already written.
+5. Keep the summary brief (under 400 words) but ensure it captures the essence of the full answer. Include few details where they are making most impact.
+6. Use clear, simple language that is easy to scan quickly.
+7. If the answer contains code, formulas, or technical details, summarize what they accomplish rather than including them verbatim.
+8. Preserve any important steps, procedures, caveats, warnings, or limitations mentioned in the original answer.
+9. Provide a one paragraph key takeaways and learnings or things to remember and do's to remember from the answer at the end.
+
+Write the TLDR summary below:
+""".lstrip()
+
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
 1. Information Preservation:

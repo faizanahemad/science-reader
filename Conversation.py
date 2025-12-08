@@ -2460,36 +2460,36 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
         if userData is not None:
-            user_info_text = f"""Few details about the user and how they want us to respond to them:
-**User Memory:** 
-```
-{user_memory}
-```
+            user_info_text = dedent(f"""
+            Few details about the user and how they want us to respond to them:
+            **User Memory:** 
+            ```
+            {user_memory}
+            ```
 
-**User Preferences:** 
-```
-{user_preferences}
-```
+            **User Preferences:** 
+            ```
+            {user_preferences}
+            ```
 
-Also given is the conversation summary:
-```
-{summary}
-```
+            Also given is the conversation summary:
+            ```
+            {summary}
+            ```
 
-Previous conversation history:
-```
-{prior_context['previous_messages_very_short']}
-```
+            Previous conversation history:
+            ```
+            {prior_context['previous_messages_very_short']}
+            ```
 
-The current query is:
-```
-{user_query}
-```
+            The current query is:
+            ```
+            {user_query}
+            ```
 
-Now based on the above information, please extract the user's preferences and user memory relevant to the current query and conversation history. Only focus on extracting the user preferences and user memory and only write the extracted user preferences and user memory.
-If there is no user preferences or user memory relevant to the current query and conversation history, then just write "No user preferences or user memory found".
-Write the extracted user preferences and user memory below in bullet points. Write in concise manner.
-"""
+            Now based on the above information, please extract the user's preferences and user memory relevant to the current query and conversation history. Only focus on extracting the user preferences and user memory and only write the extracted user preferences and user memory.
+            If there is no user preferences or user memory relevant to the current query and conversation history, then just write "No user preferences or user memory found".
+            Write the extracted user preferences and user memory below in bullet points. Write in concise manner.""")
             llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
             llm2 = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[1], use_gpt4=True, use_16k=True)
             user_info_text1 = get_async_future(llm, user_info_text, temperature=0.2, stream=False)
@@ -2972,28 +2972,27 @@ Write the extracted user preferences and user memory below in bullet points. Wri
         if is_slide_agent:
             # For slide agents, get the complete HTML response at once
             context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-            context_prompt = f"""
-The conversation history is:
-{previous_messages}
+            context_prompt = dedent(f"""
+            The conversation history is:
+            {previous_messages}
 
-Conversation summary is:
-{summary}
+            Conversation summary is:
+            {summary}
 
-The user's question is:
-{query["messageText"]}
+            The user's question is:
+            {query["messageText"]}
 
-Now please re-contextualize the user's question based on the conversation history and summary. Please make it more detailed, with more context and specific details.
+            Now please re-contextualize the user's question based on the conversation history and summary. Please make it more detailed, with more context and specific details.
 
-This will be used to generate slides using an LLM. Please write what the user is asking without writing much about the history or like saying "user asked this, conversation was about that and blah blah".
-The slides made will help us learn and grasp the topic better.
+            This will be used to generate slides using an LLM. Please write what the user is asking without writing much about the history or like saying "user asked this, conversation was about that and blah blah".
+            The slides made will help us learn and grasp the topic better.
 
-User's question:
-{query["messageText"]}
+            User's question:
+            {query["messageText"]}
 
-Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
+            Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
 
-At the end write what we must make slides about as well.
-"""
+            At the end write what we must make slides about as well.""")
             context_response_future = get_async_future(context_llm, context_prompt, images=images, system=preamble, temperature=0.3, stream=False)
             
 
@@ -3248,6 +3247,50 @@ At the end write what we must make slides about as well.
             yield {"text": slide_response, "status": "answering in progress"}
             answer += slide_response
 
+        # Generate a TLDR summary for long answers (over 1000 words)
+        # Extract the main answer content (between <answer> tags, excluding markup)
+        answer_content_for_tldr = answer.replace("<answer>", "").strip()
+        answer_word_count = len(answer_content_for_tldr.split())
+        
+        if answer_word_count > 1000 and model_name != FILLER_MODEL and not self.is_cancelled():
+            yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
+            answer += "\n\n---\n\n"
+            
+            try:
+                # Format the TLDR prompt with context
+                tldr_prompt_formatted = tldr_summary_prompt.format(
+                    query=query["messageText"],
+                    summary=summary_text if len(summary_text.strip()) > 0 else "No previous conversation summary available.",
+                    answer=answer_content_for_tldr
+                )
+                
+                # Use a fast, cheap model for TLDR generation
+                tldr_llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+                tldr_stream = tldr_llm(tldr_prompt_formatted, temperature=0.3, stream=True)
+                
+                # Wrap the TLDR stream in a collapsible wrapper
+                tldr_wrapped = collapsible_wrapper(
+                    tldr_stream, 
+                    header="📝 TLDR Summary (Quick Read)", 
+                    show_initially=True, 
+                    add_close_button=True
+                )
+                
+                # Yield the wrapped TLDR content
+                for tldr_chunk in tldr_wrapped:
+                    yield {"text": tldr_chunk, "status": "Generating TLDR summary..."}
+                    answer += tldr_chunk
+                
+                yield {"text": "\n\n", "status": "TLDR summary complete"}
+                answer += "\n\n"
+                time_dict["tldr_generated"] = True
+                time_dict["answer_word_count"] = answer_word_count
+                
+            except Exception as e:
+                error_logger.error(f"Error generating TLDR summary: {e}, stack: {traceback.format_exc()}")
+                # Continue without TLDR if there's an error - don't break the main flow
+                time_dict["tldr_error"] = str(e)
+        
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
         time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
