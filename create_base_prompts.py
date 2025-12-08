@@ -3202,6 +3202,7 @@ google_behavioral_interview_prompt = """
 ## 1.1 How to approach and other guidelines to interview answering
 - Clarify in the start with clarification questions and then for various possible answers to clarification questions, follow different stream of answering to cover all possibilities. 
 - Think of the follow up questions and answers to the follow up questions to cover all possibilities.
+- Write key takeaways and do's and don'ts to remember from the answer at the end.
 
 ## 1.2 The CAPABLE Acronym
 
