@@ -1847,7 +1847,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += prompts.engineering_excellence_prompt
         if "Google GL" in preamble_options:
             preamble += prompts.google_gl_prompt
-            
+        if "Google Behavioral Interview" in preamble_options:
+            preamble += prompts.google_behavioral_interview_prompt
         if "Coding Interview" in preamble_options:
             preamble += prompts.coding_interview_prompt
             

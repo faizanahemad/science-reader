@@ -3181,9 +3181,855 @@ Adapt your approach based on where the user is in their preparation journey.
 Remember: The user is a highly capable professional. Your job is to help them **present their genuine accomplishments** in a way that demonstrates Staff-level impact and Google cultural fit. Push them to be their best, but always in service of showing their authentic value.
 
 """
+
+google_behavioral_interview_prompt = """
+**  Answering Framework for Google Staff level behavioral rounds**
+
+** Table of Contents **
+
+1. [The Final Framework: CAPABLE](#1-the-final-framework-capable)
+2. [How We Arrived at CAPABLE](#2-how-we-arrived-at-capable)
+3. [What Google Looks for at Staff Level (L6+)](#4-what-google-looks-for-at-staff-level-l6)
+4. [What Can Go Wrong: Common Traps & Pitfalls](#5-what-can-go-wrong-common-traps--pitfalls)
+5. [Tips & Tricks for Success](#6-tips--tricks-for-success)
+6. [Question Types & Approaches](#7-question-types--approaches)
+7. [Quick Reference Cheat Sheet](#8-quick-reference-cheat-sheet)
+
+---
+
+# 1. The Final Framework: CAPABLE
+
+## 1.1 How to approach and other guidelines to interview answering
+- Clarify in the start with clarification questions and then for various possible answers to clarification questions, follow different stream of answering to cover all possibilities. 
+
+## 1.2 The CAPABLE Acronym
+
+| Letter | Step | What You Do | Time |
+|--------|------|-------------|------|
+| **C** | **Clarify** | Ask 1-2 smart questions to bound the problem | 10-15s |
+| **A** | **Acknowledge** | Name complexity—stakeholders, tensions, trade-offs, emotions | 10-15s |
+| **P** | **Principles** | State your guiding values/north star | 10-15s |
+| **A** | **Alternatives** | Present 2-3 realistic options with explicit trade-offs | 25-30s |
+| **B** | **Build** | Walk through your action plan step by step | 45-60s |
+| **L** | **Land** | Make a clear decision—own the call | 10-15s |
+| **E** | **Evidence** | Anchor to a real experience from your past | 20-30s |
+
+**Total Time Target: 2-3 minutes**
+
+## 1.3 Step-by-Step Breakdown
+
+### **C — Clarify** (10-15 seconds)
+
+**Purpose:** Don't assume—dig for real constraints before solving.
+
+**What to do:**
+- Ask 1-2 smart, clarifying questions
+- Bound the problem (scope, severity, timeline, stakeholders)
+- Show you don't jump to conclusions
+
+**Staff-Level Signals:**
+- Thriving in Ambiguity
+- Technical Judgment
+- Intellectual Honesty
+
+**Example Phrasing:**
+> *"Before I dive in, I want to clarify: Is this instability a risk of data loss, or more about maintenance burden? And is the quarterly goal a hard deadline or somewhat flexible?"*
+
+**What NOT to do:**
+- Ask too many questions (looks like stalling)
+- Ask obvious questions (looks unprepared)
+- Skip this step entirely (looks impulsive)
+
+---
+
+### **A — Acknowledge** (10-15 seconds)
+
+**Purpose:** Show you see the full mess—stakeholders, tensions, emotions, trade-offs.
+
+**What to do:**
+- Name the key stakeholders and their interests
+- Identify the core tensions (e.g., speed vs. quality, business vs. engineering)
+- Acknowledge emotional/relational dynamics
+
+**Staff-Level Signals:**
+- Caring About the Team
+- Systems Thinking
+- Stakeholder Awareness
+- Emotional Intelligence
+
+**Example Phrasing:**
+> *"This is a nuanced situation because there's real tension between short-term business pressure and long-term system health. My manager has legitimate goals, but my team will bear the maintenance burden. There's also a relationship dynamic—I want to support my manager while being honest about risks."*
+
+**What NOT to do:**
+- List stakeholders without explaining *why* they matter
+- Ignore the human/emotional element
+- Make it sound like a simple problem
+
+---
+
+### **P — Principles** (10-15 seconds)
+
+**Purpose:** Reveal your leadership philosophy and values—this is where "Googliness" shines.
+
+**What to do:**
+- State 2-3 guiding principles for this situation
+- Be specific to the context (not generic platitudes)
+- Show what you stand for as a leader
+
+**Staff-Level Signals:**
+- Doing the Right Thing
+- User Centricity
+- Googliness
+- Integrity
+
+**Example Phrasing:**
+> *"My guiding principles here are: First, sustainable impact over heroic sprints—I don't believe in burning out the team to hit a number. Second, I believe in 'disagree and commit,' but that means we first have a real debate with data, not just compliance. Third, user trust is non-negotiable—if there's genuine risk to users, that's a red line."*
+
+**What NOT to do:**
+- Say generic things like "I believe in doing the right thing" (too vague)
+- Skip this step (misses Googliness signal)
+- State principles that contradict your later actions
+
+---
+
+### **A — Alternatives** (25-30 seconds)
+
+**Purpose:** Show you see multiple viable paths—Staff engineers don't think in binary.
+
+**What to do:**
+- Present 2-3 realistic options
+- For each option, state explicit trade-offs (pros/cons)
+- Show you understand the cost of each path
+
+**Staff-Level Signals:**
+- Technical Judgment
+- Strategic Thinking
+- Not Binary Thinking
+- Risk Assessment
+
+**Example Phrasing:**
+> *"I see three realistic paths here:*
+> 
+> *Option A: Block the launch entirely. This protects the system and team, but damages trust with my manager and might make me look like a blocker.*
+> 
+> *Option B: Launch with guardrails—feature flags, aggressive monitoring, and a guaranteed cleanup sprint. This supports the goal while managing risk.*
+> 
+> *Option C: Negotiate a reduced scope. Maybe we can hit 80% of the goal with 50% of the debt by cutting the riskiest components.*
+> 
+> *Each has trade-offs. Option A is safest but most damaging to the relationship. Option B is a calculated risk. Option C requires my manager to accept a partial win."*
+
+**What NOT to do:**
+- Present only 2 options (feels binary)
+- Present options without trade-offs (feels shallow)
+- Present unrealistic options (feels theoretical)
+
+---
+
+### **B — Build** (45-60 seconds)
+
+**Purpose:** Walk through your action plan step by step—be concrete and specific.
+
+**What to do:**
+- Describe specific actions (who, what, when, how)
+- Show how you'd influence without authority
+- Include communication and stakeholder management
+- Address potential obstacles
+
+**Staff-Level Signals:**
+- Ownership
+- Managing Projects
+- Influence Without Authority
+- Execution Excellence
+
+**Example Phrasing:**
+> *"Here's how I'd approach it:*
+> 
+> *First, I'd quantify the debt and risk. Not 'this is bad,' but 'this specific component has X% chance of Y failure mode, and fixing it later will cost Z engineer-weeks.' Data, not feelings.*
+> 
+> *Second, I'd have a direct conversation with my manager—privately, not in a group setting. I'd lead with understanding: 'Help me understand the pressure you're facing.' Then I'd share my concerns with the data I've gathered.*
+> 
+> *Third, I'd present options, not just objections. I'd propose Option B with specific guardrails: feature flags to 5% of users first, alerting on error rates, and a written commitment to the cleanup sprint.*
+> 
+> *Fourth, if my manager agrees, I'd communicate to my team—not as 'leadership is forcing us,' but as 'here's our plan and why it makes sense.' I'd own the decision.*
+> 
+> *Fifth, if my manager insists on launching without any guardrails and I believe there's genuine user risk, I'd escalate—not to 'win,' but to get more perspectives. I'd tell my manager first: 'I feel strongly enough about this that I want to get [Director's] input.'"*
+
+**What NOT to do:**
+- Be vague ("I'd talk to them")
+- Skip stakeholder communication
+- Forget to mention escalation paths
+- Sound like you'd do everything alone (solo hero)
+
+---
+
+### **L — Land** (10-15 seconds)
+
+**Purpose:** Make a clear decision—don't be wishy-washy.
+
+**What to do:**
+- State your decision clearly
+- Justify it briefly
+- Show you can commit even with imperfect information
+
+**Staff-Level Signals:**
+- Decisiveness
+- Ownership
+- Leadership Courage
+- Disagree and Commit
+
+**Example Phrasing:**
+> *"Given a typical scenario where the risk is real but not catastrophic, I'd advocate strongly for Option B—launch with guardrails. It supports the business goal, manages the risk, and creates accountability for the cleanup. If my manager accepts the guardrails, I commit fully. If they reject them and I believe user safety is at risk, I escalate. If they reject them but it's 'just' maintenance burden, I document my concerns, then commit and make the launch as successful as possible."*
+
+**What NOT to do:**
+- End with "it depends" without a decision
+- Be wishy-washy ("I'd probably...")
+- Refuse to commit to a path
+
+---
+
+### **E — Evidence** (20-30 seconds)
+
+**Purpose:** Prove this isn't theory—anchor to real experience.
+
+**What to do:**
+- Share a specific, relevant story from your past
+- Include concrete details (names anonymized, numbers, outcomes)
+- Show what you learned
+
+**Staff-Level Signals:**
+- Credibility
+- Self-Development
+- Learning Orientation
+- Pattern Recognition
+
+**Example Phrasing:**
+> *"I've faced this exact situation at Amazon. We were launching a new ranking feature for Prime Video before a major content release. The PM was pushing hard, but I knew the model had edge cases that could surface inappropriate content to kids. I used this exact approach—quantified the risk, proposed a phased rollout with monitoring, and got agreement on a fast-follow fix. We launched on time, caught two edge cases in the 5% rollout before they hit 100% of users, and the cleanup sprint happened as promised. The PM later told me they appreciated that I didn't just say 'no'—I helped them find a path to 'yes.'"*
+
+**What NOT to do:**
+- Skip this step (loses credibility)
+- Tell a generic story without specifics
+- Tell a story that contradicts your stated approach
+- Tell a story where you were the solo hero
+
+---
+
+## 1.4 CAPABLE Timing Guide
+
+**Total Time: 2-3 minutes**
+
+| Step | Duration | Purpose |
+|------|----------|---------|
+| **C** - Clarify | 10-15 seconds | Understand the real problem |
+| **A** - Acknowledge | 10-15 seconds | Show you see the complexity |
+| **P** - Principles | 10-15 seconds | Reveal your values and constraints |
+| **A** - Alternatives | 25-30 seconds | Present 2-3 options with trade-offs |
+| **B** - Build | 45-60 seconds | Detail your step-by-step plan |
+| **L** - Land | 10-15 seconds | Make a clear decision |
+| **E** - Evidence | 20-30 seconds | Anchor with real experience |
+
+**Flow:** Start with Clarify → Acknowledge → Principles, then dive into Alternatives → Build → Land → Evidence. The middle section (Alternatives + Build) takes about half your total time, which is appropriate since that's where you demonstrate your structured thinking and technical depth.
+
+
+# 2. How We Arrived at CAPABLE
+- Not needed. Hidden
+
+
+---
+
+# 3. What Google Looks for at Staff Level (L6+)
+
+## 3.1 The Googliness Dimensions
+
+Google's "Googliness & Leadership" (G&L) round assesses whether you embody Google's culture and can lead at scale. Here are the key dimensions:
+
+### Core Googliness Attributes
+
+| Attribute | What It Means | How to Demonstrate |
+|-----------|---------------|-------------------|
+| **Doing the Right Thing** | Ethics, integrity, user safety over short-term gains | Show you'd push back on unethical requests; prioritize user trust |
+| **User Centricity** | Decisions grounded in user impact | Always tie back to "how does this affect users?" |
+| **Caring About the Team** | Psychological safety, team health, inclusion | Show you protect team from burnout, create safe spaces |
+| **Thriving in Ambiguity** | Comfort with incomplete information | Show you can make decisions without perfect data |
+| **Challenging Status Quo** | Constructive dissent, innovation | Show you question assumptions respectfully |
+| **Valuing Feedback** | Giving and receiving feedback well | Show you seek feedback, act on it, give it constructively |
+| **Self-Starting** | Initiative without being told | Show you identify problems and act proactively |
+| **Self-Development** | Continuous learning, growth mindset | Show you learn from failures, seek growth |
+
+### Core Leadership Attributes
+
+| Attribute | What It Means | How to Demonstrate |
+|-----------|---------------|-------------------|
+| **Influence Without Authority** | Getting things done across teams without formal power | Show you align incentives, build coalitions |
+| **Ownership** | Taking responsibility for outcomes, not just tasks | Use "I" for decisions, "we" for execution |
+| **Managing Projects** | Driving complex initiatives to completion | Show structured approach, risk management |
+| **Technical Judgment** | Making sound technical decisions | Show you weigh trade-offs, consider long-term |
+| **Escalation Judgment** | Knowing when to escalate vs. handle yourself | Show you escalate appropriately, not too early or late |
+
+## 3.2 The Staff-Level Bar (L6+ Differentiation)
+
+At Staff level, Google expects you to operate at **organizational scope**, not just team scope. Here's the "Staff Delta":
+
+| Dimension | L5 (Senior) Behavior | L6 (Staff) Behavior |
+|-----------|---------------------|---------------------|
+| **Scope** | "I fixed the bug in my service" | "I fixed the process that allowed bugs across services" |
+| **Timeline** | This sprint / This quarter | Next year / Multi-year lifecycle |
+| **Conflict Resolution** | Convincing the other person | Aligning incentives, navigating politics |
+| **Failure Response** | "I fixed it" | "I ensured it can't happen again org-wide" |
+| **Action Verbs** | "I built, I coded, I shipped" | "I influenced, I architected, I negotiated, I aligned" |
+| **Stakeholders** | My team, my manager | Cross-functional leaders, executives, external partners |
+| **Impact** | My project succeeded | The organization is better because of my work |
+
+## 3.3 What Interviewers Are Actually Scoring
+
+Interviewers typically score on these dimensions:
+
+1. **Problem-Solving Approach** — Do you structure your thinking?
+2. **Leadership Philosophy** — Do you have a coherent view of how to lead?
+3. **Stakeholder Awareness** — Do you consider all affected parties?
+4. **Trade-off Articulation** — Do you see multiple paths and their costs?
+5. **Decisiveness** — Can you make a call with imperfect information?
+6. **Self-Awareness** — Do you know your strengths and weaknesses?
+7. **Learning Orientation** — Do you learn from experience?
+8. **Cultural Fit** — Would I want to work with this person?
+
+---
+
+# 4. What Can Go Wrong: Common Traps & Pitfalls
+
+## 4.1 The Six Deadly Traps
+
+| Trap | What It Looks Like | Why It's Bad | How CAPABLE Prevents It |
+|------|-------------------|--------------|------------------------|
+| **"It Depends" Paralysis** | "Well, it really depends on the situation..." (never decides) | Shows indecisiveness, lack of leadership | **L - Land** forces a decision |
+| **Solo Hero Fantasy** | "I would personally fix everything myself" | Unsustainable at Staff level, ignores collaboration | **A - Acknowledge** forces stakeholder mapping |
+| **Ignoring Human Element** | Purely logical answer with no emotional awareness | Sounds robotic, misses Googliness | **A - Acknowledge** + **P - Principles** cover emotions |
+| **Perfect-World Answer** | "I would do X, Y, Z and everything would be great" | Unrealistic, no trade-offs | **A - Alternatives** forces trade-off articulation |
+| **Theory Without Proof** | Great framework but no real experience | Lacks credibility | **E - Evidence** is non-optional |
+| **Cowboy Decision-Making** | Jumps to solution without understanding problem | Shows impulsiveness | **C - Clarify** forces pause |
+
+## 4.2 Trap-Specific Warning Signs
+
+### Trap 1: "It Depends" Paralysis
+
+**Warning Signs:**
+- You end with "so it really depends on the context"
+- You present options but never choose
+- You keep asking clarifying questions to avoid deciding
+
+**Fix:**
+- After presenting alternatives, **always** say "Given [assumption], I would choose [option] because [reason]"
+- It's okay to say "If X, I'd do A; if Y, I'd do B" — but you must commit to a path for each scenario
+
+### Trap 2: Solo Hero Fantasy
+
+**Warning Signs:**
+- "I would personally talk to everyone and fix it"
+- No mention of involving others, delegating, or building coalitions
+- "I would work extra hours to make it happen"
+
+**Fix:**
+- Always mention stakeholders you'd involve
+- Use "we" for execution, "I" for decisions
+- Show you'd leverage others' expertise
+
+### Trap 3: Ignoring Human Element
+
+**Warning Signs:**
+- Purely process-focused answer
+- No mention of emotions, relationships, or psychological safety
+- Sounds like a consulting framework
+
+**Fix:**
+- In **Acknowledge**, explicitly name emotional dynamics
+- In **Principles**, include people-focused values (team health, trust)
+- In **Build**, include communication and relationship management
+
+### Trap 4: Perfect-World Answer
+
+**Warning Signs:**
+- Every option you present is great
+- No mention of risks, costs, or downsides
+- "This approach would solve everything"
+
+**Fix:**
+- For every option in **Alternatives**, state at least one downside
+- In **Land**, acknowledge what you're giving up with your choice
+- Show you understand the cost of your decision
+
+### Trap 5: Theory Without Proof
+
+**Warning Signs:**
+- "I would do X, Y, Z" but no "I have done X, Y, Z"
+- Generic stories without specific details
+- Stories that don't match your stated approach
+
+**Fix:**
+- **Evidence** must include specific details (names anonymized, numbers, outcomes)
+- Story must directly support your stated approach
+- If you don't have a perfect match, say "I haven't faced this exact situation, but a similar one was..."
+
+### Trap 6: Cowboy Decision-Making
+
+**Warning Signs:**
+- Immediately jumping to "Here's what I'd do"
+- No clarifying questions
+- No acknowledgment of complexity
+
+**Fix:**
+- **Always** start with **Clarify** — even if brief
+- Show you understand the problem before solving it
+- Pause before answering (it's okay to say "Let me think about this for a moment")
+
+## 4.3 Additional Pitfalls to Avoid
+
+| Pitfall | Description | Fix |
+|---------|-------------|-----|
+| **Over-Engineering** | 10-minute answer with excessive detail | Keep to 2-3 minutes; interviewer will ask follow-ups |
+| **Under-Engineering** | 30-second answer with no depth | Use CAPABLE to ensure you hit all steps |
+| **Sounding Rehearsed** | Answer sounds memorized, not authentic | Practice the framework, not specific answers |
+| **Amazon-isms** | Using Amazon-specific language at Google | Replace "bias for action" with "thoughtful action," "customer obsession" with "user centricity" |
+| **Humble-Bragging** | "I'm just so passionate about users that I couldn't help but..." | Be direct about your contributions without false modesty |
+| **Blaming Others** | "The PM was wrong" / "My manager didn't support me" | Focus on what *you* did, not others' failures |
+| **No Learning** | Story ends with success, no reflection | Always include "What I learned" or "What I'd do differently" |
+
+## 4.4 The "Trap Evasion Checklist"
+
+Before finishing any answer, mentally check:
+
+- [ ] **Human Check:** Did I acknowledge emotions/relationships? (Avoids Robot Trap)
+- [ ] **Stakeholder Check:** Did I mention who else is involved? (Avoids Solo Hero Trap)
+- [ ] **Trade-off Check:** Did I show downsides of my approach? (Avoids Perfect-World Trap)
+- [ ] **Decision Check:** Did I make a clear call? (Avoids "It Depends" Trap)
+- [ ] **Evidence Check:** Did I anchor to real experience? (Avoids Theory Trap)
+- [ ] **Pause Check:** Did I clarify before solving? (Avoids Cowboy Trap)
+
+---
+
+# 5. Tips & Tricks for Success
+
+## 5.1 Before the Interview
+
+### Preparation Strategies
+
+| Strategy | How to Do It | Why It Works |
+|----------|--------------|--------------|
+| **Story Bank** | Prepare 8-10 stories covering different dimensions (conflict, failure, influence, ethics, etc.) | You can adapt stories to any question |
+| **CAPABLE Practice** | Practice 5-10 hypotheticals using CAPABLE, time yourself | Framework becomes automatic |
+| **Record Yourself** | Answer questions out loud, record, listen back | Catch verbal tics, pacing issues, missing steps |
+| **Mock Interviews** | Practice with a friend or coach | Get real-time feedback, simulate pressure |
+| **Research Google Culture** | Read about Google's values, recent news, team you're interviewing for | Tailor your answers to Google's context |
+
+### Story Bank Template
+
+Prepare stories for each of these scenarios:
+
+| Scenario Type | Example Question | Your Story (prepare this) |
+|---------------|------------------|---------------------------|
+| **Conflict with Peer** | "Tell me about a time you disagreed with a colleague" | |
+| **Conflict with Manager** | "Tell me about a time you disagreed with your manager" | |
+| **Influence Without Authority** | "Tell me about a time you influenced a decision without formal authority" | |
+| **Failure & Learning** | "Tell me about a time you failed" | |
+| **Ethical Dilemma** | "Tell me about a time you had to make a difficult ethical decision" | |
+| **Ambiguity** | "Tell me about a time you had to make a decision with incomplete information" | |
+| **Team Health** | "Tell me about a time you helped a struggling team member" | |
+| **Challenging Status Quo** | "Tell me about a time you changed how things were done" | |
+| **Cross-Functional Leadership** | "Tell me about a time you led a cross-functional initiative" | |
+| **Technical Trade-off** | "Tell me about a time you had to make a difficult technical decision" | |
+
+## 5.2 During the Interview
+
+### The First 10 Seconds
+
+**What to do when you hear the question:**
+
+1. **Pause** — Take a breath (2-3 seconds). It's okay to think.
+2. **Paraphrase** — "So if I understand correctly, you're asking about [X]?"
+3. **Clarify** — "Before I dive in, can I ask [1-2 questions]?"
+
+**Why this works:**
+- Shows you don't jump to conclusions
+- Buys you thinking time
+- Ensures you answer the right question
+
+### Pacing & Timing
+
+| CAPABLE Step | Target Time | Pacing Tip |
+|--------------|-------------|------------|
+| **C - Clarify** | 10-15s | Keep it to 1-2 questions max |
+| **A - Acknowledge** | 10-15s | Name 2-3 stakeholders/tensions, don't list everything |
+| **P - Principles** | 10-15s | State 2-3 principles, not a manifesto |
+| **A - Alternatives** | 25-30s | 2-3 options with one trade-off each |
+| **B - Build** | 45-60s | This is the meat—be detailed but structured |
+| **L - Land** | 10-15s | One clear sentence: "I would do X because Y" |
+| **E - Evidence** | 20-30s | Specific story with outcome |
+
+**Total: 2-3 minutes**
+
+### Verbal Signposting
+
+Use explicit transitions to help the interviewer follow your structure:
+
+| Step | Signpost Phrase |
+|------|-----------------|
+| **C** | "Before I dive in, let me clarify..." |
+| **A** | "This is complex because..." / "There are several stakeholders here..." |
+| **P** | "My guiding principles in situations like this are..." |
+| **A** | "I see a few options here..." / "There are several paths forward..." |
+| **B** | "Here's how I'd approach this step by step..." |
+| **L** | "Given all that, I would choose..." / "My decision would be..." |
+| **E** | "I've actually faced a similar situation..." / "This reminds me of when..." |
+
+### Handling Follow-Up Questions
+
+| Follow-Up Type | What They're Testing | How to Respond |
+|----------------|---------------------|----------------|
+| "What if X changed?" | Adaptability, thinking on feet | "Good question. If X, I'd adjust by..." |
+| "Why not option Y?" | Depth of thinking, trade-off awareness | "Option Y is valid, but I chose Z because..." |
+| "Tell me more about..." | Depth, specificity | Go deeper on that specific aspect |
+| "What would you do differently?" | Self-awareness, learning | Be honest about what you'd improve |
+| "How did that turn out?" | Results orientation | Share specific outcomes, metrics if possible |
+
+### Recovery Strategies
+
+| Situation | Recovery Strategy |
+|-----------|-------------------|
+| **You blanked** | "Let me take a moment to think about this." (Pause is okay!) |
+| **You went off track** | "Let me step back—I think the core of your question is..." |
+| **You realized you missed something** | "Actually, I want to add something important I missed..." |
+| **You gave a weak answer** | "On reflection, I think a better approach would be..." |
+| **You don't have a relevant story** | "I haven't faced this exact situation, but a similar one was..." |
+
+## 5.3 Specific Tips for Staff Level
+
+### The "We" to "I" Balance
+
+**Rule:** Use "I" for decisions and ownership, "we" for execution and collaboration.
+
+| ❌ Wrong | ✅ Right |
+|----------|----------|
+| "We decided to..." | "I recommended that we..." |
+| "The team built..." | "I led the team to build..." |
+| "We had a problem..." | "I identified a problem and rallied the team to..." |
+
+### The "System Fix" Signal
+
+**Staff engineers don't just solve problems—they fix the systems that create problems.**
+
+| ❌ L5 Answer | ✅ L6 Answer |
+|--------------|--------------|
+| "I fixed the bug" | "I fixed the bug AND proposed a testing process to prevent similar bugs" |
+| "I resolved the conflict" | "I resolved the conflict AND created a decision framework for future disagreements" |
+| "I shipped the feature" | "I shipped the feature AND documented the architecture for future teams" |
+
+### The "Vulnerability" Signal
+
+**Showing appropriate vulnerability is a Googliness signal.**
+
+| ❌ Fake Perfection | ✅ Authentic Vulnerability |
+|--------------------|---------------------------|
+| "I handled it perfectly" | "It was challenging, and I wasn't sure I was making the right call" |
+| "I knew exactly what to do" | "I had to learn quickly because this was new territory for me" |
+| "Everything went smoothly" | "We hit some bumps, and here's what I learned from them" |
+
+### The "Escalation Judgment" Signal
+
+**Staff engineers know when to escalate and when to handle things themselves.**
+
+| Situation | Escalate? | Why |
+|-----------|-----------|-----|
+| Technical disagreement with peer | No (first) | Try to resolve directly first |
+| Ethical concern about product | Yes | User safety trumps hierarchy |
+| Resource conflict with another team | Maybe | Try direct conversation, escalate if stuck |
+| Manager making a bad decision | No (first) | Disagree directly, then commit or escalate |
+| Harassment or discrimination | Yes | Always escalate serious HR issues |
+
+## 5.4 Amazon to Google Translation
+
+Since you're coming from Amazon, here are key translations:
+
+| Amazon Term | Google Equivalent | Notes |
+|-------------|-------------------|-------|
+| "Bias for Action" | "Thoughtful Action" | Google values speed but with more deliberation |
+| "Customer Obsession" | "User Centricity" | Same concept, different word |
+| "Ownership" | "Ownership" | Same! This translates well |
+| "Dive Deep" | "Technical Depth" | Same concept |
+| "Have Backbone, Disagree and Commit" | "Challenging Status Quo" + "Disagree and Commit" | Google uses both phrases |
+| "Frugality" | Less emphasized | Google has more resources; focus on impact, not cost |
+| "Earn Trust" | "Psychological Safety" / "Trust" | Google emphasizes team safety more explicitly |
+| "Deliver Results" | "Impact" | Google focuses on long-term impact, not just delivery |
+
+**Key Mindset Shift:**
+- Amazon: "Move fast, deliver results, be right"
+- Google: "Move thoughtfully, build consensus, be collaborative"
+
+---
+
+# 6. Question Types & Approaches
+
+## 6.1 Question Type Taxonomy
+
+Hypothetical questions in G&L rounds generally fall into these categories:
+
+| Category | Example Questions | Key Focus |
+|----------|-------------------|-----------|
+| **Ethical Dilemmas** | "Your model is biased against a demographic" / "You're asked to do something you disagree with" | Doing the Right Thing, User Centricity |
+| **Conflict Resolution** | "Two engineers disagree" / "A peer is blocking your project" | Influence Without Authority, Caring About Team |
+| **Leadership Under Pressure** | "A leader criticizes you publicly" / "Requirements change mid-project" | Thriving in Ambiguity, Ownership |
+| **People Management** | "A team member is underperforming" / "Someone is taking credit for others' work" | Caring About Team, Valuing Feedback |
+| **Technical Trade-offs** | "Launch now vs. fix tech debt" / "Cut costs vs. maintain quality" | Technical Judgment, Ownership |
+| **Ambiguous Situations** | "You join a team with outdated practices" / "You're asked to lead outside your expertise" | Thriving in Ambiguity, Self-Starting |
+| **Stakeholder Management** | "A stakeholder keeps changing requirements" / "A partner is overpromising" | Influence Without Authority, Managing Projects |
+
+## 6.2 Approach by Question Type
+
+### 6.2.1 Ethical Dilemmas
+
+**Example:** "You discover your ML model is performing well on metrics but appears to be unfair to a specific user demographic. What do you do?"
+
+**Key Signals to Hit:**
+- User safety is non-negotiable
+- Willing to challenge status quo
+- Data-driven but principled
+- Systemic thinking (fix the process, not just the instance)
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify severity: "Is this causing harm now? How significant is the disparity?" |
+| **A** | Acknowledge tension: "There's pressure to ship, but user trust is at stake" |
+| **P** | State ethical principles: "User safety > metrics. Fairness is non-negotiable." |
+| **A** | Options: "Pause launch, launch with guardrails, or launch and fix later" |
+| **B** | Include: Stakeholder communication, investigation, systemic fix |
+| **L** | Be decisive: "I would pause the launch until we understand the root cause" |
+| **E** | Share a story where you prioritized ethics over speed |
+
+**Trap to Avoid:** Don't sound like you'd just "flag it and move on." Show you'd take ownership.
+
+---
+
+### 6.2.2 Conflict Resolution
+
+**Example:** "Two senior engineers on your team have a fundamental disagreement on technical approach. How do you resolve it?"
+
+**Key Signals to Hit:**
+- Facilitate, don't dictate
+- Understand both sides
+- Drive to decision
+- Protect the relationship
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "Is this blocking progress? Are there personal tensions?" |
+| **A** | Acknowledge: "Technical disagreements are healthy, but they can become personal" |
+| **P** | Principles: "Best idea wins, regardless of seniority. Disagree and commit." |
+| **A** | Options: "Let them debate it out, bring in a third expert, or make the call myself" |
+| **B** | Include: 1:1s with each, structured comparison, facilitated discussion, decision framework |
+| **L** | "I'd facilitate a structured discussion, but if no consensus, I'd make the call and own it" |
+| **E** | Share a story where you resolved a technical disagreement |
+
+**Trap to Avoid:** Don't sound like you'd just "let them figure it out" (abdicating) or "tell them what to do" (dictating).
+
+---
+
+### 6.2.3 Leadership Under Pressure
+
+**Example:** "A senior leader publicly criticizes your approach in a large meeting. What do you do?"
+
+**Key Signals to Hit:**
+- Grace under pressure
+- Ego doesn't drive decisions
+- Turn criticism into collaboration
+- Follow up appropriately
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "Is this about execution or strategy? Is it in front of my team?" |
+| **A** | Acknowledge: "Public criticism is uncomfortable, but the leader may have valid concerns" |
+| **P** | Principles: "Ego doesn't get a seat. The goal is the right outcome, not being right." |
+| **A** | Options: "Defend publicly, acknowledge and move on, or take it offline" |
+| **B** | Include: Calm acknowledgment, private follow-up, data-driven discussion, relationship repair |
+| **L** | "I'd acknowledge calmly in the moment, then follow up privately to understand and address" |
+| **E** | Share a story where you handled criticism gracefully |
+
+**Trap to Avoid:** Don't sound defensive or like you'd argue back in the meeting.
+
+---
+
+### 6.2.4 People Management
+
+**Example:** "A team member is consistently underperforming. How do you handle it?"
+
+**Key Signals to Hit:**
+- Diagnose before treating
+- Direct but compassionate
+- Clear expectations
+- Own the outcome (including hard decisions)
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "Is this new behavior or ongoing? Are there external factors?" |
+| **A** | Acknowledge: "Underperformance affects the team, but the person deserves support" |
+| **P** | Principles: "People deserve clarity, support, and fair chances. But the team's health matters too." |
+| **A** | Options: "Coaching, role change, performance plan, or separation" |
+| **B** | Include: Private conversation, root cause analysis, clear expectations, support plan, follow-up |
+| **L** | "I'd start with diagnosis and support, but I'd be prepared to make hard calls if needed" |
+| **E** | Share a story where you helped someone improve (or made a hard call) |
+
+**Trap to Avoid:** Don't sound like you'd avoid the conversation or immediately escalate to HR.
+
+---
+
+### 6.2.5 Technical Trade-offs
+
+**Example:** "Your manager wants to launch a feature to hit a quarterly goal, but you believe it will create significant technical debt. What do you do?"
+
+**Key Signals to Hit:**
+- Data-driven advocacy
+- Present options, not just objections
+- Disagree and commit
+- Know when to escalate
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "What's the severity of the debt? Is the deadline flexible?" |
+| **A** | Acknowledge: "Manager has legitimate goals; team will bear maintenance burden" |
+| **P** | Principles: "Sustainable impact > heroic sprints. Disagree and commit means real debate first." |
+| **A** | Options: "Block launch, launch with guardrails, or negotiate reduced scope" |
+| **B** | Include: Quantify debt, present data to manager, propose guardrails, communicate to team |
+| **L** | "I'd advocate for launch with guardrails; if overruled on safety, I'd escalate" |
+| **E** | Share a story where you navigated a similar trade-off |
+
+**Trap to Avoid:** Don't sound like a blocker ("we can't ship this") or a pushover ("whatever you say, boss").
+
+---
+
+### 6.2.6 Ambiguous Situations
+
+**Example:** "You join a new team and realize their ML practices are outdated and inefficient. What do you do?"
+
+**Key Signals to Hit:**
+- Observe before judging
+- Build credibility first
+- Start small, show value
+- Bring people along
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "How outdated? Is the team aware? Are there constraints I don't know?" |
+| **A** | Acknowledge: "There may be reasons for current practices; I'm the new person" |
+| **P** | Principles: "Earn trust before pushing change. Show, don't tell." |
+| **A** | Options: "Criticize immediately, stay silent, or demonstrate value incrementally" |
+| **B** | Include: Observation period, build relationships, small wins, propose improvements collaboratively |
+| **L** | "I'd observe first, build credibility, then propose changes with data and allies" |
+| **E** | Share a story where you successfully introduced change to a new team |
+
+**Trap to Avoid:** Don't sound like you'd come in and criticize everything immediately.
+
+---
+
+### 6.2.7 Stakeholder Management
+
+**Example:** "A key stakeholder keeps changing their mind about requirements, causing delays. How do you handle it?"
+
+**Key Signals to Hit:**
+- Understand their pressure
+- Create structure, not blame
+- Protect the team
+- Escalate if needed
+
+**CAPABLE Application:**
+
+| Step | What to Emphasize |
+|------|-------------------|
+| **C** | Clarify: "Is this one stakeholder or systemic? What's driving the changes?" |
+| **A** | Acknowledge: "Stakeholder may have legitimate reasons; team is frustrated" |
+| **P** | Principles: "Protect the team from chaos. Create clarity, not blame." |
+| **A** | Options: "Absorb the changes, push back, or create a structured process" |
+| **B** | Include: Understand root cause, propose change management process, document decisions, escalate if needed |
+| **L** | "I'd propose a structured process for changes; if ignored, I'd escalate the impact" |
+| **E** | Share a story where you managed a difficult stakeholder |
+
+**Trap to Avoid:** Don't sound like you'd just absorb endless changes or blame the stakeholder.
+
+---
+
+## 6.3 Question Type Quick Reference
+
+| Question Type | Key Principles to State | Key Trap to Avoid | Framework Emphasis |
+|---------------|------------------------|-------------------|-------------------|
+| **Ethical Dilemmas** | User safety > metrics; Fairness non-negotiable | Sounding like you'd "flag and move on" | Heavy on **P** (Principles) |
+| **Conflict Resolution** | Best idea wins; Disagree and commit | Abdicating or dictating | Heavy on **B** (Build process) |
+| **Leadership Under Pressure** | Ego doesn't get a seat; Right outcome > being right | Being defensive | Heavy on **A** (Acknowledge) |
+| **People Management** | Clarity + support + fair chances; Team health matters | Avoiding hard conversations | Heavy on **B** (Build plan) |
+| **Technical Trade-offs** | Sustainable impact > heroic sprints; Data-driven | Being a blocker or pushover | Heavy on **A** (Alternatives) |
+| **Ambiguous Situations** | Earn trust first; Show, don't tell | Coming in as a critic | Heavy on **B** (Build incrementally) |
+| **Stakeholder Management** | Protect the team; Create clarity, not blame | Absorbing chaos or blaming | Heavy on **A** (Alternatives) |
+
+---
+
+# 7. Quick Reference Cheat Sheet
+- Not needed. Hidden
+
+
+---
+
+# Final Words
+
+## The Meta-Strategy
+
+**Don't memorize frameworks—internalize principles.**
+
+All effective frameworks share the same DNA:
+1. Pause before answering
+2. Show you see complexity
+3. State your values
+4. Show structured action
+5. Make a decision
+6. Prove with real experience
+
+If you internalize these six moves, you can deploy CAPABLE—or any framework—naturally.
+
+
+---
+
+## 🔓 CREATIVE FREEDOM
+
+While this prompt provides comprehensive guidance, you are encouraged to:
+
+- **Think beyond these frameworks** if you identify better approaches for this specific user
+- **Adapt your coaching style** based on what the user needs most
+- **Add insights** from your broader knowledge of behavioral interviews, ML industry norms, and staff-level expectations
+- **Challenge the user** in ways that will make them stronger, even if uncomfortable
+- **Synthesize connections** between stories and dimensions that aren't explicitly covered
+- **Suggest creative angles** for presenting experiences that maximize impact
+
+The goal is **the user's success in the interview**. Use whatever approach serves that goal best.
+
+---
+
+## 📝 LANGUAGE & COMMUNICATION REMINDERS
+
+- Use **gender-neutral terms**: "the colleague," "the team member," "the manager"
+- User should prepare a **30-second intro**: Current role + core project (skip years of experience)
+- If user hasn't faced a specific situation: "While I haven't faced X exactly, in a similar situation involving Y, I did Z..."
+- **Take notes** during multi-part questions and cover ALL aspects systematically
+
+"""
 manager = create_wrapped_manager("prompts.json")
 
 manager["google_gl_prompt"] = google_gl_prompt
+manager["google_behavioral_interview_prompt"] = google_behavioral_interview_prompt
 manager["math_formatting_instructions"] = math_formatting_instructions
 manager["improve_code_prompt"] = improve_code_prompt
 manager["improve_code_prompt_interviews"] = improve_code_prompt_interviews

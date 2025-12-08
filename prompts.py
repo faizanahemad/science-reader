@@ -64,6 +64,7 @@ def get_prompt(name, default=None):
 # Extract all prompts from manager and assign them to variables for use in the codebase
 math_formatting_instructions = manager["math_formatting_instructions"]
 google_gl_prompt = manager["google_gl_prompt"]
+google_behavioral_interview_prompt = manager["google_behavioral_interview_prompt"]
 improve_code_prompt = manager["improve_code_prompt"]
 improve_code_prompt_interviews = manager["improve_code_prompt_interviews"]
 relationship_prompt = manager["relationship_prompt"]
@@ -914,7 +915,7 @@ Writing Instructions:
         prompts = self.prompts
         return prompts["paper_details_map"]
 
-
+    
 
 
     @property
