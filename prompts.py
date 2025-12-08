@@ -891,6 +891,10 @@ Writing Instructions:
     @property
     def google_gl_prompt(self):
         return google_gl_prompt
+
+    @property
+    def google_behavioral_interview_prompt(self):
+        return google_behavioral_interview_prompt
     
     @property
     def coding_interview_prompt(self):
