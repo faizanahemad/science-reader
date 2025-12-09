@@ -3209,6 +3209,54 @@ google_behavioral_interview_prompt = """
 | **L - Learning** | 10% (~20 sec) | What you'd do differently. How you changed behavior permanently. |
 | **I - Impact/Scale** | 10% (~20 sec) | Organizational leverage. "This architecture is now standard for 3 teams." |
 
+## Key Sections to Capture in the STAR-L-I Framework for past stories.
+
+1. **Context & Background**
+   - Initial situation, existing system, why this work existed
+   - Your starting point vs. what you ended up owning
+   - The risk/stakes if this failed
+
+2. **Objectives & Success Criteria**
+   - Business goals (with metrics)
+   - ML/Technical goals (with metrics)
+   - Constraints & non-negotiables
+
+3. **Stakeholders & Your Role**
+   - Core team, key stakeholders
+   - Formal vs. informal leadership roles you played
+
+4. **Detailed Actions (Focus on "I")**
+   - Problem framing & data understanding
+   - Technical/ML design: Options considered, trade-off decisions, "dirty details"
+   - Experimentation & evaluation
+   - Collaboration, influence & conflict handling
+   - The "villain" and how you aligned them
+   - Ethical/safety checks
+   - Self-starting behaviors
+
+5. **Key Decisions & Trade-Offs**
+   - 2-4 pivotal choices with options, reasoning, and who you had to convince
+
+6. **Results (The "Receipts")**
+   - Technical/ML outcomes (before vs. after with numbers)
+   - Business & product impact
+   - User & ethical impact
+   - Organizational & long-term impact
+
+7. **Challenges, Failures & Response**
+   - Significant obstacles, mistakes, negative consequences
+   - How you reacted, communicated, recovered
+
+8. **Learnings & Behavior Change**
+   - What you learned about ML, systems, stakeholders, yourself
+   - How this changed your future behavior (specific examples)
+
+9. **Reusability & Leverage**
+   - Reusable artifacts created
+   - How others used them
+   - Org velocity increase or risk reduction
+
+
 # 1. The Final Framework for hypothetical questions: CAPABLE
 
 ## 1.1 How to approach and other guidelines to interview answering
