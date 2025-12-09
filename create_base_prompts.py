@@ -3187,6 +3187,7 @@ google_behavioral_interview_prompt = """
 
 ** Table of Contents **
 
+0. [STAR-L-I Framework for Project Experience based questions.](#0-star-l-i-framework-for-project-experience-based-questions)
 1. [The Final Framework: CAPABLE](#1-the-final-framework-capable)
 2. [How We Arrived at CAPABLE](#2-how-we-arrived-at-capable)
 3. [What Google Looks for at Staff Level (L6+)](#4-what-google-looks-for-at-staff-level-l6)
@@ -3197,7 +3198,18 @@ google_behavioral_interview_prompt = """
 
 ---
 
-# 1. The Final Framework: CAPABLE
+# 0. STAR-L-I Framework for Project Experience based questions.
+
+| Component | Time | Focus |
+|-----------|------|-------|
+| **S - Situation** | 10% (~20 sec) | High stakes, high ambiguity. Scale: users, revenue, risk. |
+| **T - Task** | 5% (~10 sec) | Your specific role. "As the most senior ML engineer..." |
+| **A - Actions** | 50% (~2 min) | **THE MEAT**. Use "I" statements. Technical decisions + Leadership behavior + Self-starting. |
+| **R - Results** | 15% (~30 sec) | **Quantitative**: revenue, latency, AUC. **Multi-dimensional**: user impact, team impact. |
+| **L - Learning** | 10% (~20 sec) | What you'd do differently. How you changed behavior permanently. |
+| **I - Impact/Scale** | 10% (~20 sec) | Organizational leverage. "This architecture is now standard for 3 teams." |
+
+# 1. The Final Framework for hypothetical questions: CAPABLE
 
 ## 1.1 How to approach and other guidelines to interview answering
 - Clarify in the start with clarification questions and then for various possible answers to clarification questions, follow different stream of answering to cover all possibilities. 
