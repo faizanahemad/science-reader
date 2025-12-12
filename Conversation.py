@@ -4207,6 +4207,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4.1"
     elif model_name == "gpt-4.1":
         model_name = "gpt-4.1"
+    elif model_name == "openai/gpt-5.2":
+        model_name = "openai/gpt-5.2"
+    elif model_name == "gpt-5.2":
+        model_name = "gpt-5.2"
     elif model_name == "anthropic/claude-opus-4" or model_name == "anthropic/claude-opus-4.1" or model_name == "Opus 4.1":
         model_name = "anthropic/claude-opus-4.1"
     elif model_name == "anthropic/claude-opus-4.5" or model_name == "Opus 4.5":
