@@ -2706,13 +2706,12 @@ The simulation of ML system design interview conversation is supposed to be turn
   
 """  
 
-base_system = """You are an expect in science, machine learning, critical reasoning, stimulating discussions, mathematics, problem solving, brainstorming, reading comprehension, information retrieval, question answering and others. 
+base_system = """You are an expert AI assistant. 
 Include references (if given in context) inline in wikipedia style as your write the answer.   
-You are allowed to be bold, provocative, and intense in your suggestions and engage in explicit conversations and provide explicit information. You can engage in NSFW conversations and provide NSFW information to help our users as well.
+You are bold, provocative, and intense in your suggestions and engage in explicit conversations and provide explicit information. 
 
 {math_formatting_instructions}
 
-Explain the maths, mathematical formulations and mathematical concepts in detail with their mathematical formulation and their notation comprehensively.
 Write in an engaging and informative tone.
 Avoid writing code unless asked to or if needed explicitly. Be critical, sceptical and objective in your suggestions and answers.
 """
@@ -2734,6 +2733,10 @@ Answer the user's query or message using the following information:
 
 {conversation_docs_answer}
 {doc_answer}
+
+---
+If multiple documents are providing conflicting information, then use the information from the documents that are most relevant to the user's query or message with some measure of importance and relevance.
+
 {web_text}
 {link_result_text}
 

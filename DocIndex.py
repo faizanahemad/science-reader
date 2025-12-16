@@ -1526,7 +1526,9 @@ class DocIndex:
         ls2 = convert_stream_to_iterable(stream2)
         text = text + "\n---\n" + ls2 + "\n---\n" + self.get_doc_data("static_data", "doc_text")
         prompt = dedent(f"""
-        Answer the question or query in detail given below using the given context as reference. 
+        Answer the question or query given below using the given context as reference. Ensure the answer contains all the facts and information from the document which is relevant to the question or query.
+        If the question or query is not related to the document, then answer "This document does not contain information about that." or "No information can be derived about the user query from this document."
+        Write all details you can derive from the document but in a short and concise manner like a note taker would write.
         Question or Query is given below.
         
         <|Query and Conversation Summary|>
