@@ -1011,7 +1011,8 @@ class PerplexitySearchAgent(WebSearchWithAgent):
             # self.perplexity_models.append("perplexity/sonar-pro")
             self.perplexity_models.append("perplexity/sonar-reasoning")
             self.perplexity_models.append("perplexity/sonar-reasoning-pro")
-            
+        if detail_level >= 4:
+            self.perplexity_models.append("perplexity/sonar-deep-research")
         
         year = time.localtime().tm_year
         self.get_references = f"""
@@ -1029,6 +1030,7 @@ generate diverse queries that:
    - For location-based topics: append relevant place names
    - For temporal topics: add years/timeframes
    - For domain-specific topics: add field identifiers (finance, politics, technology, etc.)
+   - Both the query and the context pair should be detailed and capture the user's query and well enough for good web search.
 
 Format your response as a Python list of tuples as given below: 
 ```python
@@ -1101,7 +1103,7 @@ Please use the given search results to answer the user's query while combining i
                     future = get_async_future(
                         llm,
                         # text + "\n\n" + context + "\n\nQuery: " + query,
-                        "Context: " + context + "\n\nQuery: " + query + "\n" + self.get_references + ("\n\n" + f"Get most recent information and data for the query for year = {year}. If this is a research or scientific query or news query then append current year = {year} and previous year = {year - 1} to your search queries alternatively." if "gpt-4o" in model else ""),
+                        "Context: " + context + "\n\nQuery: " + query + "\n" + self.get_references,
                         timeout=self.timeout
                     )
                     futures.append((query, context, model, future))

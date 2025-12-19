@@ -710,12 +710,12 @@ Compact list of bullet points:
             if remaining_messages <= 6:  # Last 6 messages: use window_size=3, stride=3
                 window_size = 3
                 stride = 3
-            elif remaining_messages <= 14:  # Next 8 messages: use window_size=4, stride=4
-                window_size = 4
-                stride = 4
-            else:  # Earlier messages: use window_size=5, stride=5
+            elif remaining_messages <= 16:  # Next 16 messages: use window_size=5, stride=5
                 window_size = 5
                 stride = 5
+            else:  # Earlier messages: use window_size=5, stride=5
+                window_size = 6
+                stride = 6
             
             window = messages[i:i + window_size]
             if len(window) > 0:  # Include even partial windows at the end
