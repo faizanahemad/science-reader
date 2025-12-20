@@ -3,6 +3,35 @@
 // When disabled, settings will still work during the session but won't persist across page reloads
 const ENABLE_SETTINGS_PERSISTENCE = true;
 
+/**
+ * Detects whether the current device is probably a mobile/touch-first device.
+ *
+ * Purpose:
+ * - We need a stable, user-friendly default for certain UI features (like overriding
+ *   the browser right-click context menu). On desktop we default it ON, while on
+ *   mobile we default it OFF because long-press context menus and selection UX
+ *   can be fragile and inconsistent.
+ *
+ * @returns {boolean} True if the device is likely mobile/touch-first, else false.
+ */
+function isProbablyMobileDevice() {
+    try {
+        // Pointer coarse is a good indicator of touch-first devices.
+        if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
+            return true;
+        }
+    } catch (e) {
+        // Ignore matchMedia errors and fall back to UA/viewport heuristics.
+    }
+    const ua = (navigator && navigator.userAgent) ? navigator.userAgent : '';
+    const uaMobile = /Mobi|Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(ua);
+    const smallViewport = (typeof window !== 'undefined') ? (window.innerWidth <= 768) : false;
+    return uaMobile || smallViewport;
+}
+
+// Expose globally for other modules loaded before chat.js (e.g., context-menu-manager.js)
+window.isProbablyMobileDevice = isProbablyMobileDevice;
+
 function chat_interface_readiness() {
     
     // $('#chat-assistant-view').hide();
@@ -326,12 +355,14 @@ function loadSettingsIntoModal() {
 function buildSettingsStateFromControlsOrDefaults() {
     // Fallback builder used on first run when no state exists
     const currentTab = getCurrentActiveTab();
+    const defaultEnableCustomContextMenu = !isProbablyMobileDevice();
     const state = {
         perform_web_search: $('#chat-options-assistant-perform-web-search-checkbox').length ? $('#chat-options-assistant-perform-web-search-checkbox').is(':checked') : ($('#settings-perform-web-search-checkbox').is(':checked') || false),
         search_exact: $('#chat-options-assistant-search-exact').length ? $('#chat-options-assistant-search-exact').is(':checked') : ($('#settings-search-exact').is(':checked') || false),
         persist_or_not: $('#chat-options-assistant-persist_or_not').length ? $('#chat-options-assistant-persist_or_not').is(':checked') : ($('#settings-persist_or_not').is(':checked') || true),
         use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : ($('#settings-use_memory_pad').is(':checked') || false),
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
+        enable_custom_context_menu: defaultEnableCustomContextMenu,
         ppt_answer: $('#settings-ppt-answer').is(':checked') || false,
         depth: $('#depthSelector').length ? $('#depthSelector').val() : ($('#settings-depthSelector').val() || '2'),
         history: $('#historySelector').length ? $('#historySelector').val() : ($('#settings-historySelector').val() || '2'),
@@ -353,6 +384,12 @@ function setModalFromState(state) {
     $('#settings-persist_or_not').prop('checked', state.persist_or_not !== false);
     $('#settings-use_memory_pad').prop('checked', !!state.use_memory_pad);
     $('#settings-enable_planner').prop('checked', !!state.enable_planner);
+    $('#settings-enable_custom_context_menu').prop(
+        'checked',
+        (state.enable_custom_context_menu !== undefined && state.enable_custom_context_menu !== null)
+            ? !!state.enable_custom_context_menu
+            : !isProbablyMobileDevice()
+    );
     $('#settings-ppt-answer').prop('checked', !!state.ppt_answer);
     $('#settings-depthSelector').val(state.depth || '2');
     $('#settings-historySelector').val(state.history || '2');
@@ -433,6 +470,7 @@ function collectSettingsFromModal() {
         persist_or_not: $('#settings-persist_or_not').is(':checked'),
         use_memory_pad: $('#settings-use_memory_pad').is(':checked'),
         enable_planner: $('#settings-enable_planner').is(':checked'),
+        enable_custom_context_menu: $('#settings-enable_custom_context_menu').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
         depth: $('#settings-depthSelector').val() || '2',
         history: $('#settings-historySelector').val() || '2',
@@ -633,6 +671,7 @@ function resetSettingsToDefaults() {
     $('#settings-ppt-answer').prop('checked', false);
     $('#settings-use_memory_pad').prop('checked', false);
     $('#settings-enable_planner').prop('checked', false);
+    $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
     
     // Advanced Settings
     $('#settings-depthSelector').val('2');
@@ -711,6 +750,7 @@ function computeDefaultStateForTab(tab) {
         persist_or_not: true,
         use_memory_pad: false,
         enable_planner: false,
+        enable_custom_context_menu: !isProbablyMobileDevice(),
         ppt_answer: false,
         depth: '2',
         history: '2',

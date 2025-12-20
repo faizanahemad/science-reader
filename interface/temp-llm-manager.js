@@ -264,7 +264,7 @@ const TempLLMManager = {
         // Only scroll to bottom for user messages (to show their message was sent)
         // Don't scroll for assistant messages as streaming will handle that at the end
         if (isUser) {
-            messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+        messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
         }
         
         // Add scroll-to-top button for assistant messages that are long enough (non-streaming)
@@ -383,8 +383,8 @@ const TempLLMManager = {
                     if (accumulatedText.length > 300) {
                         setTimeout(function() {
                             if (assistantCard.find('.scroll-to-top-btn').length === 0) {
-                                if (typeof window.addScrollToTopButton === 'function') {
-                                    window.addScrollToTopButton(assistantCard, '↑ Top', 'temp-llm-scroll-top');
+                            if (typeof window.addScrollToTopButton === 'function') {
+                                window.addScrollToTopButton(assistantCard, '↑ Top', 'temp-llm-scroll-top');
                                 }
                             }
                         }, 100);

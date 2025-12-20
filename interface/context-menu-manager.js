@@ -26,6 +26,38 @@ const ContextMenuManager = {
     
     // Selectors for areas where context menu should work
     CONTEXT_MENU_SELECTORS: '#chatView, #doubt-chat-messages, #temp-llm-messages',
+
+    /**
+     * Determines whether the custom LLM context menu feature is enabled.
+     *
+     * Requirements:
+     * - When disabled, we must NOT override the browser's default right-click menu.
+     * - Default should be ON for desktop, OFF for mobile.
+     * - Setting is stored in window.chatSettingsState.enable_custom_context_menu.
+     *
+     * @returns {boolean} True if custom context menu should be active.
+     */
+    isFeatureEnabled: function() {
+        // If settings are loaded/persisted, honor them.
+        try {
+            const state = (typeof window !== 'undefined') ? window.chatSettingsState : null;
+            if (state && state.enable_custom_context_menu !== undefined && state.enable_custom_context_menu !== null) {
+                return !!state.enable_custom_context_menu;
+            }
+        } catch (e) {
+            // Fall through to defaults.
+        }
+
+        // Otherwise fall back to device default: desktop ON, mobile OFF.
+        try {
+            if (typeof window !== 'undefined' && typeof window.isProbablyMobileDevice === 'function') {
+                return !window.isProbablyMobileDevice();
+            }
+        } catch (e) {
+            // Ignore and fall back to width heuristic.
+        }
+        return (typeof window !== 'undefined') ? (window.innerWidth > 768) : true;
+    },
     
     /**
      * Initialize the context menu manager
@@ -37,6 +69,10 @@ const ContextMenuManager = {
         
         // Listen for contextmenu (right-click) events on chat view AND modals
         $(document).on('contextmenu', this.CONTEXT_MENU_SELECTORS, function(e) {
+            // If feature disabled, allow browser default menu.
+            if (!self.isFeatureEnabled()) {
+                return;
+            }
             e.preventDefault();
             e.stopPropagation(); // Prevent bubbling to parent handlers
             self.handleContextMenu(e);
@@ -44,6 +80,10 @@ const ContextMenuManager = {
         
         // Listen for text selection completion (mouseup after selection) on chat view AND modals
         $(document).on('mouseup', this.CONTEXT_MENU_SELECTORS, function(e) {
+            // If feature disabled, do nothing (keep default selection behavior).
+            if (!self.isFeatureEnabled()) {
+                return;
+            }
             // Don't trigger on menu clicks or button clicks
             if ($(e.target).closest('#llm-context-menu, .btn, button, a, .dropdown').length > 0) {
                 return;
@@ -92,6 +132,9 @@ const ContextMenuManager = {
      * @param {Event} e - The mouseup event
      */
     handleSelectionComplete: function(e) {
+        if (!this.isFeatureEnabled()) {
+            return;
+        }
         const selection = window.getSelection();
         const selectedText = selection ? selection.toString().trim() : '';
         
@@ -133,6 +176,9 @@ const ContextMenuManager = {
      * @param {Event} e - The contextmenu event
      */
     handleContextMenu: function(e) {
+        if (!this.isFeatureEnabled()) {
+            return;
+        }
         // Get current text selection
         this.currentSelection = this.getSelectedText();
         
@@ -220,6 +266,10 @@ const ContextMenuManager = {
      * @param {number} y - Y coordinate (pageY)
      */
     showMenu: function(x, y) {
+        if (!this.isFeatureEnabled()) {
+            this.hideMenu();
+            return;
+        }
         const $menu = $('#llm-context-menu');
         
         // Position the menu
