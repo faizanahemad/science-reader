@@ -3266,7 +3266,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 
                 # Use a fast, cheap model for TLDR generation
                 tldr_llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-                tldr_stream = tldr_llm(tldr_prompt_formatted, system=tldr_summary_prompt_system, temperature=0.3, stream=True)
+                tldr_stream = tldr_llm(tldr_prompt_formatted, system=tldr_summary_prompt_system, temperature=0.3, stream=False)
                 
                 # Wrap the TLDR stream in a collapsible wrapper
                 tldr_wrapped = collapsible_wrapper(
@@ -3277,11 +3277,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
                 
                 # Yield the wrapped TLDR content
-                for tldr_chunk in tldr_wrapped:
-                    yield {"text": tldr_chunk, "status": "Generating TLDR summary..."}
-                    answer += tldr_chunk
-                
-                yield {"text": "\n\n", "status": "TLDR summary complete"}
+                tldr_wrapped = convert_stream_to_iterable(tldr_wrapped)
+                yield {"text": tldr_wrapped, "status": "Generating TLDR summary..."}
+                answer += tldr_wrapped
                 answer += "\n\n"
                 time_dict["tldr_generated"] = True
                 time_dict["answer_word_count"] = answer_word_count
