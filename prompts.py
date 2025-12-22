@@ -133,27 +133,45 @@ Other instructions:
 """.lstrip()
 
 # TLDR prompt for generating short summaries of long answers
-tldr_summary_prompt = """You are a skilled summarizer. Your task is to create a TLDR (Too Long; Didn't Read) summary of a detailed answer.
+tldr_summary_prompt_system = """You are a skilled answer shortener. Your task is to create a TLDR (Too Long; Didn't Read) short version of a detailed answer.
+You will be given a conversation summary so far, a user's original question and the full answer to shorten. You will be given instructions on how to shorten the answer. Then you will write the short version of the answer."""
+
+tldr_summary_prompt = f"""{tldr_summary_prompt_system}
 
 **Context:**
-- User's original question: {query}
-- Conversation summary so far: {summary}
+- Conversation summary so far: 
+'''
+{{summary}}
+'''
 
-**The full answer to summarize:**
-{answer}
+
+- User's original question: 
+'''
+{{query}}
+'''
+
+
+
+---
+
+**The full answer to shorten:**
+'''
+{{answer}}
+'''
 
 **Instructions:**
-1. Create a concise TLDR summary of the above answer in few bullet points or 3-4 short paragraphs.
+1. Create a concise TLDR short version of the above answer in few bullet points or 3-4 short paragraphs.
 2. Focus on the key takeaways, main points, and actionable insights from the actual answer provided. Don't forget to also include any key information or insights from the answer as well.
 3. Do NOT add any new information, opinions, or details that are not in the original answer.
 4. This is strictly a summarization/paraphrasing task - only condense what is already written.
-5. Keep the summary brief (under 400 words) but ensure it captures the essence of the full answer. Include few details where they are making most impact.
+5. Keep the short version brief (under 400 words) but ensure it captures the essence of the full answer. Include few details where they are making most impact.
 6. Use clear, simple language that is easy to scan quickly.
 7. If the answer contains code, formulas, or technical details, summarize what they accomplish rather than including them verbatim.
 8. Preserve any important steps, procedures, caveats, warnings, or limitations mentioned in the original answer.
-9. Provide a one paragraph key takeaways and learnings or things to remember and do's to remember from the answer at the end.
+9. Provide a one paragraph key takeaways and learnings or things to remember and do's/dont's to remember from the answer at the end.
+10. Remove any historical context, background information, or repeatation of what is already mentioned in user query or conversation summary so far.
 
-Write the TLDR summary below:
+Write the short version of the answer below:
 """.lstrip()
 
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:

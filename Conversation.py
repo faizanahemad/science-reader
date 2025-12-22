@@ -8,7 +8,7 @@ from textwrap import dedent
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent
 from call_llm import MockCallLLm
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt, tldr_summary_prompt_system
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
@@ -3266,7 +3266,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 
                 # Use a fast, cheap model for TLDR generation
                 tldr_llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-                tldr_stream = tldr_llm(tldr_prompt_formatted, temperature=0.3, stream=True)
+                tldr_stream = tldr_llm(tldr_prompt_formatted, system=tldr_summary_prompt_system, temperature=0.3, stream=True)
                 
                 # Wrap the TLDR stream in a collapsible wrapper
                 tldr_wrapped = collapsible_wrapper(
