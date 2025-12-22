@@ -1,17 +1,121 @@
 function parseMessageForCheckBoxes(text) {
     let result = { text: "" };
+    // NOTE: Commands are only parsed from the *first line* of the message,
+    // and only when they appear outside inline/fenced backtick code spans.
     let processedText = text;
+    let lines = (text ?? "").split(/\r?\n/);
+
+    /**
+     * Return ranges [start, end) for inline markdown code spans delimited by backticks.
+     *
+     * Supports variable-length backtick fences (e.g. `code`, ``code ` inside```, ```code```).
+     * If an opening backtick fence is not closed on the same line, the code span is treated
+     * as running until end-of-line.
+     *
+     * @param {string} line
+     * @returns {{start: number, end: number}[]}
+     */
+    const getInlineCodeRanges = (line) => {
+        const ranges = [];
+        if (!line) return ranges;
+
+        let i = 0;
+        let inSpan = false;
+        let fenceLen = 0;
+        let spanStart = -1;
+
+        while (i < line.length) {
+            // Count run length of consecutive backticks at i
+            if (line[i] === "`") {
+                let j = i;
+                while (j < line.length && line[j] === "`") j++;
+                const runLen = j - i;
+
+                if (!inSpan) {
+                    inSpan = true;
+                    fenceLen = runLen;
+                    spanStart = i;
+                } else if (runLen === fenceLen) {
+                    // Close span, include closing fence
+                    ranges.push({ start: spanStart, end: j });
+                    inSpan = false;
+                    fenceLen = 0;
+                    spanStart = -1;
+                }
+
+                i = j;
+                continue;
+            }
+            i++;
+        }
+
+        // Unclosed opening fence: treat as code span until end-of-line
+        if (inSpan && spanStart >= 0) {
+            ranges.push({ start: spanStart, end: line.length });
+        }
+
+        return ranges;
+    };
+
+    /**
+     * Check whether an index is within any [start, end) range.
+     * @param {number} idx
+     * @param {{start: number, end: number}[]} ranges
+     * @returns {boolean}
+     */
+    const isIndexInRanges = (idx, ranges) => {
+        for (const r of ranges) {
+            if (idx >= r.start && idx < r.end) return true;
+        }
+        return false;
+    };
+
+    /**
+     * Find the first regex match in the provided line that is NOT inside a backtick code span.
+     * @param {string} line
+     * @param {RegExp} regex
+     * @returns {{match: RegExpExecArray, index: number} | null}
+     */
+    const findFirstMatchOutsideInlineCode = (line, regex) => {
+        const ranges = getInlineCodeRanges(line);
+        const flags = regex.flags.includes("g") ? regex.flags : `${regex.flags}g`;
+        const re = new RegExp(regex.source, flags);
+
+        let m;
+        while ((m = re.exec(line)) !== null) {
+            const idx = m.index ?? 0;
+            if (!isIndexInRanges(idx, ranges)) {
+                return { match: m, index: idx };
+            }
+            // Avoid infinite loops on zero-length matches
+            if (m[0].length === 0) re.lastIndex++;
+        }
+        return null;
+    };
+
+    /**
+     * Replace a single match occurrence at an exact index with a single space.
+     * @param {string} line
+     * @param {number} index
+     * @param {number} length
+     * @returns {string}
+     */
+    const replaceAtIndexWithSpace = (line, index, length) => {
+        return `${line.slice(0, index)} ${line.slice(index + length)}`;
+    };
 
     // Improved processing for removing commands and handling spaces
     const processCommand = (regex, key, isFlag = false) => {
-        const match = processedText.match(regex);
-        if (match) {
+        const firstLine = lines[0] ?? "";
+        const found = findFirstMatchOutsideInlineCode(firstLine, regex);
+        if (found) {
+            const match = found.match;
             if (key) {
                 // Assign matched number or true for flags, if isFlag is true then we don't expect a capturing group
                 result[key] = isFlag ? true : match[1];
             }
             // Replace the found command with a space, and we'll trim and replace multiple spaces later
-            processedText = processedText.replace(regex, " ");
+            lines[0] = replaceAtIndexWithSpace(firstLine, found.index, match[0].length);
         }
     };
 
@@ -28,7 +132,18 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/draw\b/i, "draw", true);
 
     // Handle commands without numbers specifically, to ensure no leftover words like "then_no_number"
-    processedText = processedText.replace(/\/history\b/i, "").replace(/\/detailed\b/i, "");
+    // Only remove these bare tokens if they occur on the FIRST LINE and outside backticks.
+    const removeBareTokenFromFirstLine = (regex) => {
+        const firstLine = lines[0] ?? "";
+        const found = findFirstMatchOutsideInlineCode(firstLine, regex);
+        if (found) {
+            lines[0] = replaceAtIndexWithSpace(firstLine, found.index, found.match[0].length);
+        }
+    };
+    removeBareTokenFromFirstLine(/\/history\b/i);
+    removeBareTokenFromFirstLine(/\/detailed\b/i);
+
+    processedText = lines.join("\n");
 
     // Replace multiple spaces with a single space and trim leading/trailing spaces
     processedText = processedText.replace(/\s+/g, ' ').trim();
@@ -126,7 +241,12 @@ function testParseMessageForCheckBoxesV2() {
         { input: "/history 5 /scholar /search", expected: { text: "", enable_previous_messages: "5", googleScholar: true, perform_web_search: true } }, // Multiple commands
         { input: "/history5", expected: { text: "/history5" } }, // Invalid command format
         { input: "/history then_no_number", expected: { text: "then_no_number" } }, // Invalid history command, we keep then_no_number as part of text
-        { input: "/detailed 2 /history 3", expected: { text: "", provide_detailed_answers: "2", enable_previous_messages: "3" } } // Both detailed and history commands
+        { input: "/detailed 2 /history 3", expected: { text: "", provide_detailed_answers: "2", enable_previous_messages: "3" } }, // Both detailed and history commands
+
+        // New behavior: commands only on FIRST LINE, and not inside backticks
+        { input: "Line1\n/search", expected: { text: "Line1 /search" } }, // /search on line 2 => ignored
+        { input: "Use `/search` please", expected: { text: "Use `/search` please" } }, // inside inline code => ignored
+        { input: "```/search``` now", expected: { text: "```/search``` now" } } // fenced on same line => ignored
     ];
 
     // Execute each test case
@@ -165,7 +285,11 @@ function comprehensiveTestParseMessageForCheckBoxes() {
         { input: "/ history 2", expected: { text: "/ history 2" } },
         { input: "This is a history lesson", expected: { text: "This is a history lesson" } },
         { input: "/history two", expected: { text: "two" } },
-        { input: "Pre /HiStOrY 4 post", expected: { text: "Pre post", enable_previous_messages: "4" } }
+        { input: "Pre /HiStOrY 4 post", expected: { text: "Pre post", enable_previous_messages: "4" } },
+
+        // New behavior: commands only on FIRST LINE, and not inside backticks
+        { input: "First line ok /search\nSecond line /scholar", expected: { text: "First line ok Second line /scholar", perform_web_search: true } },
+        { input: "Use `/history 3` literally", expected: { text: "Use `/history 3` literally" } }
     ];
 
     testCases.forEach((testCase, index) => {
