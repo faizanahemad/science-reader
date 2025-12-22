@@ -1005,6 +1005,7 @@ Give 4 suggestions.
 
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
         llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)
+        answer_tldr = extract_user_answer(response, tag="answer_tldr", return_empty_string_if_not_found=True)
         prompt = get_first_last_parts(prompt, 18000, 10_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -1026,7 +1027,8 @@ Your response will be in below xml style format:
             preserved_messages = [
                 {"message_id": message_ids["user_message_id"], "text": query, "show_hide": "show",
                 "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
-                {"message_id": message_ids["response_message_id"], "text": response, "show_hide": "show", "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config}]
+                {"message_id": message_ids["response_message_id"], "text": response, 
+                "show_hide": "show", "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config, "answer_tldr": answer_tldr}]
             
             if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
                 messages = get_async_future(self.get_field, "messages")
@@ -3255,6 +3257,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if answer_word_count > 1000 and model_name != FILLER_MODEL and not self.is_cancelled():
             yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
             answer += "\n\n---\n\n"
+            answer += "<answer_tldr>\n"
             
             try:
                 # Format the TLDR prompt with context
@@ -3272,7 +3275,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 tldr_wrapped = collapsible_wrapper(
                     tldr_stream, 
                     header="📝 TLDR Summary (Quick Read)", 
-                    show_initially=True, 
+                    show_initially=False, 
                     add_close_button=True
                 )
                 
@@ -3280,6 +3283,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 tldr_wrapped = convert_stream_to_iterable(tldr_wrapped)
                 yield {"text": tldr_wrapped, "status": "Generating TLDR summary..."}
                 answer += tldr_wrapped
+                answer += "\n</answer_tldr>\n"
                 answer += "\n\n"
                 time_dict["tldr_generated"] = True
                 time_dict["answer_word_count"] = answer_word_count
@@ -4420,20 +4424,23 @@ def model_name_to_canonical_name(model_name):
     return model_name
 import re
 
-def extract_user_answer(text):
-    # Pattern to find <answer>...</answer> segments
-    pattern = r'<answer>(.*?)</answer>'
+def extract_user_answer(text, tag="answer", return_empty_string_if_not_found=False):
+    # Pattern to find <tag>...</tag> segments
+    pattern = rf'<{tag}>(.*?)</{tag}>'
 
     # Find all occurrences of the pattern
     answers = re.findall(pattern, text, re.DOTALL)
 
     # Check if any answers were found within tags
     if answers:
-        # Joining all extracted answers (in case there are multiple <answer> segments)
+        # Joining all extracted answers (in case there are multiple <tag> segments)
         return '\n'.join(answers).strip()
     else:
-        # If no <answer> tags are found, return the entire text
-        return text.strip()
+        # If no tags are found, return the entire text
+        if return_empty_string_if_not_found:
+            return ""
+        else:
+            return text.strip()
     
     
 def model_hierarchies(model_names: List[str]):
