@@ -90,7 +90,7 @@ preamble_no_code_exec = manager["preamble_no_code_exec"]
 preamble_no_code_prompt = manager["preamble_no_code_prompt"]
 preamble_code_exec = manager["preamble_code_exec"]
 preamble_cot = manager["preamble_cot"]
-preamble_explore = manager["preamble_explore"]
+
 preamble_creative = manager["preamble_creative"]
 preamble_argumentative = manager["preamble_argumentative"]
 preamble_blackmail = manager["preamble_blackmail"]

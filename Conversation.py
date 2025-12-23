@@ -1889,8 +1889,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += dating_maverick_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
-        if "Explore" in preamble_options:
-            preamble += preamble_explore
+        
         if "Creative" in preamble_options:
             preamble += preamble_creative
         if "Argumentative" in preamble_options:
