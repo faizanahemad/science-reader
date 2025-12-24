@@ -490,6 +490,256 @@
       </div>
     </div>
 
+    <!-- Personal Knowledge Base (PKB) Modal -->
+    <div class="modal fade" id="pkb-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-brain"></i> Personal Knowledge Base</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <!-- Tabs Navigation -->
+            <ul class="nav nav-tabs" id="pkb-tabs" role="tablist">
+              <li class="nav-item">
+                <a class="nav-link active" id="pkb-claims-tab" data-toggle="tab" href="#pkb-claims-pane" role="tab">
+                  <i class="bi bi-card-text"></i> Claims
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-entities-tab" data-toggle="tab" href="#pkb-entities-pane" role="tab">
+                  <i class="bi bi-people"></i> Entities
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-tags-tab" data-toggle="tab" href="#pkb-tags-pane" role="tab">
+                  <i class="bi bi-tags"></i> Tags
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-conflicts-tab" data-toggle="tab" href="#pkb-conflicts-pane" role="tab">
+                  <i class="bi bi-exclamation-triangle"></i> Conflicts
+                </a>
+              </li>
+            </ul>
+            
+            <!-- Tab Content -->
+            <div class="tab-content mt-3" id="pkb-tabs-content">
+              
+              <!-- Claims Tab -->
+              <div class="tab-pane fade show active" id="pkb-claims-pane" role="tabpanel">
+                <!-- Search and Add -->
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <div class="input-group">
+                      <input type="text" id="pkb-search-input" class="form-control" placeholder="Search your memories...">
+                      <div class="input-group-append">
+                        <button class="btn btn-outline-primary" id="pkb-search-btn" type="button">
+                          <i class="bi bi-search"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="col-md-6 text-right">
+                    <button class="btn btn-success" id="pkb-add-claim-btn">
+                      <i class="bi bi-plus-lg"></i> Add Memory
+                    </button>
+                  </div>
+                </div>
+                
+                <!-- Filters -->
+                <div class="row mb-3">
+                  <div class="col-md-4">
+                    <select id="pkb-filter-type" class="form-control form-control-sm">
+                      <option value="">All Types</option>
+                      <option value="fact">Facts</option>
+                      <option value="preference">Preferences</option>
+                      <option value="decision">Decisions</option>
+                      <option value="task">Tasks</option>
+                      <option value="reminder">Reminders</option>
+                      <option value="habit">Habits</option>
+                      <option value="memory">Memories</option>
+                      <option value="observation">Observations</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <select id="pkb-filter-domain" class="form-control form-control-sm">
+                      <option value="">All Domains</option>
+                      <option value="personal">Personal</option>
+                      <option value="health">Health</option>
+                      <option value="work">Work</option>
+                      <option value="relationships">Relationships</option>
+                      <option value="learning">Learning</option>
+                      <option value="life_ops">Life Ops</option>
+                      <option value="finance">Finance</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <select id="pkb-filter-status" class="form-control form-control-sm">
+                      <option value="active">Active</option>
+                      <option value="">All Statuses</option>
+                      <option value="contested">Contested</option>
+                      <option value="historical">Historical</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <!-- Claims List -->
+                <div id="pkb-claims-list" class="list-group">
+                  <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                    <p>No memories yet. Add your first one!</p>
+                  </div>
+                </div>
+                
+                <!-- Pagination -->
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                  <span id="pkb-claims-count" class="text-muted">0 claims</span>
+                  <div>
+                    <button class="btn btn-sm btn-outline-secondary" id="pkb-prev-page" disabled>
+                      <i class="bi bi-chevron-left"></i> Prev
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="pkb-next-page">
+                      Next <i class="bi bi-chevron-right"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Entities Tab -->
+              <div class="tab-pane fade" id="pkb-entities-pane" role="tabpanel">
+                <div id="pkb-entities-list" class="list-group">
+                  <div class="text-center text-muted py-4">
+                    <i class="bi bi-person-badge" style="font-size: 2rem;"></i>
+                    <p>Entities (people, places, topics) linked to your memories will appear here.</p>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Tags Tab -->
+              <div class="tab-pane fade" id="pkb-tags-pane" role="tabpanel">
+                <div id="pkb-tags-list" class="list-group">
+                  <div class="text-center text-muted py-4">
+                    <i class="bi bi-tag" style="font-size: 2rem;"></i>
+                    <p>Tags used to organize your memories will appear here.</p>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Conflicts Tab -->
+              <div class="tab-pane fade" id="pkb-conflicts-pane" role="tabpanel">
+                <div id="pkb-conflicts-list" class="list-group">
+                  <div class="text-center text-muted py-4">
+                    <i class="bi bi-exclamation-circle" style="font-size: 2rem;"></i>
+                    <p>Conflicting memories that need resolution will appear here.</p>
+                  </div>
+                </div>
+              </div>
+              
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PKB Claim Add/Edit Modal -->
+    <div class="modal fade" id="pkb-claim-edit-modal" tabindex="-1" aria-hidden="true" style="z-index: 1070;">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="pkb-claim-edit-title">Add Memory</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="pkb-claim-edit-id">
+            
+            <div class="form-group">
+              <label for="pkb-claim-statement">What do you want to remember?</label>
+              <textarea id="pkb-claim-statement" class="form-control" rows="3" placeholder="e.g., I prefer morning workouts..."></textarea>
+            </div>
+            
+            <div class="row">
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="pkb-claim-type">Type</label>
+                  <select id="pkb-claim-type" class="form-control">
+                    <option value="fact">Fact</option>
+                    <option value="preference" selected>Preference</option>
+                    <option value="decision">Decision</option>
+                    <option value="task">Task</option>
+                    <option value="reminder">Reminder</option>
+                    <option value="habit">Habit</option>
+                    <option value="memory">Memory</option>
+                    <option value="observation">Observation</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="pkb-claim-domain">Domain</label>
+                  <select id="pkb-claim-domain" class="form-control">
+                    <option value="personal" selected>Personal</option>
+                    <option value="health">Health</option>
+                    <option value="work">Work</option>
+                    <option value="relationships">Relationships</option>
+                    <option value="learning">Learning</option>
+                    <option value="life_ops">Life Ops</option>
+                    <option value="finance">Finance</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="pkb-claim-tags">Tags (comma separated)</label>
+              <input type="text" id="pkb-claim-tags" class="form-control" placeholder="e.g., fitness, routine, morning">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="pkb-claim-save-btn">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory Update Proposal Modal -->
+    <div class="modal fade" id="memory-proposal-modal" tabindex="-1" aria-hidden="true" data-backdrop="static" style="z-index: 1075;">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header bg-info text-white">
+            <h5 class="modal-title"><i class="bi bi-lightbulb"></i> Memory Update Suggestions</h5>
+            <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p id="memory-proposal-intro" class="text-muted mb-3">
+              I noticed some things worth remembering from our conversation:
+            </p>
+            <div id="memory-proposal-list">
+              <!-- Proposals will be rendered here as checkboxes -->
+            </div>
+            <input type="hidden" id="memory-proposal-plan-id">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" id="memory-proposal-skip" data-dismiss="modal">
+              <i class="bi bi-x-lg"></i> Skip All
+            </button>
+            <button type="button" class="btn btn-primary" id="memory-proposal-save">
+              <i class="bi bi-check-lg"></i> Save Selected
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
 
     <!-- Message Edit Modal -->
@@ -1260,12 +1510,17 @@
                                         </button>
                                     </div>
                                     <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
+                                            <i class="bi bi-brain"></i> Personal Memory
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
                                             <i class="bi bi-pen"></i> User Details
                                         </button>
                                     </div>
                                     <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-user-preferences-modal-open-button">
+                                        <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-preferences-modal-open-button" title="Legacy - Use Personal Memory instead">
                                             <i class="bi bi-pen"></i> User Preferences
                                         </button>
                                     </div>
@@ -1851,6 +2106,7 @@ greet("World");</code></pre>
     <script src="interface/temp-llm-manager.js"></script>
     <script src="interface/context-menu-manager.js"></script>
     <script src="interface/prompt-manager.js"></script>
+    <script src="interface/pkb-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
     <link rel="stylesheet" href="interface/workspace-styles.css">

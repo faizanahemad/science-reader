@@ -41,6 +41,41 @@ import tiktoken
 import json
 alphabet = string.ascii_letters + string.digits
 
+# =============================================================================
+# PKB (Personal Knowledge Base) Integration
+# =============================================================================
+try:
+    from truth_management_system import (
+        PKBConfig, get_database, StructuredAPI, SearchFilters
+    )
+    PKB_AVAILABLE = True
+except ImportError:
+    PKB_AVAILABLE = False
+
+# Global PKB database instance (shared across conversations)
+_pkb_db_instance = None
+_pkb_config_instance = None
+
+def get_pkb_database():
+    """Get or initialize the shared PKB database instance."""
+    global _pkb_db_instance, _pkb_config_instance
+    
+    if not PKB_AVAILABLE:
+        return None, None
+    
+    if _pkb_db_instance is None:
+        try:
+            # Use the same path as server.py
+            pkb_db_path = os.path.join(os.path.dirname(__file__), "users", "pkb.sqlite")
+            _pkb_config_instance = PKBConfig(db_path=pkb_db_path)
+            _pkb_db_instance = get_database(_pkb_config_instance)
+            logger.info(f"Initialized PKB database for Conversation at {pkb_db_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize PKB database: {e}")
+            return None, None
+    
+    return _pkb_db_instance, _pkb_config_instance
+
 
 class Conversation:
     def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:
@@ -95,6 +130,61 @@ class Conversation:
     
 
 
+    def _get_pkb_context(self, user_email: str, query: str, conversation_summary: str = "", k: int = 10) -> str:
+        """
+        Retrieve relevant claims from PKB for the current query.
+        
+        This method searches the Personal Knowledge Base for claims relevant to the
+        user's current query and conversation context. It uses hybrid search
+        (combining FTS and embedding similarity) to find the most relevant facts.
+        
+        Args:
+            user_email: Email of the user to retrieve claims for.
+            query: The user's current query.
+            conversation_summary: Summary of the recent conversation for context.
+            k: Maximum number of claims to retrieve.
+            
+        Returns:
+            Formatted string of relevant claims, or empty string if none found.
+        """
+        if not PKB_AVAILABLE:
+            return ""
+        
+        try:
+            db, config = get_pkb_database()
+            if db is None:
+                return ""
+            
+            # Get API for this user
+            api = StructuredAPI(db, self.get_api_keys(), config, user_email=user_email)
+            
+            # Build enhanced query with conversation context
+            enhanced_query = query
+            if conversation_summary:
+                enhanced_query = f"{conversation_summary}\n\nCurrent query: {query}"
+            
+            # Search for relevant claims
+            result = api.search(enhanced_query, strategy='hybrid', k=k)
+            
+            if not result.success or not result.data:
+                return ""
+            
+            # Format claims as bullet points
+            context_lines = []
+            for search_result in result.data[:k]:
+                claim = search_result.claim
+                claim_type_prefix = f"[{claim.claim_type}]" if claim.claim_type else ""
+                context_lines.append(f"- {claim_type_prefix} {claim.statement}")
+            
+            if context_lines:
+                return "\n".join(context_lines)
+            
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error retrieving PKB context: {e}")
+            return ""
+    
     def set_memory_if_None(self):
         if self.get_field("memory") is None:
             self.set_field("memory", {"title": 'Start the Conversation',
@@ -2121,6 +2211,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         time_dict = dict()
         user_memory = userData.get("user_memory", None) if userData is not None else None
         user_preferences = userData.get("user_preferences", None) if userData is not None else None
+        user_email = userData.get("user_email", None) if userData is not None else None
+        
+        # Start PKB context retrieval in parallel (if PKB is available)
+        pkb_context_future = None
+        if PKB_AVAILABLE and user_email:
+            pkb_context_future = get_async_future(
+                self._get_pkb_context,
+                user_email,
+                query["messageText"],
+                self.running_summary,
+                k=10
+            )
         
         answer = ''
         summary = self.running_summary
@@ -2461,8 +2563,28 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
         if userData is not None:
+            # Get PKB context if available (from async future started earlier)
+            pkb_context = ""
+            if pkb_context_future is not None:
+                try:
+                    pkb_context = pkb_context_future.result()
+                except Exception as e:
+                    logger.warning(f"Failed to get PKB context: {e}")
+                    pkb_context = ""
+            
+            # Build user info prompt with both legacy data and PKB context
+            pkb_section = ""
+            if pkb_context:
+                pkb_section = f"""
+            **Personal Knowledge Base (relevant facts and preferences):**
+            ```
+            {pkb_context}
+            ```
+            """
+            
             user_info_text = dedent(f"""
             Few details about the user and how they want us to respond to them:
+            {pkb_section}
             **User Memory:** 
             ```
             {user_memory}

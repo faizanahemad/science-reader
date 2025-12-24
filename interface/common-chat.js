@@ -2281,6 +2281,22 @@ function sendMessageCallback() {
         ConversationManager.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
         });
+        
+        // Trigger PKB memory update proposal check (with delay to not interrupt streaming)
+        // Only check if PKBManager is available
+        if (typeof PKBManager !== 'undefined' && PKBManager.checkMemoryUpdates) {
+            setTimeout(function() {
+                // Get conversation summary if available
+                var conversationSummary = '';
+                try {
+                    conversationSummary = ConversationManager.currentConversationSummary || '';
+                } catch (e) {
+                    conversationSummary = '';
+                }
+                
+                PKBManager.checkMemoryUpdates(conversationSummary, messageText, '');
+            }, 3000);  // 3 second delay to allow streaming to start
+        }
     }).catch(function(error) {
         // Reset UI state on error
         $('#stopResponseButton').hide();

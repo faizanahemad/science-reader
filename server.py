@@ -50,6 +50,21 @@ import typing as t
 import json
 from flask import Flask, redirect, url_for
 
+# =============================================================================
+# PKB (Personal Knowledge Base) Imports
+# =============================================================================
+try:
+    from truth_management_system import (
+        PKBConfig, get_database, StructuredAPI,
+        ConversationDistiller, MemoryUpdatePlan,
+        ClaimType, ClaimStatus, ContextDomain
+    )
+    PKB_AVAILABLE = True
+except ImportError:
+    PKB_AVAILABLE = False
+    import warnings
+    warnings.warn("PKB (truth_management_system) not available. PKB endpoints will be disabled.")
+
 
 class FlaskJSONProvider(JSONProvider):
     def dumps(self, obj: t.Any, **kwargs: t.Any) -> str:
@@ -3716,7 +3731,892 @@ def modify_user_preference():
     except Exception as e:
         logger.error(f"Error in modify_user_preference: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# =============================================================================
+# PKB (Personal Knowledge Base) API Endpoints
+# =============================================================================
+
+# Global PKB database and config (initialized lazily)
+_pkb_db = None
+_pkb_config = None
+_pkb_keys = None
+_memory_update_plans = {}  # Store temporary memory update plans by ID
+
+def get_pkb_db():
+    """Get or initialize the shared PKB database instance."""
+    global _pkb_db, _pkb_config
     
+    if not PKB_AVAILABLE:
+        return None, None
+    
+    if _pkb_db is None:
+        # Initialize PKB with database in users directory
+        pkb_db_path = os.path.join(users_dir, "pkb.sqlite") if 'users_dir' in globals() else "./users/pkb.sqlite"
+        _pkb_config = PKBConfig(db_path=pkb_db_path)
+        _pkb_db = get_database(_pkb_config)
+        logger.info(f"Initialized PKB database at {pkb_db_path}")
+    
+    return _pkb_db, _pkb_config
+
+def get_pkb_api_for_user(user_email: str, keys: dict = None):
+    """
+    Get a StructuredAPI instance scoped to a specific user.
+    
+    Args:
+        user_email: Email of the user to scope operations to.
+        keys: API keys dict (for LLM operations).
+        
+    Returns:
+        StructuredAPI instance or None if PKB not available.
+    """
+    db, config = get_pkb_db()
+    if db is None:
+        return None
+    
+    return StructuredAPI(db, keys or {}, config, user_email=user_email)
+
+def serialize_claim(claim):
+    """Convert a Claim object to a JSON-serializable dict."""
+    return {
+        'claim_id': claim.claim_id,
+        'user_email': claim.user_email,
+        'claim_type': claim.claim_type,
+        'statement': claim.statement,
+        'context_domain': claim.context_domain,
+        'status': claim.status,
+        'confidence': claim.confidence,
+        'subject_text': claim.subject_text,
+        'predicate': claim.predicate,
+        'object_text': claim.object_text,
+        'created_at': claim.created_at,
+        'updated_at': claim.updated_at,
+        'valid_from': claim.valid_from,
+        'valid_to': claim.valid_to,
+        'meta_json': claim.meta_json
+    }
+
+def serialize_entity(entity):
+    """Convert an Entity object to a JSON-serializable dict."""
+    return {
+        'entity_id': entity.entity_id,
+        'user_email': entity.user_email,
+        'entity_type': entity.entity_type,
+        'name': entity.name,
+        'meta_json': entity.meta_json,
+        'created_at': entity.created_at,
+        'updated_at': entity.updated_at
+    }
+
+def serialize_tag(tag):
+    """Convert a Tag object to a JSON-serializable dict."""
+    return {
+        'tag_id': tag.tag_id,
+        'user_email': tag.user_email,
+        'name': tag.name,
+        'parent_tag_id': tag.parent_tag_id,
+        'meta_json': tag.meta_json,
+        'created_at': tag.created_at,
+        'updated_at': tag.updated_at
+    }
+
+def serialize_conflict_set(conflict_set):
+    """Convert a ConflictSet object to a JSON-serializable dict."""
+    return {
+        'conflict_set_id': conflict_set.conflict_set_id,
+        'user_email': conflict_set.user_email,
+        'status': conflict_set.status,
+        'resolution_notes': conflict_set.resolution_notes,
+        'created_at': conflict_set.created_at,
+        'updated_at': conflict_set.updated_at,
+        'member_claim_ids': conflict_set.member_claim_ids
+    }
+
+def serialize_search_result(result):
+    """Convert a SearchResult object to a JSON-serializable dict."""
+    return {
+        'claim': serialize_claim(result.claim),
+        'score': result.score,
+        'source': result.source,
+        'is_contested': result.is_contested,
+        'warnings': result.warnings,
+        'metadata': result.metadata
+    }
+
+
+# === Claims CRUD Endpoints ===
+
+@app.route('/pkb/claims', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_list_claims():
+    """
+    GET API endpoint to list claims with optional filters.
+    
+    Query params:
+        claim_type: Filter by claim type
+        context_domain: Filter by domain
+        status: Filter by status (default: active)
+        limit: Max results (default: 100)
+        offset: Pagination offset (default: 0)
+    
+    Returns:
+        JSON with list of claims
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Build filters from query params
+        filters = {}
+        if request.args.get('claim_type'):
+            filters['claim_type'] = request.args.get('claim_type')
+        if request.args.get('context_domain'):
+            filters['context_domain'] = request.args.get('context_domain')
+        if request.args.get('status'):
+            filters['status'] = request.args.get('status')
+        else:
+            filters['status'] = 'active'  # Default to active claims
+        
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
+        
+        claims = api.claims.list(filters=filters, limit=limit, offset=offset, order_by='-updated_at')
+        
+        return jsonify({
+            "claims": [serialize_claim(c) for c in claims],
+            "count": len(claims)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_list_claims: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/claims', methods=['POST'])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_add_claim():
+    """
+    POST API endpoint to add a new claim.
+    
+    Expects JSON:
+        statement (required): The claim text
+        claim_type (required): Type (fact, preference, decision, task, etc.)
+        context_domain (required): Domain (personal, health, work, etc.)
+        tags: Optional list of tag names
+        entities: Optional list of entity dicts {type, name, role}
+        auto_extract: Whether to auto-extract tags/entities (default: false)
+        confidence: Optional confidence score 0.0-1.0
+        meta_json: Optional metadata as JSON string
+    
+    Returns:
+        JSON with created claim
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        statement = data.get('statement')
+        claim_type = data.get('claim_type')
+        context_domain = data.get('context_domain')
+        
+        if not all([statement, claim_type, context_domain]):
+            return jsonify({"error": "Missing required fields: statement, claim_type, context_domain"}), 400
+        
+        # Get optional fields
+        tags = data.get('tags', [])
+        entities = data.get('entities', [])
+        auto_extract = data.get('auto_extract', False)
+        confidence = data.get('confidence')
+        meta_json = data.get('meta_json')
+        
+        # Get API keys for LLM operations if auto_extract is enabled
+        keys = keyParser(session) if auto_extract else {}
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Add claim
+        result = api.add_claim(
+            statement=statement,
+            claim_type=claim_type,
+            context_domain=context_domain,
+            tags=tags,
+            entities=entities,
+            auto_extract=auto_extract,
+            confidence=confidence,
+            meta_json=meta_json
+        )
+        
+        if result.success:
+            return jsonify({
+                "success": True,
+                "claim": serialize_claim(result.data),
+                "warnings": result.warnings
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 400
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_add_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/claims/<claim_id>', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_get_claim(claim_id):
+    """
+    GET API endpoint to retrieve a specific claim by ID.
+    
+    Returns:
+        JSON with claim data
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.get_claim(claim_id)
+        
+        if result.success:
+            return jsonify({"claim": serialize_claim(result.data)})
+        else:
+            return jsonify({"error": "Claim not found"}), 404
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_get_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/claims/<claim_id>', methods=['PUT'])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_edit_claim(claim_id):
+    """
+    PUT API endpoint to edit an existing claim.
+    
+    Expects JSON with fields to update:
+        statement: New statement text
+        claim_type: New type
+        context_domain: New domain
+        status: New status
+        confidence: New confidence score
+        meta_json: New metadata
+    
+    Returns:
+        JSON with updated claim
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        api = get_pkb_api_for_user(email)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Build patch dict from provided fields
+        patch = {}
+        for field in ['statement', 'claim_type', 'context_domain', 'status', 'confidence', 'meta_json', 'valid_from', 'valid_to']:
+            if field in data:
+                patch[field] = data[field]
+        
+        if not patch:
+            return jsonify({"error": "No fields to update"}), 400
+        
+        result = api.edit_claim(claim_id, **patch)
+        
+        if result.success:
+            return jsonify({
+                "success": True,
+                "claim": serialize_claim(result.data)
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 404
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_edit_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/claims/<claim_id>', methods=['DELETE'])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_delete_claim(claim_id):
+    """
+    DELETE API endpoint to soft-delete (retract) a claim.
+    
+    Returns:
+        JSON with success message
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.delete_claim(claim_id)
+        
+        if result.success:
+            return jsonify({
+                "success": True,
+                "message": "Claim retracted successfully"
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 404
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_delete_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Search Endpoint ===
+
+@app.route('/pkb/search', methods=['POST'])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_search():
+    """
+    POST API endpoint to search claims.
+    
+    Expects JSON:
+        query (required): Search query string
+        strategy: Search strategy (hybrid, fts, embedding) - default: hybrid
+        k: Number of results - default: 20
+        filters: Optional filter dict with context_domains, claim_types, statuses
+    
+    Returns:
+        JSON with search results
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        query = data.get('query')
+        
+        if not query:
+            return jsonify({"error": "Missing required field: query"}), 400
+        
+        strategy = data.get('strategy', 'hybrid')
+        k = data.get('k', 20)
+        filters = data.get('filters', {})
+        
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.search(query, strategy=strategy, k=k, filters=filters)
+        
+        if result.success:
+            return jsonify({
+                "results": [serialize_search_result(r) for r in result.data],
+                "count": len(result.data)
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 400
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_search: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Entities Endpoints ===
+
+@app.route('/pkb/entities', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_list_entities():
+    """
+    GET API endpoint to list all entities for the user.
+    
+    Query params:
+        entity_type: Filter by type
+        limit: Max results (default: 100)
+    
+    Returns:
+        JSON with list of entities
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        filters = {}
+        if request.args.get('entity_type'):
+            filters['entity_type'] = request.args.get('entity_type')
+        
+        limit = int(request.args.get('limit', 100))
+        entities = api.entities.list(filters=filters, limit=limit, order_by='name')
+        
+        return jsonify({
+            "entities": [serialize_entity(e) for e in entities],
+            "count": len(entities)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_list_entities: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Tags Endpoints ===
+
+@app.route('/pkb/tags', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_list_tags():
+    """
+    GET API endpoint to list all tags for the user.
+    
+    Query params:
+        limit: Max results (default: 100)
+    
+    Returns:
+        JSON with list of tags
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        limit = int(request.args.get('limit', 100))
+        tags = api.tags.list(limit=limit, order_by='name')
+        
+        return jsonify({
+            "tags": [serialize_tag(t) for t in tags],
+            "count": len(tags)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_list_tags: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Conflicts Endpoints ===
+
+@app.route('/pkb/conflicts', methods=['GET'])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_list_conflicts():
+    """
+    GET API endpoint to list open conflict sets.
+    
+    Returns:
+        JSON with list of conflict sets
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.get_open_conflicts()
+        
+        if result.success:
+            return jsonify({
+                "conflicts": [serialize_conflict_set(c) for c in result.data],
+                "count": len(result.data)
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 400
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_list_conflicts: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/conflicts/<conflict_id>/resolve', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_resolve_conflict(conflict_id):
+    """
+    POST API endpoint to resolve a conflict set.
+    
+    Expects JSON:
+        resolution_notes (required): Notes about the resolution
+        winning_claim_id: Optional ID of the claim that "wins"
+    
+    Returns:
+        JSON with resolved conflict set
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        resolution_notes = data.get('resolution_notes')
+        
+        if not resolution_notes:
+            return jsonify({"error": "Missing required field: resolution_notes"}), 400
+        
+        winning_claim_id = data.get('winning_claim_id')
+        
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.resolve_conflict_set(conflict_id, resolution_notes, winning_claim_id)
+        
+        if result.success:
+            return jsonify({
+                "success": True,
+                "conflict": serialize_conflict_set(result.data)
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 404
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_resolve_conflict: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Memory Update Proposal Endpoints ===
+
+@app.route('/pkb/propose_updates', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_propose_updates():
+    """
+    POST API endpoint to extract memory updates from a conversation turn.
+    
+    This analyzes the conversation and proposes new facts to add, edit, or remove.
+    
+    Expects JSON:
+        conversation_summary: Summary of recent conversation
+        user_message: The user's latest message
+        assistant_message: Optional assistant response
+    
+    Returns:
+        JSON with proposed memory updates
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        conversation_summary = data.get('conversation_summary', '')
+        user_message = data.get('user_message', '')
+        assistant_message = data.get('assistant_message', '')
+        
+        if not user_message:
+            return jsonify({"error": "Missing required field: user_message"}), 400
+        
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Build conversation turn for analysis
+        turn = f"User: {user_message}"
+        if assistant_message:
+            turn += f"\nAssistant: {assistant_message}"
+        
+        # Use ConversationDistiller to extract and propose updates
+        distiller = ConversationDistiller(api, keys)
+        plan = distiller.extract_and_propose(
+            conversation_summary=conversation_summary,
+            new_turn=turn
+        )
+        
+        if not plan or len(plan.candidates) == 0:
+            return jsonify({
+                "has_updates": False,
+                "proposed_actions": [],
+                "user_prompt": None
+            })
+        
+        # Store plan for later execution
+        import uuid
+        plan_id = str(uuid.uuid4())
+        _memory_update_plans[plan_id] = plan
+        
+        # Serialize proposed actions
+        proposed_actions = []
+        for i, candidate in enumerate(plan.candidates):
+            action = {
+                "index": i,
+                "statement": candidate.statement,
+                "claim_type": candidate.claim_type,
+                "context_domain": candidate.context_domain,
+                "action": "add"  # Could be add, edit, or skip
+            }
+            
+            # Check if there's a matching existing claim
+            if plan.matches and i < len(plan.matches) and plan.matches[i]:
+                match = plan.matches[i]
+                action["existing_claim_id"] = match.claim.claim_id
+                action["existing_statement"] = match.claim.statement
+                action["similarity_score"] = match.score
+                action["action"] = plan.proposed_actions[i] if plan.proposed_actions and i < len(plan.proposed_actions) else "edit"
+            
+            proposed_actions.append(action)
+        
+        return jsonify({
+            "has_updates": True,
+            "plan_id": plan_id,
+            "proposed_actions": proposed_actions,
+            "user_prompt": plan.user_prompt
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_propose_updates: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/execute_updates', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_execute_updates():
+    """
+    POST API endpoint to execute approved memory updates.
+    
+    Expects JSON:
+        plan_id: ID of the plan returned by propose_updates
+        approved_indices: List of indices of approved actions
+    
+    Returns:
+        JSON with execution results
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        plan_id = data.get('plan_id')
+        approved_indices = data.get('approved_indices', [])
+        
+        if not plan_id:
+            return jsonify({"error": "Missing required field: plan_id"}), 400
+        
+        # Retrieve the plan
+        plan = _memory_update_plans.get(plan_id)
+        if not plan:
+            return jsonify({"error": "Plan not found or expired"}), 404
+        
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Execute approved updates
+        results = []
+        for idx in approved_indices:
+            if idx < 0 or idx >= len(plan.candidates):
+                continue
+                
+            candidate = plan.candidates[idx]
+            
+            # Check if this is an edit or add
+            action = "add"
+            if plan.proposed_actions and idx < len(plan.proposed_actions):
+                action = plan.proposed_actions[idx]
+            
+            if action == "edit" and plan.matches and idx < len(plan.matches) and plan.matches[idx]:
+                # Edit existing claim
+                existing_claim_id = plan.matches[idx].claim.claim_id
+                result = api.edit_claim(
+                    existing_claim_id,
+                    statement=candidate.statement,
+                    claim_type=candidate.claim_type,
+                    context_domain=candidate.context_domain
+                )
+                results.append({
+                    "action": "edit",
+                    "claim_id": existing_claim_id,
+                    "success": result.success,
+                    "errors": result.errors
+                })
+            else:
+                # Add new claim
+                result = api.add_claim(
+                    statement=candidate.statement,
+                    claim_type=candidate.claim_type,
+                    context_domain=candidate.context_domain,
+                    tags=candidate.tags if hasattr(candidate, 'tags') else [],
+                    auto_extract=False
+                )
+                results.append({
+                    "action": "add",
+                    "claim_id": result.object_id if result.success else None,
+                    "success": result.success,
+                    "errors": result.errors
+                })
+        
+        # Clean up the plan
+        del _memory_update_plans[plan_id]
+        
+        return jsonify({
+            "executed_count": len([r for r in results if r["success"]]),
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_execute_updates: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Relevant Context Endpoint (for Conversation.py integration) ===
+
+@app.route('/pkb/relevant_context', methods=['POST'])
+@limiter.limit("60 per minute")
+@login_required
+def pkb_get_relevant_context():
+    """
+    POST API endpoint to get relevant claims for a query.
+    
+    This is used by Conversation.py to inject relevant user context into LLM prompts.
+    
+    Expects JSON:
+        query: The user's query
+        conversation_summary: Optional conversation summary for context
+        k: Number of results (default: 10)
+    
+    Returns:
+        JSON with relevant claims and formatted context
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        query = data.get('query', '')
+        conversation_summary = data.get('conversation_summary', '')
+        k = data.get('k', 10)
+        
+        if not query:
+            return jsonify({"error": "Missing required field: query"}), 400
+        
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Build enhanced query if we have conversation context
+        enhanced_query = query
+        if conversation_summary:
+            enhanced_query = f"{conversation_summary}\n\nCurrent query: {query}"
+        
+        # Search for relevant claims
+        result = api.search(enhanced_query, strategy='hybrid', k=k)
+        
+        if not result.success:
+            return jsonify({
+                "claims": [],
+                "formatted_context": ""
+            })
+        
+        # Format claims as context for injection
+        claims = result.data
+        if not claims:
+            return jsonify({
+                "claims": [],
+                "formatted_context": ""
+            })
+        
+        # Build formatted context
+        context_lines = []
+        for sr in claims[:k]:
+            claim = sr.claim
+            prefix = f"[{claim.claim_type}]" if claim.claim_type else ""
+            context_lines.append(f"- {prefix} {claim.statement}")
+        
+        formatted_context = "\n".join(context_lines)
+        
+        return jsonify({
+            "claims": [serialize_claim(sr.claim) for sr in claims[:k]],
+            "formatted_context": formatted_context
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_get_relevant_context: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# End of PKB API Endpoints
+# =============================================================================
 
 @app.route('/run_code_once', methods=['POST'])
 @limiter.limit("10 per minute")
