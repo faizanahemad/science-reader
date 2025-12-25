@@ -1,0 +1,239 @@
+/**
+ * Modal Styles for AI Assistant Context Menu Actions
+ * 
+ * These styles are injected via web_accessible_resources
+ * when showing quick action results on pages.
+ */
+
+/* Base modal styles - also defined inline in extractor.js */
+.ai-assistant-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 500px;
+    max-height: 70vh;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 2147483647;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #e6edf3;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ai-assistant-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 2147483646;
+}
+
+.ai-assistant-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #30363d;
+    background: #161b22;
+}
+
+.ai-assistant-modal-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.ai-assistant-modal-close {
+    background: none;
+    border: none;
+    color: #8b949e;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ai-assistant-modal-close:hover {
+    background: #30363d;
+    color: #e6edf3;
+}
+
+.ai-assistant-modal-body {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.ai-assistant-modal-body p {
+    margin: 8px 0;
+}
+
+.ai-assistant-modal-body code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.ai-assistant-modal-body pre {
+    background: #0a0e14;
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 12px 0;
+}
+
+.ai-assistant-modal-body pre code {
+    background: none;
+    padding: 0;
+}
+
+.ai-assistant-modal-body ul,
+.ai-assistant-modal-body ol {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.ai-assistant-modal-body li {
+    margin: 4px 0;
+}
+
+.ai-assistant-modal-body strong {
+    color: #00d4ff;
+}
+
+.ai-assistant-modal-body blockquote {
+    margin: 12px 0;
+    padding: 8px 16px;
+    border-left: 3px solid #00d4ff;
+    background: rgba(0, 212, 255, 0.05);
+}
+
+.ai-assistant-modal-footer {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #30363d;
+    background: #161b22;
+}
+
+.ai-assistant-modal-btn {
+    padding: 8px 16px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #21262d;
+    color: #e6edf3;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s;
+}
+
+.ai-assistant-modal-btn:hover {
+    background: #30363d;
+}
+
+.ai-assistant-modal-btn-primary {
+    background: #00d4ff;
+    color: #0d1117;
+    border-color: #00d4ff;
+}
+
+.ai-assistant-modal-btn-primary:hover {
+    background: #33ddff;
+}
+
+/* Loading state */
+.ai-assistant-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #8b949e;
+}
+
+.ai-assistant-loading-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.ai-assistant-loading-dots span {
+    width: 6px;
+    height: 6px;
+    background: #00d4ff;
+    border-radius: 50%;
+    display: inline-block;
+    animation: aiAssistantBounce 1.4s infinite ease-in-out;
+}
+
+.ai-assistant-loading-dots span:nth-child(1) { animation-delay: 0s; }
+.ai-assistant-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.ai-assistant-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes aiAssistantBounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* Error state */
+.ai-assistant-error {
+    color: #ef4444;
+    padding: 12px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 8px;
+}
+
+/* Floating button (if enabled) */
+#ai-assistant-floating-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 212, 255, 0.4);
+    z-index: 2147483645;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#ai-assistant-floating-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 24px rgba(0, 212, 255, 0.6);
+}
+
+/* Scrollbar styling for modal */
+.ai-assistant-modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ai-assistant-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-assistant-modal-body::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 3px;
+}
+
+.ai-assistant-modal-body::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+

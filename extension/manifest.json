@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "AI Assistant",
+  "version": "0.1.0",
+  "description": "AI-powered assistant for web browsing with page Q&A, summarization, and custom scripts",
+  
+  "permissions": [
+    "activeTab",
+    "storage",
+    "sidePanel",
+    "contextMenus",
+    "scripting",
+    "tabs"
+  ],
+  
+  "host_permissions": [
+    "http://localhost:5001/*",
+    "https://your-server-domain.com/*"
+  ],
+  
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    },
+    "default_title": "AI Assistant"
+  },
+  
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_scripts/extractor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["content_scripts/modal.css", "assets/styles/common.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  }
+}
+

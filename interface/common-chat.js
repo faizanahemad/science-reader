@@ -2031,7 +2031,7 @@ var ChatManager = {
 
 
 
-    sendMessage: function (conversationId, messageText, checkboxes, links, search) {
+    sendMessage: function (conversationId, messageText, checkboxes, links, search, attached_claim_ids, referenced_claim_ids) {
         // Render user's message immediately
         var userMessage = {
             sender: 'user',
@@ -2041,18 +2041,31 @@ var ChatManager = {
 
         ChatManager.renderMessages(conversationId, [userMessage], false, true, history_message_ids, false);
 
+        // Build request body
+        var requestBody = {
+            'messageText': messageText,
+            'checkboxes': checkboxes,
+            'links': links,
+            'search': search
+        };
+        
+        // Include attached claim IDs if provided (Deliberate Memory Attachment)
+        if (attached_claim_ids && attached_claim_ids.length > 0) {
+            requestBody['attached_claim_ids'] = attached_claim_ids;
+        }
+        
+        // Include referenced claim IDs from @memory: refs if provided
+        if (referenced_claim_ids && referenced_claim_ids.length > 0) {
+            requestBody['referenced_claim_ids'] = referenced_claim_ids;
+        }
+
         // Use Fetch API to make request
         let response = fetch('/send_message/' + conversationId, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                'messageText': messageText,
-                'checkboxes': checkboxes,
-                'links': links,
-                'search': search
-            })
+            body: JSON.stringify(requestBody)
         });
         responseWaitAndSuccessChecker('/send_message/' + conversationId, response);
         return response;
@@ -2259,7 +2272,27 @@ function sendMessageCallback() {
         return;
     }
 
-    ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search).then(function (response) {
+    // Get pending memory attachments from PKBManager (Deliberate Memory Attachment feature)
+    var attached_claim_ids = [];
+    if (typeof PKBManager !== 'undefined' && PKBManager.getPendingAttachments) {
+        attached_claim_ids = PKBManager.getPendingAttachments();
+        // Clear pending attachments after getting them
+        if (attached_claim_ids.length > 0) {
+            PKBManager.clearPendingAttachments();
+        }
+    }
+    
+    // Parse @memory references from message text (Deliberate Memory Attachment feature)
+    var referenced_claim_ids = [];
+    if (typeof parseMemoryReferences === 'function') {
+        var memoryRefs = parseMemoryReferences(messageText);
+        referenced_claim_ids = memoryRefs.claimIds;
+        // Optionally clean the message text (remove @memory: refs)
+        // We keep the original text for now - the backend will see both
+        // messageText = memoryRefs.cleanText;
+    }
+
+    ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids).then(function (response) {
         if (!response.ok) {
             alert('An error occurred: ' + response.status);
             // Reset UI state on error

@@ -34,34 +34,6 @@ orchestrator = TextOrchestrator(api, keys)
 result = orchestrator.process("remember that I like coffee with oat milk")
 ```
 
-### Multi-User Quick Start
-
-```python
-# For multi-user applications (e.g., web app with user sessions)
-from truth_management_system import (
-    PKBConfig, get_database, StructuredAPI
-)
-
-# Shared database for all users
-config = PKBConfig(db_path="./shared_knowledge.sqlite")
-db = get_database(config)
-keys = {"OPENROUTER_API_KEY": "sk-or-v1-..."}
-
-# Create user-scoped API instance
-user_api = StructuredAPI(db, keys, config, user_email="user@example.com")
-
-# All operations are now scoped to this user
-result = user_api.add_claim(
-    statement="I prefer Python over JavaScript",
-    claim_type="preference",
-    context_domain="work"
-)
-
-# Or use factory method from shared instance
-shared_api = StructuredAPI(db, keys, config)
-user_api = shared_api.for_user("user@example.com")
-```
-
 ---
 
 ## Configuration
@@ -131,27 +103,15 @@ user_api = shared_api.for_user("user@example.com")
 
 ### Multi-User Support
 
-The PKB supports multi-user deployments where a shared database stores data for multiple users, with each user's data isolated by their email address.
-
 ```python
-# Option 1: Initialize with user_email
+# Initialize with user_email for per-user data isolation
 user_api = StructuredAPI(db, keys, config, user_email="alice@example.com")
+# Or use factory: shared_api.for_user("alice@example.com")
 
-# Option 2: Use for_user() factory method
-shared_api = StructuredAPI(db, keys, config)
-alice_api = shared_api.for_user("alice@example.com")
-bob_api = shared_api.for_user("bob@example.com")
-
-# All CRUD operations and searches are automatically scoped
-alice_api.add_claim(statement="I like tea", ...)  # Scoped to Alice
-bob_api.search("tea preferences")  # Only searches Bob's claims
+# All operations auto-scoped: alice_api.add_claim(...) → Alice's data only
 ```
 
-**Key Points:**
-- `user_email` is stored on all records (claims, notes, entities, tags, conflict sets)
-- Unique constraints are per-user (e.g., entity names unique within a user's data)
-- Search filters automatically apply user scoping
-- Schema migration handles existing single-user databases
+**Key Points:** `user_email` scopes all records; unique constraints are per-user; search auto-filters by user
 
 ### ActionResult
 
@@ -276,12 +236,14 @@ result = api.search(
 
 ### Search Strategies
 
-| Strategy | Description | Best For |
-|----------|-------------|----------|
-| `hybrid` | FTS + Embedding + RRF merge | General queries (default) |
-| `fts` | BM25 full-text search | Exact keyword matches |
-| `embedding` | Semantic similarity | Conceptual queries |
-| `rerank` | Hybrid + LLM reranking | High-precision needs |
+| Strategy | Speed | Cost | Best For |
+|----------|-------|------|----------|
+| `fts` | ⚡ Fast | Free | Exact keyword matches |
+| `embedding` | Medium | API | Conceptual/semantic queries |
+| `hybrid` | Medium | API | General use (default, recommended) |
+| `rerank` | Slow | More API | High-precision requirements |
+
+**Hybrid** runs FTS + Embedding in parallel, merges via RRF, optionally applies LLM reranking.
 
 ### Search Notes
 
@@ -500,6 +462,130 @@ result = orchestrator.execute_confirmed_action(
     target_id="claim-uuid..."
 )
 ```
+
+---
+
+## Bulk Operations
+
+Add multiple claims at once and intelligently ingest text into the PKB.
+
+### Bulk Add Claims
+
+Add multiple claims in a single operation:
+
+```python
+result = api.add_claims_bulk(
+    claims=[
+        {
+            "statement": "I prefer morning workouts",
+            "claim_type": "preference",
+            "context_domain": "health",
+            "tags": ["fitness", "routine"]
+        },
+        {
+            "statement": "I'm allergic to shellfish",
+            "claim_type": "fact",
+            "context_domain": "health"
+        },
+        {
+            "statement": "My favorite color is blue",
+            "claim_type": "preference",
+            "context_domain": "personal"
+        }
+    ],
+    auto_extract=True,   # Use LLM to extract entities/tags
+    stop_on_error=False  # Continue on individual failures
+)
+
+if result.success:
+    print(f"Added {result.data['added_count']} claims")
+    for r in result.data['results']:
+        if r['success']:
+            print(f"✓ Claim {r['claim_id'][:8]}")
+        else:
+            print(f"✗ Error: {r['error']}")
+```
+
+### Text Ingestion with AI Analysis
+
+Parse freeform text into structured claims with intelligent duplicate detection:
+
+```python
+from truth_management_system import TextIngestionDistiller
+
+distiller = TextIngestionDistiller(api, keys, config)
+
+# Analyze and propose actions
+plan = distiller.ingest_and_propose(
+    text="""
+    I prefer working in the morning.
+    My favorite programming language is Python.
+    I'm trying to reduce my caffeine intake.
+    - I take my coffee with oat milk
+    - Allergic to peanuts
+    """,
+    default_claim_type='fact',
+    default_domain='personal',
+    use_llm_parsing=True  # AI-powered parsing vs simple line split
+)
+
+# Review proposals
+print(f"Extracted {len(plan.candidates)} candidates")
+print(f"Proposed: {plan.add_count} adds, {plan.edit_count} edits, {plan.skip_count} skips")
+
+for proposal in plan.proposals:
+    print(f"- [{proposal.action}] {proposal.candidate.statement}")
+    if proposal.existing_claim:
+        print(f"  → Updates: {proposal.existing_claim.statement[:50]}...")
+        print(f"  Similarity: {proposal.similarity_score:.2f}")
+
+# Execute approved actions
+approved = [
+    {"index": 0, "statement": "I prefer working in the morning"},
+    {"index": 1},  # Use original values
+    {"index": 3, "claim_type": "preference"}  # Override type
+]
+
+result = distiller.execute_plan(plan, approved)
+print(f"Executed: {result.added_count} added, {result.edited_count} edited")
+```
+
+### TextIngestionPlan
+
+```python
+@dataclass
+class TextIngestionPlan:
+    plan_id: str                      # UUID for this plan
+    raw_text: str                     # Original input text
+    candidates: List[IngestCandidate]  # Extracted candidates
+    proposals: List[IngestProposal]   # Proposed actions
+    add_count: int                    # Count of 'add' proposals
+    edit_count: int                   # Count of 'edit' proposals
+    skip_count: int                   # Count of 'skip' proposals
+    summary: str                      # Human-readable summary
+```
+
+### IngestProposal
+
+```python
+@dataclass
+class IngestProposal:
+    action: str                       # 'add', 'edit', 'skip'
+    candidate: IngestCandidate        # The extracted claim
+    existing_claim: Optional[Claim]   # Matched claim (for edit/skip)
+    similarity_score: Optional[float] # Match score (0-1)
+    reason: str                       # Why this action was proposed
+    editable: bool = True             # Can user edit before saving?
+```
+
+### Action Thresholds
+
+| Similarity Score | Action | Description |
+|------------------|--------|-------------|
+| ≥ 0.92 | `skip` | Exact duplicate, don't add |
+| ≥ 0.75 | `edit` | Similar enough to update existing |
+| ≥ 0.55 | `add` (with warning) | Related claim exists |
+| < 0.55 | `add` | New claim, no match |
 
 ---
 
@@ -731,563 +817,121 @@ api.add_claim(
 
 ## Use Cases
 
-### 1. Personal Assistant Memory
-
-Store user preferences and facts for a chatbot:
-
-```python
-# During conversation
-distiller = ConversationDistiller(api, keys)
-
-# After each turn
-plan = distiller.extract_and_propose(summary, user_msg, assistant_msg)
-
-# Confirm with user
-if plan.proposed_actions:
-    # Show: "I noticed: [facts]. Should I remember these?"
-    # On confirmation:
-    distiller.execute_plan(plan, "yes")
-```
-
-### 2. Health Tracking
-
-```python
-# Add health observations
-api.add_claim(
-    statement="Felt tired after skipping breakfast",
-    claim_type="observation",
-    context_domain="health",
-    tags=["energy", "nutrition"]
-)
-
-# Search patterns
-results = api.search(
-    "what affects my energy levels?",
-    filters={"context_domains": ["health"]}
-)
-```
-
-### 3. Decision Log
-
-```python
-# Record decisions
-api.add_claim(
-    statement="Decided to invest in index funds only",
-    claim_type="decision",
-    context_domain="finance",
-    confidence=0.9
-)
-
-# Later, review decisions
-results = api.search(
-    "what investment decisions have I made?",
-    filters={"claim_types": ["decision"], "context_domains": ["finance"]}
-)
-```
-
-### 4. Task/Reminder Management
-
-```python
-# Add task
-api.add_claim(
-    statement="Schedule dentist appointment",
-    claim_type="task",
-    context_domain="health"
-)
-
-# Add reminder with validity
-from truth_management_system.utils import now_iso
-api.add_claim(
-    statement="Call mom for her birthday",
-    claim_type="reminder",
-    context_domain="relationships",
-    valid_from="2024-03-15T00:00:00Z",
-    valid_to="2024-03-15T23:59:59Z"
-)
-```
-
-### 5. Conflict Detection
-
-```python
-# System detects conflicting claims during add
-result = api.add_claim(
-    statement="I don't like coffee",
-    claim_type="preference",
-    context_domain="personal",
-    auto_extract=True
-)
-
-if result.warnings:
-    for warning in result.warnings:
-        if "contradict" in warning.lower():
-            print(f"⚠️ {warning}")
-            # Optionally create conflict set
-```
+| Use Case | Claim Type | Pattern |
+|----------|------------|---------|
+| Personal Assistant | various | `ConversationDistiller.extract_and_propose()` → confirm → `execute_plan()` |
+| Health Tracking | observation | `add_claim(type="observation", domain="health")` → `search(filters={"context_domains":["health"]})` |
+| Decision Log | decision | `add_claim(type="decision", confidence=0.9)` → search by `claim_types: ["decision"]` |
+| Task/Reminder | task, reminder | Use `valid_from`/`valid_to` for time-bound reminders |
+| Conflict Detection | any | Check `result.warnings` for "contradict" after `add_claim(auto_extract=True)` |
 
 ---
 
-## Error Handling
+## Error Handling, Performance & Logging
 
 ```python
 result = api.add_claim(...)
+if not result.success: print(result.errors)    # Fatal errors
+else: print(result.warnings)                    # Non-fatal (similar claims found, etc.)
 
-if not result.success:
-    # Handle errors
-    for error in result.errors:
-        print(f"Error: {error}")
-else:
-    # Handle warnings (non-fatal)
-    for warning in result.warnings:
-        print(f"Warning: {warning}")
-    
-    # Use result
-    claim = result.data
-```
-
----
-
-## Performance Tips
-
-1. **Batch Operations**: Use `llm_helpers.batch_extract_all()` for multiple statements
-2. **Disable Auto-Extract**: Set `auto_extract=False` when LLM extraction not needed
-3. **Limit Search Results**: Use appropriate `k` values (default 20 is reasonable)
-4. **Filter Early**: Use search filters to narrow results before RRF merge
-5. **Cache Embeddings**: Embeddings are cached automatically; avoid deleting `claim_embeddings` table
-
----
-
-## Logging
-
-Enable debug logging:
-
-```python
+# Debug logging
 import logging
-logging.basicConfig(level=logging.DEBUG)
-
-# Or for specific module
 logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
 ```
 
----
+**Performance:** Use `auto_extract=False` when not needed; filter early; embeddings auto-cached.
 
-## Search Strategy Comparison
+## Meta JSON
 
-Choose the right strategy for your use case:
-
-| Strategy | Speed | Quality | Cost | Best For |
-|----------|-------|---------|------|----------|
-| `fts` | ⚡ Fast | Good | Free | Exact keyword matches, quick lookups |
-| `embedding` | Medium | Better | API calls | Conceptual/semantic queries |
-| `hybrid` | Medium | Best | API calls | General use (recommended default) |
-| `rerank` | Slow | Excellent | More API calls | High-precision requirements |
-
-### When to Use Each
+Standard keys: `keywords` (search), `source` (manual|chat_distillation|import), `visibility` (default|restricted|shareable), `llm` (model info)
 
 ```python
-# Fast keyword search (no LLM needed)
-result = api.search("coffee preference", strategy="fts")
-
-# Semantic search (finds related concepts)
-result = api.search("what beverages do I enjoy?", strategy="embedding")
-
-# Best quality for general queries (default)
-result = api.search("morning routine habits", strategy="hybrid")
-
-# Maximum precision for important queries
-result = api.search("critical health decisions", strategy="rerank")
-```
-
-### Hybrid Strategy Details
-
-The hybrid strategy:
-1. Runs FTS and Embedding searches **in parallel**
-2. Merges results using **Reciprocal Rank Fusion (RRF)**
-3. Optionally applies **LLM reranking** for final refinement
-
-```python
-# Control which strategies are combined
-result = api.search_strategy.search(
-    query="workout preferences",
-    strategy_names=["fts", "embedding"],  # Choose combination
-    k=20,
-    llm_rerank=True,  # Enable final LLM reranking
-    llm_rerank_top_n=50  # Rerank top 50 candidates
-)
-```
-
----
-
-## Meta JSON Usage
-
-The `meta_json` field stores extensible metadata. Standard keys:
-
-```python
-import json
-
-# When adding a claim
-meta = {
-    "keywords": ["morning", "workout", "fitness"],  # For search
-    "source": "chat_distillation",  # "manual"|"chat_distillation"|"import"
-    "visibility": "default",  # "default"|"restricted"|"shareable"
-    "llm": {
-        "model": "gpt-4o-mini",
-        "prompt_version": "v1",
-        "confidence_notes": "User explicitly stated"
-    }
-}
-
-result = api.add_claim(
-    statement="I prefer morning workouts",
-    claim_type="preference",
-    context_domain="health",
-    meta_json=json.dumps(meta)
-)
-
-# Reading metadata
-from truth_management_system.utils import parse_meta_json
-
-claim = api.get_claim(claim_id).data
-metadata = parse_meta_json(claim.meta_json)
-print(metadata.get("source"))  # "chat_distillation"
+api.add_claim(statement="...", meta_json='{"source": "chat_distillation"}')
+# Read: parse_meta_json(claim.meta_json)
 ```
 
 ---
 
 ## Chatbot Integration Pattern
 
-Complete example for integrating PKB with a chatbot:
-
 ```python
-from truth_management_system import (
-    PKBConfig, get_database, StructuredAPI,
-    ConversationDistiller, TextOrchestrator
-)
+# Key components: StructuredAPI (CRUD), ConversationDistiller (extract facts), TextOrchestrator (NL commands)
+api = StructuredAPI(db, keys, config, user_email="user@example.com")
+distiller = ConversationDistiller(api, keys, config)
 
-class ChatbotMemory:
-    """Chatbot memory manager using PKB."""
-    
-    def __init__(self, db_path: str, api_key: str):
-        config = PKBConfig(db_path=db_path)
-        db = get_database(config)
-        keys = {"OPENROUTER_API_KEY": api_key}
-        
-        self.api = StructuredAPI(db, keys, config)
-        self.distiller = ConversationDistiller(self.api, keys, config)
-        self.orchestrator = TextOrchestrator(self.api, keys, config)
-    
-    def process_turn(self, summary: str, user_msg: str, assistant_msg: str):
-        """Extract and propose memory updates from conversation."""
-        plan = self.distiller.extract_and_propose(summary, user_msg, assistant_msg)
-        
-        if plan.proposed_actions:
-            return {
-                "has_memories": True,
-                "prompt": plan.user_prompt,
-                "plan": plan
-            }
-        return {"has_memories": False}
-    
-    def confirm_memories(self, plan, user_response: str):
-        """User confirmed memory updates."""
-        result = self.distiller.execute_plan(plan, user_response)
-        return result.execution_results
-    
-    def recall(self, query: str, k: int = 5):
-        """Retrieve relevant memories for context."""
-        result = self.api.search(query, k=k)
-        if result.success:
-            return [
-                {
-                    "statement": r.claim.statement,
-                    "type": r.claim.claim_type,
-                    "confidence": r.score
-                }
-                for r in result.data
-            ]
-        return []
-    
-    def handle_command(self, text: str):
-        """Handle natural language memory commands."""
-        return self.orchestrator.process(text)
+# After each chat turn: extract → propose → confirm → execute
+plan = distiller.extract_and_propose(summary, user_msg, assistant_msg)
+if plan.proposed_actions:
+    distiller.execute_plan(plan, "yes")  # or user_response
 
-# Usage in chatbot
-memory = ChatbotMemory("./chatbot_memory.sqlite", "sk-or-v1-...")
-
-# After each conversation turn
-turn_result = memory.process_turn(
-    summary="Discussing user's diet preferences...",
-    user_msg="I've decided to go vegetarian",
-    assistant_msg="That's a great choice! Let me know if you need recipe ideas."
-)
-
-if turn_result["has_memories"]:
-    # Show user: "I noticed you mentioned going vegetarian. Should I remember this?"
-    # On confirmation:
-    memory.confirm_memories(turn_result["plan"], "yes")
-
-# Before generating response, recall relevant context
-context = memory.recall("diet food preferences")
-# Include in system prompt: "User preferences: {context}"
+# Recall context for LLM prompt
+results = api.search("diet preferences", k=5)
+context = [r.claim.statement for r in results.data]
 ```
 
 ---
 
 ## Flask Server Integration (REST API)
 
-The PKB is integrated into the main Flask server (`server.py`) providing REST endpoints for web applications.
+REST endpoints at `/pkb/*` require authentication. All use JSON content-type.
 
-### Server Endpoints
-
-All endpoints require authentication (`@login_required`) and are rate-limited.
-
-#### Claims Endpoints
+### All Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/pkb/claims` | List claims with optional filters |
-| POST | `/pkb/claims` | Add a new claim |
-| GET | `/pkb/claims/<claim_id>` | Get a specific claim |
-| PUT | `/pkb/claims/<claim_id>` | Edit a claim |
-| DELETE | `/pkb/claims/<claim_id>` | Soft-delete a claim |
+| GET | `/pkb/claims` | List claims (query params: status, claim_type, context_domain, limit, offset) |
+| POST | `/pkb/claims` | Add claim `{statement, claim_type, context_domain, auto_extract}` |
+| GET/PUT/DELETE | `/pkb/claims/<id>` | Get/Edit/Soft-delete claim |
+| POST | `/pkb/claims/bulk` | Bulk add `{claims: [...], auto_extract}` |
+| POST | `/pkb/search` | Search `{query, strategy, k, filters}` |
+| GET | `/pkb/entities`, `/pkb/tags` | List entities/tags for user |
+| GET | `/pkb/conflicts` | List open conflicts |
+| POST | `/pkb/conflicts/<id>/resolve` | Resolve `{winning_claim_id?, resolution_notes}` |
+| POST | `/pkb/ingest_text` | AI text parsing `{text, default_claim_type, default_domain, use_llm}` |
+| POST | `/pkb/execute_ingest` | Execute `{plan_id, approved: [{index, statement?, ...}]}` |
+| POST | `/pkb/propose_updates` | Extract from chat `{conversation_summary, user_message, assistant_message}` |
+| POST | `/pkb/execute_updates` | Execute `{plan_id, approved_indices}` or `{plan_id, approved: [{index, ...}]}` |
+| POST | `/pkb/relevant_context` | Get context `{query, conversation_summary, k}` |
 
-**GET /pkb/claims**
-
-Query Parameters:
-- `status` - Filter by status (active, contested, retracted)
-- `claim_type` - Filter by type (fact, preference, decision, etc.)
-- `context_domain` - Filter by domain (health, work, personal, etc.)
-- `limit` - Maximum results (default: 50)
-- `offset` - Pagination offset
-
-```javascript
-// Example: Fetch active preferences
-fetch('/pkb/claims?status=active&claim_type=preference')
-    .then(r => r.json())
-    .then(data => console.log(data.claims));
-```
-
-**POST /pkb/claims**
+**Example (typical pattern):**
 
 ```javascript
-fetch('/pkb/claims', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        statement: "I prefer morning meetings",
-        claim_type: "preference",
-        context_domain: "work",
-        auto_extract: true
-    })
+// Add claim
+fetch('/pkb/claims', {method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({statement:"I prefer tea", claim_type:"preference", context_domain:"personal"})
+});
+
+// Search
+fetch('/pkb/search', {method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({query:"preferences", strategy:"hybrid", k:10})
 });
 ```
 
-#### Search Endpoint
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/pkb/search` | Search claims with query and filters |
-
-**POST /pkb/search**
+### Frontend (pkb-manager.js)
 
 ```javascript
-fetch('/pkb/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        query: "what are my diet preferences?",
-        strategy: "hybrid",  // fts, embedding, hybrid, rerank
-        k: 10,
-        filters: {
-            context_domains: ["health"],
-            statuses: ["active"]
-        }
-    })
-});
+// Global PKBManager API
+PKBManager.listClaims({status:'active'});  PKBManager.addClaim({...});  PKBManager.searchClaims("query");
+PKBManager.checkMemoryUpdates(summary, userMsg, assistantMsg);  PKBManager.openPKBModal();
+// Bulk: addBulkRow(), saveBulkClaims(), analyzeTextForIngestion(), saveSelectedProposals()
 ```
 
-#### Entities and Tags Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/pkb/entities` | List all entities for user |
-| GET | `/pkb/tags` | List all tags for user |
-
-#### Conflicts Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/pkb/conflicts` | List open conflict sets |
-| POST | `/pkb/conflicts/<id>/resolve` | Resolve a conflict |
-
-**POST /pkb/conflicts/{conflict_id}/resolve**
-
-```javascript
-fetch('/pkb/conflicts/abc123/resolve', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        winning_claim_id: "claim-uuid-123",  // Optional
-        resolution_notes: "Claim 1 is more recent"
-    })
-});
-```
-
-#### Memory Update Proposal Endpoints
-
-These endpoints power the automatic memory extraction from conversations.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/pkb/propose_updates` | Extract and propose memory updates from conversation |
-| POST | `/pkb/execute_updates` | Execute user-approved updates |
-| POST | `/pkb/relevant_context` | Get PKB context for LLM prompt |
-
-**POST /pkb/propose_updates**
-
-```javascript
-fetch('/pkb/propose_updates', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        conversation_summary: "Discussing user's fitness routine...",
-        user_message: "I've started running every morning at 6am",
-        assistant_message: "That's great for building a habit!"
-    })
-});
-// Response: { plan_id, proposals: [...], user_prompt }
-```
-
-**POST /pkb/execute_updates**
-
-```javascript
-fetch('/pkb/execute_updates', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        plan_id: "plan-uuid-123",
-        approved_indices: [0, 1, 3]  // User-approved proposals
-    })
-});
-```
-
-**POST /pkb/relevant_context**
-
-```javascript
-// Get formatted PKB context for LLM system prompt
-fetch('/pkb/relevant_context', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        query: "What should I eat for breakfast?",
-        conversation_summary: "User asking about meal planning",
-        k: 10
-    })
-});
-// Response: { context: "- [preference] I prefer vegetarian food\n- ..." }
-```
-
-### Frontend Integration (pkb-manager.js)
-
-The `interface/pkb-manager.js` module provides a JavaScript API for PKB operations:
-
-```javascript
-// Initialize (auto-runs on page load)
-// PKBManager is available globally
-
-// List claims with filters
-PKBManager.listClaims({ status: 'active', claim_type: 'preference' })
-    .then(data => console.log(data.claims));
-
-// Add a claim
-PKBManager.addClaim({
-    statement: "I like green tea",
-    claim_type: "preference",
-    context_domain: "health"
-});
-
-// Search claims
-PKBManager.searchClaims("diet preferences")
-    .then(results => results.forEach(r => console.log(r.claim.statement)));
-
-// Check for memory updates (called automatically after chat messages)
-PKBManager.checkMemoryUpdates(conversationSummary, userMessage, assistantMessage);
-
-// Open PKB management modal
-PKBManager.openPKBModal();
-```
+**Modal Tabs:** My Memories | Add Memory | Bulk Add | Import Text | Search
 
 ### Conversation.py Integration
 
-The `Conversation.py` class integrates PKB for LLM context enrichment:
-
-```python
-# Automatically included in reply() method
-class Conversation:
-    def _get_pkb_context(self, user_email: str, query: str, 
-                         conversation_summary: str = "", k: int = 10) -> str:
-        """
-        Retrieve relevant claims from PKB for context injection.
-        
-        Called asynchronously during reply() to fetch relevant user facts
-        without blocking the main chat flow.
-        """
-        ...
-
-    def reply(self, ...):
-        # PKB context is fetched in parallel with other operations
-        pkb_future = get_async_future(
-            self._get_pkb_context,
-            user_email, user_message, conversation_summary
-        )
-        
-        # ... other processing ...
-        
-        # Get PKB context (blocks here if not ready)
-        pkb_context = pkb_future.result(timeout=5.0)
-        
-        # Inject into system prompt
-        if pkb_context:
-            system_prompt += f"\n\nRelevant user facts:\n{pkb_context}"
-```
+PKB context fetched async in `reply()` via `_get_pkb_context()`, injected into system prompt. See implementation.md for details.
 
 ---
 
 ## Data Migration
 
-### Migrating from Legacy UserDetails
-
-The `migrate_user_details.py` script migrates existing `user_memory` and `user_preferences` data to PKB claims.
-
 ```bash
-# Preview migration (dry run)
-python -m truth_management_system.migrate_user_details --dry-run
-
-# Migrate all users
-python -m truth_management_system.migrate_user_details \
-    --users-db ./users/users.db \
-    --pkb-db ./users/pkb.sqlite
-
-# Migrate specific user
-python -m truth_management_system.migrate_user_details \
-    --user "alice@example.com" \
-    --verbose
+python -m truth_management_system.migrate_user_details --dry-run  # Preview
+python -m truth_management_system.migrate_user_details --user alice@example.com  # Migrate
 ```
 
-**Migration Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--users-db PATH` | Path to users.db (default: ./users/users.db) |
-| `--pkb-db PATH` | Path to PKB database (default: ./users/pkb.sqlite) |
-| `--dry-run` | Preview without making changes |
-| `--user EMAIL` | Migrate only specific user |
-| `--verbose` | Enable detailed logging |
-
-**Migration Process:**
-1. Reads `user_memory` and `user_preferences` from `UserDetails` table
-2. Parses text into individual facts (splits by newlines, bullets)
-3. Infers `claim_type` and `context_domain` from keywords
-4. Creates PKB claims with `meta_json.source = "migration"`
+Options: `--users-db`, `--pkb-db`, `--dry-run`, `--user`, `--verbose`
 
 ### Schema Migration
 
@@ -1309,142 +953,81 @@ db = get_database(config)  # Runs migrations if needed
 
 ## Dependencies
 
-### Required
-
-- **Python 3.9+**
-- **numpy** - For embedding operations
-
-### Optional
-
-- **OPENROUTER_API_KEY** - Required for LLM features (auto-extract, embedding search, rewrite)
-
-### Installation
-
-```bash
-# Core dependencies only
-pip install numpy
-
-# For development/testing
-pip install pytest
-```
-
-### Without LLM Features
-
-The PKB works without an API key, but with limited functionality:
-
-```python
-# No API key - basic functionality only
-config = PKBConfig(db_path="./kb.sqlite")
-db = get_database(config)
-api = StructuredAPI(db, {}, config)  # Empty keys dict
-
-# These still work:
-api.add_claim(
-    statement="Test claim",
-    claim_type="fact",
-    context_domain="personal",
-    auto_extract=False  # Must disable auto-extract
-)
-api.search("test", strategy="fts")  # FTS works without LLM
-
-# These require API key:
-# - auto_extract=True
-# - strategy="embedding"
-# - strategy="rerank"
-# - ConversationDistiller
-```
-
----
+- **Required:** Python 3.9+, numpy (`pip install numpy`)
+- **Optional:** OPENROUTER_API_KEY (for LLM features: auto_extract, embedding search, ConversationDistiller)
+- **Without API Key:** FTS search and `auto_extract=False` still work
 
 ## Troubleshooting
 
-### Common Issues
+| Issue | Solution |
+|-------|----------|
+| No search results | Check `api.claims.list(limit=10)` exists; try `strategy="fts"`; broaden filters |
+| Stale embeddings | `EmbeddingStore(db,keys,config).compute_and_store(claim)` |
+| LLM fails | Verify API key; use `auto_extract=False` as fallback |
+| Database locked | `db.close(); db = get_database(config)` or use context manager |
+| Contested warnings | Expected; use `include_contested=False` or filter `r.is_contested` |
+| UI works but Conversation.py doesn't | **Check database paths match** - server.py uses `storage/users/pkb.sqlite`, ensure Conversation.py uses the same path |
+| Embedding search fails with "ambiguous truth value" | Numpy array issue - fixed in v0.4.1. Ensure `if query_emb is not None:` not `if query_emb:` |
+| Search logs not appearing | Use `time_logger.info()` instead of `logger.debug()` for guaranteed visibility |
 
-**"No results from search"**
+---
+
+## Deliberate Memory Attachment
+
+Force specific memories into LLM context:
+
+| Mechanism | Scope | Persistence | Priority |
+|-----------|-------|-------------|----------|
+| **@memory Reference** | Single message | One-shot | Highest |
+| **"Use in Next Message"** | Single message | One-shot | High |
+| **Global Pinning** | All conversations | Persistent (meta_json) | Medium-high |
+| **Conversation Pinning** | Current session | Ephemeral | Medium |
+
+### Python API
+
 ```python
-# Check if claims exist
-claims = api.claims.list(limit=10)
-print(f"Total claims: {len(claims)}")
-
-# Check FTS index
-fts_results = api.search("test", strategy="fts")
-print(f"FTS results: {len(fts_results.data)}")
-
-# Try broader filters
-result = api.search(
-    "your query",
-    filters={"statuses": ["active", "contested", "historical"]}
-)
+api.pin_claim(claim_id, pin=True)  # Global pin/unpin
+api.get_pinned_claims(limit=50)    # Get all globally pinned
+api.get_claims_by_ids([...])       # Batch fetch
 ```
 
-**"Embedding search returns wrong results"**
-```python
-# Embeddings may be stale - recompute
-from truth_management_system.search import EmbeddingStore
+### REST Endpoints
 
-store = EmbeddingStore(db, keys, config)
-# Force recompute for specific claim
-claim = api.claims.get(claim_id)
-store.compute_and_store(claim)
+| Method | Endpoint | Body/Params |
+|--------|----------|-------------|
+| POST | `/pkb/claims/<id>/pin` | `{pin: true/false}` |
+| GET | `/pkb/pinned` | - |
+| POST | `/pkb/conversation/<conv_id>/pin` | `{claim_id, pin}` |
+| GET/DELETE | `/pkb/conversation/<conv_id>/pinned` | - |
+
+### Frontend (PKBManager)
+
+```javascript
+// Global: pinClaim(id,true), getPinnedClaims(), togglePinAndRefresh(id)
+// Conversation: pinToConversation(convId,claimId,true), getConversationPinned(convId)
+// Use Now: addToNextMessage(id), getPendingAttachments(), clearPendingAttachments()
 ```
 
-**"LLM extraction fails"**
-```python
-# Check API key
-print(keys.get("OPENROUTER_API_KEY", "NOT SET")[:20] + "...")
+### @memory References
 
-# Test LLM directly
-from code_common.call_llm import call_llm
-response = call_llm(keys, "openai/gpt-4o-mini", "Hello")
-print(response)
+Use `@memory:claim_id` or `@mem:claim_id` in messages. Auto-parsed and included with highest priority.
 
-# Disable auto_extract as fallback
-api.add_claim(..., auto_extract=False)
+### Context Format to LLM
+
 ```
-
-**"Database locked"**
-```python
-# WAL mode should prevent this, but if it happens:
-db.close()
-db = get_database(config)
-
-# Or use context manager
-with PKBDatabase(config) as db:
-    api = StructuredAPI(db, keys, config)
-    # ... operations ...
-# Automatically closes
-```
-
-**"Contested claim warnings"**
-```python
-# This is expected behavior - contested claims are returned with warnings
-# To exclude them:
-result = api.search("query", include_contested=False)
-
-# Or filter in results
-active_only = [r for r in result.data if not r.is_contested]
+[REFERENCED] [preference] I prefer morning meetings
+[GLOBAL PINNED] [fact] My timezone is IST
+[AUTO] [preference] I like detailed explanations
 ```
 
 ---
 
 ## Version History
 
-- **v0.2.0** - Multi-user support and Flask integration
-  - Multi-user support with `user_email` scoping
-  - Schema migration system (v1 → v2)
-  - Flask REST API endpoints (`/pkb/*`)
-  - Frontend JavaScript module (`pkb-manager.js`)
-  - PKB management modal in UI
-  - Memory update proposal workflow
-  - Conversation.py integration for LLM context
-  - Migration script for legacy UserDetails data
-  - `StructuredAPI.for_user()` factory method
-
-- **v0.1.0** - Initial release
-  - SQLite storage with WAL mode
-  - FTS5 full-text search
-  - Embedding-based semantic search
-  - Hybrid search with RRF merging
-  - LLM-powered extraction
-  - Text orchestration
-  - Conversation distillation
+| Version | Features |
+|---------|----------|
+| **v0.4.1** | Bug fixes: Fixed database path mismatch between server.py and Conversation.py; Fixed numpy array truthiness check in embedding search; Added time_logger for guaranteed log visibility in search modules |
+| **v0.4.0** | Deliberate Memory Attachment: global/conversation pinning, "Use Now", @memory refs, priority merging |
+| **v0.3.0** | Bulk operations: `add_claims_bulk()`, `TextIngestionDistiller`, text ingestion endpoints, enhanced approval modal |
+| **v0.2.0** | Multi-user (`user_email` scoping), schema migration v1→v2, Flask REST API, `pkb-manager.js`, Conversation.py integration |
+| **v0.1.0** | Initial: SQLite/WAL, FTS5, embedding search, hybrid RRF, LLM extraction, text orchestration, conversation distillation |

@@ -59,6 +59,9 @@ try:
         ConversationDistiller, MemoryUpdatePlan,
         ClaimType, ClaimStatus, ContextDomain
     )
+    from truth_management_system.interface.text_ingestion import (
+        TextIngestionDistiller, TextIngestionPlan, IngestProposal
+    )
     PKB_AVAILABLE = True
 except ImportError:
     PKB_AVAILABLE = False
@@ -1883,6 +1886,30 @@ def load_conversation(conversation_id):
     return conversation
 
 conversation_cache = DefaultDictQueue(maxsize=200, default_factory=load_conversation)
+
+# Store conversation-level pinned claims (maps conversation_id -> set of claim_ids)
+# This is ephemeral state - pinned claims are per-session and not persisted
+_conversation_pinned_claims = {}
+
+def get_conversation_pinned_claims(conversation_id: str) -> set:
+    """Get the set of claim IDs pinned to a specific conversation."""
+    return _conversation_pinned_claims.get(conversation_id, set())
+
+def add_conversation_pinned_claim(conversation_id: str, claim_id: str):
+    """Add a claim ID to the conversation's pinned set."""
+    if conversation_id not in _conversation_pinned_claims:
+        _conversation_pinned_claims[conversation_id] = set()
+    _conversation_pinned_claims[conversation_id].add(claim_id)
+
+def remove_conversation_pinned_claim(conversation_id: str, claim_id: str):
+    """Remove a claim ID from the conversation's pinned set."""
+    if conversation_id in _conversation_pinned_claims:
+        _conversation_pinned_claims[conversation_id].discard(claim_id)
+
+def clear_conversation_pinned_claims(conversation_id: str):
+    """Clear all pinned claims for a conversation."""
+    if conversation_id in _conversation_pinned_claims:
+        del _conversation_pinned_claims[conversation_id]
     
 def set_keys_on_docs(docs, keys):
     logger.debug(f"Attaching keys to doc")
@@ -2791,6 +2818,11 @@ def send_message(conversation_id):
         conversation: Conversation = set_keys_on_docs(conversation, keys)
 
     query = request.json
+    
+    # Inject conversation-pinned claim IDs into the query (for Deliberate Memory Attachment)
+    conv_pinned_ids = list(get_conversation_pinned_claims(conversation_id))
+    if conv_pinned_ids:
+        query['conversation_pinned_claim_ids'] = conv_pinned_ids
 
     # We don't process the request data in this mockup, but we would normally send a new message here
 
@@ -3742,6 +3774,7 @@ _pkb_db = None
 _pkb_config = None
 _pkb_keys = None
 _memory_update_plans = {}  # Store temporary memory update plans by ID
+_text_ingestion_plans = {}  # Store temporary text ingestion plans by ID
 
 def get_pkb_db():
     """Get or initialize the shared PKB database instance."""
@@ -3979,6 +4012,93 @@ def pkb_add_claim():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
+@app.route('/pkb/claims/bulk', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_add_claims_bulk():
+    """
+    POST API endpoint to add multiple claims at once.
+    
+    This endpoint enables bulk addition of memories, useful for:
+    - Row-wise manual entry from UI
+    - Importing memories from text files
+    - Batch migration operations
+    
+    Expects JSON:
+        claims (required): Array of claim objects, each with:
+            - statement (required): The claim text
+            - claim_type (default: 'fact'): Type of claim
+            - context_domain (default: 'personal'): Domain
+            - tags (optional): Array of tag names
+            - entities (optional): Array of entity dicts {type, name, role}
+            - confidence (optional): Confidence score 0.0-1.0
+            - meta_json (optional): Additional metadata as JSON string
+        auto_extract (optional): Whether to auto-extract tags/entities (default: false)
+        stop_on_error (optional): Whether to stop at first error (default: false)
+    
+    Returns:
+        JSON with:
+            - success: boolean (true if all claims added successfully)
+            - results: Array of {index, success, claim_id, error, warnings}
+            - added_count: Number of successfully added claims
+            - failed_count: Number of failed claims
+            - total: Total claims processed
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        claims = data.get('claims')
+        if not claims or not isinstance(claims, list):
+            return jsonify({"error": "Missing or invalid 'claims' field (must be an array)"}), 400
+        
+        if len(claims) == 0:
+            return jsonify({"error": "Claims array is empty"}), 400
+        
+        if len(claims) > 100:
+            return jsonify({"error": "Too many claims. Maximum is 100 per request."}), 400
+        
+        # Get optional fields
+        auto_extract = data.get('auto_extract', False)
+        stop_on_error = data.get('stop_on_error', False)
+        
+        # Get API keys for LLM operations if auto_extract is enabled
+        keys = keyParser(session) if auto_extract else {}
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Add claims in bulk
+        result = api.add_claims_bulk(
+            claims=claims,
+            auto_extract=auto_extract,
+            stop_on_error=stop_on_error
+        )
+        
+        return jsonify({
+            "success": result.success,
+            "results": result.data['results'],
+            "added_count": result.data['added_count'],
+            "failed_count": result.data['failed_count'],
+            "total": result.data['total'],
+            "warnings": result.warnings
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_add_claims_bulk: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
 @app.route('/pkb/claims/<claim_id>', methods=['GET'])
 @limiter.limit("30 per minute")
 @login_required
@@ -4103,6 +4223,266 @@ def pkb_delete_claim(claim_id):
         
     except Exception as e:
         logger.error(f"Error in pkb_delete_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Pinning Endpoints (Deliberate Memory Attachment) ===
+
+@app.route('/pkb/claims/<claim_id>/pin', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_pin_claim(claim_id):
+    """
+    POST API endpoint to toggle the pinned status of a claim.
+    
+    Pinned claims are always included in LLM context, regardless of query relevance.
+    This allows users to deliberately attach specific memories to all conversations.
+    
+    Expects JSON:
+        pin: Boolean - True to pin, False to unpin (default: True)
+    
+    Returns:
+        JSON with updated claim and pinned status
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        data = request.get_json() or {}
+        pin = data.get('pin', True)
+        
+        result = api.pin_claim(claim_id, pin=pin)
+        
+        if result.success:
+            claim = result.data
+            return jsonify({
+                "success": True,
+                "pinned": pin,
+                "claim": {
+                    "claim_id": claim.claim_id,
+                    "statement": claim.statement,
+                    "claim_type": claim.claim_type,
+                    "context_domain": claim.context_domain,
+                    "status": claim.status,
+                    "meta_json": claim.meta_json,
+                    "updated_at": claim.updated_at
+                }
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 404
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_pin_claim: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/pinned', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_get_pinned():
+    """
+    GET API endpoint to retrieve all globally pinned claims.
+    
+    Query params:
+        limit: Max results (default: 50)
+    
+    Returns:
+        JSON with list of pinned claims
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        limit = request.args.get('limit', 50, type=int)
+        result = api.get_pinned_claims(limit=limit)
+        
+        if result.success:
+            claims = [
+                {
+                    "claim_id": c.claim_id,
+                    "statement": c.statement,
+                    "claim_type": c.claim_type,
+                    "context_domain": c.context_domain,
+                    "status": c.status,
+                    "confidence": c.confidence,
+                    "meta_json": c.meta_json,
+                    "updated_at": c.updated_at,
+                    "created_at": c.created_at
+                }
+                for c in result.data
+            ]
+            return jsonify({
+                "success": True,
+                "pinned_claims": claims,
+                "count": len(claims)
+            })
+        else:
+            return jsonify({"error": "; ".join(result.errors)}), 500
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_get_pinned: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+# === Conversation-Level Pinning Endpoints ===
+
+@app.route('/pkb/conversation/<conv_id>/pin', methods=['POST'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_conversation_pin(conv_id):
+    """
+    POST API endpoint to pin/unpin a claim to a specific conversation.
+    
+    Conversation-pinned claims are included in context only for that conversation.
+    This is ephemeral state (not persisted) - good for session-specific context.
+    
+    Expects JSON:
+        claim_id (required): ID of the claim to pin/unpin
+        pin: Boolean - True to pin, False to unpin (default: True)
+    
+    Returns:
+        JSON with success status and updated pinned claim list
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json() or {}
+        claim_id = data.get('claim_id')
+        pin = data.get('pin', True)
+        
+        if not claim_id:
+            return jsonify({"error": "claim_id is required"}), 400
+        
+        # Verify the claim exists and belongs to this user
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        result = api.get_claim(claim_id)
+        if not result.success:
+            return jsonify({"error": "Claim not found"}), 404
+        
+        # Add or remove from conversation pinned set
+        if pin:
+            add_conversation_pinned_claim(conv_id, claim_id)
+        else:
+            remove_conversation_pinned_claim(conv_id, claim_id)
+        
+        # Return updated list
+        pinned_ids = list(get_conversation_pinned_claims(conv_id))
+        
+        return jsonify({
+            "success": True,
+            "conversation_id": conv_id,
+            "pinned": pin,
+            "claim_id": claim_id,
+            "pinned_claim_ids": pinned_ids,
+            "count": len(pinned_ids)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_conversation_pin: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/conversation/<conv_id>/pinned', methods=['GET'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_conversation_get_pinned(conv_id):
+    """
+    GET API endpoint to retrieve all claims pinned to a specific conversation.
+    
+    Returns:
+        JSON with list of pinned claim IDs and full claim objects
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        pinned_ids = list(get_conversation_pinned_claims(conv_id))
+        
+        # Fetch full claim objects
+        claims = []
+        if pinned_ids:
+            result = api.get_claims_by_ids(pinned_ids)
+            if result.success and result.data:
+                for claim in result.data:
+                    if claim:
+                        claims.append({
+                            "claim_id": claim.claim_id,
+                            "statement": claim.statement,
+                            "claim_type": claim.claim_type,
+                            "context_domain": claim.context_domain,
+                            "status": claim.status
+                        })
+        
+        return jsonify({
+            "success": True,
+            "conversation_id": conv_id,
+            "pinned_claim_ids": pinned_ids,
+            "pinned_claims": claims,
+            "count": len(claims)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_conversation_get_pinned: {e}")
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/conversation/<conv_id>/pinned', methods=['DELETE'])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_conversation_clear_pinned(conv_id):
+    """
+    DELETE API endpoint to clear all pinned claims for a conversation.
+    
+    Returns:
+        JSON with success status
+    """
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        clear_conversation_pinned_claims(conv_id)
+        
+        return jsonify({
+            "success": True,
+            "conversation_id": conv_id,
+            "message": "All conversation-pinned claims cleared"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_conversation_clear_pinned: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
@@ -4377,16 +4757,12 @@ def pkb_propose_updates():
         if api is None:
             return jsonify({"error": "Failed to initialize PKB"}), 500
         
-        # Build conversation turn for analysis
-        turn = f"User: {user_message}"
-        if assistant_message:
-            turn += f"\nAssistant: {assistant_message}"
-        
         # Use ConversationDistiller to extract and propose updates
         distiller = ConversationDistiller(api, keys)
         plan = distiller.extract_and_propose(
             conversation_summary=conversation_summary,
-            new_turn=turn
+            user_message=user_message,
+            assistant_message=assistant_message or ""
         )
         
         if not plan or len(plan.candidates) == 0:
@@ -4436,6 +4812,221 @@ def pkb_propose_updates():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
+@app.route('/pkb/ingest_text', methods=['POST'])
+@limiter.limit("5 per minute")
+@login_required
+def pkb_ingest_text():
+    """
+    POST API endpoint to parse and analyze bulk text for memory ingestion.
+    
+    This endpoint enables bulk import of memories from:
+    - Text files
+    - Pasted content
+    - Notes and documents
+    
+    The text is parsed (using LLM for intelligent extraction or simple rules),
+    compared against existing memories, and a plan is generated with proposed
+    actions (add, edit, skip) for user approval.
+    
+    Expects JSON:
+        text (required): Raw text to parse (max 50KB)
+        default_claim_type: Default type for extracted claims (default: 'fact')
+        default_domain: Default domain (default: 'personal')
+        use_llm: Use LLM for intelligent parsing (default: true)
+    
+    Returns:
+        JSON with:
+            - plan_id: UUID to reference this plan for execution
+            - proposals: Array of proposed actions, each with:
+                - index: Position in proposals array
+                - statement: Extracted statement
+                - claim_type: Inferred claim type
+                - context_domain: Inferred domain
+                - action: 'add', 'edit', or 'skip'
+                - existing_claim_id: If editing/skipping, the existing claim ID
+                - existing_statement: If editing/skipping, the existing statement
+                - similarity_score: Similarity to existing claim (0.0-1.0)
+                - reason: Human-readable reason for the action
+            - summary: Human-readable summary of the plan
+            - total_parsed: Number of items extracted from text
+            - add_count: Number of proposed additions
+            - edit_count: Number of proposed edits
+            - skip_count: Number of proposed skips
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        
+        # Get and validate text
+        text = data.get('text', '').strip()
+        if not text:
+            return jsonify({"error": "Missing required field: text"}), 400
+        
+        # Limit text size (50KB)
+        max_size = 50 * 1024
+        if len(text) > max_size:
+            return jsonify({"error": f"Text too large. Maximum size is {max_size // 1024}KB."}), 400
+        
+        # Get optional fields
+        default_claim_type = data.get('default_claim_type', 'fact')
+        default_domain = data.get('default_domain', 'personal')
+        use_llm = data.get('use_llm', True)
+        
+        # Get API keys for LLM operations
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Create distiller and generate plan
+        distiller = TextIngestionDistiller(api, keys)
+        plan = distiller.ingest_and_propose(
+            text=text,
+            default_claim_type=default_claim_type,
+            default_domain=default_domain,
+            use_llm_parsing=use_llm
+        )
+        
+        if not plan.proposals:
+            return jsonify({
+                "has_proposals": False,
+                "proposals": [],
+                "summary": plan.summary,
+                "total_parsed": plan.total_lines_parsed
+            })
+        
+        # Store plan for later execution
+        _text_ingestion_plans[plan.plan_id] = plan
+        
+        # Serialize proposals
+        proposals = []
+        for i, proposal in enumerate(plan.proposals):
+            prop_data = {
+                "index": i,
+                "statement": proposal.candidate.statement,
+                "claim_type": proposal.candidate.claim_type,
+                "context_domain": proposal.candidate.context_domain,
+                "action": proposal.action,
+                "reason": proposal.reason,
+                "confidence": proposal.candidate.confidence,
+                "editable": proposal.editable
+            }
+            
+            if proposal.existing_claim:
+                prop_data["existing_claim_id"] = proposal.existing_claim.claim_id
+                prop_data["existing_statement"] = proposal.existing_claim.statement
+            
+            if proposal.similarity_score is not None:
+                prop_data["similarity_score"] = proposal.similarity_score
+            
+            proposals.append(prop_data)
+        
+        return jsonify({
+            "has_proposals": True,
+            "plan_id": plan.plan_id,
+            "proposals": proposals,
+            "summary": plan.summary,
+            "total_parsed": plan.total_lines_parsed,
+            "add_count": plan.add_count,
+            "edit_count": plan.edit_count,
+            "skip_count": plan.skip_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_ingest_text: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route('/pkb/execute_ingest', methods=['POST'])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_execute_ingest():
+    """
+    POST API endpoint to execute approved text ingestion proposals.
+    
+    Expects JSON:
+        plan_id: UUID of the plan returned by /pkb/ingest_text
+        approved: Array of approved proposals with optional edits:
+            - index: Index in proposals array
+            - statement (optional): Edited statement
+            - claim_type (optional): Edited claim type
+            - context_domain (optional): Edited context domain
+    
+    Returns:
+        JSON with:
+            - executed_count: Number of successfully executed actions
+            - added_count: Number of claims added
+            - edited_count: Number of claims edited
+            - failed_count: Number of failed operations
+            - results: Detailed results for each action
+    """
+    if not PKB_AVAILABLE:
+        return jsonify({"error": "PKB not available"}), 503
+    
+    email, name, loggedin = check_login(session)
+    if not loggedin:
+        return jsonify({"error": "User not logged in"}), 401
+    
+    try:
+        data = request.get_json()
+        plan_id = data.get('plan_id')
+        approved = data.get('approved', [])
+        
+        if not plan_id:
+            return jsonify({"error": "Missing required field: plan_id"}), 400
+        
+        # Retrieve the plan
+        plan = _text_ingestion_plans.get(plan_id)
+        if not plan:
+            return jsonify({"error": "Plan not found or expired"}), 404
+        
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        
+        if api is None:
+            return jsonify({"error": "Failed to initialize PKB"}), 500
+        
+        # Execute approved proposals
+        distiller = TextIngestionDistiller(api, keys)
+        result = distiller.execute_plan(plan, approved)
+        
+        # Prepare results
+        results = []
+        for exec_result in result.execution_results:
+            results.append({
+                "action": exec_result.action,
+                "success": exec_result.success,
+                "claim_id": exec_result.object_id,
+                "errors": exec_result.errors
+            })
+        
+        # Clean up the plan
+        del _text_ingestion_plans[plan_id]
+        
+        return jsonify({
+            "executed_count": result.added_count + result.edited_count,
+            "added_count": result.added_count,
+            "edited_count": result.edited_count,
+            "failed_count": result.failed_count,
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in pkb_execute_ingest: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
 @app.route('/pkb/execute_updates', methods=['POST'])
 @limiter.limit("10 per minute")
 @login_required
@@ -4443,9 +5034,19 @@ def pkb_execute_updates():
     """
     POST API endpoint to execute approved memory updates.
     
-    Expects JSON:
+    Supports two formats:
+    
+    Format 1 (simple): 
         plan_id: ID of the plan returned by propose_updates
         approved_indices: List of indices of approved actions
+    
+    Format 2 (with edits):
+        plan_id: ID of the plan returned by propose_updates
+        approved: Array of approved proposals with optional edits:
+            - index: Index in proposals array
+            - statement (optional): Edited statement
+            - claim_type (optional): Edited claim type
+            - context_domain (optional): Edited context domain
     
     Returns:
         JSON with execution results
@@ -4460,7 +5061,6 @@ def pkb_execute_updates():
     try:
         data = request.get_json()
         plan_id = data.get('plan_id')
-        approved_indices = data.get('approved_indices', [])
         
         if not plan_id:
             return jsonify({"error": "Missing required field: plan_id"}), 400
@@ -4476,13 +5076,47 @@ def pkb_execute_updates():
         if api is None:
             return jsonify({"error": "Failed to initialize PKB"}), 500
         
+        # Determine which format is being used
+        approved_list = data.get('approved', None)
+        approved_indices = data.get('approved_indices', [])
+        
+        # Build list of items to process (with potential edits)
+        items_to_process = []
+        
+        if approved_list is not None:
+            # Format 2: list of objects with potential edits
+            for item in approved_list:
+                idx = item.get('index')
+                if idx is not None and 0 <= idx < len(plan.candidates):
+                    candidate = plan.candidates[idx]
+                    items_to_process.append({
+                        'index': idx,
+                        'statement': item.get('statement', candidate.statement),
+                        'claim_type': item.get('claim_type', candidate.claim_type),
+                        'context_domain': item.get('context_domain', candidate.context_domain)
+                    })
+        else:
+            # Format 1: simple list of indices
+            for idx in approved_indices:
+                if 0 <= idx < len(plan.candidates):
+                    candidate = plan.candidates[idx]
+                    items_to_process.append({
+                        'index': idx,
+                        'statement': candidate.statement,
+                        'claim_type': candidate.claim_type,
+                        'context_domain': candidate.context_domain
+                    })
+        
         # Execute approved updates
         results = []
-        for idx in approved_indices:
-            if idx < 0 or idx >= len(plan.candidates):
-                continue
-                
-            candidate = plan.candidates[idx]
+        added_count = 0
+        edited_count = 0
+        
+        for item in items_to_process:
+            idx = item['index']
+            statement = item['statement']
+            claim_type = item['claim_type']
+            context_domain = item['context_domain']
             
             # Check if this is an edit or add
             action = "add"
@@ -4494,9 +5128,9 @@ def pkb_execute_updates():
                 existing_claim_id = plan.matches[idx].claim.claim_id
                 result = api.edit_claim(
                     existing_claim_id,
-                    statement=candidate.statement,
-                    claim_type=candidate.claim_type,
-                    context_domain=candidate.context_domain
+                    statement=statement,
+                    claim_type=claim_type,
+                    context_domain=context_domain
                 )
                 results.append({
                     "action": "edit",
@@ -4504,12 +5138,15 @@ def pkb_execute_updates():
                     "success": result.success,
                     "errors": result.errors
                 })
+                if result.success:
+                    edited_count += 1
             else:
                 # Add new claim
+                candidate = plan.candidates[idx]
                 result = api.add_claim(
-                    statement=candidate.statement,
-                    claim_type=candidate.claim_type,
-                    context_domain=candidate.context_domain,
+                    statement=statement,
+                    claim_type=claim_type,
+                    context_domain=context_domain,
                     tags=candidate.tags if hasattr(candidate, 'tags') else [],
                     auto_extract=False
                 )
@@ -4519,12 +5156,17 @@ def pkb_execute_updates():
                     "success": result.success,
                     "errors": result.errors
                 })
+                if result.success:
+                    added_count += 1
         
         # Clean up the plan
         del _memory_update_plans[plan_id]
         
         return jsonify({
             "executed_count": len([r for r in results if r["success"]]),
+            "added_count": added_count,
+            "edited_count": edited_count,
+            "failed_count": len([r for r in results if not r["success"]]),
             "results": results
         })
         
@@ -5081,6 +5723,7 @@ def open_browser(url):
         subprocess.call(['open', url])
     else:
         webbrowser.open(url)
+
     
 create_tables()
 

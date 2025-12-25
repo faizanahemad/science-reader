@@ -1,0 +1,70 @@
+/**
+ * Common Styles - AI Assistant Chrome Extension
+ * 
+ * Shared CSS variables and base styles that can be imported
+ * by any extension component.
+ */
+
+:root {
+    /* Colors - Midnight Blue Dark Theme */
+    --ai-bg-primary: #0a0e14;
+    --ai-bg-secondary: #0d1219;
+    --ai-bg-tertiary: #151c25;
+    --ai-bg-elevated: #1a2332;
+    --ai-bg-hover: #1e2a3a;
+    
+    --ai-text-primary: #e6edf3;
+    --ai-text-secondary: #9ca6b3;
+    --ai-text-muted: #6b7785;
+    
+    /* Accent - Electric Cyan */
+    --ai-accent: #00d4ff;
+    --ai-accent-hover: #33ddff;
+    --ai-accent-glow: rgba(0, 212, 255, 0.15);
+    --ai-accent-dim: rgba(0, 212, 255, 0.3);
+    
+    --ai-success: #2dd4bf;
+    --ai-warning: #fbbf24;
+    --ai-error: #ef4444;
+    
+    --ai-border: #1e2a3a;
+    --ai-border-focus: #00d4ff;
+    
+    /* Sizing */
+    --ai-radius-sm: 6px;
+    --ai-radius-md: 10px;
+    --ai-radius-lg: 14px;
+    
+    /* Transitions */
+    --ai-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --ai-transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Base reset */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+    outline: 2px solid var(--ai-accent);
+    outline-offset: 2px;
+}
+
+/* Remove default button styles */
+button {
+    font-family: inherit;
+    font-size: inherit;
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Selection color */
+::selection {
+    background: var(--ai-accent-dim);
+    color: var(--ai-text-primary);
+}
+

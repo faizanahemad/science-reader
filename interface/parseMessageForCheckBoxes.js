@@ -348,3 +348,93 @@ function comprehensiveTestParseMessageForCheckBoxesV2() {
 }
 
 comprehensiveTestParseMessageForCheckBoxesV2();
+
+
+// ===========================================================================
+// @memory Reference Parsing (Deliberate Memory Attachment)
+// ===========================================================================
+
+/**
+ * Parse @memory references from message text.
+ * 
+ * Supports the following formats:
+ * - @memory:claim_id (e.g., @memory:abc123)
+ * - @mem:claim_id (shorter syntax)
+ * 
+ * Returns the claim IDs found and the cleaned text with references removed.
+ * 
+ * @param {string} text - The message text to parse
+ * @returns {{cleanText: string, claimIds: string[]}} - Object with cleaned text and extracted claim IDs
+ */
+function parseMemoryReferences(text) {
+    if (!text) {
+        return { cleanText: '', claimIds: [] };
+    }
+    
+    // Regex to match @memory:claim_id or @mem:claim_id
+    // Claim IDs can contain letters, numbers, and hyphens (typical UUID format)
+    var regex = /@(?:memory|mem):([a-zA-Z0-9-]+)/g;
+    var claimIds = [];
+    var match;
+    
+    // Extract all claim IDs
+    while ((match = regex.exec(text)) !== null) {
+        var claimId = match[1];
+        if (claimId && claimIds.indexOf(claimId) === -1) {
+            claimIds.push(claimId);
+        }
+    }
+    
+    // Remove the @memory references from text
+    var cleanText = text.replace(regex, '').replace(/\s+/g, ' ').trim();
+    
+    return {
+        cleanText: cleanText,
+        claimIds: claimIds
+    };
+}
+
+// Test function for parseMemoryReferences
+function testParseMemoryReferences() {
+    var testCases = [
+        { 
+            input: "Please consider @memory:abc123 this fact", 
+            expected: { cleanText: "Please consider this fact", claimIds: ["abc123"] }
+        },
+        { 
+            input: "@mem:fact-1 and @memory:fact-2 are relevant", 
+            expected: { cleanText: "and are relevant", claimIds: ["fact-1", "fact-2"] }
+        },
+        { 
+            input: "No references here", 
+            expected: { cleanText: "No references here", claimIds: [] }
+        },
+        { 
+            input: "@memory:a1b2c3d4-e5f6-7890-abcd-ef1234567890 with UUID", 
+            expected: { cleanText: "with UUID", claimIds: ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"] }
+        },
+        { 
+            input: "@memory:same @memory:same duplicate", 
+            expected: { cleanText: "duplicate", claimIds: ["same"] }
+        }
+    ];
+    
+    testCases.forEach(function(testCase, index) {
+        var result = parseMemoryReferences(testCase.input);
+        console.log('Memory Reference Test ' + (index + 1) + ':', result);
+        
+        console.assert(
+            result.cleanText === testCase.expected.cleanText,
+            'Clean text mismatch. Expected: "' + testCase.expected.cleanText + '", Got: "' + result.cleanText + '"'
+        );
+        
+        console.assert(
+            JSON.stringify(result.claimIds.sort()) === JSON.stringify(testCase.expected.claimIds.sort()),
+            'Claim IDs mismatch. Expected: ' + JSON.stringify(testCase.expected.claimIds) + ', Got: ' + JSON.stringify(result.claimIds)
+        );
+    });
+    
+    console.log("Memory reference parsing tests completed.");
+}
+
+testParseMemoryReferences();

@@ -57,7 +57,11 @@ _pkb_db_instance = None
 _pkb_config_instance = None
 
 def get_pkb_database():
-    """Get or initialize the shared PKB database instance."""
+    """Get or initialize the shared PKB database instance.
+    
+    Uses the same database path as server.py: <project>/storage/users/pkb.sqlite
+    This ensures both the UI (server.py) and conversation flow use the same database.
+    """
     global _pkb_db_instance, _pkb_config_instance
     
     if not PKB_AVAILABLE:
@@ -65,11 +69,17 @@ def get_pkb_database():
     
     if _pkb_db_instance is None:
         try:
-            # Use the same path as server.py
-            pkb_db_path = os.path.join(os.path.dirname(__file__), "users", "pkb.sqlite")
+            # Use the same path as server.py: storage/users/pkb.sqlite
+            # server.py uses: os.path.join(os.getcwd(), "storage", "users") for users_dir
+            # The PKB database is at users_dir/pkb.sqlite
+            pkb_db_path = os.path.join(os.path.dirname(__file__), "storage", "users", "pkb.sqlite")
+            
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(pkb_db_path), exist_ok=True)
+            
             _pkb_config_instance = PKBConfig(db_path=pkb_db_path)
             _pkb_db_instance = get_database(_pkb_config_instance)
-            logger.info(f"Initialized PKB database for Conversation at {pkb_db_path}")
+            time_logger.info(f"[PKB] Initialized PKB database for Conversation at {pkb_db_path}")
         except Exception as e:
             logger.error(f"Failed to initialize PKB database: {e}")
             return None, None
@@ -130,59 +140,180 @@ class Conversation:
     
 
 
-    def _get_pkb_context(self, user_email: str, query: str, conversation_summary: str = "", k: int = 10) -> str:
+    def _get_pkb_context(
+        self, 
+        user_email: str, 
+        query: str, 
+        conversation_summary: str = "", 
+        k: int = 10,
+        attached_claim_ids: list = None,
+        conversation_id: str = None,
+        conversation_pinned_claim_ids: list = None,
+        referenced_claim_ids: list = None
+    ) -> str:
         """
         Retrieve relevant claims from PKB for the current query.
         
-        This method searches the Personal Knowledge Base for claims relevant to the
-        user's current query and conversation context. It uses hybrid search
-        (combining FTS and embedding similarity) to find the most relevant facts.
+        This method retrieves PKB context from multiple sources with priority:
+        1. Referenced claims (from @memory:id in message) - highest priority
+        2. Attached claims (from "Use in next message" UI selection) - high priority
+        3. Globally pinned claims (meta_json.pinned = true) - medium-high priority  
+        4. Conversation-pinned claims - medium priority
+        5. Auto-retrieved via hybrid search - normal priority
+        
+        The method deduplicates claims and formats them with source indicators.
         
         Args:
             user_email: Email of the user to retrieve claims for.
             query: The user's current query.
             conversation_summary: Summary of the recent conversation for context.
             k: Maximum number of claims to retrieve.
+            attached_claim_ids: Optional list of claim IDs explicitly attached by user.
+            conversation_id: Optional conversation ID for conversation-level pinning.
+            conversation_pinned_claim_ids: Optional list of claim IDs pinned to this conversation.
+            referenced_claim_ids: Optional list of claim IDs from @memory:id references in message.
             
         Returns:
             Formatted string of relevant claims, or empty string if none found.
         """
+        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}")
+        time_logger.info(f"[PKB] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
+        
         if not PKB_AVAILABLE:
+            time_logger.info("[PKB] PKB_AVAILABLE is False, returning empty")
             return ""
+        
+        attached_claim_ids = attached_claim_ids or []
+        conversation_pinned_claim_ids = conversation_pinned_claim_ids or []
+        referenced_claim_ids = referenced_claim_ids or []
         
         try:
             db, config = get_pkb_database()
             if db is None:
+                time_logger.info("[PKB] get_pkb_database() returned None, returning empty")
                 return ""
             
+            time_logger.info(f"[PKB] Got database, creating StructuredAPI for user: {user_email}")
             # Get API for this user
             api = StructuredAPI(db, self.get_api_keys(), config, user_email=user_email)
             
-            # Build enhanced query with conversation context
-            enhanced_query = query
-            if conversation_summary:
-                enhanced_query = f"{conversation_summary}\n\nCurrent query: {query}"
+            all_claims = []  # List of (source, claim) tuples
+            seen_ids = set()
             
-            # Search for relevant claims
-            result = api.search(enhanced_query, strategy='hybrid', k=k)
+            # 1. Referenced claims (from @memory:id in message) - highest priority
+            if referenced_claim_ids:
+                time_logger.info(f"[PKB] Fetching {len(referenced_claim_ids)} referenced claims")
+                result = api.get_claims_by_ids(referenced_claim_ids)
+                if result.success and result.data:
+                    for claim in result.data:
+                        if claim and claim.claim_id not in seen_ids:
+                            all_claims.append(("referenced", claim))
+                            seen_ids.add(claim.claim_id)
+                    time_logger.info(f"[PKB] Got {len(result.data)} referenced claims")
+                else:
+                    time_logger.info(f"[PKB] Referenced claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
             
-            if not result.success or not result.data:
+            # 2. Attached claims (explicitly selected by user) - high priority
+            if attached_claim_ids:
+                time_logger.info(f"[PKB] Fetching {len(attached_claim_ids)} attached claims")
+                result = api.get_claims_by_ids(attached_claim_ids)
+                if result.success and result.data:
+                    for claim in result.data:
+                        if claim and claim.claim_id not in seen_ids:
+                            all_claims.append(("attached", claim))
+                            seen_ids.add(claim.claim_id)
+                    time_logger.info(f"[PKB] Got {len(result.data)} attached claims")
+                else:
+                    time_logger.info(f"[PKB] Attached claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
+            
+            # 3. Globally pinned claims - medium-high priority
+            time_logger.info("[PKB] Fetching globally pinned claims")
+            pinned_result = api.get_pinned_claims(limit=20)
+            if pinned_result.success and pinned_result.data:
+                for claim in pinned_result.data:
+                    if claim.claim_id not in seen_ids:
+                        all_claims.append(("pinned", claim))
+                        seen_ids.add(claim.claim_id)
+                time_logger.info(f"[PKB] Got {len(pinned_result.data)} pinned claims")
+            else:
+                time_logger.info(f"[PKB] Pinned claims fetch failed or empty: success={pinned_result.success}, data_len={len(pinned_result.data) if pinned_result.data else 0}")
+            
+            # 4. Conversation-pinned claims - medium priority
+            if conversation_pinned_claim_ids:
+                time_logger.info(f"[PKB] Fetching {len(conversation_pinned_claim_ids)} conversation-pinned claims")
+                result = api.get_claims_by_ids(conversation_pinned_claim_ids)
+                if result.success and result.data:
+                    for claim in result.data:
+                        if claim and claim.claim_id not in seen_ids:
+                            all_claims.append(("conv_pinned", claim))
+                            seen_ids.add(claim.claim_id)
+                    time_logger.info(f"[PKB] Got {len(result.data)} conversation-pinned claims")
+                else:
+                    time_logger.info(f"[PKB] Conv-pinned claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
+            
+            # 5. Auto-retrieved via hybrid search - fill remaining slots
+            deliberate_count = len(referenced_claim_ids) + len(attached_claim_ids) + len(conversation_pinned_claim_ids)
+            remaining_slots = max(1, k - len(all_claims))
+            time_logger.info(f"[PKB] Auto-search: remaining_slots={remaining_slots}, deliberate_count={deliberate_count}")
+            if remaining_slots > 0:
+                # Build enhanced query with conversation context
+                enhanced_query = query
+                if conversation_summary:
+                    enhanced_query = f"{conversation_summary}\n\nCurrent query: {query}"
+                
+                time_logger.info(f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'")
+                result = api.search(enhanced_query, strategy='hybrid', k=remaining_slots + 5)  # Get extra for dedup
+                
+                time_logger.info(f"[PKB] Search result: success={result.success}, data_type={type(result.data)}, data_len={len(result.data) if result.data else 0}")
+                
+                if result.success and result.data:
+                    search_added = 0
+                    for search_result in result.data:
+                        claim = search_result.claim
+                        if claim.claim_id not in seen_ids:
+                            all_claims.append(("auto", claim))
+                            seen_ids.add(claim.claim_id)
+                            search_added += 1
+                            if len(all_claims) >= k + deliberate_count:  # Allow deliberate claims extra
+                                break
+                    time_logger.info(f"[PKB] Hybrid search returned {len(result.data)} results, added {search_added} unique claims")
+                elif result.success and not result.data:
+                    # Check if there are ANY claims in the database for this user
+                    from truth_management_system.models import ClaimStatus
+                    all_user_claims = api.claims.list(filters={'status': ClaimStatus.ACTIVE.value}, limit=10)
+                    time_logger.info(f"[PKB] Search returned 0 results. Total active claims for user: {len(all_user_claims)}")
+                    if all_user_claims:
+                        time_logger.info(f"[PKB] Sample claims: {[c.statement[:50] for c in all_user_claims[:3]]}")
+                else:
+                    time_logger.info(f"[PKB] Hybrid search failed: success={result.success}, errors={result.errors if hasattr(result, 'errors') else 'N/A'}")
+            
+            time_logger.info(f"[PKB] Total claims collected: {len(all_claims)}")
+            if not all_claims:
+                time_logger.info("[PKB] No claims found, returning empty string")
                 return ""
             
-            # Format claims as bullet points
+            # Format claims with source indicators
             context_lines = []
-            for search_result in result.data[:k]:
-                claim = search_result.claim
+            for source, claim in all_claims:
                 claim_type_prefix = f"[{claim.claim_type}]" if claim.claim_type else ""
-                context_lines.append(f"- {claim_type_prefix} {claim.statement}")
+                source_prefix = ""
+                if source == "referenced":
+                    source_prefix = "[REFERENCED] "
+                elif source == "attached":
+                    source_prefix = "[ATTACHED] "
+                elif source == "pinned":
+                    source_prefix = "[PINNED] "
+                elif source == "conv_pinned":
+                    source_prefix = "[CONV-PINNED] "
+                context_lines.append(f"- {source_prefix}{claim_type_prefix} {claim.statement}")
             
-            if context_lines:
-                return "\n".join(context_lines)
-            
-            return ""
+            formatted_context = "\n".join(context_lines)
+            time_logger.info(f"[PKB] Returning formatted context with {len(context_lines)} claims, total_chars={len(formatted_context)}")
+            time_logger.info(f"[PKB] Context preview: {formatted_context[:500]}..." if len(formatted_context) > 500 else f"[PKB] Context: {formatted_context}")
+            return formatted_context
             
         except Exception as e:
-            logger.error(f"Error retrieving PKB context: {e}")
+            time_logger.info(f"[PKB] Error retrieving PKB context: {e}", exc_info=True)
             return ""
     
     def set_memory_if_None(self):
@@ -2213,16 +2344,37 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         user_preferences = userData.get("user_preferences", None) if userData is not None else None
         user_email = userData.get("user_email", None) if userData is not None else None
         
+        # Extract attached_claim_ids from query (for deliberate memory attachment)
+        attached_claim_ids = query.get("attached_claim_ids", []) if isinstance(query, dict) else []
+        # Extract conversation-pinned claim IDs (injected by server from session state)
+        conversation_pinned_claim_ids = query.get("conversation_pinned_claim_ids", []) if isinstance(query, dict) else []
+        # Extract referenced claim IDs (from @memory:id references in message)
+        referenced_claim_ids = query.get("referenced_claim_ids", []) if isinstance(query, dict) else []
+        
         # Start PKB context retrieval in parallel (if PKB is available)
         pkb_context_future = None
+        time_logger.info(f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}")
+        time_logger.info(f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
         if PKB_AVAILABLE and user_email:
+            time_logger.info(f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}")
             pkb_context_future = get_async_future(
                 self._get_pkb_context,
                 user_email,
                 query["messageText"],
                 self.running_summary,
-                k=10
+                k=10,
+                attached_claim_ids=attached_claim_ids,
+                conversation_id=self.conversation_id,
+                conversation_pinned_claim_ids=conversation_pinned_claim_ids,
+                referenced_claim_ids=referenced_claim_ids
             )
+            yield {"text": '', "status": f"PKB memory retrieval started for user: {user_email[:20]}..."}
+        else:
+            time_logger.info(f"[PKB-REPLY] Skipping PKB context: PKB_AVAILABLE={PKB_AVAILABLE}, user_email={'set' if user_email else 'NOT SET'}")
+            if not PKB_AVAILABLE:
+                yield {"text": '', "status": "PKB not available (import failed)"}
+            elif not user_email:
+                yield {"text": '', "status": "PKB skipped: No user email provided"}
         
         answer = ''
         summary = self.running_summary
@@ -2563,24 +2715,35 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
             
         if userData is not None:
+            yield {"text": '', "status": "Retrieving PKB memory context ..."}
+            time_logger.info(f"[PKB-REPLY] userData is not None, checking pkb_context_future...")
             # Get PKB context if available (from async future started earlier)
             pkb_context = ""
             if pkb_context_future is not None:
+                time_logger.info("[PKB-REPLY] pkb_context_future exists, waiting for result...")
                 try:
                     pkb_context = pkb_context_future.result()
+                    time_logger.info(f"[PKB-REPLY] pkb_context_future.result() returned {len(pkb_context) if pkb_context else 0} chars")
                 except Exception as e:
-                    logger.warning(f"Failed to get PKB context: {e}")
+                    time_logger.info(f"[PKB-REPLY] Failed to get PKB context: {e}", exc_info=True)
                     pkb_context = ""
+            else:
+                time_logger.info("[PKB-REPLY] pkb_context_future is None (PKB fetch was not started)")
             
             # Build user info prompt with both legacy data and PKB context
             pkb_section = ""
             if pkb_context:
+                time_logger.info(f"[PKB-REPLY] Building pkb_section with {len(pkb_context)} chars of context")
+                yield {"text": '', "status": f"PKB context retrieved: {len(pkb_context.split(chr(10)))} memories found"}
                 pkb_section = f"""
             **Personal Knowledge Base (relevant facts and preferences):**
             ```
             {pkb_context}
             ```
             """
+            else:
+                time_logger.info("[PKB-REPLY] pkb_context is empty, pkb_section will be empty")
+                yield {"text": '', "status": "PKB context: No memories found for this query"}
             
             user_info_text = dedent(f"""
             Few details about the user and how they want us to respond to them:
@@ -3030,10 +3193,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         user_info_text = ""
         if userData is not None:
+            time_logger.info("[PKB-REPLY] Waiting for user_info extraction LLM calls to complete...")
+            yield {"text": '', "status": "Processing user preferences and PKB context ..."}
             while user_info_text1.done() is False and user_info_text2.done() is False:
                 time.sleep(0.5)
             user_info_text = user_info_text1.result() if user_info_text1.done() else user_info_text2.result()
+            time_logger.info(f"[PKB-REPLY] user_info_text from LLM: {len(user_info_text) if user_info_text else 0} chars")
+            time_logger.info(f"[PKB-REPLY] user_info_text preview: {user_info_text[:500]}..." if len(user_info_text) > 500 else f"[PKB-REPLY] user_info_text: {user_info_text}")
             user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n\n"
+        else:
+            time_logger.info("[PKB-REPLY] userData is None, user_info_text will be empty")
 
         memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
 
@@ -3046,6 +3215,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         time_logger.info(
             f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}")
         yield {"text": '', "status": "Preparing prompt ..."}
+        
+        # Log what's going into permanent_instructions
+        time_logger.info(f"[PKB-REPLY] Building prompt. permanent_instructions len={len(permanent_instructions)}, memory_pad len={len(memory_pad)}, coding_rules len={len(coding_rules)}, user_info_text len={len(user_info_text)}")
+        
         prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
                                                        summary_text=summary_text,
                                                        previous_messages=previous_messages if agent is None else previous_messages_short,

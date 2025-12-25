@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <!-- Loading View -->
+    <div id="loading-view" class="view">
+        <div class="loading-spinner"></div>
+        <p>Loading...</p>
+    </div>
+
+    <!-- Login View -->
+    <div id="login-view" class="view hidden">
+        <header class="login-header">
+            <div class="logo">⚡</div>
+            <h1>AI Assistant</h1>
+        </header>
+        
+        <form id="login-form">
+            <div class="form-group">
+                <input 
+                    type="email" 
+                    id="email" 
+                    placeholder="Email" 
+                    required 
+                    autocomplete="email"
+                >
+            </div>
+            <div class="form-group">
+                <input 
+                    type="password" 
+                    id="password" 
+                    placeholder="Password" 
+                    required 
+                    autocomplete="current-password"
+                >
+            </div>
+            <button type="submit" class="btn btn-primary" id="login-btn">
+                <span class="btn-text">Login</span>
+                <span class="btn-loading hidden">
+                    <span class="loading-spinner-small"></span>
+                </span>
+            </button>
+            <div id="login-error" class="error-message hidden"></div>
+        </form>
+        
+        <footer class="login-footer">
+            <a href="#" id="open-web-app" class="link">Open Web Dashboard</a>
+        </footer>
+    </div>
+
+    <!-- Main View (Authenticated) -->
+    <div id="main-view" class="view hidden">
+        <header class="main-header">
+            <div class="header-left">
+                <span class="logo-small">⚡</span>
+                <h2>AI Assistant</h2>
+            </div>
+            <button id="settings-btn" class="icon-btn" title="Settings">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+        </header>
+
+        <div class="quick-actions">
+            <button id="open-sidepanel" class="btn btn-primary btn-large">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <line x1="15" y1="3" x2="15" y2="21"></line>
+                </svg>
+                Open Sidepanel
+            </button>
+            
+            <div class="action-row">
+                <button id="summarize-page" class="btn btn-secondary">
+                    <span class="action-icon">📄</span>
+                    Summarize Page
+                </button>
+                <button id="ask-selection" class="btn btn-secondary">
+                    <span class="action-icon">✨</span>
+                    Ask Selection
+                </button>
+            </div>
+        </div>
+
+        <section class="recent-section">
+            <h3>Recent Conversations</h3>
+            <ul id="recent-list" class="recent-list">
+                <!-- Populated by JS -->
+            </ul>
+            <div id="recent-empty" class="empty-state hidden">
+                <p>No recent conversations</p>
+            </div>
+        </section>
+
+        <footer class="main-footer">
+            <div class="user-info">
+                <span class="user-avatar">👤</span>
+                <span id="user-email" class="user-email"></span>
+            </div>
+            <button id="logout-btn" class="btn btn-text">Logout</button>
+        </footer>
+    </div>
+
+    <!-- Settings View -->
+    <div id="settings-view" class="view hidden">
+        <header class="settings-header">
+            <button id="back-to-main" class="icon-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h2>Settings</h2>
+        </header>
+
+        <div class="settings-content">
+            <div class="setting-group">
+                <label for="default-model">Default Model</label>
+                <select id="default-model" class="select">
+                    <!-- Populated by JS -->
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label for="default-prompt">Default Prompt</label>
+                <select id="default-prompt" class="select">
+                    <!-- Populated by JS -->
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label for="history-length">History Length</label>
+                <div class="range-container">
+                    <input type="range" id="history-length" min="1" max="50" value="10">
+                    <span id="history-length-value">10</span>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="auto-save">
+                    <span>Auto-save conversations</span>
+                </label>
+            </div>
+
+            <div class="setting-group">
+                <label for="theme">Theme</label>
+                <select id="theme" class="select">
+                    <option value="system">System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+        </div>
+
+        <button id="save-settings" class="btn btn-primary">Save Settings</button>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+</body>
+</html>
+

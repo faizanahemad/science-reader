@@ -523,6 +523,16 @@
                   <i class="bi bi-exclamation-triangle"></i> Conflicts
                 </a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-bulk-tab" data-toggle="tab" href="#pkb-bulk-pane" role="tab">
+                  <i class="bi bi-plus-square"></i> Bulk Add
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-import-tab" data-toggle="tab" href="#pkb-import-pane" role="tab">
+                  <i class="bi bi-file-text"></i> Import Text
+                </a>
+              </li>
             </ul>
             
             <!-- Tab Content -->
@@ -638,6 +648,125 @@
                 </div>
               </div>
               
+              <!-- Bulk Add Tab -->
+              <div class="tab-pane fade" id="pkb-bulk-pane" role="tabpanel">
+                <div class="mb-3">
+                  <small class="text-muted">
+                    Add multiple memories at once. Each row becomes one memory item.
+                    Fill in the details and click "Save All" when ready.
+                  </small>
+                </div>
+                
+                <!-- Bulk Rows Container -->
+                <div id="pkb-bulk-rows-container" style="max-height: 350px; overflow-y: auto;">
+                  <!-- Rows will be rendered here by JS -->
+                </div>
+                
+                <!-- Bulk Actions -->
+                <div class="mt-3 d-flex justify-content-between align-items-center">
+                  <button class="btn btn-outline-primary" id="pkb-bulk-add-row">
+                    <i class="bi bi-plus"></i> Add Another Row
+                  </button>
+                  <div>
+                    <button class="btn btn-outline-secondary mr-2" id="pkb-bulk-clear-all">
+                      <i class="bi bi-x-lg"></i> Clear All
+                    </button>
+                    <button class="btn btn-success" id="pkb-bulk-save-all">
+                      <i class="bi bi-check-all"></i> Save All Memories
+                    </button>
+                  </div>
+                </div>
+                
+                <!-- Progress Indicator -->
+                <div id="pkb-bulk-progress" class="mt-3" style="display:none;">
+                  <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%" id="pkb-bulk-progress-bar"></div>
+                  </div>
+                  <small class="text-muted"><span id="pkb-bulk-progress-text">Saving...</span></small>
+                </div>
+                
+                <!-- Results Summary -->
+                <div id="pkb-bulk-results" class="mt-3" style="display:none;">
+                  <div class="alert alert-success" id="pkb-bulk-success-alert">
+                    <i class="bi bi-check-circle"></i> <span id="pkb-bulk-success-count">0</span> memories saved successfully!
+                  </div>
+                  <div class="alert alert-danger" id="pkb-bulk-error-alert" style="display:none;">
+                    <i class="bi bi-exclamation-triangle"></i> <span id="pkb-bulk-error-count">0</span> failed to save.
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Import Text Tab -->
+              <div class="tab-pane fade" id="pkb-import-pane" role="tabpanel">
+                <div class="mb-3">
+                  <small class="text-muted">
+                    Paste a large block of text below. AI will extract memories, compare with existing ones, 
+                    and let you review each proposed change before saving.
+                  </small>
+                </div>
+                
+                <!-- Text Input -->
+                <div class="form-group">
+                  <textarea id="pkb-import-text" class="form-control" rows="8" 
+                            placeholder="Paste your text here...&#10;&#10;Examples:&#10;- I prefer working in the morning&#10;- My favorite color is blue&#10;- I'm allergic to peanuts&#10;- I work at Acme Corp as a software engineer"></textarea>
+                </div>
+                
+                <!-- Default Type/Domain -->
+                <div class="row mb-3">
+                  <div class="col-md-6">
+                    <label for="pkb-import-default-type" class="small">Default Type</label>
+                    <select id="pkb-import-default-type" class="form-control form-control-sm">
+                      <option value="fact" selected>Fact</option>
+                      <option value="preference">Preference</option>
+                      <option value="decision">Decision</option>
+                      <option value="task">Task</option>
+                      <option value="reminder">Reminder</option>
+                      <option value="habit">Habit</option>
+                      <option value="memory">Memory</option>
+                      <option value="observation">Observation</option>
+                    </select>
+                  </div>
+                  <div class="col-md-6">
+                    <label for="pkb-import-default-domain" class="small">Default Domain</label>
+                    <select id="pkb-import-default-domain" class="form-control form-control-sm">
+                      <option value="personal" selected>Personal</option>
+                      <option value="health">Health</option>
+                      <option value="work">Work</option>
+                      <option value="relationships">Relationships</option>
+                      <option value="learning">Learning</option>
+                      <option value="life_ops">Life Ops</option>
+                      <option value="finance">Finance</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <!-- Use LLM Option -->
+                <div class="form-check mb-3">
+                  <input type="checkbox" class="form-check-input" id="pkb-import-use-llm" checked>
+                  <label class="form-check-label" for="pkb-import-use-llm">
+                    <i class="bi bi-magic"></i> Use AI for intelligent parsing (recommended)
+                    <br><small class="text-muted">AI will split compound sentences, infer types, and clean up formatting</small>
+                  </label>
+                </div>
+                
+                <!-- Analyze Button -->
+                <button class="btn btn-primary" id="pkb-import-analyze">
+                  <i class="bi bi-search"></i> Analyze &amp; Extract Memories
+                </button>
+                
+                <!-- Loading Indicator -->
+                <div id="pkb-import-loading" class="mt-3" style="display:none;">
+                  <div class="d-flex align-items-center">
+                    <div class="spinner-border text-primary mr-2" role="status"></div>
+                    <span>Analyzing text and comparing with existing memories...</span>
+                  </div>
+                </div>
+                
+                <!-- Error Display -->
+                <div id="pkb-import-error" class="alert alert-danger mt-3" style="display:none;"></div>
+              </div>
+              
             </div>
           </div>
           <div class="modal-footer">
@@ -710,31 +839,64 @@
       </div>
     </div>
 
-    <!-- Memory Update Proposal Modal -->
+    <!-- Memory Update Proposal Modal (Enhanced for Bulk Operations) -->
     <div class="modal fade" id="memory-proposal-modal" tabindex="-1" aria-hidden="true" data-backdrop="static" style="z-index: 1075;">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-lg">
         <div class="modal-content">
           <div class="modal-header bg-info text-white">
-            <h5 class="modal-title"><i class="bi bi-lightbulb"></i> Memory Update Suggestions</h5>
+            <h5 class="modal-title"><i class="bi bi-lightbulb"></i> Review Memory Updates</h5>
             <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <div class="modal-body">
             <p id="memory-proposal-intro" class="text-muted mb-3">
-              I noticed some things worth remembering from our conversation:
+              Review and approve the proposed memory changes below:
             </p>
-            <div id="memory-proposal-list">
-              <!-- Proposals will be rendered here as checkboxes -->
+            
+            <!-- Summary Counts -->
+            <div class="mb-3 d-flex flex-wrap" style="gap: 8px;">
+              <span class="badge badge-success" id="proposal-add-count">
+                <i class="bi bi-plus-circle"></i> 0 new
+              </span>
+              <span class="badge badge-warning" id="proposal-edit-count">
+                <i class="bi bi-pencil"></i> 0 updates
+              </span>
+              <span class="badge badge-secondary" id="proposal-skip-count">
+                <i class="bi bi-dash-circle"></i> 0 skipped
+              </span>
             </div>
+            
+            <!-- Select Controls -->
+            <div class="mb-2 d-flex justify-content-between align-items-center">
+              <div>
+                <button class="btn btn-sm btn-outline-secondary mr-1" id="proposal-select-all">
+                  <i class="bi bi-check-all"></i> Select All
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" id="proposal-deselect-all">
+                  <i class="bi bi-x"></i> Deselect All
+                </button>
+              </div>
+              <small class="text-muted">
+                <span id="proposal-selected-count">0</span> selected
+              </small>
+            </div>
+            
+            <!-- Proposals List (scrollable) -->
+            <div id="memory-proposal-list" style="max-height: 400px; overflow-y: auto;">
+              <!-- Proposals will be rendered here as editable rows -->
+            </div>
+            
+            <!-- Hidden Fields -->
             <input type="hidden" id="memory-proposal-plan-id">
+            <input type="hidden" id="memory-proposal-source" value="conversation">
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" id="memory-proposal-skip" data-dismiss="modal">
-              <i class="bi bi-x-lg"></i> Skip All
+              <i class="bi bi-x-lg"></i> Cancel
             </button>
             <button type="button" class="btn btn-primary" id="memory-proposal-save">
-              <i class="bi bi-check-lg"></i> Save Selected
+              <i class="bi bi-check-lg"></i> Save Selected (<span id="proposal-save-count">0</span>)
             </button>
           </div>
         </div>

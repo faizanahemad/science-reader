@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant</title>
+    <link rel="stylesheet" href="sidepanel.css">
+    <link rel="stylesheet" href="../lib/highlight.min.css">
+</head>
+<body>
+    <!-- Login View -->
+    <div id="login-view" class="view hidden">
+        <div class="login-container">
+            <div class="login-header">
+                <div class="logo">⚡</div>
+                <h1>AI Assistant</h1>
+                <p class="subtitle">Sign in to continue</p>
+            </div>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+                    Sign In
+                </button>
+                <div id="login-error" class="error-message hidden"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Chat View -->
+    <div id="main-view" class="view hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <button id="toggle-sidebar" class="icon-btn" title="Toggle conversations">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <h1 class="app-title">AI Assistant</h1>
+            </div>
+            <div class="header-right">
+                <button id="new-chat-btn" class="icon-btn" title="New chat">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+                <button id="settings-btn" class="icon-btn" title="Settings">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Sidebar (Conversations List) -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h2>Conversations</h2>
+                <button id="close-sidebar" class="icon-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <ul id="conversation-list" class="conversation-list">
+                <!-- Populated by JS -->
+            </ul>
+            <div id="conversation-empty" class="empty-state hidden">
+                <p>No conversations yet</p>
+                <button class="btn btn-secondary btn-small" id="sidebar-new-chat">Start a new chat</button>
+            </div>
+        </aside>
+
+        <!-- Sidebar Overlay -->
+        <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel">
+            <div class="settings-header">
+                <h2>Settings</h2>
+                <button id="close-settings" class="icon-btn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="settings-content">
+                <div class="setting-group">
+                    <label for="model-select">Model</label>
+                    <select id="model-select" class="select">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <label for="prompt-select">System Prompt</label>
+                    <select id="prompt-select" class="select">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <label for="history-length-slider">History Length: <span id="history-value">10</span></label>
+                    <input type="range" id="history-length-slider" min="1" max="50" value="10">
+                </div>
+
+                <div class="setting-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="auto-include-page">
+                        <span>Auto-include page content</span>
+                    </label>
+                </div>
+
+                <div class="setting-divider"></div>
+
+                <div class="user-section">
+                    <div class="user-info">
+                        <span class="user-avatar">👤</span>
+                        <span id="settings-user-email" class="user-email"></span>
+                    </div>
+                    <button id="logout-btn" class="btn btn-secondary btn-small">Logout</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Page Context Indicator -->
+            <div id="page-context-bar" class="page-context-bar hidden">
+                <div class="page-context-info">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                        <line x1="7" y1="8" x2="17" y2="8"></line>
+                        <line x1="7" y1="12" x2="17" y2="12"></line>
+                        <line x1="7" y1="16" x2="12" y2="16"></line>
+                    </svg>
+                    <span id="page-context-title">Page content attached</span>
+                </div>
+                <button id="remove-page-context" class="icon-btn-small" title="Remove page context">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Chat Messages Area -->
+            <div id="chat-container" class="chat-container">
+                <div id="welcome-screen" class="welcome-screen">
+                    <div class="welcome-icon">⚡</div>
+                    <h2>How can I help you today?</h2>
+                    <p>Ask me anything about this page, get explanations, or start a new conversation.</p>
+                    <div class="quick-suggestions">
+                        <button class="suggestion-btn" data-action="summarize">📄 Summarize this page</button>
+                        <button class="suggestion-btn" data-action="explain">💡 Explain selected text</button>
+                        <button class="suggestion-btn" data-action="ask">✨ Ask a question</button>
+                    </div>
+                </div>
+                
+                <div id="messages-container" class="messages-container hidden">
+                    <!-- Messages populated by JS -->
+                </div>
+
+                <div id="streaming-indicator" class="streaming-indicator hidden">
+                    <div class="typing-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-actions">
+                    <button id="attach-page-btn" class="action-btn" title="Include page content">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                            <line x1="7" y1="8" x2="17" y2="8"></line>
+                            <line x1="7" y1="12" x2="17" y2="12"></line>
+                            <line x1="7" y1="16" x2="12" y2="16"></line>
+                        </svg>
+                    </button>
+                    <button id="multi-tab-btn" class="action-btn" title="Read from multiple tabs">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                        </svg>
+                    </button>
+                    <button id="voice-btn" class="action-btn" title="Voice input">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="23"></line>
+                            <line x1="8" y1="23" x2="16" y2="23"></line>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="input-wrapper">
+                    <textarea 
+                        id="message-input" 
+                        placeholder="Type your message..." 
+                        rows="1"
+                        autofocus
+                    ></textarea>
+                    <button id="send-btn" class="send-btn" disabled title="Send message (Ctrl+Enter)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div id="stop-btn-container" class="stop-btn-container hidden">
+                    <button id="stop-btn" class="btn btn-secondary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                        </svg>
+                        Stop generating
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Tab Selector Modal -->
+    <div id="tab-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Select Tabs</h3>
+                <button class="icon-btn" id="close-tab-modal">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <ul id="tab-list" class="tab-list">
+                    <!-- Populated by JS -->
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancel-tab-modal">Cancel</button>
+                <button class="btn btn-primary" id="confirm-tab-modal">Add Selected</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="../lib/marked.min.js"></script>
+    <script src="../lib/highlight.min.js"></script>
+    <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
+

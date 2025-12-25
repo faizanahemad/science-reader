@@ -35,6 +35,7 @@ Features:
 - Tag and entity extraction/linking
 - Conflict detection and resolution
 - Conversation distillation for chat integration
+- Text ingestion for bulk memory import with AI analysis
 """
 
 __version__ = "0.1.0"
@@ -107,6 +108,11 @@ from .interface import (
     MemoryUpdatePlan,
     DistillationResult,
     CandidateClaim,
+    TextIngestionDistiller,
+    TextIngestionPlan,
+    IngestCandidate,
+    IngestProposal,
+    IngestExecutionResult,
 )
 
 # LLM helpers
@@ -191,6 +197,11 @@ __all__ = [
     "MemoryUpdatePlan",
     "DistillationResult",
     "CandidateClaim",
+    "TextIngestionDistiller",
+    "TextIngestionPlan",
+    "IngestCandidate",
+    "IngestProposal",
+    "IngestExecutionResult",
     
     # LLM
     "LLMHelpers",

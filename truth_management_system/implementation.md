@@ -6,6 +6,17 @@ Technical documentation for the Personal Knowledge Base (PKB) module implementat
 
 PKB v0 is a SQLite-backed personal knowledge base designed for integration with LLM chatbot applications. It provides structured storage for claims (atomic memory units), notes, entities, and tags with full-text search and embedding-based semantic search capabilities.
 
+**Key Features (v0.4):**
+- **Multi-user support**: Shared database with per-user data isolation via `user_email`
+- **Flask REST API**: Full CRUD endpoints at `/pkb/*` for web integration
+- **Conversation.py integration**: Async PKB context retrieval for LLM prompts
+- **Frontend module**: `pkb-manager.js` for UI operations
+- **Memory update workflow**: Propose → Approve → Execute pattern for chat distillation
+- **Schema migration**: Automatic v1→v2 upgrade for existing databases
+- **Legacy data migration**: Script to import from `UserDetails` table
+- **Bulk operations**: Batch claim addition and text ingestion with AI analysis
+- **Deliberate memory attachment**: Global pinning, conversation pinning, "Use Now", and @memory references
+
 ## File Tree Structure
 
 ```
@@ -42,9 +53,10 @@ truth_management_system/
 │
 ├── interface/               # High-level API layer
 │   ├── __init__.py          # Interface exports
-│   ├── structured_api.py    # StructuredAPI: unified CRUD + search + for_user()
+│   ├── structured_api.py    # StructuredAPI: unified CRUD + search + for_user() + add_claims_bulk()
 │   ├── text_orchestration.py    # TextOrchestrator: NL command parsing
-│   └── conversation_distillation.py  # ConversationDistiller: extract facts from chat
+│   ├── conversation_distillation.py  # ConversationDistiller: extract facts from chat
+│   └── text_ingestion.py    # TextIngestionDistiller: bulk text parsing + AI analysis
 │
 └── tests/                   # Unit tests
     ├── __init__.py
@@ -56,7 +68,7 @@ truth_management_system/
 # server.py                  # Flask endpoints: /pkb/claims, /pkb/search, etc.
 # Conversation.py            # LLM chat with _get_pkb_context() integration
 # interface/pkb-manager.js   # Frontend JavaScript PKB API
-# interface/interface.html   # PKB modal, memory proposal modal
+# interface/interface.html   # PKB modal (with Bulk Add/Import Text tabs), memory proposal modal
 # interface/common-chat.js   # Chat with memory update integration
 ```
 
@@ -110,9 +122,10 @@ code_common/call_llm.py     # External: LLM calls, embeddings, keywords
         │    └── HybridSearchStrategy (combines all)                   │
         │                                                              │
         └── interface/ ◄───── depends on: everything above             │
-             ├── StructuredAPI                                         │
+             ├── StructuredAPI (+ add_claims_bulk)                     │
              ├── TextOrchestrator                                      │
-             └── ConversationDistiller                                 │
+             ├── ConversationDistiller                                 │
+             └── TextIngestionDistiller                                │
 ```
 
 ---
@@ -517,6 +530,22 @@ Cosine similarity over vector embeddings.
 3. Compute cosine similarity: `dot(q, d) / (||q|| * ||d||)`
 4. Sort by similarity, return top-k
 
+**Important: Numpy Array Truthiness**
+
+When checking if embeddings exist, always use identity comparison (`is not None`) instead of truthiness:
+
+```python
+# WRONG - causes "ambiguous truth value" error with numpy arrays
+if query_emb:  
+    process(query_emb)
+
+# CORRECT - use identity comparison
+if query_emb is not None:
+    process(query_emb)
+```
+
+This applies to all embedding-related code where numpy arrays might be checked.
+
 #### `search/rewrite_search.py` - `RewriteSearchStrategy`
 
 LLM rewrites natural language query → FTS keywords.
@@ -596,9 +625,13 @@ user_api = shared_api.for_user("user@example.com")
 |----------|--------|---------|
 | Factory | `for_user(user_email)` → StructuredAPI | Create user-scoped instance |
 | Claims | `add_claim(statement, claim_type, ...)` | Add with auto-extraction (user-scoped) |
+| Claims | `add_claims_bulk(claims, auto_extract, stop_on_error)` | Add multiple claims in batch |
 | Claims | `edit_claim(claim_id, **patch)` | Update fields |
 | Claims | `delete_claim(claim_id)` | Soft delete |
 | Claims | `get_claim(claim_id)` | Get by ID |
+| Claims | `get_claims_by_ids(claim_ids)` | Get multiple claims by IDs |
+| Pinning | `pin_claim(claim_id, pin)` | Toggle global pin status via meta_json |
+| Pinning | `get_pinned_claims(limit)` | Get all globally pinned claims |
 | Notes | `add_note(body, title, ...)` | Add note (user-scoped) |
 | Notes | `edit_note(note_id, **patch)` | Update note |
 | Notes | `delete_note(note_id)` | Delete note |
@@ -692,6 +725,82 @@ class DistillationResult:
 4. Generate user confirmation prompt
 5. Execute approved actions
 
+#### `interface/text_ingestion.py` - `TextIngestionDistiller`
+
+Parse and ingest bulk text with AI-powered analysis and duplicate detection.
+
+**Key Dataclasses:**
+```python
+@dataclass
+class IngestCandidate:
+    """A candidate claim extracted from text ingestion."""
+    statement: str
+    claim_type: str
+    context_domain: str
+    confidence: float
+    line_number: Optional[int] = None
+    original_text: Optional[str] = None
+
+@dataclass
+class IngestProposal:
+    """Proposed action for a candidate."""
+    action: str           # 'add', 'edit', 'skip'
+    candidate: IngestCandidate
+    existing_claim: Optional[Claim] = None
+    similarity_score: Optional[float] = None
+    reason: str = ""
+    editable: bool = True
+
+@dataclass
+class TextIngestionPlan:
+    """Complete plan for text ingestion."""
+    plan_id: str = ""
+    raw_text: str = ""
+    candidates: List[IngestCandidate] = field(default_factory=list)
+    proposals: List[IngestProposal] = field(default_factory=list)
+    add_count: int = 0
+    edit_count: int = 0
+    skip_count: int = 0
+    summary: str = ""
+
+@dataclass
+class IngestExecutionResult:
+    """Result of executing approved proposals."""
+    success: bool
+    added_count: int = 0
+    edited_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    results: List[Dict] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+```
+
+**`TextIngestionDistiller` Class:**
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `__init__` | `(api, keys, config)` | Initialize with StructuredAPI |
+| `ingest_and_propose` | `(text, default_type, default_domain, use_llm)` → TextIngestionPlan | Parse and propose actions |
+| `execute_plan` | `(plan, approved_proposals)` → IngestExecutionResult | Execute approved proposals |
+| `_parse_text_with_llm` | `(text, type, domain)` → List[IngestCandidate] | AI-powered text parsing |
+| `_parse_text_simple` | `(text, type, domain)` → List[IngestCandidate] | Rule-based parsing fallback |
+| `_find_matches_for_candidate` | `(candidate)` → List[Tuple[Claim, float]] | Search for similar claims |
+| `_determine_action` | `(candidate, matches)` → IngestProposal | Decide add/edit/skip |
+
+**Similarity Thresholds:**
+```python
+DUPLICATE_THRESHOLD = 0.92  # Skip: exact duplicate
+EDIT_THRESHOLD = 0.75       # Edit: update existing claim
+RELATED_THRESHOLD = 0.55    # Add with warning: related exists
+```
+
+**Process:**
+1. Parse input text into candidate claims (LLM or rule-based)
+2. For each candidate, search existing claims using hybrid search
+3. Determine action based on similarity score thresholds
+4. Return plan with proposals for user review
+5. Execute approved proposals with optional user edits
+
 ---
 
 ## External Integrations
@@ -705,7 +814,32 @@ The PKB is exposed via REST API endpoints in the main Flask server.
 _pkb_db: PKBDatabase = None         # Shared database instance
 _pkb_config: PKBConfig = None       # Configuration
 _pkb_keys: dict = None              # API keys
-_memory_update_plans: dict = {}     # Temporary plan storage by plan_id
+_memory_update_plans: dict = {}     # Temporary plan storage (conversation distillation)
+_text_ingestion_plans: dict = {}    # Temporary plan storage (text ingestion)
+_conversation_pinned_claims: dict = {}  # conv_id -> set(claim_ids) (v0.4 ephemeral pins)
+```
+
+**Conversation Pinning Helper Functions (v0.4):**
+```python
+def get_conversation_pinned_claims(conversation_id: str) -> set:
+    """Get set of claim IDs pinned to a specific conversation."""
+    return _conversation_pinned_claims.get(conversation_id, set())
+
+def add_conversation_pinned_claim(conversation_id: str, claim_id: str):
+    """Add a claim ID to the conversation's pinned set."""
+    if conversation_id not in _conversation_pinned_claims:
+        _conversation_pinned_claims[conversation_id] = set()
+    _conversation_pinned_claims[conversation_id].add(claim_id)
+
+def remove_conversation_pinned_claim(conversation_id: str, claim_id: str):
+    """Remove a claim ID from the conversation's pinned set."""
+    if conversation_id in _conversation_pinned_claims:
+        _conversation_pinned_claims[conversation_id].discard(claim_id)
+
+def clear_conversation_pinned_claims(conversation_id: str):
+    """Clear all pinned claims for a conversation."""
+    if conversation_id in _conversation_pinned_claims:
+        del _conversation_pinned_claims[conversation_id]
 ```
 
 **Helper Functions:**
@@ -728,43 +862,112 @@ _memory_update_plans: dict = {}     # Temporary plan storage by plan_id
 | `/pkb/claims/<id>` | GET | Get single claim | Full claim details |
 | `/pkb/claims/<id>` | PUT | Edit claim | Partial update |
 | `/pkb/claims/<id>` | DELETE | Soft-delete claim | Sets status=retracted |
+| `/pkb/claims/bulk` | POST | Add multiple claims | Bulk add via `add_claims_bulk()` |
 | `/pkb/search` | POST | Search claims | Hybrid/FTS/embedding strategy |
 | `/pkb/entities` | GET | List entities | For dropdown/autocomplete |
 | `/pkb/tags` | GET | List tags | For dropdown/autocomplete |
 | `/pkb/conflicts` | GET | List open conflicts | For conflict resolution UI |
 | `/pkb/conflicts/<id>/resolve` | POST | Resolve conflict | Optional winning claim |
 | `/pkb/propose_updates` | POST | Propose memory updates | ConversationDistiller integration |
-| `/pkb/execute_updates` | POST | Execute approved updates | From proposal plan |
+| `/pkb/execute_updates` | POST | Execute approved updates | Supports edits to proposals |
+| `/pkb/ingest_text` | POST | Parse text with AI | TextIngestionDistiller analysis |
+| `/pkb/execute_ingest` | POST | Execute text ingestion | From text ingestion plan |
 | `/pkb/relevant_context` | POST | Get PKB context for LLM | Formatted claim list |
+| `/pkb/claims/<id>/pin` | POST | Toggle global pin | Set meta_json.pinned |
+| `/pkb/pinned` | GET | Get globally pinned claims | All claims with pinned=true |
+| `/pkb/conversation/<id>/pin` | POST | Pin/unpin to conversation | Ephemeral session state |
+| `/pkb/conversation/<id>/pinned` | GET | Get conversation-pinned | Claims pinned to session |
+| `/pkb/conversation/<id>/pinned` | DELETE | Clear conversation pins | Clear ephemeral pins |
 
 ### 12. Conversation.py Integration
 
-The `Conversation` class integrates PKB for context enrichment.
+The `Conversation` class integrates PKB for context enrichment with support for deliberate memory attachment.
 
-**New Methods:**
+**Critical: Database Path Configuration**
+
+Both `Conversation.py` and `server.py` must use the **same** database path:
+
 ```python
-def _get_pkb_context(self, user_email: str, query: str, 
-                     conversation_summary: str = "", k: int = 10) -> str:
+# server.py uses:
+users_dir = os.path.join(os.getcwd(), "storage", "users")
+pkb_db_path = os.path.join(users_dir, "pkb.sqlite")  # → storage/users/pkb.sqlite
+
+# Conversation.py must match:
+pkb_db_path = os.path.join(os.path.dirname(__file__), "storage", "users", "pkb.sqlite")
+```
+
+**Common Bug:** If these paths don't match, the UI (via server.py) writes to one database while Conversation.py reads from another, causing memories to not appear in chat despite being visible in the PKB modal.
+
+**Enhanced `_get_pkb_context()` Method:**
+```python
+def _get_pkb_context(
+    self, 
+    user_email: str, 
+    query: str, 
+    conversation_summary: str = "",
+    k: int = 10,
+    attached_claim_ids: list = None,       # From UI "Use Now" selection
+    conversation_id: str = None,            # For conversation-level pinning
+    conversation_pinned_claim_ids: list = None,  # Injected from server
+    referenced_claim_ids: list = None       # From @memory: mentions
+) -> str:
     """
-    Retrieve relevant claims from PKB for LLM context injection.
-    
-    Called asynchronously during reply() to fetch user facts
-    without blocking the main chat flow.
+    Retrieve PKB context with multiple sources:
+    1. Referenced claims (@memory mentions) - highest priority
+    2. Attached claims (from UI selection) - high priority
+    3. Globally pinned claims - medium-high priority  
+    4. Conversation-pinned claims - medium priority
+    5. Auto-retrieved via hybrid search - normal priority
     
     Returns:
-        Formatted string of claims like:
-        "- [preference] I prefer vegetarian food
-         - [fact] I live in Seattle"
+        Formatted string with source indicators:
+        "[REFERENCED] [preference] I prefer morning meetings
+         [GLOBAL PINNED] [fact] My timezone is IST
+         [AUTO] [fact] I work in tech"
     """
+```
+
+**Context Retrieval Flow:**
+```
+1. Fetch referenced claims (explicit @memory)
+   └── api.get_claims_by_ids(referenced_claim_ids)
+
+2. Fetch attached claims (UI selection)
+   └── api.get_claims_by_ids(attached_claim_ids)
+
+3. Fetch globally pinned claims
+   └── api.get_pinned_claims()
+
+4. Get conversation-pinned IDs (passed from server)
+   └── api.get_claims_by_ids(conversation_pinned_claim_ids)
+
+5. Fill remaining slots with auto-search
+   └── api.search(query, strategy='hybrid', k=remaining)
+
+6. Deduplicate by claim_id (keep highest priority)
+
+7. Format with source indicators
 ```
 
 **Integration in reply():**
 ```python
-def reply(self, ...):
-    # 1. Start async PKB fetch early
+def reply(self, query, userData=None, ...):
+    # Extract deliberate attachment IDs from query
+    attached_claim_ids = query.get("attached_claim_ids", [])
+    conversation_pinned_claim_ids = query.get("conversation_pinned_claim_ids", [])
+    referenced_claim_ids = query.get("referenced_claim_ids", [])
+    
+    # 1. Start async PKB fetch with all parameters
     pkb_future = get_async_future(
         self._get_pkb_context,
-        user_email, user_message, conversation_summary
+        user_email, 
+        query["messageText"], 
+        self.running_summary,
+        k=10,
+        attached_claim_ids=attached_claim_ids,
+        conversation_id=self.conversation_id,
+        conversation_pinned_claim_ids=conversation_pinned_claim_ids,
+        referenced_claim_ids=referenced_claim_ids
     )
     
     # 2. Continue with other processing (in parallel)
@@ -778,6 +981,21 @@ def reply(self, ...):
         user_info += f"\n\nRelevant user facts:\n{pkb_context}"
 ```
 
+**Server-Side Injection (server.py):**
+```python
+# In /send_message/<conversation_id> endpoint
+@app.route('/send_message/<conversation_id>', methods=['POST'])
+def send_message(conversation_id):
+    query = request.json
+    
+    # Inject conversation-pinned claim IDs from session state
+    conv_pinned_ids = list(get_conversation_pinned_claims(conversation_id))
+    if conv_pinned_ids:
+        query['conversation_pinned_claim_ids'] = conv_pinned_ids
+    
+    # ... pass to conversation.reply() ...
+```
+
 ### 13. Frontend (`interface/pkb-manager.js`)
 
 JavaScript module for PKB UI operations.
@@ -788,6 +1006,8 @@ var PKBManager = (function() {
     // Private state
     var currentPage = 1;
     var currentFilters = {};
+    var pendingMemoryAttachments = [];  // Claim IDs for "Use Now" (v0.4)
+    var pendingMemoryDetails = {};      // {claimId: {statement, type}} (v0.4)
     
     // Public API
     return {
@@ -804,10 +1024,49 @@ var PKBManager = (function() {
         listEntities: function() {...},
         listTags: function() {...},
         
-        // Memory Updates
+        // Memory Updates (Conversation)
         checkMemoryUpdates: function(summary, userMsg, assistantMsg) {...},
         showMemoryProposalModal: function(proposals) {...},
         saveSelectedProposals: function(planId, approvedIndices) {...},
+        
+        // Bulk Add (v0.3)
+        addBulkRow: function() {...},
+        removeBulkRow: function(index) {...},
+        clearBulkRows: function() {...},
+        saveBulkClaims: function() {...},
+        renderBulkRow: function(index) {...},
+        collectBulkRows: function() {...},
+        initBulkAddTab: function() {...},
+        
+        // Text Ingestion (v0.3)
+        analyzeTextForIngestion: function() {...},
+        
+        // Enhanced Bulk Approval Modal (v0.3)
+        showBulkProposalModal: function(proposals, source, planId, summary) {...},
+        renderProposalRow: function(proposal, index) {...},
+        updateProposalSelectedCount: function() {...},
+        collectApprovedProposals: function() {...},
+        saveSelectedProposals: function() {...},
+        
+        // Global Pinning (v0.4)
+        pinClaim: function(claimId, pin) {...},
+        getPinnedClaims: function() {...},
+        isClaimPinned: function(claimId) {...},
+        togglePinAndRefresh: function(claimId) {...},
+        
+        // Conversation-Level Pinning (v0.4)
+        pinToConversation: function(convId, claimId, pin) {...},
+        getConversationPinned: function(convId) {...},
+        clearConversationPinned: function(convId) {...},
+        pinToCurrentConversation: function(claimId, pin) {...},
+        
+        // "Use in Next Message" (v0.4)
+        addToNextMessage: function(claimId) {...},
+        removeFromPending: function(claimId) {...},
+        getPendingAttachments: function() {...},
+        getPendingCount: function() {...},
+        clearPendingAttachments: function() {...},
+        updatePendingAttachmentsIndicator: function() {...},
         
         // UI
         openPKBModal: function() {...},
@@ -817,25 +1076,204 @@ var PKBManager = (function() {
 })();
 ```
 
-**Auto-Integration in common-chat.js:**
+**Bulk Add Functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `addBulkRow()` | Append new empty row to bulk add container |
+| `removeBulkRow(index)` | Remove row at specified index |
+| `clearBulkRows()` | Clear all rows and add one fresh row |
+| `renderBulkRow(index)` | Generate HTML for a single bulk row |
+| `collectBulkRows()` | Collect data from all rows for submission |
+| `saveBulkClaims()` | POST to `/pkb/claims/bulk` with collected rows |
+| `initBulkAddTab()` | Ensure tab starts with at least one row |
+
+**Text Ingestion Functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `analyzeTextForIngestion()` | POST to `/pkb/ingest_text`, show proposals in modal |
+
+**Enhanced Approval Modal Functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `showBulkProposalModal(proposals, source, planId, summary)` | Render proposals in modal |
+| `renderProposalRow(proposal, index)` | Generate editable row HTML |
+| `updateProposalSelectedCount()` | Update "Save Selected (N)" count |
+| `collectApprovedProposals()` | Get checked proposals with edits |
+| `saveSelectedProposals()` | Execute via appropriate endpoint |
+
+**Global Pinning Functions (v0.4):**
+
+| Function | Purpose |
+|----------|---------|
+| `pinClaim(claimId, pin)` | POST to `/pkb/claims/{id}/pin`, toggle global pin |
+| `getPinnedClaims()` | GET `/pkb/pinned`, return all globally pinned |
+| `isClaimPinned(claimId)` | Check if claim is currently pinned |
+| `togglePinAndRefresh(claimId)` | Toggle pin state and refresh claim list UI |
+
+**Conversation-Level Pinning Functions (v0.4):**
+
+| Function | Purpose |
+|----------|---------|
+| `pinToConversation(convId, claimId, pin)` | POST to `/pkb/conversation/{id}/pin` |
+| `getConversationPinned(convId)` | GET `/pkb/conversation/{id}/pinned` |
+| `clearConversationPinned(convId)` | DELETE `/pkb/conversation/{id}/pinned` |
+| `pinToCurrentConversation(claimId, pin)` | Pin to active conversation (uses ConversationManager) |
+
+**"Use in Next Message" Functions (v0.4):**
+
+| Function | Purpose |
+|----------|---------|
+| `addToNextMessage(claimId)` | Add claim ID to pending attachments queue |
+| `removeFromPending(claimId)` | Remove specific claim from queue |
+| `getPendingAttachments()` | Return array of pending claim IDs |
+| `getPendingCount()` | Return count of pending attachments |
+| `clearPendingAttachments()` | Clear all pending (called after message sent) |
+| `updatePendingAttachmentsIndicator()` | Render/update pending chips near chat input |
+
+**UI Changes for Deliberate Memory (v0.4):**
+
+- **Claim Card Buttons**: `renderClaimCard()` adds:
+  - Pin button (`pkb-pin-claim`) with visual indicator for pinned state
+  - "Use in next message" button (`pkb-use-now-claim`)
+- **Pending Attachments Indicator**: Visual chips near chat input showing queued memories
+- **Event Listeners**: `renderClaimsList()` adds handlers for new buttons
+
+**Auto-Integration in common-chat.js (v0.4 Enhanced):**
 ```javascript
 function sendMessageCallback() {
-    // ... after sending message ...
-    
-    // Trigger memory update check after delay
-    setTimeout(function() {
-        if (typeof PKBManager !== 'undefined') {
-            PKBManager.checkMemoryUpdates(
-                conversationSummary, 
-                messageText, 
-                ''  // assistant message filled later
-            );
+    // Get pending memory attachments from PKBManager
+    var attached_claim_ids = [];
+    if (typeof PKBManager !== 'undefined' && PKBManager.getPendingAttachments) {
+        attached_claim_ids = PKBManager.getPendingAttachments();
+        if (attached_claim_ids.length > 0) {
+            PKBManager.clearPendingAttachments();  // Clear after getting
         }
-    }, 3000);
+    }
+    
+    // Parse @memory references from message text
+    var referenced_claim_ids = [];
+    if (typeof parseMemoryReferences === 'function') {
+        var memoryRefs = parseMemoryReferences(messageText);
+        referenced_claim_ids = memoryRefs.claimIds;
+        // messageText can be set to memoryRefs.cleanText if desired
+    }
+    
+    // Send with attached and referenced IDs
+    ChatManager.sendMessage(
+        conversationId, 
+        messageText, 
+        options, 
+        links, 
+        search,
+        attached_claim_ids,      // v0.4: From "Use Now"
+        referenced_claim_ids     // v0.4: From @memory: refs
+    ).then(function(response) {
+        // ... handle response ...
+        
+        // Trigger memory update check after delay
+        setTimeout(function() {
+            if (typeof PKBManager !== 'undefined') {
+                PKBManager.checkMemoryUpdates(
+                    conversationSummary, 
+                    messageText, 
+                    ''  // assistant message filled later
+                );
+            }
+        }, 3000);
+    });
+}
+
+// ChatManager.sendMessage now accepts attached_claim_ids and referenced_claim_ids
+sendMessage: function(conversationId, messageText, checkboxes, links, search, 
+                      attached_claim_ids, referenced_claim_ids) {
+    var requestBody = { ... };
+    
+    // Include attached claim IDs if provided
+    if (attached_claim_ids && attached_claim_ids.length > 0) {
+        requestBody['attached_claim_ids'] = attached_claim_ids;
+    }
+    // Include referenced claim IDs from @memory: refs if provided
+    if (referenced_claim_ids && referenced_claim_ids.length > 0) {
+        requestBody['referenced_claim_ids'] = referenced_claim_ids;
+    }
+    
+    return fetch('/send_message/' + conversationId, { ... });
 }
 ```
 
-### 14. Migration Script (`migrate_user_details.py`)
+**@memory Reference Parsing (parseMessageForCheckBoxes.js):**
+```javascript
+function parseMemoryReferences(text) {
+    // Regex to match @memory:claim_id or @mem:claim_id
+    var regex = /@(?:memory|mem):([a-zA-Z0-9-]+)/g;
+    var claimIds = [];
+    var match;
+    var cleanText = text;
+    
+    while ((match = regex.exec(text)) !== null) {
+        claimIds.push(match[1]);
+        cleanText = cleanText.replace(match[0], '');
+    }
+    
+    return {
+        cleanText: cleanText.trim(),  // Text with references removed
+        claimIds: claimIds             // Array of extracted claim IDs
+    };
+}
+```
+
+### 14. Frontend HTML (`interface/interface.html`)
+
+The PKB modal includes tabs for different operations.
+
+**PKB Modal Tabs:**
+| Tab | ID | Purpose |
+|-----|----|---------|
+| My Memories | `#pkb-list-pane` | View/edit existing claims |
+| Add Memory | `#pkb-add-pane` | Add single claim form |
+| **Bulk Add** | `#pkb-bulk-pane` | Row-wise multi-claim entry (v0.3) |
+| **Import Text** | `#pkb-import-pane` | AI-powered text parsing (v0.3) |
+| Search | `#pkb-search-pane` | Search claims |
+
+**Bulk Add Tab (`#pkb-bulk-pane`):**
+- Container `#pkb-bulk-rows-container` for dynamically added rows
+- Each row: statement textarea, type dropdown, domain dropdown, remove button
+- "Add Another Row" button (`#pkb-bulk-add-row`)
+- "Clear All" button (`#pkb-bulk-clear`)
+- "Save All Memories" button (`#pkb-bulk-save-all`)
+- Progress indicator (`#pkb-bulk-progress`)
+
+**Import Text Tab (`#pkb-import-pane`):**
+- Large textarea (`#pkb-import-text`) for pasting text
+- Default type dropdown (`#pkb-import-default-type`)
+- Default domain dropdown (`#pkb-import-default-domain`)
+- "Use AI for intelligent parsing" checkbox (`#pkb-import-use-llm`)
+- "Analyze & Extract Memories" button (`#pkb-import-analyze`)
+- Loading indicator (`#pkb-import-loading`)
+
+**Enhanced Memory Proposal Modal (`#memory-proposal-modal`):**
+- Summary counts: `#proposal-add-count`, `#proposal-edit-count`, `#proposal-skip-count`
+- Bulk selection: `#proposal-select-all`, `#proposal-deselect-all` buttons
+- Proposal list with editable rows in `#memory-proposal-list`
+- Hidden inputs: `#memory-proposal-plan-id`, `#memory-proposal-source`
+- Save button with count: `#proposal-selected-count`
+
+**Proposal Row Structure (rendered by JS):**
+```html
+<div class="proposal-row" data-index="0">
+  <input type="checkbox" class="proposal-checkbox" checked>
+  <span class="badge badge-success">New</span>
+  <textarea class="proposal-statement">Statement text...</textarea>
+  <select class="proposal-type">...</select>
+  <select class="proposal-domain">...</select>
+  <!-- For edits: shows existing claim info -->
+</div>
+```
+
+### 15. Migration Script (`migrate_user_details.py`)
 
 Standalone script for migrating legacy UserDetails data.
 
@@ -873,557 +1311,152 @@ python -m truth_management_system.migrate_user_details --user alice@example.com
 
 ---
 
-## Data Flow
+## Data Flow Summary
 
-### Adding a Claim
+| Flow | Steps |
+|------|-------|
+| **Add Claim** | `StructuredAPI.add_claim()` → [auto_extract: LLMHelpers.extract_single() → tags/entities/SPO] → `ClaimCRUD.add()` (INSERT + links + FTS trigger) → `ActionResult` |
+| **Hybrid Search** | `HybridSearchStrategy.search()` → [parallel: FTS(BM25) + Embedding(cosine)] → `merge_results_rrf()` → [optional: LLM rerank] → `List[SearchResult]` |
+| **Distillation** | `extract_and_propose()` → [LLM extract] → [search existing] → [propose actions] → `MemoryUpdatePlan` → user confirms → `execute_plan()` |
+| **Bulk Add** | `add_claims_bulk()` → for each: `add_claim()` (with optional auto_extract) → `ActionResult{added_count, failed_count}` |
+| **Text Ingest** | `ingest_and_propose()` → [LLM/rule parse] → [search matches] → [threshold: ≥0.92→skip, ≥0.75→edit, else→add] → `TextIngestionPlan` → user review → `execute_plan()` |
 
-```
-User Input
-    │
-    v
-StructuredAPI.add_claim()
-    │
-    ├── [if auto_extract] LLMHelpers.extract_single()
-    │       │
-    │       ├── generate_tags() ────────────► code_common/call_llm
-    │       ├── extract_entities() ─────────► code_common/call_llm
-    │       ├── extract_spo() ──────────────► code_common/call_llm
-    │       └── classify_claim_type() ──────► code_common/call_llm
-    │
-    ├── [if auto_extract] LLMHelpers.check_similarity()
-    │       │
-    │       └── get_document_embedding() ───► code_common/call_llm
-    │
-    v
-ClaimCRUD.add()
-    │
-    ├── INSERT INTO claims
-    ├── _get_or_create_tag() × N
-    ├── INSERT INTO claim_tags
-    ├── _get_or_create_entity() × N
-    └── INSERT INTO claim_entities
-            │
-            └── [triggers] INSERT INTO claims_fts
-    │
-    v
-ActionResult { success, claim, warnings }
-```
-
-### Hybrid Search
+### Deliberate Memory Attachment Flow (v0.4)
 
 ```
-Query String
-    │
-    v
-HybridSearchStrategy.search()
-    │
-    ├── [parallel] FTSSearchStrategy.search()
-    │       │
-    │       └── SELECT ... FROM claims_fts MATCH ? ORDER BY bm25()
-    │
-    ├── [parallel] EmbeddingSearchStrategy.search()
-    │       │
-    │       ├── get_query_embedding() ──────► code_common/call_llm
-    │       ├── EmbeddingStore.batch_get_or_compute()
-    │       └── cosine_similarity() sort
-    │
-    v
-merge_results_rrf()
-    │
-    └── RRF formula: score = Σ(1 / (rank + k))
-    │
-    v
-[optional] _llm_rerank()
-    │
-    └── call_llm() for ranking ─────────────► code_common/call_llm
-    │
-    v
-List[SearchResult]
-```
+Frontend Triggers:
+  Global Pin → POST /pkb/claims/{id}/pin → meta_json.pinned=true
+  Conv Pin → POST /pkb/conversation/{id}/pin → session state
+  Use Now → pendingMemoryAttachments[] (JS)
+  @memory:id → parseMemoryReferences() extracts claim IDs
 
-### Conversation Distillation
+Send Message (common-chat.js):
+  attached_claim_ids = PKBManager.getPendingAttachments()
+  referenced_claim_ids = parseMemoryReferences(text).claimIds
+  POST /send_message/{convId} {messageText, attached_claim_ids, referenced_claim_ids}
 
-```
-(summary, user_msg, assistant_msg)
-    │
-    v
-ConversationDistiller.extract_and_propose()
-    │
-    ├── _extract_claims_from_turn()
-    │       │
-    │       └── call_llm() ─────────────────► code_common/call_llm
-    │               │
-    │               └── Extract JSON array of candidate facts
-    │
-    ├── [for each candidate] _find_existing_matches()
-    │       │
-    │       └── StructuredAPI.search()
-    │
-    ├── _propose_actions()
-    │       │
-    │       └── Determine: add | update | retract | skip | conflict
-    │
-    └── _generate_confirmation_prompt()
-    │
-    v
-MemoryUpdatePlan { candidates, proposed_actions, user_prompt }
-    │
-    v
-[User confirms]
-    │
-    v
-ConversationDistiller.execute_plan()
-    │
-    └── [for each approved] _execute_action()
-            │
-            ├── StructuredAPI.add_claim()
-            ├── StructuredAPI.edit_claim()
-            └── StructuredAPI.delete_claim()
-    │
-    v
-DistillationResult { plan, executed, execution_results }
+Server (server.py):
+  Inject conversation_pinned_claim_ids from get_conversation_pinned_claims(convId)
+  Pass to conversation.reply()
+
+Conversation.py (_get_pkb_context):
+  1. REFERENCED: get_claims_by_ids(referenced_ids) [HIGHEST]
+  2. ATTACHED: get_claims_by_ids(attached_ids) [HIGH]
+  3. GLOBAL PINNED: get_pinned_claims() [MEDIUM-HIGH]
+  4. CONV PINNED: get_claims_by_ids(conv_pinned) [MEDIUM]
+  5. AUTO: search(query, strategy='hybrid') [NORMAL]
+  → Deduplicate by claim_id (keep highest priority) → Format with source labels
 ```
 
 ---
 
-## Database Schema Diagram
+## Database Schema (v2)
 
-```
-                                  ┌─────────────────┐
-                                  │   schema_version │
-                                  │─────────────────│
-                                  │ version (PK)    │
-                                  │ applied_at      │
-                                  └─────────────────┘
+| Table | Key Columns | Relationships |
+|-------|-------------|---------------|
+| **claims** | claim_id (PK), claim_type, statement, status, context_domain, meta_json, user_email | → claim_embeddings (1:N), claim_tags (M:N), claim_entities (M:N) |
+| **notes** | note_id (PK), title, body, context_domain, user_email | → note_embeddings (1:N) |
+| **entities** | entity_id (PK), entity_type, name, user_email, UNIQUE(user,type,name) | ← claim_entities (M:1) |
+| **tags** | tag_id (PK), name, parent_tag_id (self-ref), user_email, UNIQUE(user,name,parent) | ← claim_tags (M:1) |
+| **conflict_sets** | conflict_set_id (PK), status, resolution_notes, user_email | → conflict_set_members |
+| **claim_embeddings** | claim_id (PK,FK), embedding (BLOB), model_name | |
+| **note_embeddings** | note_id (PK,FK), embedding (BLOB), model_name | |
+| **claims_fts** | FTS5: statement, predicate, object_text, subject_text, context_domain | |
+| **notes_fts** | FTS5: title, body, context_domain | |
+| **schema_version** | version (PK), applied_at — Current: 2 | |
 
-┌──────────────────────────────────────────────────────────────────────────┐
-│                                 CLAIMS                                    │
-│──────────────────────────────────────────────────────────────────────────│
-│ claim_id (PK)    │ claim_type      │ statement       │ status            │
-│ context_domain   │ subject_text    │ predicate       │ object_text       │
-│ confidence       │ created_at      │ updated_at      │ valid_from/to     │
-│ meta_json        │ retracted_at    │                 │                   │
-└──────────┬───────────────────────┬─────────────────────┬─────────────────┘
-           │                       │                     │
-           │ 1:N                   │ M:N                 │ M:N
-           │                       │                     │
-           v                       v                     v
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│ claim_embeddings │    │   claim_tags     │    │ claim_entities   │
-│──────────────────│    │──────────────────│    │──────────────────│
-│ claim_id (PK,FK) │    │ claim_id (FK)    │    │ claim_id (FK)    │
-│ embedding (BLOB) │    │ tag_id (FK)      │    │ entity_id (FK)   │
-│ model_name       │    │ (PK: claim,tag)  │    │ role             │
-│ created_at       │    └────────┬─────────┘    │ (PK: all 3)      │
-└──────────────────┘             │              └────────┬─────────┘
-                                 │ M:1                   │ M:1
-                                 v                       v
-                      ┌──────────────────┐    ┌──────────────────┐
-                      │      tags        │    │    entities      │
-                      │──────────────────│    │──────────────────│
-                      │ tag_id (PK)      │    │ entity_id (PK)   │
-                      │ name             │    │ entity_type      │
-                      │ parent_tag_id◄───┤    │ name             │
-                      │ (self-ref FK)    │    │ UNIQUE(type,name)│
-                      │ meta_json        │    │ meta_json        │
-                      │ created/updated  │    │ created/updated  │
-                      └──────────────────┘    └──────────────────┘
-
-┌──────────────────────┐          ┌────────────────────────────┐
-│ conflict_set_members │          │      conflict_sets         │
-│──────────────────────│          │────────────────────────────│
-│ conflict_set_id (FK) │◄─────────│ conflict_set_id (PK)       │
-│ claim_id (FK)        │          │ status (open/resolved)     │
-│ (PK: both)           │          │ resolution_notes           │
-└──────────────────────┘          │ created/updated            │
-                                  └────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────────────┐
-│                                  NOTES                                    │
-│──────────────────────────────────────────────────────────────────────────│
-│ note_id (PK)     │ title           │ body            │ context_domain    │
-│ meta_json        │ created_at      │ updated_at      │                   │
-└──────────┬───────────────────────────────────────────────────────────────┘
-           │
-           │ 1:N
-           v
-┌──────────────────┐
-│ note_embeddings  │
-│──────────────────│
-│ note_id (PK,FK)  │
-│ embedding (BLOB) │
-│ model_name       │
-│ created_at       │
-└──────────────────┘
-
-┌─────────────────────────────────────────┐
-│           FTS5 Virtual Tables            │
-│─────────────────────────────────────────│
-│ claims_fts: statement, predicate,       │
-│             object_text, subject_text,  │
-│             context_domain              │
-│                                         │
-│ notes_fts: title, body, context_domain  │
-└─────────────────────────────────────────┘
-```
+**User Email Indexes (v2):** idx_claims_user_email, idx_claims_user_status, idx_notes_user_email, idx_entities_user_email, idx_tags_user_email, idx_conflict_sets_user_email
 
 ---
 
-## Parallelization Points
+## Parallelization
 
-The system uses `ParallelExecutor` from `utils.py` for concurrent operations:
-
-| Operation | Location | What's Parallelized |
-|-----------|----------|---------------------|
-| Hybrid Search | `hybrid_search.py` | Multiple search strategies |
-| Batch Extraction | `llm_helpers.py` | Tag/entity/SPO extraction per statement |
-| Embedding Computation | `embedding_search.py` | Multiple claim embeddings |
-| Similarity Check | `llm_helpers.py` | Embedding comparisons |
-
----
-
-## Extension Points
-
-### Adding a New Search Strategy
-
-1. Create `search/my_strategy.py`
-2. Inherit from `SearchStrategy` ABC
-3. Implement `search(query, k, filters)` and `name()`
-4. Register in `HybridSearchStrategy.__init__`
-
-### Adding a New Claim Type
-
-1. Add to `ClaimType` enum in `constants.py`
-2. Update LLM prompts in `llm_helpers.py` if needed
-3. Update `text_orchestration.py` parsing prompts
-
-### Adding a New Entity Type
-
-1. Add to `EntityType` enum in `constants.py`
-2. Update entity extraction prompts in `llm_helpers.py`
-
-### Adding Database Columns
-
-1. Update model dataclass in `models.py`
-2. Update `*_COLUMNS` constant
-3. Update DDL in `schema.py`
-4. Increment `SCHEMA_VERSION`
-5. Add migration logic (future: migrations module)
+Uses `ParallelExecutor` and `get_async_future()`:
+- Hybrid Search: parallel strategies; Batch Extraction: parallel LLM calls; Embedding: parallel computation
+- PKB Context in `Conversation.py`: `pkb_future = get_async_future(...)` runs parallel with chat processing
 
 ---
 
 ## Testing
 
-Run tests with pytest:
-
 ```bash
-cd truth_management_system
-pytest tests/ -v
+cd truth_management_system && pytest tests/ -v
 ```
 
-**Test Files:**
-- `test_crud.py`: Tests CRUD operations with in-memory DB
-- `test_search.py`: Tests FTS and search filters
-- `test_interface.py`: Tests StructuredAPI methods
-
-**Test Patterns:**
-- Each test uses a fresh in-memory SQLite database (`:memory:`)
-- Fixtures create isolated `PKBDatabase` instances per test
-- Unique identifiers (UUIDs) used to prevent test interference
+Tests: `test_crud.py`, `test_search.py`, `test_interface.py` — use in-memory SQLite, isolated fixtures
 
 ---
 
 ## Key Design Decisions
 
-These decisions inform how the system behaves and should be understood before making changes:
-
-| Decision | Rationale | Impact |
-|----------|-----------|--------|
-| **FTS as Backbone** | FTS/BM25 (S2) is the default, deterministic retrieval method | LLM-based methods supplement, not replace FTS |
-| **Embeddings as BLOBs** | Store in separate `claim_embeddings` table for efficient vector search | Embeddings can be recomputed; invalidated on statement change |
-| **Contested Claims with Warnings** | Always return in search results but with warnings | Users see conflicts; prefer `active` in ranking |
-| **Soft Deletes Only** | Never hard-delete claims; use `status='retracted'` + `retracted_at` | Preserves history and conflict set integrity |
-| **Propose-First Distillation** | Conversation distillation proposes changes, requires user confirmation | No silent memory writes; user stays in control |
-| **Enums over Magic Strings** | All allowed values in `constants.py` | Prevents typos; enables IDE autocomplete |
-| **Transaction Safety** | All multi-step operations wrapped in `db.transaction()` | Atomicity for linked inserts (claim + tags + entities) |
-| **FTS Sync Invariant** | Every CRUD operation on claims/notes syncs to FTS tables | Search reliability; handled by SQLite triggers |
-| **Extensibility via meta_json** | Non-core fields stored in JSON to avoid migrations | Future fields don't require schema changes |
-| **LLM via call_llm.py** | Single integration point for all LLM calls | Consistent error handling; easy to swap models |
+| Category | Decision | Rationale |
+|----------|----------|-----------|
+| **Data** | Multi-user via user_email; soft deletes only; FTS/BM25 as backbone | Per-user isolation; history preserved; deterministic retrieval |
+| **Search** | Embeddings as BLOBs; contested claims with warnings; async PKB context | Recomputable vectors; users see conflicts; no latency impact |
+| **Safety** | Transaction boundaries; FTS sync invariant; enums over magic strings | Atomicity; reliability; prevents typos |
+| **Extensibility** | meta_json for non-core fields; LLM via call_llm.py | No migrations needed; easy model swapping |
+| **Bulk Ops** | Individual fallback; plan storage; editable proposals; configurable thresholds | Partial success; user review; flexibility |
 
 ---
 
-## Potential Challenges and Mitigations
+## Potential Challenges
 
-Known issues and how the system handles them:
-
-| Challenge | Risk | Mitigation |
-|-----------|------|------------|
-| **FTS Sync Drift** | Search becomes unreliable if FTS tables diverge from source tables | Sync in same transaction; SQLite triggers enforce consistency |
-| **Tag Hierarchy Cycles** | Infinite loops in hierarchical filtering | `_validate_no_cycle()` in TagCRUD before any parent assignment |
-| **Embedding Staleness** | Old embeddings return wrong results after statement edit | Delete embedding when `statement` changes in `edit_claim()` |
-| **LLM Non-Determinism** | Same query yields different results | Log all prompts/outputs; use temperature=0.0 for extraction |
-| **SQLite Single-Writer** | Concurrent writes block | WAL mode enabled; readers don't block; designed for single-user |
-| **Near-Duplicate Claims** | Memory pollution with repetitions | `check_similarity()` before `add_claim()` in auto mode; warns user |
-| **Privacy Leakage** | Sensitive facts exposed in wrong context | `meta_json.visibility` field; future: add policy gating |
-| **Schema Regret** | Need provenance/versioning later | Soft delete preserved; `meta_json` extensible; conflict sets track history |
-
----
-
-## Schema Verification Checklist
-
-Use this checklist to verify the schema is complete and matches requirements:
-
-### Tables
-
-- [x] **claims** (15 columns): claim_id, claim_type, statement, subject_text, predicate, object_text, context_domain, status, confidence, created_at, updated_at, valid_from, valid_to, meta_json, retracted_at
-- [x] **notes** (7 columns): note_id, title, body, context_domain, meta_json, created_at, updated_at
-- [x] **entities** (6 columns + UNIQUE): entity_id, entity_type, name, meta_json, created_at, updated_at + UNIQUE(entity_type, name)
-- [x] **tags** (6 columns + UNIQUE + self-ref): tag_id, name, parent_tag_id, meta_json, created_at, updated_at + UNIQUE(name, parent_tag_id)
-- [x] **claim_tags**: PK(claim_id, tag_id) + CASCADE deletes
-- [x] **claim_entities**: PK(claim_id, entity_id, role) + CASCADE deletes
-- [x] **conflict_sets** (5 columns): conflict_set_id, status, resolution_notes, created_at, updated_at
-- [x] **conflict_set_members**: PK(conflict_set_id, claim_id) + CASCADE deletes
-- [x] **claim_embeddings**: claim_id, embedding BLOB, model_name, created_at
-- [x] **note_embeddings**: note_id, embedding BLOB, model_name, created_at
-- [x] **schema_version**: version, applied_at
-
-### FTS5 Virtual Tables
-
-- [x] **claims_fts**: statement, predicate, object_text, subject_text, context_domain
-- [x] **notes_fts**: title, body, context_domain
-
-### Indexes
-
-- [x] idx_claims_status, idx_claims_context_domain, idx_claims_claim_type
-- [x] idx_claims_validity, idx_claims_predicate, idx_claims_created_at, idx_claims_updated_at
-- [x] idx_notes_created_at, idx_notes_context_domain
-- [x] idx_entities_name, idx_entities_type
-- [x] idx_tags_name, idx_tags_parent
-- [x] idx_claim_tags_tag_id (reverse lookup)
-- [x] idx_claim_entities_entity_id, idx_claim_entities_role
-- [x] idx_conflict_sets_status, idx_conflict_set_members_claim_id
-
----
-
-## Dependencies
-
-### Python Version
-
-- **Python 3.9+** required (for dataclasses, type hints)
-
-### Standard Library (built-in)
-
-- `sqlite3` - Database operations
-- `dataclasses` - Model definitions
-- `json` - JSON parsing
-- `uuid` - UUID generation
-- `datetime` - Timestamp handling
-- `concurrent.futures` - Parallelization (ThreadPoolExecutor)
-- `contextlib` - Context managers
-- `abc` - Abstract base classes
-- `enum` - Enum types
-- `logging` - Logging
-- `os` - Path expansion
-
-### External Dependencies
-
-- **numpy** - Embedding operations (cosine similarity, array manipulation)
-- **code_common/call_llm.py** - LLM integration (required for LLM features)
-
-### Optional Dependencies
-
-- **pytest** - Running tests
-
-### Installation
-
-No special installation needed for core functionality. For LLM features:
-
-```bash
-# Ensure numpy is available
-pip install numpy
-
-# code_common/call_llm.py must be in PYTHONPATH
-# Typically already available in the project
-```
-
----
-
-## Future-Proofing Examples
-
-### Adding a New Claim Type
-
-```python
-# 1. Add to constants.py
-class ClaimType(str, Enum):
-    FACT = "fact"
-    MEMORY = "memory"
-    # ... existing types ...
-    GOAL = "goal"  # NEW: Long-term objectives
-
-# 2. Update LLM prompt in llm_helpers.py (classify_claim_type)
-claim_types = {
-    # ... existing ...
-    'goal': 'long-term objectives ("Become fluent in Spanish")'
-}
-
-# 3. No database changes needed - claim_type is TEXT
-```
-
-### Adding a New Search Strategy
-
-```python
-# 1. Create search/my_strategy.py
-from .base import SearchStrategy, SearchResult, SearchFilters
-
-class MySearchStrategy(SearchStrategy):
-    def __init__(self, db, keys, config):
-        self.db = db
-        self.keys = keys
-        self.config = config
-    
-    def name(self) -> str:
-        return "my_strategy"
-    
-    def search(self, query: str, k: int = 20, 
-               filters: SearchFilters = None) -> List[SearchResult]:
-        # Your implementation
-        ...
-
-# 2. Register in hybrid_search.py __init__
-self.strategies["my_strategy"] = MySearchStrategy(db, keys, config)
-
-# 3. Use via API
-api.search("query", strategy="my_strategy")
-# Or include in hybrid
-api.search("query", strategy="hybrid")  # Will auto-include if registered
-```
-
-### Adding Privacy/Visibility Filtering (Future)
-
-```python
-# 1. Values already defined in MetaJsonKeys
-# Use: meta_json = '{"visibility": "restricted"}'
-
-# 2. Future: Add to SearchFilters
-@dataclass
-class SearchFilters:
-    # ... existing fields ...
-    max_visibility: str = "default"  # Filter out "restricted" claims
-
-# 3. Future: Add filter in search strategies
-if filters.max_visibility:
-    # Parse meta_json and filter by visibility
-    sql += " AND json_extract(c.meta_json, '$.visibility') <= ?"
-```
-
-### Adding Claim Versioning (Future)
-
-```python
-# 1. Create new table (add to schema.py)
-CLAIM_VERSIONS_DDL = """
-CREATE TABLE IF NOT EXISTS claim_versions (
-    version_id TEXT PRIMARY KEY,
-    claim_id TEXT NOT NULL REFERENCES claims(claim_id),
-    version_number INTEGER NOT NULL,
-    statement TEXT NOT NULL,
-    changed_at TEXT NOT NULL,
-    changed_by TEXT,  -- "user" or "system"
-    meta_json TEXT,
-    UNIQUE(claim_id, version_number)
-);
-"""
-
-# 2. Modify ClaimCRUD.edit() to create version before update
-def edit(self, claim_id: str, patch: Dict) -> Claim:
-    existing = self.get(claim_id)
-    if existing and 'statement' in patch:
-        self._create_version(existing)  # Save old version
-    # ... rest of edit logic
-```
-
-### Adding New Entity Types
-
-```python
-# 1. Add to constants.py
-class EntityType(str, Enum):
-    PERSON = "person"
-    # ... existing ...
-    EVENT = "event"      # NEW: Calendar events, milestones
-    DOCUMENT = "document"  # NEW: Referenced documents
-
-# 2. Update extraction prompt in llm_helpers.py
-entity_types = ", ".join([e.value for e in EntityType])
-# Prompt automatically includes new types
-
-# 3. No database changes - entity_type is TEXT
-```
+| Category | Challenges & Mitigations |
+|----------|-------------------------|
+| **Data Integrity** | FTS drift (triggers), tag cycles (validate_no_cycle), embedding staleness (delete on edit) |
+| **LLM** | Non-determinism (temp=0.0), rate limits (rule-based fallback), large text (size limits) |
+| **Multi-User (v2)** | Data leak (user_email filter), migration failures (transaction), cross-user conflicts (validate) |
+| **Bulk/Ingest** | Partial failures (stop_on_error), stale plans (cleanup), concurrent access (plan ID check) |
+| **Pinning (v0.4)** | Too many pins (limit), orphaned pins (check existence), @memory typos (skip invalid), attachments lost (ephemeral), restart clears pins (by design) |
+| **Database Path** | UI and Conversation.py using different databases (ensure both use `storage/users/pkb.sqlite`) |
+| **Numpy Arrays** | Truthiness check fails for arrays (use `is not None` instead of `if arr:`) |
 
 ---
 
 ## Invariants to Maintain
 
-When modifying the codebase, ensure these invariants are preserved:
-
-1. **FTS Sync**: Any operation that modifies `claims.statement` or `notes.body` must update the corresponding FTS table (handled by triggers).
-
-2. **Embedding Invalidation**: Any operation that modifies `claims.statement` must delete the corresponding row from `claim_embeddings`.
-
-3. **Transaction Boundaries**: Multi-table operations (e.g., add claim + link tags + link entities) must be wrapped in `db.transaction()`.
-
-4. **Timestamp Updates**: Any edit operation must update `updated_at` to `now_iso()`.
-
-5. **Soft Delete**: Claims are never hard-deleted; use `status='retracted'` and set `retracted_at`.
-
-6. **Cycle Prevention**: Tag parent assignments must pass `_validate_no_cycle()` check.
-
-7. **Conflict Set Minimum**: Conflict sets require at least 2 members; creating with fewer should raise ValueError.
-
-8. **Contested Status**: When a claim is added to a conflict set, its status must be updated to `contested`.
+| Category | Invariant |
+|----------|-----------|
+| **Data Sync** | FTS tables sync via triggers; delete embedding on statement edit |
+| **Transactions** | Multi-table ops wrapped in `db.transaction()`; edit updates `updated_at` |
+| **Soft Delete** | Claims: `status='retracted'` + `retracted_at` (never hard-delete) |
+| **Tags** | Tag parents pass `_validate_no_cycle()` check |
+| **Conflicts** | Min 2 members; all claims same `user_email`; status → `contested` |
+| **Multi-User (v2)** | CRUD scoped by `user_email`; unique constraints per-user; auto-set on create |
+| **Pinning (v0.4)** | Global: `meta_json.pinned`; Conversation: server memory (ephemeral); clear pending on send |
+| **Context Priority** | Dedupe: referenced > attached > global > conversation > auto |
+| **Database Path** | server.py and Conversation.py must use same path: `storage/users/pkb.sqlite` |
+| **Numpy Checks** | Use `if arr is not None:` for numpy arrays, never `if arr:` |
 
 ---
 
-## Logging and Debugging
-
-### Enable Debug Logging
+## Logging
 
 ```python
-import logging
-
-# All PKB modules
-logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
-
-# Specific modules
-logging.getLogger("truth_management_system.search").setLevel(logging.DEBUG)
-logging.getLogger("truth_management_system.llm_helpers").setLevel(logging.DEBUG)
+logging.getLogger("truth_management_system").setLevel(logging.DEBUG)  # Or .search, .llm_helpers
 ```
 
-### Key Log Points
+**Key logs:** database (connection), claims (CRUD), fts_search (queries), embedding_search (similarity), hybrid_search (strategy times)
 
-| Module | What's Logged |
-|--------|---------------|
-| `database.py` | Connection events, schema initialization |
-| `claims.py` | Add/edit/delete operations, embedding invalidation |
-| `fts_search.py` | FTS queries and result counts |
-| `embedding_search.py` | Embedding computation, similarity scores |
-| `rewrite_search.py` | Query rewrites (original → keywords) |
-| `hybrid_search.py` | Strategy execution times, RRF merge stats |
-| `text_orchestration.py` | Parsed intents, action routing |
-| `conversation_distillation.py` | Extracted candidates, match results |
+**Guaranteed Visibility with time_logger**
 
-### Debugging Search Issues
+For debugging PKB search issues, the search modules use `time_logger` from `common.py` instead of standard module loggers. This ensures logs appear in the server output regardless of logging configuration:
 
 ```python
-# Enable search query logging in config
-config = PKBConfig(log_search_queries=True)
+# In search modules (fts_search.py, embedding_search.py, hybrid_search.py):
+try:
+    from common import time_logger
+except ImportError:
+    time_logger = logger  # Fallback to module logger
 
-# Check which strategies are available
-hybrid = HybridSearchStrategy(db, keys, config)
-print(hybrid.get_available_strategies())  # ['fts', 'embedding', ...]
-
-# Test individual strategies
-from truth_management_system.search import FTSSearchStrategy, SearchFilters
-fts = FTSSearchStrategy(db)
-results = fts.search("test query", k=10, filters=SearchFilters())
-for r in results:
-    print(f"{r.score:.3f} | {r.claim.statement[:50]}")
+# Usage - guaranteed to appear in server logs:
+time_logger.info(f"[FTS] Query returned {len(rows)} rows")
+time_logger.info(f"[HYBRID] Strategy {name} returned {len(results)} results")
+time_logger.info(f"[EMBEDDING] Got {len(candidates)} candidate claims")
 ```
+
+**Log Prefixes:**
+- `[PKB]` - Conversation.py PKB context retrieval
+- `[FTS]` - Full-text search operations
+- `[EMBEDDING]` - Embedding search operations  
+- `[HYBRID]` - Hybrid search orchestration
