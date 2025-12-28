@@ -1242,14 +1242,21 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     horizontalRuleRegex.lastIndex = 0;
 
     if (wrapSectionsInDetails && hasHorizontalRules) {
+        // Generate a unique session ID for this extraction run to avoid placeholder collisions
+        // between nested extractions or with user content that might contain placeholder-like strings
+        var extractionSessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+        
         // Function to extract and protect code blocks before processing
-        function extractCodeBlocks(content) {
+        // Uses unique placeholder IDs to prevent collisions between outer/inner extractions
+        function extractCodeBlocks(content, sessionSuffix) {
             var codeBlocks = [];
             var codePlaceholders = [];
             var workingContent = content;
+            // Use provided suffix or generate a new one for nested calls
+            var uniqueSuffix = sessionSuffix || (Date.now().toString(36) + Math.random().toString(36).substr(2, 5));
             
             function replaceWithPlaceholder(match) {
-                var placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                var placeholder = `\x00CB${uniqueSuffix}_${codeBlocks.length}\x00`;
                 codeBlocks.push(match);
                 codePlaceholders.push(placeholder);
                 return placeholder;
@@ -1278,7 +1285,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     if (isFenceLine(workingContent, startIdx)) {
                         var closingIdx = workingContent.indexOf(fenceToken, startIdx + fenceToken.length);
                         if (closingIdx === -1) {
-                            var placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                            var placeholder = `\x00CB${uniqueSuffix}_${codeBlocks.length}\x00`;
                             var segment = workingContent.substring(startIdx);
                             codeBlocks.push(segment);
                             codePlaceholders.push(placeholder);
@@ -1296,7 +1303,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             
             // Handle inline code with completed backticks
             workingContent = workingContent.replace(/`[^`\n]+`/g, function(match) {
-                var placeholder = `__INLINE_CODE_${codeBlocks.length}__`;
+                var placeholder = `\x00IC${uniqueSuffix}_${codeBlocks.length}\x00`;
                 codeBlocks.push(match);
                 codePlaceholders.push(placeholder);
                 return placeholder;
@@ -1307,7 +1314,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             if (inlineBacktickCount % 2 === 1) {
                 var unmatchedIndex = workingContent.lastIndexOf('`');
                 if (unmatchedIndex !== -1) {
-                    var inlinePlaceholder = `__INLINE_CODE_${codeBlocks.length}__`;
+                    var inlinePlaceholder = `\x00IC${uniqueSuffix}_${codeBlocks.length}\x00`;
                     var inlineSegment = workingContent.substring(unmatchedIndex);
                     codeBlocks.push(inlineSegment);
                     codePlaceholders.push(inlinePlaceholder);
@@ -1322,24 +1329,77 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             };
         }
         
+        // Maximum allowed string size to prevent runaway growth (50MB)
+        var MAX_RESTORED_SIZE = 50 * 1024 * 1024;
+        
         // Function to restore code blocks in content
+        // Uses split/join for safer single-replacement and includes size checks
         function restoreCodeBlocks(content, codeBlocks, placeholders) {
-            var restoredContent = content;
-            for (var i = 0; i < placeholders.length; i++) {
-                restoredContent = restoredContent.replace(placeholders[i], codeBlocks[i]);
+            if (!content || !placeholders || placeholders.length === 0) {
+                return content;
             }
+            
+            var restoredContent = content;
+            var originalLength = content.length;
+            
+            for (var i = 0; i < placeholders.length; i++) {
+                var placeholder = placeholders[i];
+                var codeBlock = codeBlocks[i];
+                
+                // Skip if placeholder or codeBlock is undefined/null
+                if (!placeholder || codeBlock === undefined || codeBlock === null) {
+                    continue;
+                }
+                
+                // Check if placeholder exists in content before replacing
+                var placeholderIndex = restoredContent.indexOf(placeholder);
+                if (placeholderIndex === -1) {
+                    continue; // Placeholder not found, skip
+                }
+                
+                // Use split/join for exact single replacement (safer than replace)
+                // This ensures we only replace the exact placeholder once
+                var parts = restoredContent.split(placeholder);
+                if (parts.length === 2) {
+                    // Normal case: exactly one occurrence
+                    restoredContent = parts[0] + codeBlock + parts[1];
+                } else if (parts.length > 2) {
+                    // Multiple occurrences (shouldn't happen, but handle defensively)
+                    // Only replace the first occurrence
+                    restoredContent = parts[0] + codeBlock + parts.slice(1).join(placeholder);
+                }
+                
+                // Defensive check: prevent runaway string growth
+                if (restoredContent.length > MAX_RESTORED_SIZE) {
+                    console.warn('restoreCodeBlocks: String size exceeded limit, truncating restoration at index', i);
+                    break;
+                }
+                
+                // Additional check: if string grew more than 10x original + total code blocks size, something is wrong
+                var expectedMaxSize = originalLength + codeBlocks.reduce(function(sum, cb) { 
+                    return sum + (cb ? cb.length : 0); 
+                }, 0);
+                if (restoredContent.length > expectedMaxSize * 2) {
+                    console.warn('restoreCodeBlocks: Unexpected string growth detected, stopping restoration');
+                    break;
+                }
+            }
+            
             return restoredContent;
         }
         
         // Function to process sections while preserving existing details tags
         function processContentWithDetails(content) {
             // Extract code blocks first to protect them from splitting
-            var codeExtraction = extractCodeBlocks(content);
+            // Pass the extractionSessionId to ensure consistent placeholders at the outer level
+            var codeExtraction = extractCodeBlocks(content, extractionSessionId);
             var contentWithCodePlaceholders = codeExtraction.content;
             var codeBlocks = codeExtraction.codeBlocks;
             var codePlaceholders = codeExtraction.placeholders;
             
             // Now preserve existing <details> tags
+            // Use a unique suffix for details placeholders to avoid collision with user content
+            var detailsPlaceholderSuffix = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
             var detailsRegex = /<details[^>]*>[\s\S]*?<\/details>/gi;
             var detailsBlocks = [];
             var placeholders = [];
@@ -1348,15 +1408,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             var match;
             var tempContent = contentWithCodePlaceholders;
             while ((match = detailsRegex.exec(contentWithCodePlaceholders)) !== null) {
-                var placeholder = `__DETAILS_PLACEHOLDER_${placeholders.length}__`;
+                // Use null character delimiters to avoid collision with user content
+                var placeholder = `\x00DP${detailsPlaceholderSuffix}_${placeholders.length}\x00`;
                 detailsBlocks.push(match[0]);
                 placeholders.push(placeholder);
             }
             
             // Replace details blocks with placeholders temporarily
+            // Use indexOf + substring for safer single-replacement (avoids regex special chars issues)
             var workingContent = contentWithCodePlaceholders;
             for (var i = 0; i < detailsBlocks.length; i++) {
-                workingContent = workingContent.replace(detailsBlocks[i], placeholders[i]);
+                var detailsIndex = workingContent.indexOf(detailsBlocks[i]);
+                if (detailsIndex !== -1) {
+                    workingContent = workingContent.substring(0, detailsIndex) + 
+                                     placeholders[i] + 
+                                     workingContent.substring(detailsIndex + detailsBlocks[i].length);
+                }
             }
             
             // Now split the content by horizontal rules (which are now safe from code blocks)
@@ -1726,7 +1793,7 @@ ${innerSectionWithCode}
     // Add toggle event listeners to section details elements and fetch stored states
     // Only do this for non-streaming content (when we have complete content)
 
-    if (conversation_id && !continuous) {
+    if (conversation_id && !continuous && !MOCK_SECTION_STATE_API) {
         // Attach event listeners directly to the section elements
         attachSectionListeners(elem_to_render_in);
         
