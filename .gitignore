@@ -779,3 +779,4 @@ log.txt
 flask_session
 storage
 
+*.pyc

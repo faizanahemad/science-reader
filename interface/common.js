@@ -1725,173 +1725,147 @@ ${innerSectionWithCode}
         htmlChunk = marked.marked(html, { renderer: markdownParser });
         htmlChunk = removeEmTags(htmlChunk);
     }
+    
+    // Helper for scheduling non-critical work during idle time
+    // Falls back to setTimeout if requestIdleCallback is not available
+    var scheduleIdleWork = window.requestIdleCallback 
+        ? function(fn, options) { return window.requestIdleCallback(fn, options || { timeout: 500 }); }
+        : function(fn) { return setTimeout(fn, 16); }; // ~1 frame delay as fallback
+    
+    // Batch DOM write operation - single innerHTML assignment is faster than empty() + append()
+    var targetElement = elem_to_render_in[0] || elem_to_render_in;
     try {
-        elem_to_render_in.empty();
-    } catch (error) {
-        try {
-            elem_to_render_in[0].innerHTML = ''
-        } catch (error) { elem_to_render_in.innerHTML = '' }
-    }
-    try {
-        elem_to_render_in[0].innerHTML = htmlChunk
-    } catch (error) {
-        try {
-            elem_to_render_in.append(htmlChunk)
-        } catch (error) {
-            elem_to_render_in.innerHTML = htmlChunk
+        if (targetElement.innerHTML !== undefined) {
+            targetElement.innerHTML = htmlChunk;
+        } else {
+            $(targetElement).html(htmlChunk);
         }
+    } catch (error) {
+        console.warn('DOM write failed, using fallback:', error);
+        try { $(elem_to_render_in).html(htmlChunk); } catch (e) { /* ignore */ }
     }
 
-    mathjax_elem = elem_to_render_in[0]
-    if (mathjax_elem === undefined) {
-        mathjax_elem = jqelem
-    }
-    MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-    // After MathJax finishes, if slides are present, re-adjust card height for accurate layout
-    if (isSlidePresentation) {
-        MathJax.Hub.Queue(function() {
-            try {
-                var slideWrapperAfterMath = $(elem_to_render_in).find('.slide-presentation-wrapper');
-                if (slideWrapperAfterMath.length > 0) {
-                    setTimeout(function() {
-                        adjustCardHeightForSlides(slideWrapperAfterMath);
-                    }, 50);
-                }
-            } catch (e) { console.warn('Post-MathJax slide height adjust failed', e); }
-        });
-    }
-    // After MathJax typesetting completes, re-adjust slide/card height if needed
-    if (isSlidePresentation) {
-        MathJax.Hub.Queue(function() {
-            try {
-                var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
-                if (slideWrapper && slideWrapper.length) {
-                    adjustCardHeightForSlides(slideWrapper);
-                }
-            } catch (e) {
-                console.log('MathJax post-typeset height adjustment failed:', e);
-            }
-        });
-    }
-    // Use Process instead of Queue for immediate execution
-    // MathJax.Hub.Process(mathjax_elem);
-    // MathJax.Hub.Typeset(mathjax_elem);
-    // Option 2: If you want to keep using Process but ensure typesetting
-    // MathJax.Hub.processUpdateTime = 0; // Force immediate processing
-    // MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-    // MathJax.Hub.processUpdateTime = 0; // Force immediate processing
+    mathjax_elem = elem_to_render_in[0] || jqelem;
     
+    // Queue MathJax typesetting
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+    
+    // After MathJax finishes, handle slide height adjustment (consolidated - was duplicated before)
+    if (isSlidePresentation) {
+        MathJax.Hub.Queue(function() {
+            // Use requestAnimationFrame to avoid forced reflow during MathJax callback
+            requestAnimationFrame(function() {
+                try {
+                    var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                    if (slideWrapper && slideWrapper.length > 0) {
+                        adjustCardHeightForSlides(slideWrapper);
+                    }
+                } catch (e) { 
+                    console.warn('Post-MathJax slide height adjust failed:', e); 
+                }
+            });
+        });
+    }
     
     if (callback) {
-        MathJax.Hub.Queue(callback)
+        MathJax.Hub.Queue(callback);
     }
 
     if (immediate_callback) {
-        immediate_callback()
+        immediate_callback();
     }
     
-    // Add toggle event listeners to section details elements and fetch stored states
-    // Only do this for non-streaming content (when we have complete content)
-
-    if (conversation_id && !continuous && !MOCK_SECTION_STATE_API) {
-        // Attach event listeners directly to the section elements
-        attachSectionListeners(elem_to_render_in);
-        
-        // Fetch and apply stored section states (only for non-streaming content)
-        fetchAndApplySectionStates(conversation_id, elem_to_render_in);
-    }
-
-    
-
-    // Slides are now opened in a new window via link; no in-card Reveal init
-
-    mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag
-    code_rendering_needed = $(elem_to_render_in).find('code').length > 0
-    drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0
-
-    if (mermaid_rendering_needed) {
-        // last_mermaid = extractLastMermaid(html)
-        // if (last_mermaid) {
-        //     mermaid_elem = $("<pre class='mermaid'></pre>")
-        //     mermaid_elem.text(last_mermaid)
-        //     // append as sibling to the possible_mermaid_elem
-        //     possible_mermaid_elem.after(mermaid_elem)
-        // }
-        possible_mermaid_elem = elem_to_render_in.find(".mermaid")
-        // if the next element after the possible_mermaid_elem is not a pre element with class mermaid then only render
-        render_or_not = possible_mermaid_elem.length & !possible_mermaid_elem.next().hasClass('mermaid') & !possible_mermaid_elem.closest('.code-block').next().hasClass('mermaid')
-        // if (render_or_not) {
-        //     mermaid_text = possible_mermaid_elem[0].textContent
-        //     mermaid_elem = $("<pre class='mermaid'></pre>")
-        //     mermaid_elem.text(mermaid_text)
-        //     // append as sibling to the possible_mermaid_elem
-        //     possible_mermaid_elem.after(mermaid_elem)
-        // }
-        const mermaidBlocks = elem_to_render_in.parent().find('pre.mermaid');  
-        function cleanMermaidCode(mermaidCode) {  
-            return mermaidCode  
-                .split('\n')  
-                .map(line => line.trimRight())  
-                .filter(line => line.length > 0 && !line.includes('pre class="mermaid"') && !line.includes('pre class=\'mermaid'))  
-                .join('\n');  
+    // Defer non-critical DOM operations to avoid blocking the main thread
+    // Use requestAnimationFrame for operations that need to happen soon but shouldn't block
+    requestAnimationFrame(function() {
+        // Add toggle event listeners to section details elements and fetch stored states
+        // Only do this for non-streaming content (when we have complete content)
+        if (conversation_id && !continuous && !MOCK_SECTION_STATE_API) {
+            attachSectionListeners(elem_to_render_in);
+            fetchAndApplySectionStates(conversation_id, elem_to_render_in);
         }
         
-        if (mermaidBlocks.length > 0) {
-            mermaidBlocks.each(function(index, block) {  
-                // Get and clean the mermaid code  
-                let code = block.textContent || block.innerText;  
-                // Only clean code if it hasn't been rendered yet (still contains raw mermaid syntax)
-                if (!block.querySelector('svg')) {
-                    code = cleanMermaidCode(code);
-                    // Update the content directly  
-                    block.textContent = code;  
-                }
+        // Slides are now opened in a new window via link; no in-card Reveal init
+        
+        // Cache these checks to avoid repeated DOM queries
+        var mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag;
+        var drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0;
+        
+        // Schedule mermaid rendering during idle time to avoid blocking UI
+        if (mermaid_rendering_needed) {
+            scheduleIdleWork(function() {
+                var mermaidBlocks = elem_to_render_in.parent().find('pre.mermaid');
                 
-            });  
-
-            mermaid.run({
-                nodes: mermaidBlocks,
-                useMaxWidth: false,
-                suppressErrors: false,
-
-            }).then(() => {
-                // find all svg inside .mermaid class pre elements.
-                var svgs = $(elem_to_render_in).find('pre.mermaid svg');
-                // iterate over each svg element and unset its height attribute
-                svgs.each(function (index, svg) {
-                    $(svg).attr('height', null);
-                });
-            }).catch(err => {
-                console.error('Mermaid Error:', err);
+                if (mermaidBlocks.length > 0) {
+                    // Batch all text content cleaning before any DOM writes
+                    var blocksToClean = [];
+                    mermaidBlocks.each(function(index, block) {
+                        if (!block.querySelector('svg')) {
+                            blocksToClean.push(block);
+                        }
+                    });
+                    
+                    // Clean mermaid code helper
+                    function cleanMermaidCode(mermaidCode) {
+                        return mermaidCode
+                            .split('\n')
+                            .map(function(line) { return line.trimRight(); })
+                            .filter(function(line) { 
+                                return line.length > 0 && 
+                                       !line.includes('pre class="mermaid"') && 
+                                       !line.includes("pre class='mermaid"); 
+                            })
+                            .join('\n');
+                    }
+                    
+                    // Batch DOM writes
+                    blocksToClean.forEach(function(block) {
+                        var code = block.textContent || block.innerText;
+                        block.textContent = cleanMermaidCode(code);
+                    });
+                    
+                    // Run mermaid rendering
+                    mermaid.run({
+                        nodes: mermaidBlocks,
+                        useMaxWidth: false,
+                        suppressErrors: false
+                    }).then(function() {
+                        // Defer SVG height cleanup to next frame to avoid reflow
+                        requestAnimationFrame(function() {
+                            var svgs = $(elem_to_render_in).find('pre.mermaid svg');
+                            svgs.each(function(index, svg) {
+                                $(svg).attr('height', null);
+                            });
+                        });
+                    }).catch(function(err) {
+                        console.error('Mermaid Error:', err);
+                    });
+                }
             });
-            
         }
-    }
-
-    
-
-    if (drawio_rendering_needed) {
-        MathJax.Hub.Queue(function() {
-
-        let permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
-        waitForDrawIo(function (timeout) {
-            let diagrams = document.querySelectorAll(".drawio-diagram");
-
-            diagrams.forEach(function (diagram) {
-                if (permittedTagNames.indexOf(diagram.tagName) === -1) {
-                    return; //not included in a permitted tag
-                }
-
-                if (timeout) {
-                    showError(diagram, "Unable to load draw.io renderer");
-                    return;
-                }
-
-                    processDiagram(diagram);
+        
+        // Schedule drawio rendering during idle time
+        if (drawio_rendering_needed) {
+            MathJax.Hub.Queue(function() {
+                scheduleIdleWork(function() {
+                    var permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
+                    waitForDrawIo(function(timeout) {
+                        var diagrams = document.querySelectorAll(".drawio-diagram");
+                        diagrams.forEach(function(diagram) {
+                            if (permittedTagNames.indexOf(diagram.tagName) === -1) {
+                                return;
+                            }
+                            if (timeout) {
+                                showError(diagram, "Unable to load draw.io renderer");
+                                return;
+                            }
+                            processDiagram(diagram);
+                        });
+                    });
                 });
-            })
-        })
-    }
+            });
+        }
+    });
 
     return mathjax_elem;
 }
