@@ -6,6 +6,7 @@ var currentDomain = {
 }
 
 var allDomains = ['finchat', 'search', 'assistant'];
+var MOCK_SECTION_STATE_API = true; // If true, skip section state API calls and default sections to hidden
 
 async function responseWaitAndSuccessChecker(url, responsePromise) {
     // Set a timeout for the API call
@@ -1111,6 +1112,14 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
     const sectionElements = $(elem_to_render_in).find('.section-details');
     if (sectionElements.length === 0) return;
     
+    // If mocking is enabled, just hide all sections by default and skip API call
+    if (MOCK_SECTION_STATE_API) {
+        sectionElements.each(function() {
+            $(this).prop('open', true);
+        });
+        return;
+    }
+    
     // Collect section IDs
     const sectionIds = [];
     sectionElements.each(function() {
@@ -1166,6 +1175,9 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
 
 // Helper function to persist section state when toggled
 function persistSectionState(conversation_id, sectionHash, isHidden) {
+    // Skip API call if mocking is enabled
+    if (MOCK_SECTION_STATE_API) return;
+    
     const sectionDetails = {};
     sectionDetails[sectionHash] = { hidden: isHidden };
     
