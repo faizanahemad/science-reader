@@ -2189,15 +2189,10 @@ function apiCall(url, method, data, useFetch = false) {
 
 
 function removeEmTags(htmlChunk) {
-    // Create a regular expression that matches <em> and </em> tags
-    var regex = /<\/?em>/g;
-
-    // Use the replace method to replace the matched tags with an empty string
-    var newHtmlChunk = htmlChunk.replace(regex, '_');
-    var regex = /<\/?i>/g;
-    var newHtmlChunk = newHtmlChunk.replace(regex, '_');
-
-    return newHtmlChunk;
+    // Previously this function was stripping <em> and <i> tags and replacing with underscores,
+    // which prevented italic text from rendering properly.
+    // Now we preserve the italic tags so _italic_ and *italic* render correctly.
+    return htmlChunk;
 }
 
 function showPDF(pdfUrl, subtree, url=null) {
