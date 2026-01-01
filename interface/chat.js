@@ -164,6 +164,98 @@ function chat_interface_readiness() {
         });
     });
 
+    // Clear Locks button handler
+    $('#settings-clear-locks-modal-open-button').click(function () {
+        // Get conversation ID from ConversationManager
+        const conversationId = typeof ConversationManager !== 'undefined' ? ConversationManager.activeConversationId : null;
+        
+        if (!conversationId) {
+            alert('No active conversation. Please open a conversation first.');
+            return;
+        }
+        
+        // Show loading state
+        $('#lock-status-content').html(
+            '<div class="text-center">' +
+            '<div class="spinner-border" role="status"><span class="sr-only">Loading...</span></div>' +
+            '<p class="mt-2">Checking lock status...</p>' +
+            '</div>'
+        );
+        $('#lock-clear-button').hide();
+        $('#clear-locks-modal').modal('show');
+        
+        // Fetch lock status
+        fetch(`/get_lock_status/${conversationId}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayLockStatus(data, conversationId);
+        })
+        .catch(error => {
+            console.error('Error fetching lock status:', error);
+            $('#lock-status-content').html(
+                '<div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> Error loading lock status: ' + error + '</div>'
+            );
+        });
+    });
+
+    // Lock clear button handler
+    $('#lock-clear-button').click(function () {
+        const conversationId = typeof ConversationManager !== 'undefined' ? ConversationManager.activeConversationId : null;
+        
+        if (!conversationId) {
+            alert('No active conversation');
+            return;
+        }
+        
+        if (!confirm('Clear stuck locks? This should only be done if locks are preventing normal operation.')) {
+            return;
+        }
+        
+        // Show loading state
+        $('#lock-status-content').html(
+            '<div class="text-center">' +
+            '<div class="spinner-border" role="status"><span class="sr-only">Clearing...</span></div>' +
+            '<p class="mt-2">Clearing locks...</p>' +
+            '</div>'
+        );
+        
+        fetch(`/ensure_locks_cleared/${conversationId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const clearedList = data.cleared.length > 0 ? data.cleared.join(', ') : 'None';
+                $('#lock-status-content').html(
+                    '<div class="alert alert-success">' +
+                    '<i class="fa fa-check-circle"></i> <strong>Locks cleared successfully!</strong><br>' +
+                    '<small>Cleared: ' + clearedList + '</small>' +
+                    '</div>'
+                );
+                $('#lock-clear-button').hide();
+                
+                // Refresh status after 2 seconds
+                setTimeout(function() {
+                    $('#settings-clear-locks-modal-open-button').click();
+                }, 2000);
+            } else {
+                $('#lock-status-content').html(
+                    '<div class="alert alert-warning"><i class="fa fa-exclamation-triangle"></i> Could not clear all locks: ' + data.message + '</div>'
+                );
+            }
+        })
+        .catch(error => {
+            console.error('Error clearing locks:', error);
+            $('#lock-status-content').html(
+                '<div class="alert alert-danger"><i class="fa fa-exclamation-circle"></i> Error clearing locks: ' + error + '</div>'
+            );
+        });
+    });
+
     $('#settings-code-editor-modal-open-button').click(function () {
         // Directly open Code Editor modal
         $('#code-editor-modal').modal('show');
@@ -795,6 +887,85 @@ function clearCurrentTabSettings() {
         console.log(`Cleared persisted settings for current tab: ${tab}`);
     } catch (e) {
         console.error('Error clearing current tab settings:', e);
+    }
+}
+
+/**
+ * Displays lock status information in the Clear Locks modal.
+ * @param {Object} data - Lock status data from the API
+ * @param {string} conversationId - Current conversation ID
+ */
+function displayLockStatus(data, conversationId) {
+    let html = '<div>';
+    
+    // Overall status banner
+    if (data.any_locked) {
+        html += '<div class="alert alert-warning">';
+        html += '<i class="fa fa-exclamation-triangle"></i> <strong>Some locks are currently held</strong>';
+        html += '</div>';
+    } else {
+        html += '<div class="alert alert-success">';
+        html += '<i class="fa fa-check-circle"></i> <strong>All locks are clear</strong>';
+        html += '</div>';
+    }
+    
+    // Conversation ID
+    html += '<p class="text-muted small mb-2">Conversation: <code>' + conversationId + '</code></p>';
+    
+    // Lock status table
+    html += '<h6 class="mb-2">Lock Status:</h6>';
+    html += '<table class="table table-sm table-bordered">';
+    html += '<thead class="thead-light"><tr><th>Lock Type</th><th>Status</th></tr></thead>';
+    html += '<tbody>';
+    
+    const lockLabels = {
+        '': 'Main Lock',
+        'all': 'All Fields',
+        'message_operations': 'Message Operations',
+        'memory': 'Memory',
+        'messages': 'Messages',
+        'uploaded_documents_list': 'Documents List'
+    };
+    
+    for (const [lockKey, isLocked] of Object.entries(data.locks_status || {})) {
+        const status = isLocked 
+            ? '<span class="badge badge-warning"><i class="fa fa-lock"></i> HELD</span>' 
+            : '<span class="badge badge-success"><i class="fa fa-unlock"></i> CLEAR</span>';
+        const displayKey = lockLabels[lockKey] || lockKey || '(main)';
+        html += '<tr><td>' + displayKey + '</td><td>' + status + '</td></tr>';
+    }
+    
+    html += '</tbody></table>';
+    
+    // Stale locks warning
+    if (data.stale_locks && data.stale_locks.length > 0) {
+        html += '<div class="alert alert-danger mt-3">';
+        html += '<strong><i class="fa fa-exclamation-circle"></i> Stale Locks Detected:</strong>';
+        html += '<ul class="mb-0 mt-2">';
+        data.stale_locks.forEach(function(lock) {
+            html += '<li><code>' + lock + '</code></li>';
+        });
+        html += '</ul>';
+        html += '<p class="mb-0 mt-2 small">These locks appear abandoned and can be safely cleared.</p>';
+        html += '</div>';
+    }
+    
+    // Help text
+    if (!data.any_locked && (!data.stale_locks || data.stale_locks.length === 0)) {
+        html += '<p class="text-muted small mt-3 mb-0">';
+        html += '<i class="fa fa-info-circle"></i> No action needed. All locks are clear.';
+        html += '</p>';
+    }
+    
+    html += '</div>';
+    
+    $('#lock-status-content').html(html);
+    
+    // Show clear button if there are locks to clear
+    if (data.any_locked || (data.stale_locks && data.stale_locks.length > 0)) {
+        $('#lock-clear-button').show();
+    } else {
+        $('#lock-clear-button').hide();
     }
 }
 

@@ -1051,6 +1051,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     window.addScrollToTopButton(card, '↑ Top of Answer', 'chat-scroll-top');
                 }
             }
+
+            // If user navigated with a hash deep-link (e.g. from a ToC URL),
+            // try to scroll to it now that the streaming message is fully rendered.
+            try {
+                setTimeout(function() { scrollToHashTargetInCard(card); }, 250);
+            } catch (e) { /* ignore */ }
             
             // Final setup of event handlers with the complete message ID (if available)
             if (response_message_id) {
@@ -1276,6 +1282,44 @@ function getMessageIdFromUrl(url) {
         return pathParts[3];
     }
     return null;
+}
+
+function scrollToHashTargetInCard(cardElem) {
+    /**
+     * If the current URL has a hash (e.g. #m-<msg>-executive-summary),
+     * attempt to expand showMore/details and scroll to that target.
+     *
+     * @param {jQuery} cardElem
+     */
+    try {
+        var hash = (window.location.hash || '').replace(/^#/, '').trim();
+        if (!hash) return;
+
+        // Expand showMore if present and currently collapsed.
+        var $moreText = cardElem.find('.more-text').first();
+        if ($moreText.length && !$moreText.is(':visible')) {
+            var $toggle = cardElem.find('.show-more').first();
+            if ($toggle.length) {
+                $toggle.trigger('click');
+            }
+        }
+
+        var targetEl = document.getElementById(hash);
+        if (!targetEl) return;
+
+        // Expand <details> ancestors.
+        var el = targetEl;
+        while (el) {
+            if (el.tagName && el.tagName.toLowerCase() === 'details') {
+                el.open = true;
+            }
+            el = el.parentElement;
+        }
+
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+        console.warn('scrollToHashTargetInCard failed:', e);
+    }
 }
 
 function cleanupMessageObservers() {
@@ -2015,6 +2059,23 @@ var ChatManager = {
                     }, 2000);
                 }
             }, 100);
+        }
+
+        // If the URL also contains a hash target (ToC deep link), try to scroll to it after render.
+        // This is important because messages render asynchronously, and default browser anchor scroll
+        // won't work reliably for dynamically generated content.
+        if (shouldClearChatView) {
+            setTimeout(function() {
+                try {
+                    var hash = (window.location.hash || '').trim();
+                    if (!hash) return;
+                    // Prefer the card for the message in the URL, if present.
+                    var $targetCard = $(`[message-id="${messageIdFromUrl}"]`).closest('.card');
+                    if ($targetCard && $targetCard.length > 0) {
+                        scrollToHashTargetInCard($targetCard);
+                    }
+                } catch (e) { /* ignore */ }
+            }, 250);
         }
         
         // Call next question suggestions after rendering messages

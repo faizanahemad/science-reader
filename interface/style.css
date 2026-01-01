@@ -669,6 +669,50 @@ table, tr, thead, th, td {
     transition: box-shadow 0.3s ease-in-out;
 }
 
+/* ============================================
+   Message Table of Contents (ToC)
+   ============================================ */
+.message-toc-container {
+    margin: 6px 0 10px 0;
+}
+
+.message-toc {
+    border: 1px solid #e5e7eb;
+    background: #fafafa;
+    padding: 8px 10px;
+}
+
+.message-toc-header {
+    margin-bottom: 6px;
+}
+
+.message-toc-body {
+    max-height: 240px;
+    overflow: auto;
+}
+
+.message-toc-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.message-toc-item {
+    margin: 2px 0;
+}
+
+.message-toc-item.indent-1 { padding-left: 12px; }
+.message-toc-item.indent-2 { padding-left: 24px; }
+.message-toc-item.indent-3 { padding-left: 36px; }
+
+.message-toc-link {
+    text-decoration: none;
+}
+
+.message-toc-link:hover {
+    text-decoration: underline;
+}
+
 #chat-assistant-sidebar {
     padding-right: 20px;
     padding-left: 10px;
