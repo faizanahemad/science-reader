@@ -127,12 +127,13 @@ function buildTocItemsFromCard($cardBody, tocPrefix) {
             id: detailsId,
             text: summaryText,
             level: 2,
-            kind: 'details'
+            kind: 'details',
+            _el: this
         });
     });
 
-    // 2) Headings (h1-h4) - add ids if missing.
-    $cardBody.find('h1, h2, h3, h4').each(function() {
+    // 2) Headings (h1-h6) - add ids if missing.
+    $cardBody.find('h1, h2, h3, h4, h5, h6').each(function() {
         if ($(this).closest('.message-toc-container').length) return;
         var $h = $(this);
         var tag = ($h.prop('tagName') || '').toLowerCase();
@@ -141,6 +142,8 @@ function buildTocItemsFromCard($cardBody, tocPrefix) {
         else if (tag === 'h2') level = 2;
         else if (tag === 'h3') level = 3;
         else if (tag === 'h4') level = 4;
+        else if (tag === 'h5') level = 5;
+        else if (tag === 'h6') level = 6;
 
         var text = $h.text().trim();
         if (!text) return;
@@ -161,7 +164,115 @@ function buildTocItemsFromCard($cardBody, tocPrefix) {
             id: existingId,
             text: text,
             level: level,
-            kind: 'heading'
+            kind: 'heading',
+            _el: this
+        });
+    });
+
+    // IMPORTANT: Ensure ToC ordering matches the actual rendered order in the DOM.
+    // We collect details and headings in separate passes (for convenience), but that can
+    // produce incorrect ordering (e.g. a later <details> entry appearing before an earlier H1).
+    // Sorting by DOM position fixes this deterministically.
+    try {
+        items.sort(function(a, b) {
+            if (!a || !b) return 0;
+            var aEl = a._el;
+            var bEl = b._el;
+            if (!aEl || !bEl || aEl === bEl || !aEl.compareDocumentPosition) return 0;
+            var pos = aEl.compareDocumentPosition(bEl);
+            if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1; // b after a => a before b
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;  // b before a => a after b
+            return 0;
+        });
+    } catch (e) { /* ignore */ }
+
+    // Remove internal element references before returning (keeps objects clean / serializable).
+    for (var i = 0; i < items.length; i++) {
+        try { delete items[i]._el; } catch (e) { /* ignore */ }
+    }
+
+    return items;
+}
+
+function buildFallbackTocItemsFromCard($cardBody, tocPrefix) {
+    /**
+     * Fallback ToC generator for long answers that have no headings and no section-details.
+     * Creates a navigable list from block elements (paragraphs, code blocks, etc.) and assigns ids.
+     *
+     * @param {jQuery} $cardBody
+     * @param {string} tocPrefix
+     * @returns {Array<{id: string, text: string, level: number, kind: string}>}
+     */
+    var items = [];
+    var used = {};
+    var MAX_ITEMS = 15;
+
+    function reserveId(base) {
+        var id = base;
+        var n = 2;
+        while (used[id]) {
+            id = `${base}-${n}`;
+            n++;
+        }
+        used[id] = true;
+        return id;
+    }
+
+    // We only consider content inside the message body, excluding the ToC container itself.
+    // Prefer blocks that represent "sections" in a narrative answer.
+    var $candidates = $cardBody
+        .children()
+        .not('.message-toc-container')
+        .find('p, pre, blockquote, ul, ol, table')
+        .filter(function() {
+            // Exclude candidates inside ToC UI, or inside code block wrappers that are purely UI.
+            if ($(this).closest('.message-toc-container').length) return false;
+            if ($(this).closest('.code-header, .section-footer').length) return false;
+            var t = $(this).text().trim();
+            return t.length >= 40; // avoid tiny/noisy blocks
+        });
+
+    $candidates.each(function(idx) {
+        if (items.length >= MAX_ITEMS) return false; // break
+
+        var $el = $(this);
+        var tag = ($el.prop('tagName') || '').toLowerCase();
+        var text = $el.text().trim();
+        if (!text) return;
+
+        // Choose a label
+        var label = text;
+        // If paragraph begins with a strong label (common pattern), use it as the title.
+        try {
+            var $firstStrong = $el.find('strong').first();
+            if ($firstStrong.length) {
+                var strongText = $firstStrong.text().trim();
+                if (strongText && strongText.length >= 4 && strongText.length <= 80) {
+                    label = strongText;
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // Truncate label
+        if (label.length > 60) label = label.slice(0, 57) + '...';
+
+        // Assign/ensure id
+        var existingId = ($el.attr('id') || '').trim();
+        if (!existingId) {
+            var slug = slugifyForDomId(label);
+            var base = `${tocPrefix}-auto-${tag}-${idx}-${slug}`;
+            existingId = reserveId(base);
+            $el.attr('id', existingId);
+        } else {
+            if (!used[existingId]) used[existingId] = true;
+        }
+
+        // Level heuristic: keep these as level 2 so the ToC isn't overly indented
+        items.push({
+            id: existingId,
+            text: label,
+            level: 2,
+            kind: 'auto'
         });
     });
 
@@ -205,13 +316,14 @@ function renderMessageToc($tocContainer, items, tocPrefix) {
     $tocContainer.html(html).show();
 }
 
-function updateMessageTocForElement(elem_to_render_in, rawMarkdown) {
+function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous = false) {
     /**
      * Update (or hide) the ToC for the message card containing elem_to_render_in.
      * Safe to call frequently; internally throttled.
      *
      * @param {HTMLElement|jQuery} elem_to_render_in
      * @param {string} rawMarkdown
+     * @param {boolean} continuous - true when called during streaming/incremental renders
      */
     var $elem = $(elem_to_render_in);
     if (!$elem || $elem.length === 0) return;
@@ -226,7 +338,23 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown) {
     if (now - last < TOC_UPDATE_THROTTLE_MS) return;
     $card.attr('data-toc-last-update', String(now));
 
-    var wordCount = estimateWordCountFromMarkdown(rawMarkdown || $cardBody.text());
+    // Word count strategy:
+    // - For full/final renders (continuous=false), use the entire card body text (excluding ToC UI)
+    //   so the ToC decision reflects the *whole message* even if the message was rendered in chunks.
+    // - For continuous streaming renders, keep it lightweight and use the raw markdown chunk (or
+    //   fall back to card body text).
+    var wordCount = 0;
+    if (!continuous) {
+        var contentText = '';
+        try {
+            contentText = $cardBody.children().not('.message-toc-container').text();
+        } catch (e) {
+            contentText = $cardBody.text();
+        }
+        wordCount = estimateWordCountFromMarkdown(contentText || '');
+    } else {
+        wordCount = estimateWordCountFromMarkdown(rawMarkdown || $cardBody.text());
+    }
     var $tocContainer = ensureMessageTocContainer($cardBody);
 
     if (wordCount < TOC_WORD_THRESHOLD) {
@@ -236,6 +364,11 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown) {
 
     var tocPrefix = getOrCreateTocPrefix($card);
     var items = buildTocItemsFromCard($cardBody, tocPrefix);
+    if (!items || items.length === 0) {
+        // Fallback: if the answer is long but doesn't use headings/--- sections,
+        // generate a ToC from block elements so users can still navigate.
+        items = buildFallbackTocItemsFromCard($cardBody, tocPrefix);
+    }
     if (!items || items.length === 0) {
         $tocContainer.hide().empty();
         return;
@@ -592,13 +725,17 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     
     editBtn.off();
     editBtn.click(function () {
-        messageId = cardElem.find('.card-header').last().attr('message-id');
-        messageIndex = cardElem.find('.card-header').last().attr('message-index');
+        // IMPORTANT: capture per-card identifiers as locals (avoid shared globals).
+        // Otherwise, opening the editor for another card can overwrite these values and
+        // cause the Save action to update the wrong message.
+        const messageId = cardElem.find('.card-header').last().attr('message-id');
+        const messageIndex = cardElem.find('.card-header').last().attr('message-index');
+        const targetCardElem = cardElem;
         
         // Use the new MarkdownEditorManager for enhanced editing experience
         if (typeof MarkdownEditorManager !== 'undefined') {
             MarkdownEditorManager.openEditor(text, function(newtext) {
-                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
             });
         } else {
             // Fallback to original behavior if MarkdownEditorManager is not loaded
@@ -607,7 +744,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             $('#message-edit-text-save-button').off();
             $('#message-edit-text-save-button').click(function () {
                 var newtext = $('#message-edit-text').val();
-                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
                 $('#message-edit-modal').modal('hide');
             });
         }
@@ -2056,7 +2193,7 @@ ${innerSectionWithCode}
     // Important: The ToC container is placed in the card-body (outside the render element),
     // so showMore() doesn't collapse it. Safe to call during streaming; internally throttled.
     try {
-        updateMessageTocForElement(elem_to_render_in, html);
+        updateMessageTocForElement(elem_to_render_in, html, continuous);
     } catch (e) {
         // Never break rendering due to ToC issues
         console.warn('ToC update failed:', e);

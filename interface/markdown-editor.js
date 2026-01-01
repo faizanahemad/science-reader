@@ -654,6 +654,28 @@ var MarkdownEditorManager = (function() {
         initialText = currentText;
         hasEditorBeenInitialized = false;
         
+        // CRITICAL: Store the onSave callback in a variable that won't be overwritten
+        // by subsequent openEditor calls. This prevents the bug where editing card A,
+        // then editing card B, causes A to be overwritten with B's content.
+        var pendingSaveCallback = onSave;
+
+        // Preload the current editor instance (if it already exists) with the new text
+        // BEFORE the modal becomes visible. This prevents a brief flash of the previous
+        // message content when reopening the modal.
+        try {
+            if (currentEditorType === 'codemirror-preview' && editors.codemirror) {
+                editors.codemirror.setValue(currentText);
+            } else if (currentEditorType === 'easymde' && editors.easymde) {
+                editors.easymde.value(currentText);
+                editors.easymde.codemirror.refresh();
+            } else if (currentEditorType === 'milkdown' && editors.wysiwyg && editors.wysiwyg.length) {
+                var html = (typeof marked !== 'undefined') ? marked.parse(currentText) : currentText.replace(/\n/g, '<br>');
+                editors.wysiwyg.html(html);
+            }
+        } catch (preloadErr) {
+            console.warn('Preload editor value failed:', preloadErr);
+        }
+        
         console.log('Opening editor with text length:', currentText.length);
         
         // Get saved editor preference or use default
@@ -663,11 +685,15 @@ var MarkdownEditorManager = (function() {
             $('#message-edit-editor-type').val(savedType);
         }
         
+        // Remove any pending modal event handlers to prevent stale callbacks
+        $('#message-edit-modal').off('shown.bs.modal.editorInit');
+        $('#message-edit-text-save-button').off('click.editorSave');
+        
         // Show modal first (editor needs visible container)
         $('#message-edit-modal').modal('show');
         
-        // Initialize editor after modal is shown
-        $('#message-edit-modal').one('shown.bs.modal', function() {
+        // Initialize editor after modal is shown (namespaced event to avoid conflicts)
+        $('#message-edit-modal').one('shown.bs.modal.editorInit', function() {
             console.log('Modal shown, initializing editor type:', currentEditorType);
             switchEditorType(currentEditorType);
             
@@ -677,13 +703,18 @@ var MarkdownEditorManager = (function() {
             });
         });
         
-        // Set up save handler
-        $('#message-edit-text-save-button').off('click').on('click', function() {
+        // Set up save handler with namespaced event and captured callback
+        $('#message-edit-text-save-button').on('click.editorSave', function() {
             var newText = getValue();
+            var callbackToUse = pendingSaveCallback; // Capture in local scope
             console.log('Saving, new text length:', newText.length);
+            
+            // Remove handler immediately to prevent double-fires
+            $('#message-edit-text-save-button').off('click.editorSave');
+            
             $('#message-edit-modal').modal('hide');
-            if (typeof onSave === 'function') {
-                onSave(newText);
+            if (typeof callbackToUse === 'function') {
+                callbackToUse(newText);
             }
         });
     }
