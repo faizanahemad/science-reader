@@ -332,29 +332,26 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
     var $cardBody = $elem.closest('.card-body');
     if ($card.length === 0 || $cardBody.length === 0) return;
 
-    // Throttle during streaming.
+    // Throttle ONLY during continuous (streaming) renders.
+    // For final/non-continuous renders, always compute ToC so it reliably appears after streaming completes.
     var now = Date.now();
-    var last = parseInt($card.attr('data-toc-last-update') || '0', 10);
-    if (now - last < TOC_UPDATE_THROTTLE_MS) return;
-    $card.attr('data-toc-last-update', String(now));
+    if (continuous) {
+        var last = parseInt($card.attr('data-toc-last-update') || '0', 10);
+        if (now - last < TOC_UPDATE_THROTTLE_MS) return;
+        $card.attr('data-toc-last-update', String(now));
+    }
 
     // Word count strategy:
-    // - For full/final renders (continuous=false), use the entire card body text (excluding ToC UI)
-    //   so the ToC decision reflects the *whole message* even if the message was rendered in chunks.
-    // - For continuous streaming renders, keep it lightweight and use the raw markdown chunk (or
-    //   fall back to card body text).
-    var wordCount = 0;
-    if (!continuous) {
-        var contentText = '';
-        try {
-            contentText = $cardBody.children().not('.message-toc-container').text();
-        } catch (e) {
-            contentText = $cardBody.text();
-        }
-        wordCount = estimateWordCountFromMarkdown(contentText || '');
-    } else {
-        wordCount = estimateWordCountFromMarkdown(rawMarkdown || $cardBody.text());
+    // Use the entire card content (excluding ToC UI) for BOTH streaming and non-streaming.
+    // This prevents “chunk-sized” word counts from keeping ToC hidden during streaming and
+    // avoids ToC disappearing when later chunks are small.
+    var contentText = '';
+    try {
+        contentText = $cardBody.children().not('.message-toc-container').text();
+    } catch (e) {
+        contentText = $cardBody.text();
     }
+    var wordCount = estimateWordCountFromMarkdown(contentText || rawMarkdown || '');
     var $tocContainer = ensureMessageTocContainer($cardBody);
 
     if (wordCount < TOC_WORD_THRESHOLD) {
