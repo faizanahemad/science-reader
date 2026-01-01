@@ -297,17 +297,25 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     
     editBtn.off();
     editBtn.click(function () {
-        $('#message-edit-text').val(text);
-        $('#message-edit-modal').modal('show');
-        $('#message-edit-text-save-button').off();
         messageId = cardElem.find('.card-header').last().attr('message-id');
         messageIndex = cardElem.find('.card-header').last().attr('message-index');
-
-        $('#message-edit-text-save-button').click(function () {
-            var newtext = $('#message-edit-text').val();
-            ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
-            $('#message-edit-modal').modal('hide');
-        });
+        
+        // Use the new MarkdownEditorManager for enhanced editing experience
+        if (typeof MarkdownEditorManager !== 'undefined') {
+            MarkdownEditorManager.openEditor(text, function(newtext) {
+                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+            });
+        } else {
+            // Fallback to original behavior if MarkdownEditorManager is not loaded
+            $('#message-edit-text').val(text);
+            $('#message-edit-modal').modal('show');
+            $('#message-edit-text-save-button').off();
+            $('#message-edit-text-save-button').click(function () {
+                var newtext = $('#message-edit-text').val();
+                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, cardElem);
+                $('#message-edit-modal').modal('hide');
+            });
+        }
     });
 
     // TTS button

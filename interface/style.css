@@ -673,3 +673,299 @@ table, tr, thead, th, td {
     padding-right: 20px;
     padding-left: 10px;
 }
+
+/* ============================================
+   Markdown Editor Modal Styles
+   ============================================ */
+
+/* Modal sizing adjustments */
+#message-edit-modal .modal-dialog {
+    max-width: 90%;
+}
+
+/* Compact modal header */
+#message-edit-modal .modal-header {
+    padding: 0.5rem 0.75rem;
+    min-height: auto;
+}
+
+#message-edit-modal .modal-header .modal-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+#message-edit-modal .modal-header .close {
+    padding: 0.25rem 0.5rem;
+    margin: -0.25rem -0.5rem -0.25rem auto;
+    font-size: 1.2rem;
+}
+
+/* Compact modal footer */
+#message-edit-modal .modal-footer {
+    padding: 0.4rem 0.75rem;
+    min-height: auto;
+}
+
+#message-edit-modal .modal-footer .btn {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+}
+
+/* Editor type selector - smaller */
+#message-edit-editor-type {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+    height: auto;
+}
+
+#message-edit-modal .modal-body {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Extra small button class */
+.btn-xs {
+    padding: 0.1rem 0.35rem;
+    font-size: 0.7rem;
+    line-height: 1.4;
+    border-radius: 0.2rem;
+}
+
+/* Tab navigation styling - compact */
+#message-edit-tabs {
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    margin: 0;
+    padding: 0.25rem 0.5rem 0;
+}
+
+#message-edit-tabs .nav-link {
+    border: 1px solid transparent;
+    border-radius: 0.2rem 0.2rem 0 0;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+    color: #495057;
+    font-weight: 500;
+}
+
+#message-edit-tabs .nav-link:hover {
+    border-color: #e9ecef #e9ecef #dee2e6;
+    background: #e9ecef;
+}
+
+#message-edit-tabs .nav-link.active {
+    color: #495057;
+    background-color: #fff;
+    border-color: #dee2e6 #dee2e6 #fff;
+}
+
+/* Tab content area */
+#message-edit-tab-content {
+    flex: 1;
+    overflow: hidden;
+}
+
+#message-edit-tab-content .tab-pane {
+    height: calc(65vh - 50px);
+    overflow: hidden;
+}
+
+/* CodeMirror container styling */
+#message-edit-codemirror-container {
+    height: 100%;
+    overflow: hidden;
+}
+
+#message-edit-codemirror-container .CodeMirror {
+    height: 100% !important;
+    font-size: 14px;
+    font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+}
+
+/* Preview pane styling */
+#message-edit-preview {
+    height: 100%;
+    overflow-y: auto;
+    background: #fff;
+    padding: 1rem;
+}
+
+#message-edit-preview pre {
+    background: #2d2d2d;
+    padding: 1rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+}
+
+#message-edit-preview code {
+    font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+    font-size: 0.9em;
+}
+
+#message-edit-preview blockquote {
+    border-left: 4px solid #6c757d;
+    padding-left: 1rem;
+    margin-left: 0;
+    color: #6c757d;
+}
+
+#message-edit-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+#message-edit-preview th,
+#message-edit-preview td {
+    border: 1px solid #dee2e6;
+    padding: 0.5rem;
+}
+
+#message-edit-preview th {
+    background: #f8f9fa;
+}
+
+/* EasyMDE container styling */
+#message-edit-easymde-container {
+    height: 100%;
+    overflow: hidden;
+}
+
+#message-edit-easymde-container .EasyMDEContainer {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+#message-edit-easymde-container .CodeMirror {
+    flex: 1;
+    height: auto !important;
+    min-height: 0;
+}
+
+#message-edit-easymde-container .editor-toolbar {
+    flex-shrink: 0;
+    padding: 0.25rem 0.5rem;
+    min-height: auto;
+}
+
+/* Smaller EasyMDE toolbar buttons */
+#message-edit-easymde-container .editor-toolbar button,
+#message-edit-easymde-container .editor-toolbar a {
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    margin: 1px !important;
+    border-radius: 3px;
+}
+
+#message-edit-easymde-container .editor-toolbar i.separator {
+    margin: 0 4px;
+}
+
+#message-edit-easymde-container .editor-toolbar button::before,
+#message-edit-easymde-container .editor-toolbar a::before {
+    font-size: 12px;
+    line-height: 24px;
+}
+
+/* WYSIWYG/Milkdown container styling */
+#message-edit-milkdown-container {
+    height: 100%;
+    overflow-y: auto;
+    background: #fff;
+    padding: 0.5rem;
+}
+
+#message-edit-milkdown-container .wysiwyg-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f8f9fa;
+    border-radius: 0.2rem;
+    padding: 0.25rem !important;
+    margin-bottom: 0.25rem !important;
+}
+
+#message-edit-milkdown-container .wysiwyg-toolbar .btn {
+    padding: 0.1rem 0.3rem;
+    font-size: 0.7rem;
+    line-height: 1.3;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+#message-edit-milkdown-container .wysiwyg-editor h1,
+#message-edit-milkdown-container .wysiwyg-editor h2,
+#message-edit-milkdown-container .wysiwyg-editor h3 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor p {
+    margin-bottom: 0.75rem;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor blockquote {
+    border-left: 4px solid #6c757d;
+    padding-left: 1rem;
+    margin-left: 0;
+    color: #6c757d;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor pre,
+#message-edit-milkdown-container .wysiwyg-editor code {
+    background: #f4f4f4;
+    font-family: 'Fira Code', 'Monaco', 'Menlo', monospace;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor pre {
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+}
+
+#message-edit-milkdown-container .wysiwyg-editor code {
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+}
+
+/* Scroll info indicator */
+#message-edit-scroll-info {
+    font-size: 0.65rem;
+    opacity: 0.6;
+}
+
+/* Dark mode adjustments for CodeMirror monokai theme */
+#message-edit-codemirror-container .cm-s-monokai {
+    background: #272822;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #message-edit-modal .modal-dialog {
+        max-width: 100%;
+        margin: 0.5rem;
+    }
+    
+    #message-edit-modal .modal-body {
+        height: 75vh;
+    }
+    
+    #message-edit-tab-content .tab-pane {
+        height: calc(75vh - 50px);
+    }
+    
+    #message-edit-editor-type {
+        min-width: auto;
+        max-width: 150px;
+    }
+}

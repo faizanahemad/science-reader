@@ -51,7 +51,20 @@
       
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">  
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">  
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.css">  
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.css">
+    
+    <!-- CodeMirror Markdown/GFM mode for message editing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/gfm/gfm.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/overlay.min.js"></script>
+    
+    <!-- EasyMDE - Markdown Editor (Option 2) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>  
       
     <script>  
     // CodeMirror 5 - ALWAYS WORKS  
@@ -490,6 +503,36 @@
       </div>
     </div>
 
+    <!-- Clear Locks Modal -->
+    <div class="modal fade" id="clear-locks-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa fa-lock"></i> Lock File Status</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div id="lock-status-content">
+              <div class="text-center">
+                <div class="spinner-border" role="status">
+                  <span class="sr-only">Loading...</span>
+                </div>
+                <p class="mt-2">Checking lock status...</p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+            <button type="button" class="btn btn-warning" id="lock-clear-button" style="display:none;">
+              <i class="fa fa-eraser"></i> Clear Stuck Locks
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Personal Knowledge Base (PKB) Modal -->
     <div class="modal fade" id="pkb-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
       <div class="modal-dialog modal-xl">
@@ -906,19 +949,64 @@
 
     <!-- Message Edit Modal -->
     <div class="modal fade" id="message-edit-modal" tabindex="-1" aria-hidden="true">  
-      <div class="modal-dialog modal-lg"> <!-- Changed to modal-lg for a larger modal -->  
+      <div class="modal-dialog modal-xl"> <!-- Changed to modal-xl for larger editing space -->  
         <div class="modal-content">  
-          <div class="modal-header">  
-            <h5 class="modal-title">Edit Message</h5>  
-            <button type="button" class="close" data-dismiss="modal" aria-label="Close">  
-              <span aria-hidden="true">&times;</span>  
-            </button>  
+          <div class="modal-header d-flex justify-content-between align-items-center">  
+            <h5 class="modal-title">Edit Message</h5>
+            <div class="d-flex align-items-center">
+              <!-- Editor Type Selector -->
+              <select id="message-edit-editor-type" class="form-control form-control-sm mr-3" style="width: auto;">
+                <option value="codemirror-preview" selected>CodeMirror + Preview</option>
+                <option value="easymde">EasyMDE (with toolbar)</option>
+                <option value="milkdown">WYSIWYG Editor</option>
+              </select>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close">  
+                <span aria-hidden="true">&times;</span>  
+              </button>
+            </div>
           </div>  
-          <div class="modal-body">  
-            <textarea id="message-edit-text" class="form-control" rows="15"></textarea> <!-- Increased rows to 15 -->  
+          <div class="modal-body p-0" style="height: 65vh;">
+            <!-- Tab Navigation (shown for tabbed editors) -->
+            <ul class="nav nav-tabs px-3 pt-2" id="message-edit-tabs" role="tablist" style="display: none;">
+              <li class="nav-item">
+                <a class="nav-link active" id="edit-code-tab" data-toggle="tab" href="#edit-code-pane" role="tab">
+                  <i class="bi bi-code-slash mr-1"></i>Code
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="edit-preview-tab" data-toggle="tab" href="#edit-preview-pane" role="tab">
+                  <i class="bi bi-eye mr-1"></i>Preview
+                </a>
+              </li>
+            </ul>
+            
+            <!-- Tab Content -->
+            <div class="tab-content h-100" id="message-edit-tab-content">
+              <!-- Code Editor Pane -->
+              <div class="tab-pane fade show active h-100" id="edit-code-pane" role="tabpanel">
+                <!-- CodeMirror container -->
+                <div id="message-edit-codemirror-container" class="h-100" style="display: none;"></div>
+                <!-- EasyMDE container (Option 2) -->
+                <div id="message-edit-easymde-container" class="h-100" style="display: none;">
+                  <textarea id="message-edit-text-easymde"></textarea>
+                </div>
+                <!-- Milkdown/WYSIWYG container (Option 5) - uses ContentEditable fallback -->
+                <div id="message-edit-milkdown-container" class="h-100" style="display: none; overflow-y: auto;"></div>
+                <!-- Fallback textarea (hidden, used for data) -->
+                <textarea id="message-edit-text" class="form-control h-100" style="display: none;" rows="15"></textarea>
+              </div>
+              <!-- Preview Pane -->
+              <div class="tab-pane fade h-100" id="edit-preview-pane" role="tabpanel">
+                <div id="message-edit-preview" class="h-100 p-3" style="overflow-y: auto;"></div>
+              </div>
+            </div>
           </div>  
-          <div class="modal-footer">  
-            <button type="button" id="message-edit-text-save-button" class="btn btn-primary" onclick="$('#message-edit-modal').modal('hide');">Save</button>  
+          <div class="modal-footer">
+            <span id="message-edit-scroll-info" class="text-muted small mr-auto" style="display: none;">
+              Scroll position synced between tabs
+            </span>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            <button type="button" id="message-edit-text-save-button" class="btn btn-primary">Save</button>  
           </div>  
         </div>  
       </div>  
@@ -1682,8 +1770,8 @@
                                         </button>
                                     </div>
                                     <div class="col">
-                                        <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-preferences-modal-open-button" title="Legacy - Use Personal Memory instead">
-                                            <i class="bi bi-pen"></i> User Preferences
+                                        <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
+                                            <i class="fa fa-lock"></i> Clear Locks
                                         </button>
                                     </div>
                                     <div class="col">
@@ -2262,6 +2350,7 @@ greet("World");</code></pre>
     <script src="interface/common.js"></script>
     <script src="interface/gamification.js"></script>
     <script src="interface/common-chat.js"></script>
+    <script src="interface/markdown-editor.js"></script>
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
     <script src="interface/doubt-manager.js"></script>
