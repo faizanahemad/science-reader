@@ -2,7 +2,7 @@ import random
 import traceback
 from typing import Union, List
 import uuid
-from common import collapsible_wrapper
+from common import OPENAI_CHEAP_LLM, collapsible_wrapper
 from prompts import tts_friendly_format_instructions
 
 
@@ -33,7 +33,7 @@ except ImportError as e:
 
 import logging
 import re
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.WARNING, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
 import time
 from .base_agent import Agent
 
@@ -85,7 +85,7 @@ def _count_words(text: str) -> int:
 
 
 class WebSearchWithAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False, show_intermediate_results=False):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False, show_intermediate_results=False, headless=False):
         super().__init__(keys)
         self.gscholar = gscholar
         self.model_name = model_name
@@ -95,6 +95,7 @@ class WebSearchWithAgent(Agent):
         self.no_intermediate_llm = no_intermediate_llm
         self.post_process_answer_needed = False
         self.show_intermediate_results = show_intermediate_results
+        self.headless = headless
         self.combiner_prompt = f"""
 You are tasked with synthesizing information from multiple web search results to provide a comprehensive and accurate response to the user's query. Your goal is to combine these results into a coherent and informative answer.
 
@@ -281,35 +282,47 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
         # After response is generated for all queries (within a timeout) then use a combiner LLM to combine all responses into a single response.
         llm = CallLLm(self.keys, model_name=self.model_name)
         
-        
-        yield {"text": '\n\n', "status": "Completed web search with agent"}
-        combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
-        yield {"text": '<web_answer>', "status": "Completed web search with agent"}
-        combined_answer = ""
-        for text in combined_response:
-            yield {"text": text, "status": "Completed web search with agent"}
-            combined_answer += text
-        # Emit lightweight stats right before closing the tag so it appears at the end of the streamed answer.
-        urls = _extract_urls(web_search_results)
-        max_urls_to_show = 40
-        url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
-        urls_md = ""
-        if urls:
-            urls_md = "\n\n" + two_column_list_md(url_items)
-            if len(urls) > max_urls_to_show:
-                urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
-        else:
-            urls_md = "\n\n_No URLs detected in `web_search_results`._"
+        if not self.headless:
+            yield {"text": '\n\n', "status": "Completed web search with agent"}
+            combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+            yield {"text": '<web_answer>', "status": "Completed web search with agent"}
+            combined_answer = ""
+            for text in combined_response:
+                yield {"text": text, "status": "Completed web search with agent"}
+                combined_answer += text
+            # Emit lightweight stats right before closing the tag so it appears at the end of the streamed answer.
+            urls = _extract_urls(web_search_results)
+            max_urls_to_show = 40
+            url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
+            urls_md = ""
+            if urls:
+                urls_md = "\n\n" + two_column_list_md(url_items)
+                if len(urls) > max_urls_to_show:
+                    urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+            else:
+                urls_md = "\n\n_No URLs detected in `web_search_results`._"
 
-        stats_md = (
-            "\n\n## Web search stats\n"
-            f"- **Visited links**: {len(urls)}\n"
-            f"- **Combiner input size (`web_search_results`)**: {_count_words(web_search_results)} words, {len(web_search_results)} chars\n"
-            f"- **Combined answer length**: {_count_words(combined_answer)} words\n"
-            f"{urls_md}\n"
-        )
-        yield {"text": stats_md, "status": "Completed web search with agent"}
-        yield {"text": '</web_answer>', "status": "Completed web search with agent"}
+        
+            stats_md_content = (
+                "\n---\n### Web search stats\n"
+                f"- **Visited links**: {len(urls)}\n"
+                f"- **Combiner input size (`web_search_results`)**: {_count_words(web_search_results)} words, {len(web_search_results)} chars\n"
+                f"- **Combined answer length**: {_count_words(combined_answer)} words\n"
+                f"{urls_md}\n---\n"
+            )
+            stats_md = collapsible_wrapper(
+                stats_md_content,
+                header="Web Search Stats",
+                show_initially=False,
+                add_close_button=True
+            )
+            yield {"text": stats_md, "status": "Completed web search with agent"}
+            yield {"text": '</web_answer>', "status": "Completed web search with agent"}
+        else:
+            yield {"text": '<web_answer>', "status": "Completed web search with agent"}
+            yield {"text": str(web_search_results), "status": "Completed web search with agent"}
+            yield {"text": '</web_answer>', "status": "Completed web search with agent"}
+
         yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
 
     def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
@@ -1081,8 +1094,8 @@ Please provide an answer for this modified scenario."""
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
-        super().__init__(keys, model_name, detail_level, timeout)
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False):
+        super().__init__(keys, model_name, detail_level, timeout, headless=headless)
         self.num_queries = num_queries
         self.perplexity_models = [
             
@@ -1217,8 +1230,8 @@ Please use the given search results to answer the user's query while combining i
     
 
 class JinaSearchAgent(PerplexitySearchAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, ):
-        super().__init__(keys, model_name, detail_level, timeout, num_queries)
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False):
+        super().__init__(keys, model_name, detail_level, timeout, num_queries, headless=headless)
         self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
         assert self.jina_api_key, "No Jina API key found. Please set JINA_API_KEY environment variable."
         # Default was quite aggressive and causes large latency at detail_level=1.
@@ -1462,13 +1475,24 @@ def extract_answer(agent, text, images, temperature, stream, max_tokens, system,
         return answer, full_answer
 
 class MultiSourceSearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=3):
+    def __init__(self, keys, model_name, detail_level=1, timeout=90, num_queries=3, show_intermediate_results=False, headless=False):
         self.keys = keys
         self.model_name = model_name
         self.detail_level = detail_level
         self.timeout = timeout
         self.num_queries = num_queries
-
+        self.show_intermediate_results = show_intermediate_results
+        self.headless = headless
+        # NOTE: Call parent with keyword args to avoid accidental positional mismatches.
+        # (The parent signature includes gscholar/no_intermediate_llm before show_intermediate_results.)
+        super().__init__(
+            keys=keys,
+            model_name=model_name,
+            detail_level=detail_level,
+            timeout=timeout,
+            show_intermediate_results=show_intermediate_results,
+            headless=headless,
+        )
         self.combiner_prompt = """
 You are a helpful assistant that combines search results from multiple sources into a single response.
 You will be given a user query, and a list of search results from multiple sources.
@@ -1502,9 +1526,9 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
 
     
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        web_search_agent = WebSearchWithAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout)
-        perplexity_search_agent = PerplexitySearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
-        jina_search_agent = JinaSearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
+        web_search_agent = WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, headless=True)
+        perplexity_search_agent = PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True)
+        jina_search_agent = JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True)
         
         web_search_results = get_async_future(extract_answer, web_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
         perplexity_results = get_async_future(extract_answer, perplexity_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
@@ -1528,7 +1552,7 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
         pending = set(futures_map.keys())
 
         # Timeouts tuned for responsiveness; slow sources shouldn't block fast ones from being shown.
-        total_timeout = 160 if self.detail_level >= 3 else 120
+        total_timeout = 180 if self.detail_level >= 3 else 140
         start_wait = time.time()
 
         yielded_sections = set()
@@ -1629,7 +1653,41 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
         for chunk in response:
             yield {"text": chunk, "status": "MultiSourceSearchAgent"}
             answer += chunk
-        yield {"text": f"\n---\nLength of web search results: {_count_words(web_search_results_short)} words, {len(web_search_results_short)} chars\nLength of perplexity results: {_count_words(perplexity_results_short)} words, {len(perplexity_results_short)} chars\nLength of jina results: {_count_words(jina_results_short)} words, {len(jina_results_short)} chars\n---\n", "status": "MultiSourceSearchAgent"}
+        # Stats footer (inside <web_answer> but before </web_answer>) so it shows at the end of the streamed answer.
+        sources_concat = "\n\n".join(
+            [
+                str(web_search_results_short or ""),
+                str(perplexity_results_short or ""),
+                str(jina_results_short or ""),
+            ]
+        )
+        urls = _extract_urls(sources_concat)
+        max_urls_to_show = 40
+        url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
+        urls_md = ""
+        if urls:
+            urls_md = "\n\n" + two_column_list_md(url_items)
+            if len(urls) > max_urls_to_show:
+                urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+        else:
+            urls_md = "\n\n_No URLs detected in the source results._"
+
+        stats_md_content = (
+            "\n---\n## Web search stats\n"
+            f"- **Visited links**: {len(urls)}\n"
+            f"- **Web search input size**: {_count_words(str(web_search_results_short or ''))} words, {len(str(web_search_results_short or ''))} chars\n"
+            f"- **Perplexity input size**: {_count_words(str(perplexity_results_short or ''))} words, {len(str(perplexity_results_short or ''))} chars\n"
+            f"- **Jina input size**: {_count_words(str(jina_results_short or ''))} words, {len(str(jina_results_short or ''))} chars\n"
+            f"- **Combined answer length**: {_count_words(answer)} words\n"
+            f"{urls_md}\n---\n"
+        )
+        stats_md = collapsible_wrapper(
+            stats_md_content,
+            header="Web Search Stats",
+            show_initially=False,
+            add_close_button=True,
+        )
+        yield {"text": stats_md, "status": "MultiSourceSearchAgent"}
         yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
 
 
