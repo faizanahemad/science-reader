@@ -27,7 +27,7 @@ pd.set_option('display.max_columns', 100)
 from common import *
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.WARNING, logging.ERROR, logging.ERROR)
 from tenacity import (
     retry,
     RetryError,
@@ -1594,36 +1594,38 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     search_st = time.time()
     serps = []
     month = int(datetime.now().strftime("%m"))
-    if os.getenv("BRIGHTDATA_SERP_API_PROXY", None) is not None:
+    brightdata_serp_api_proxy = os.getenv("BRIGHTDATA_SERP_API_PROXY", None)
+    brightdata_available = brightdata_serp_api_proxy is not None
+    if brightdata_available:
         if not gscholar:
 
-            serps.extend([get_async_future(brightdata_google_serp, query, os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+            serps.extend([get_async_future(brightdata_google_serp, query, brightdata_serp_api_proxy, num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
         if gscholar and use_original_query:
             serps.extend([get_async_future(brightdata_google_serp, f" research paper for {query}",
-                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           brightdata_serp_api_proxy, num_res,
                                            our_datetime=year_month, only_pdf=None,
                                            only_science_sites=None) for ix, query in
                           enumerate(query_strings)])
         if gscholar and not use_original_query:
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year)}",
-                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           brightdata_serp_api_proxy, num_res,
                                            our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
                                            only_science_sites=True if ix % 2 == 0 else None) for ix, query in
                           enumerate(query_strings)])
             serps.extend([get_async_future(brightdata_google_serp, query + f" research paper",
-                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           brightdata_serp_api_proxy, num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
             if month <= 3:
                 serps.extend([get_async_future(brightdata_google_serp, generate_science_site_query(query + f" research paper in {str(year - 1)}"),
-                                               os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                               brightdata_serp_api_proxy, num_res,
                                                our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                               query_strings])
             serps.extend([get_async_future(brightdata_google_serp,
                                            generate_science_site_query(query + f" research paper"),
-                                           os.getenv("BRIGHTDATA_SERP_API_PROXY"), num_res,
+                                           brightdata_serp_api_proxy, num_res,
                                            our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
                           query_strings])
     if serp_available:
@@ -1722,6 +1724,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
 
     query_vs_results_count = Counter()
     total_count = 0
+    source_count = Counter()
     full_queue = []
     deduped_results = set()
     seen_titles = set()
@@ -1743,6 +1746,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                 query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
                 title = r.get("title", "").lower()
                 description = r.get("description", "").lower()
+                source = r.get("source", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
                 link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
@@ -1773,22 +1777,23 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
                         continue
                 except Exception as e:
-                    continue
-                full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
-
+                    pass
+                source_count[source] += 1
+                full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx, "source": source})
+                
 
                 if link not in deduped_results and title not in seen_titles and (
                         len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                           "rank": iqx, "start_time": start_time}
+                           "rank": iqx, "start_time": start_time, "source": source}
                     query_vs_results_count[query] += 1
                     total_count += 1
                     time_logger.info(
-                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {r['source']} n= {total_count}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
                 elif link not in deduped_results and title not in seen_titles:
                     temp_queue.put(
                         {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx, "start_time": start_time})
+                         "rank": iqx, "start_time": start_time, "source": source})
 
                 deduped_results.add(link)
                 seen_titles.add(title)
@@ -1811,6 +1816,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     "research papers", "").strip()
                 title = r.get("title", "").lower()
                 description = r.get("description", "").lower()
+                source = r.get("source", "").lower()
                 cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
                 link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
@@ -1844,25 +1850,24 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
                     if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
                         continue
                 except Exception as e:
-                    continue
+                    pass
+                source_count[source] += 1
                 full_queue.append(
                     {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                     "rank": iqx})
-
-
+                     "rank": iqx, "source": source})
                 if link not in deduped_results and title not in seen_titles and (
                         len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or
                         query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
                     yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                           "rank": iqx, "start_time": start_time}
+                           "rank": iqx, "start_time": start_time, "source": source}
                     query_vs_results_count[query] += 1
                     total_count += 1
                     time_logger.info(
-                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {r['source']} n= {total_count}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
                 elif link not in deduped_results and title not in seen_titles:
                     temp_queue.put(
                         {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx, "start_time": start_time})
+                         "rank": iqx, "start_time": start_time, "source": source})
 
                 deduped_results.add(link)
                 seen_titles.add(title)
@@ -1874,7 +1879,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         time_logger.debug(
             f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
         query_vs_results_count[r.get("query", "")] += 1
-    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results.")
+    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results. {f'Query strings: {query_strings}' if len(total_count) == 0 else ''} and source counts: {source_count}")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 
@@ -1990,98 +1995,6 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
         answer += read_links
     answer += "</div>\n"
     return answer
-
-
-
-
-
-def simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers=0):
-    answer = ""
-    st = time.time()
-    web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
-    web_results = get_async_future(web_search_queue, user_context, 'helpful ai assistant',
-                                   "",
-                                   keys, datetime.now().strftime("%Y-%m"), extra_queries=queries,
-                                   previous_turn_search_results=None,
-                                   gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
-                                   web_search_tmp_marker_name=web_search_tmp_marker_name)
-
-    create_tmp_marker_file(web_search_tmp_marker_name)
-    max_time_to_wait_for_web_results = 30
-    cut_off = 15
-    search_results = next(web_results.result()[0].result())
-    atext = "**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch' role='button'></div> <div class='collapse' id='singleQueryWebSearch'>" + "\n"
-    answer += atext
-    atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
-    atext = "**Web searched with Queries:**" + "\n"
-    answer += atext
-    queries = two_column_list(search_results['queries'])
-    answer += (queries + "</div>\n")
-    if len(search_results['search_results']) > 0:
-        query_results_part1 = search_results['search_results']
-        seen_query_results = query_results_part1[:20]
-        atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
-        atext = "\n**Search Results:**" + "\n"
-        answer += atext
-        query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
-        query_results = two_column_list(query_results)
-        answer += (query_results + "</div>\n")
-    result_queue = web_results.result()[1]
-    qu_st = time.time()
-    web_text_accumulator = []
-    while True:
-        qu_wait = time.time()
-        break_condition = len(web_text_accumulator) >= cut_off or (
-                    (qu_wait - qu_st) > max(max_time_to_wait_for_web_results * 2,
-                                            max_time_to_wait_for_web_results * provide_detailed_answers))
-        if break_condition and result_queue.empty():
-            break
-        one_web_result = None
-        if not result_queue.empty():
-            one_web_result = result_queue.get()
-        qu_et = time.time()
-        if one_web_result is None and break_condition:
-            break
-        if one_web_result is None:
-            time.sleep(0.5)
-            continue
-        if one_web_result == TERMINATION_SIGNAL:
-            break
-
-        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
-                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-            web_text_accumulator.append((one_web_result["text"],
-                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
-                                         one_web_result["llm_result_future"]))
-            yield {"text": '',
-                   "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
-            time_logger.info(
-                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
-        time.sleep(0.5)
-    web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-    web_text_accumulator = list(filter(
-        lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(),
-        web_text_accumulator))
-    remove_tmp_marker_file(web_search_tmp_marker_name)
-    read_links = [[link.strip(), len(text.strip().split()),
-                   llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text]
-                  for text, link, llm_future_dict in web_text_accumulator]
-    if len(read_links) > 0:
-        atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
-        atext = "\n**We read the below links:**" + "\n"
-        read_links = atext + "\n\n".join([
-                                             f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(1024 if 'No Link' not in wta else 1024)])}"
-                                             for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
-        yield {"text": read_links, "status": "web search completed"}
-        answer += read_links
-    else:
-        read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
-        yield {"text": read_links, "status": "web search completed"}
-        answer += read_links
-        
-    answer += "</div>\n"
-    yield {"text": answer, "status": "web search completed"}
-
 
 
 
@@ -2397,7 +2310,14 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
             result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
         result["is_pdf"] = False
         result["is_image"] = False
-    assert len(result["full_text"].strip().split()) > 100, f"[download_link_data] Text too short for link {link}"
+    # Don't hard-fail on short content; return partial and let the caller decide.
+    try:
+        if len(result.get("full_text", "").strip().split()) <= 100:
+            result["partial"] = True
+            result["error"] = result.get("error") or "too_short"
+    except Exception:
+        result["partial"] = True
+        result["error"] = result.get("error") or "too_short"
     et = time.time() - st
     time_logger.info(f"[download_link_data] Time taken to download link data for {link} = {et:.2f}")
     return result
@@ -2665,15 +2585,34 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
     pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name, detailed=detailed)
-    title = pgc["title"]
-    text = pgc["text"]
-    assert len(text.strip().split()) > 100, f"Extracted Web text is too short for link: {link}"
+    title = pgc.get("title", "") if isinstance(pgc, dict) else ""
+    text = pgc.get("text", "") if isinstance(pgc, dict) else ""
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
-    assert not title.lower().strip().startswith("Page not found".lower())
-    assert not title.lower().strip().startswith("Not found (404)".lower())
+
+    # Avoid hard-failing here; propagate partial results upward.
+    # The calling pipeline can decide whether to summarize or just include raw text.
+    partial = False
+    error = None
+    try:
+        if title and title.lower().strip().startswith("page not found"):
+            partial = True
+            error = "page_not_found_title"
+        if title and title.lower().strip().startswith("not found (404)"):
+            partial = True
+            error = "not_found_404_title"
+        if len(text.strip().split()) <= 100:
+            partial = True
+            error = error or "too_short"
+    except Exception:
+        partial = True
+        error = error or "validation_error"
     # assert semantic_validation_web_page_scrape(context, dict(**pgc), api_keys)
     time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
-    return {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
+    out = {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
+    if partial:
+        out["partial"] = True
+        out["error"] = error
+    return out
 
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
@@ -2741,6 +2680,25 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
                 web_res["full_text"].split()) > 0:
             text = web_res["full_text"]
             link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+            # If the page is too short, avoid invoking ContextualReader (it asserts on short inputs).
+            # Return partial raw text instead of throwing and forcing the pipeline to "retry" via other links.
+            wc = len(text.strip().split())
+            if wc < 120:
+                partial = {
+                    "link": link,
+                    "title": title,
+                    "context": context,
+                    "text": text,
+                    "llm_result_future": wrap_in_future("NO_LLM_RESULT"),
+                    "exception": False,
+                    "full_text": text,
+                    "detailed": detailed,
+                    "partial": True,
+                    "error": web_res.get("error") or "too_short_for_summary",
+                }
+                time_logger.info(f"[fn2] Returning partial result (wc={wc}) for link={link}")
+                return partial
+
             st = time.time()
             summary = get_downloaded_data_summary(link_title_context_apikeys)
             if "is_image" in web_res and web_res["is_image"]:
