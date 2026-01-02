@@ -1635,59 +1635,65 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
 
-        response = llm(
-            self.combiner_prompt.format(
-                user_query=text,
-                web_search_results=web_search_results_short,
-                perplexity_search_results=perplexity_results_short,
-                jina_search_results=jina_results_short,
-            ),
-            temperature=temperature,
-            stream=True,
-            max_tokens=max_tokens,
-            system=system,
-        )
+        if not self.headless:
 
-        yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-        answer = ""
-        for chunk in response:
-            yield {"text": chunk, "status": "MultiSourceSearchAgent"}
-            answer += chunk
-        # Stats footer (inside <web_answer> but before </web_answer>) so it shows at the end of the streamed answer.
-        sources_concat = "\n\n".join(
-            [
-                str(web_search_results_short or ""),
-                str(perplexity_results_short or ""),
-                str(jina_results_short or ""),
-            ]
-        )
-        urls = _extract_urls(sources_concat)
-        max_urls_to_show = 40
-        url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
-        urls_md = ""
-        if urls:
-            urls_md = "\n\n" + two_column_list_md(url_items)
-            if len(urls) > max_urls_to_show:
-                urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+            response = llm(
+                self.combiner_prompt.format(
+                    user_query=text,
+                    web_search_results=web_search_results_short,
+                    perplexity_search_results=perplexity_results_short,
+                    jina_search_results=jina_results_short,
+                ),
+                temperature=temperature,
+                stream=True,
+                max_tokens=max_tokens,
+                system=system,
+            )
+
+            yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
+            answer = ""
+            for chunk in response:
+                yield {"text": chunk, "status": "MultiSourceSearchAgent"}
+                answer += chunk
+            # Stats footer (inside <web_answer> but before </web_answer>) so it shows at the end of the streamed answer.
+            sources_concat = "\n\n".join(
+                [
+                    str(web_search_results_short or ""),
+                    str(perplexity_results_short or ""),
+                    str(jina_results_short or ""),
+                ]
+            )
+            urls = _extract_urls(sources_concat)
+            max_urls_to_show = 40
+            url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
+            urls_md = ""
+            if urls:
+                urls_md = "\n\n" + two_column_list_md(url_items)
+                if len(urls) > max_urls_to_show:
+                    urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+            else:
+                urls_md = "\n\n_No URLs detected in the source results._"
+
+            stats_md_content = (
+                "\n---\n## Web search stats\n"
+                f"- **Visited links**: {len(urls)}\n"
+                f"- **Web search input size**: {_count_words(str(web_search_results_short or ''))} words, {len(str(web_search_results_short or ''))} chars\n"
+                f"- **Perplexity input size**: {_count_words(str(perplexity_results_short or ''))} words, {len(str(perplexity_results_short or ''))} chars\n"
+                f"- **Jina input size**: {_count_words(str(jina_results_short or ''))} words, {len(str(jina_results_short or ''))} chars\n"
+                f"- **Combined answer length**: {_count_words(answer)} words\n"
+                f"{urls_md}\n---\n"
+            )
+            stats_md = collapsible_wrapper(
+                stats_md_content,
+                header="Web Search Stats",
+                show_initially=False,
+                add_close_button=True,
+            )
+            yield {"text": stats_md, "status": "MultiSourceSearchAgent"}
         else:
-            urls_md = "\n\n_No URLs detected in the source results._"
-
-        stats_md_content = (
-            "\n---\n## Web search stats\n"
-            f"- **Visited links**: {len(urls)}\n"
-            f"- **Web search input size**: {_count_words(str(web_search_results_short or ''))} words, {len(str(web_search_results_short or ''))} chars\n"
-            f"- **Perplexity input size**: {_count_words(str(perplexity_results_short or ''))} words, {len(str(perplexity_results_short or ''))} chars\n"
-            f"- **Jina input size**: {_count_words(str(jina_results_short or ''))} words, {len(str(jina_results_short or ''))} chars\n"
-            f"- **Combined answer length**: {_count_words(answer)} words\n"
-            f"{urls_md}\n---\n"
-        )
-        stats_md = collapsible_wrapper(
-            stats_md_content,
-            header="Web Search Stats",
-            show_initially=False,
-            add_close_button=True,
-        )
-        yield {"text": stats_md, "status": "MultiSourceSearchAgent"}
+            # If the futures timed out or returned nothing, yield what we got so far
+            yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
+            yield {"text": str(web_search_results_short or "") + "\n\n" + str(perplexity_results_short or "") + "\n\n" + str(jina_results_short or ""), "status": "MultiSourceSearchAgent"}
         yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
 
 
