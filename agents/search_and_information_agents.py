@@ -24,7 +24,7 @@ try:
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
         VERY_CHEAP_LLM, CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
-        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable, EXPENSIVE_LLM
+        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable, EXPENSIVE_LLM, two_column_list_md
     )
     from loggers import getLoggers
 except ImportError as e:
@@ -38,9 +38,54 @@ import time
 from .base_agent import Agent
 
 
+_URL_RE = re.compile(r"https?://[^\s<>'\"\)\]]+")
+_URL_TRAILING_PUNCTUATION = ".,;:!?)\\]}>\"'"
+
+
+def _extract_urls(text: str) -> List[str]:
+    """
+    Extract unique http(s) URLs from arbitrary text.
+
+    - Preserves first-seen order
+    - Strips common trailing punctuation from matches
+
+    Args:
+        text: Arbitrary text that may contain URLs.
+
+    Returns:
+        A list of unique URLs in stable order.
+    """
+    if not text:
+        return []
+
+    urls: List[str] = []
+    seen = set()
+    for match in _URL_RE.finditer(text):
+        url = match.group(0).rstrip(_URL_TRAILING_PUNCTUATION)
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+    return urls
+
+
+def _count_words(text: str) -> int:
+    """
+    Approximate word count for display/telemetry.
+
+    Args:
+        text: Text to count.
+
+    Returns:
+        Number of whitespace-delimited tokens.
+    """
+    if not text:
+        return 0
+    return len(re.findall(r"\S+", text))
+
+
 
 class WebSearchWithAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False, show_intermediate_results=False):
         super().__init__(keys)
         self.gscholar = gscholar
         self.model_name = model_name
@@ -49,6 +94,7 @@ class WebSearchWithAgent(Agent):
         self.timeout = timeout
         self.no_intermediate_llm = no_intermediate_llm
         self.post_process_answer_needed = False
+        self.show_intermediate_results = show_intermediate_results
         self.combiner_prompt = f"""
 You are tasked with synthesizing information from multiple web search results to provide a comprehensive and accurate response to the user's query. Your goal is to combine these results into a coherent and informative answer.
 
@@ -78,22 +124,28 @@ User's query and conversation history:
 Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
 """
 
+        num_queries = 3 if self.detail_level <= 2 else 5 if self.detail_level == 3 else 8
         self.llm_prompt = f"""
-Given the following text, generate a list of relevant queries and their corresponding contexts. 
+Given the following user's query and conversation history, generate a list of relevant and targeted search queries and their corresponding brief contexts. 
 Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
+
+
+User's query and conversation history: 
+<|context|>
+{{text}}
+</|context|>
+
 Format your response as a Python list of tuples as given below: 
 ```python
 [
-    ('query1', 'detailed context1 including conversational context on what user is looking for'), 
-    ('query2', 'detailed context2 including conversational context on what user is looking for'), 
-    ('query3', 'detailed context3 including conversational context on what user is looking for'), 
+    ('query1', 'context1 including conversational context on what user is looking for in short and concise manner'), 
+    ('query2', 'context2 including conversational context on what user is looking for in short and concise manner'), 
+    ('query3 with various variations to broaden the search', 'context3 with various variations to broaden the search including conversational context on what user is looking for in short and concise manner'), 
     ...
 ]
 ```
 
-Text: {{text}}
-
-Generate up to 3 highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
+Generate up to {num_queries} highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
     def extract_queries_contexts(self, code_string):
         regex = r"```(?:\w+)?\s*(.*?)```"
@@ -129,19 +181,29 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             # simple_web_search_with_llm(keys, user_context, queries, gscholar)
             
             if self.concurrent_searches:
-                futures = []
+                # Fix: correctly associate each future with its corresponding query/context by storing tuples
+                future_tuples = []
                 for query, context in text_queries_contexts:
-                    future = get_async_future(simple_web_search_with_llm, self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 or self.no_intermediate_llm, timeout=self.timeout * len(text_queries_contexts))
-                    futures.append(future)
+                    future = get_async_future(
+                        simple_web_search_with_llm,
+                        self.keys,
+                        text + "\n\n" + context,
+                        [query],
+                        gscholar=self.gscholar,
+                        provide_detailed_answers=self.detail_level,
+                        no_llm=len(text_queries_contexts) <= 5 or self.no_intermediate_llm,
+                        timeout=self.timeout
+                    )
+                    future_tuples.append((future, query, context))
 
                 web_search_results = []
-                for future in futures:
+                for future, query, context in future_tuples:
                     result = sleep_and_get_future_result(future)
                     web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
             else:
                 web_search_results = []
                 for query, context in text_queries_contexts:
-                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 3 or self.no_intermediate_llm, timeout=self.timeout)
+                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 5 or self.no_intermediate_llm, timeout=self.timeout)
                     web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}, \n\n{traceback.format_exc()}")
@@ -169,7 +231,8 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
             text = self.remove_code_blocks(text)
             # Extract the array-like string from the text
             web_search_results = self.get_results_from_web_search(text, text_queries_contexts)
-            yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+            if self.show_intermediate_results:
+                yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
             answer += f"{web_search_results}\n\n"
         else:
             llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
@@ -201,7 +264,8 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
                 
                 # If valid, proceed with web search using the generated queries and contexts
                 web_search_results = self.get_results_from_web_search(text, str(text_queries_contexts))
-                yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+                if self.show_intermediate_results:
+                    yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
                 answer += f"{web_search_results}\n\n"
             except (SyntaxError, ValueError) as e:
                 logger.error(f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}")
@@ -224,6 +288,26 @@ Generate up to 3 highly relevant query-context pairs. Write your answer as a cod
         for text in combined_response:
             yield {"text": text, "status": "Completed web search with agent"}
             answer += text
+        # Emit lightweight stats right before closing the tag so it appears at the end of the streamed answer.
+        urls = _extract_urls(web_search_results)
+        max_urls_to_show = 40
+        url_items = [f"`{u}`" for u in urls[:max_urls_to_show]]
+        urls_md = ""
+        if urls:
+            urls_md = "\n\n" + two_column_list_md(url_items)
+            if len(urls) > max_urls_to_show:
+                urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+        else:
+            urls_md = "\n\n_No URLs detected in `web_search_results`._"
+
+        stats_md = (
+            "\n\n## Web search stats\n"
+            f"- **Visited links**: {len(urls)}\n"
+            f"- **Combiner input size (`web_search_results`)**: {_count_words(web_search_results)} words, {len(web_search_results)} chars\n"
+            f"- **Combined answer length**: {_count_words(answer)} words\n"
+            f"{urls_md}\n"
+        )
+        yield {"text": stats_md, "status": "Completed web search with agent"}
         yield {"text": '</web_answer>', "status": "Completed web search with agent"}
         yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
 
@@ -1136,7 +1220,11 @@ class JinaSearchAgent(PerplexitySearchAgent):
         super().__init__(keys, model_name, detail_level, timeout, num_queries)
         self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
         assert self.jina_api_key, "No Jina API key found. Please set JINA_API_KEY environment variable."
-        self.num_results = 20 if detail_level >= 3 else 10
+        # Default was quite aggressive and causes large latency at detail_level=1.
+        # Keep fewer results for low detail, more for deeper research.
+        self.num_results = 5 if detail_level <= 1 else 8 if detail_level == 2 else 20
+        # Tighten HTTP timeouts to avoid long hangs.
+        self.http_timeout = (10, 45)  # (connect, read) seconds
 
 
     def fetch_jina_search_results(self, query: str):
@@ -1155,7 +1243,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         }
         
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=self.http_timeout)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -1166,6 +1254,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         """Fetch content from a URL using Jina reader API"""
         import requests
         
+        # Reader endpoint can occasionally fail DNS/regionally; keep default, but add timeout.
         reader_url = f"https://r.jina.ai/{url}"
         
         headers = {
@@ -1174,7 +1263,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         }
         
         try:
-            response = requests.get(reader_url, headers=headers)
+            response = requests.get(reader_url, headers=headers, timeout=self.http_timeout)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -1207,9 +1296,10 @@ class JinaSearchAgent(PerplexitySearchAgent):
             content = result.get("content", "")
 
         # if content is too long, truncate it to 5000 characters
-        if len(content) > 5000:
-            llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0])
-            content = llm(f"User's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease summarize the following content to 5000 characters to extract only the most relevant information as per the user's query: {content}", temperature=0.7, stream=False)
+        if len(content) > 10_000:
+            content = content[:100_000] + "..."
+            llm = CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0])
+            content = llm(f"You are an information extraction expert. Given a user query and conversation context you will extract relevant information from the page content. \n\nUser's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease extract and summarize the following page content to less than 200 words to extract only the most relevant information as per the user's query. \n\nPage content: \n{content}\n", temperature=0.7, stream=False)
         
         processed_result = {
             "title": title,
@@ -1248,7 +1338,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 )
                 futures.append((query, context, future))
             
-            # Collect and format results
+            # Collect and format results (as they complete)
             for query, context, future in futures:
                 try:
                     result = sleep_and_get_future_result(future)
@@ -1302,7 +1392,10 @@ class JinaSearchAgent(PerplexitySearchAgent):
         
         # Format results for display and LLM summarization
         formatted_results = []
-        for idx, result in enumerate(processed_results[:num_results], 1):  # Limit to top 10 for readability
+        # Keep prompt sizes smaller at low detail for faster combiner calls.
+        preview_chars = 5000 if self.detail_level <= 1 else 7500 if self.detail_level == 2 else 9000
+
+        for idx, result in enumerate(processed_results[:num_results], 1):
             formatted_result = (
                 f"### {idx}. [{result['title']}]({result['url']})\n"
                 f"**Date**: {result.get('date', 'N/A')}\n"
@@ -1311,7 +1404,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
             
             # Add content if available
             if result.get('content'):
-                content_preview = result['content'][:5000] + "..." if len(result['content']) > 5000 else result['content']
+                content_preview = result['content'][:preview_chars] + "..." if len(result['content']) > preview_chars else result['content']
                 formatted_result += f"**Content Preview**: {content_preview}\n"
             
             formatted_results.append(formatted_result)
@@ -1353,6 +1446,20 @@ class OpenaiDeepResearchAgent(WebSearchWithAgent):
         
         
 
+def extract_answer(agent, text, images, temperature, stream, max_tokens, system, web_search):
+        response = agent(text, images, temperature, stream, max_tokens, system, web_search)
+        full_answer = ""
+        for chunk in response:
+            full_answer += chunk["text"]
+        # Extract content between web_answer tags
+        import re
+        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
+        match = re.search(web_answer_pattern, full_answer, re.DOTALL)
+        answer = ""
+        if match:
+            answer = match.group(1)
+        return answer, full_answer
+
 class MultiSourceSearchAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=3):
         self.keys = keys
@@ -1392,141 +1499,129 @@ Include the full list of useful references at the end in markdown as bullet poin
 Write your comprehensive and in-depth answer below. Provide full extensive details and cover all references and sources obtained from search.
 """
 
-    def extract_answer(self, agent, text, images, temperature, stream, max_tokens, system, web_search):
-        response = agent(text, images, temperature, stream, max_tokens, system, web_search)
-        full_answer = ""
-        for chunk in response:
-            full_answer += chunk["text"]
-        # Extract content between web_answer tags
-        import re
-        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
-        match = re.search(web_answer_pattern, full_answer, re.DOTALL)
-        answer = ""
-        if match:
-            answer = match.group(1)
-        return answer, full_answer
-    
-
     
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
         web_search_agent = WebSearchWithAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout)
         perplexity_search_agent = PerplexitySearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
         jina_search_agent = JinaSearchAgent(self.keys, CHEAP_LONG_CONTEXT_LLM[0], max(self.detail_level - 1, 1), self.timeout, self.num_queries)
         
-        web_search_results = get_async_future(self.extract_answer, web_search_agent.__call__, text, images, temperature, stream, max_tokens, system, web_search)
-        perplexity_results = get_async_future(self.extract_answer, perplexity_search_agent.__call__, text, images, temperature, stream, max_tokens, system, web_search)
-        jina_results = get_async_future(self.extract_answer, jina_search_agent.__call__, text, images, temperature, stream, max_tokens, system, web_search)
+        web_search_results = get_async_future(extract_answer, web_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
+        perplexity_results = get_async_future(extract_answer, perplexity_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
+        jina_results = get_async_future(extract_answer, jina_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
         llm = CallLLm(self.keys, model_name=self.model_name)
         
-        web_search_results_not_yielded = True
-        perplexity_results_not_yielded = True
-        jina_results_not_yielded = True
-        web_search_full_answer = ""
-        perplexity_full_answer = ""
-        jina_full_answer = ""
         web_search_results_short = ""
         perplexity_results_short = ""
         jina_results_short = ""
         st_time = time.time()
-        done_count = 0
 
-        
-        try:
-            perplexity_results_short, perplexity_full_answer = sleep_and_get_future_result(perplexity_results, timeout=120 if self.detail_level >= 3 else 90)
-            done_count += 1
-        except TimeoutError:
-            logger.error("MultiSourceSearchAgent: Perplexity search timed out after 3 minutes")
-            done_count += 1
-        try:
-            jina_results_short, jina_full_answer = sleep_and_get_future_result(jina_results, timeout=90 if self.detail_level >= 3 else 45)
-            done_count += 1
-        except TimeoutError:
-            logger.error("MultiSourceSearchAgent: Jina search timed out after 3 minutes")
-            done_count += 1
-        try:
-            web_search_results_short, web_search_full_answer = sleep_and_get_future_result(web_search_results, timeout=90 if self.detail_level >= 3 else 45)
-            done_count += 1
-        except TimeoutError:
-            logger.error("MultiSourceSearchAgent: Web search timed out after 3 minutes")
-            done_count += 1
+        # Run sources concurrently and STREAM each result section as soon as it completes.
+        # (Previously the code effectively waited for the slowest source before yielding anything.)
+        from concurrent.futures import wait, FIRST_COMPLETED
 
-        if done_count == 0:
+        futures_map = {
+            web_search_results: "web_search",
+            perplexity_results: "perplexity",
+            jina_results: "jina",
+        }
+        pending = set(futures_map.keys())
+
+        # Timeouts tuned for responsiveness; slow sources shouldn't block fast ones from being shown.
+        total_timeout = 160 if self.detail_level >= 3 else 120
+        start_wait = time.time()
+
+        yielded_sections = set()
+
+        while pending and (time.time() - start_wait) < total_timeout:
+            done, pending = wait(pending, timeout=2, return_when=FIRST_COMPLETED)
+
+            for future in done:
+                source = futures_map.get(future, "unknown")
+                try:
+                    result_short, result_full = future.result(timeout=1)
+                except Exception as e:
+                    logger.error(f"MultiSourceSearchAgent: {source} failed with error: {e}")
+                    continue
+
+                if source == "web_search":
+                    web_search_results_short, web_search_full_answer = result_short, result_full
+                elif source == "perplexity":
+                    perplexity_results_short, perplexity_full_answer = result_short, result_full
+                elif source == "jina":
+                    jina_results_short, jina_full_answer = result_short, result_full
+
+                logger.info(f"MultiSourceSearchAgent: {source} completed in {time.time() - start_wait:.2f}s")
+
+                # Stream the completed section immediately (skip empty).
+                if source not in yielded_sections:
+                    header = (
+                        "Web Search Results"
+                        if source == "web_search"
+                        else "Perplexity Search Results"
+                        if source == "perplexity"
+                        else "Jina Search Results"
+                    )
+                    section_text = (
+                        web_search_results_short
+                        if source == "web_search"
+                        else perplexity_results_short
+                        if source == "perplexity"
+                        else jina_results_short
+                    ) or ""
+                    if str(section_text).strip() and self.show_intermediate_results:
+                        section_text = convert_stream_to_iterable(
+                            collapsible_wrapper(section_text, header=header, show_initially=False, add_close_button=True)
+                        )
+                        yield {"text": section_text, "status": "MultiSourceSearchAgent"}
+                        yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+                    yielded_sections.add(source)
+
+        # Anything that didn't finish: record as timed out, but still proceed with available results.
+        for future in list(pending):
+            source = futures_map.get(future, "unknown")
+            logger.error(f"MultiSourceSearchAgent: {source} timed out after {total_timeout}s")
+
+        # If no source returned anything usable, avoid calling the combiner with empty input.
+        if not (str(web_search_results_short).strip() or str(perplexity_results_short).strip() or str(jina_results_short).strip()):
             yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-            yield {"text": "MultiSourceSearchAgent: Time out after 4 minutes", "status": "MultiSourceSearchAgent"}
+            yield {"text": f"MultiSourceSearchAgent: No search sources returned results within {total_timeout}s.", "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
             yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
             return
-        elif done_count == 1:
-            yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-            yield {"text": web_search_results_short + "\n\n" + perplexity_results_short + "\n\n" + jina_results_short, "status": "MultiSourceSearchAgent"}
-            yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-            yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
-            return
         
-        web_search_results_short = convert_stream_to_iterable(collapsible_wrapper(web_search_results_short, header="Web Search Results", show_initially=False, add_close_button=True))
-        yield {"text": web_search_results_short, "status": "MultiSourceSearchAgent"}
-        yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+        # If some sections weren't yielded during the loop (e.g., returned instantly before first wait tick),
+        # yield them here in a deterministic order.
+        if "web_search" not in yielded_sections and web_search_results_short and self.show_intermediate_results:
+            web_search_results_short = convert_stream_to_iterable(
+                collapsible_wrapper(web_search_results_short, header="Web Search Results", show_initially=False, add_close_button=True)
+            )
+            yield {"text": web_search_results_short, "status": "MultiSourceSearchAgent"}
+            yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+        if "perplexity" not in yielded_sections and perplexity_results_short and self.show_intermediate_results:
+            perplexity_results_short = convert_stream_to_iterable(
+                collapsible_wrapper(perplexity_results_short, header="Perplexity Search Results", show_initially=False, add_close_button=True)
+            )
+            yield {"text": perplexity_results_short, "status": "MultiSourceSearchAgent"}
+            yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
+        if "jina" not in yielded_sections and jina_results_short and self.show_intermediate_results:
+            jina_results_short = convert_stream_to_iterable(
+                collapsible_wrapper(jina_results_short, header="Jina Search Results", show_initially=False, add_close_button=True)
+            )
+            yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
+            yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
 
-        perplexity_results_short = convert_stream_to_iterable(collapsible_wrapper(perplexity_results_short, header="Perplexity Search Results", show_initially=False, add_close_button=True))
-        yield {"text": perplexity_results_short, "status": "MultiSourceSearchAgent"}
-        yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-
-        jina_results_short = convert_stream_to_iterable(collapsible_wrapper(jina_results_short, header="Jina Search Results", show_initially=False, add_close_button=True))
-        yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
-        yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-
-        # while any(not future.done() for future in [web_search_results, perplexity_results, jina_results]):
-        #     if web_search_results.done() and web_search_results.exception() is None and web_search_results_not_yielded:
-        #         web_search_results_short, web_search_full_answer = web_search_results.result()
-        #         web_search_results_short = convert_stream_to_iterable(collapsible_wrapper(web_search_results_short, header="Web Search Results", show_initially=False, add_close_button=True))
-        #         yield {"text": web_search_results_short, "status": "MultiSourceSearchAgent"}
-        #         yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        #         web_search_results_not_yielded = False
-        #         done_count += 1
-        #     if perplexity_results.done() and perplexity_results.exception() is None and perplexity_results_not_yielded:
-        #         perplexity_results_short, perplexity_full_answer = perplexity_results.result()
-        #         perplexity_results_short = convert_stream_to_iterable(collapsible_wrapper(perplexity_results_short, header="Perplexity Search Results", show_initially=False, add_close_button=True))
-        #         yield {"text": perplexity_results_short, "status": "MultiSourceSearchAgent"}
-        #         yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        #         perplexity_results_not_yielded = False
-        #         done_count += 1
-        #     if jina_results.done() and jina_results.exception() is None and jina_results_not_yielded:
-        #         jina_results_short, jina_full_answer = jina_results.result()
-        #         jina_results_short = convert_stream_to_iterable(collapsible_wrapper(jina_results_short, header="Jina Search Results", show_initially=False, add_close_button=True))
-        #         yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
-        #         yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        #         jina_results_not_yielded = False
-        #         done_count += 1
-
-        #     if web_search_results.exception() is not None:
-        #         logger.error(f"Error in web search: {web_search_results.exception()}, \n\n{traceback.format_exc()}")
-        #         done_count += 1
-        #     if perplexity_results.exception() is not None:
-        #         logger.error(f"Error in perplexity search: {perplexity_results.exception()}, \n\n{traceback.format_exc()}")
-        #         done_count += 1
-        #     if jina_results.exception() is not None:
-        #         logger.error(f"Error in jina search: {jina_results.exception()}, \n\n{traceback.format_exc()}")
-        #         done_count += 1
-            
-        #     if done_count >=2 and time.time() - st_time > 180:
-        #         logger.error("MultiSourceSearchAgent: Time out after 3 minutes")
-        #         break
-        #     if time.time() - st_time > 240:
-        #         logger.error("MultiSourceSearchAgent: Time out after 4 minutes")
-        #         if done_count == 0:
-        #             yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-        #             yield {"text": "MultiSourceSearchAgent: Time out after 4 minutes", "status": "MultiSourceSearchAgent"}
-        #             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        #             yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
-        #             return
-        #         elif done_count == 1:
-        #             yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-        #             yield {"text": web_search_results_short + "\n\n" + perplexity_results_short + "\n\n" + jina_results_short, "status": "MultiSourceSearchAgent"}
-        #             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        #             yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
-        #             return
-        #     time.sleep(0.5)
-        response = llm(self.combiner_prompt.format(user_query=text, web_search_results=web_search_full_answer+"\n\n"+web_search_results_short, perplexity_search_results=perplexity_full_answer+"\n\n"+perplexity_results_short, jina_search_results=jina_full_answer+"\n\n"+jina_results_short), temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+        response = llm(
+            self.combiner_prompt.format(
+                user_query=text,
+                web_search_results=web_search_results_short,
+                perplexity_search_results=perplexity_results_short,
+                jina_search_results=jina_results_short,
+            ),
+            temperature=temperature,
+            stream=True,
+            max_tokens=max_tokens,
+            system=system,
+        )
 
         yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
         answer = ""
