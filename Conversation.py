@@ -3635,7 +3635,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         answer_content_for_tldr = answer.replace("<answer>", "").strip()
         answer_word_count = len(answer_content_for_tldr.split())
         
-        if answer_word_count > 1000 and model_name != FILLER_MODEL and not self.is_cancelled():
+        if answer_word_count > 1000 and model_name != FILLER_MODEL and not self.is_cancelled() and agent is None:
             yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
             answer += "\n\n---\n\n"
             answer += "<answer_tldr>\n"
