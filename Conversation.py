@@ -1288,17 +1288,17 @@ Give 4 suggestions.
         lock = FileLock(f"{lock_location}.lock")
 
         prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)
+        llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True)
         answer_tldr = extract_user_answer(response, tag="answer_tldr", return_empty_string_if_not_found=True)
-        prompt = get_first_last_parts(prompt, 18000, 10_000)
+        prompt = get_first_last_parts(prompt, 28000, 16_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
 You will also write a very short title for this conversation.
 Write in brief and concise manner.
 
 Your response will be in below xml style format:
-<summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
-<title> {{Very short title for the conversation}} </title>
+<summary> {{Conversation Summary with salient, important and noteworthy aspects and details. Conversation details about the user's query, intent and the direction of the conversation. We will use this summary to generate the next question/response suggestions and help guide intent detection and other AI assistant actions.}} </summary>
+<title> {{Very short title for the conversation. A title that captures the essence of the conversation and the direction of the conversation.}} </title>
 """
         summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
         next_question_suggestions = get_async_future(self.create_next_question_suggestions, query, response, previous_messages_text, previous_summary)
@@ -1350,8 +1350,14 @@ Your response will be in below xml style format:
             
             self.set_next_question_suggestions(next_question_suggestions)
 
-            actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
-            title = summary.split('</title>')[0].split('<title>')[-1]
+            try:
+
+                actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
+                title = summary.split('</title>')[0].split('<title>')[-1]
+            except Exception as e:
+                actual_summary = summary
+                title = "Title parsing failed"
+                logger.error(f"[Conversation] [persist_current_turn] Title parsing failed: {e}")
             
             memory["title_force_set"] = False or memory.get("title_force_set", False)
             if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
@@ -1372,6 +1378,7 @@ Your response will be in below xml style format:
             self.save_local()
             msg_set.result()
             memory_pad.result()
+            time_logger.info(f"[Conversation] [persist_current_turn] Summary length = {len(actual_summary.split())}, Title length = {len(title.split())}")
 
     def set_title(self, title):
         memory = self.get_field("memory")
