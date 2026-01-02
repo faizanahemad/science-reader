@@ -179,7 +179,7 @@ class Conversation:
         Returns:
             Formatted string of relevant claims, or empty string if none found.
         """
-        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}, summary_len={len(conversation_summary) if conversation_summary else 0}")
+        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}, summary_len={len(conversation_summary.split()) if conversation_summary else 0}")
         time_logger.info(f"[PKB] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
         
         if not PKB_AVAILABLE:
@@ -259,10 +259,27 @@ class Conversation:
             remaining_slots = max(1, k - len(all_claims))
             time_logger.info(f"[PKB] Auto-search: remaining_slots={remaining_slots}, deliberate_count={deliberate_count}")
             if remaining_slots > 0:
-                # Build enhanced query with conversation context
-                enhanced_query = query
+                # Build an "enhanced" query with conversation context.
+                #
+                # IMPORTANT:
+                # - conversation_summary can be extremely long (10k-100k chars) and will
+                #   destroy retrieval quality + performance.
+                # - it frequently contains hyphenated model names like "Claude-opus-4.5"
+                #   which can trigger SQLite FTS5 parser issues (e.g. "no such column: opus")
+                #   depending on the FTS query construction in the PKB module.
+                #
+                # So we cap and lightly normalize the summary before including it.
+                enhanced_query = query or ""
                 if conversation_summary:
-                    enhanced_query = f"{conversation_summary}\n\nCurrent query: {query}"
+                    max_summary_chars = 4000
+                    summary = conversation_summary.strip()
+                    if len(summary) > max_summary_chars:
+                        # Prefer the tail: it tends to include the most recent topic.
+                        summary = summary[-max_summary_chars:]
+                        time_logger.info(f"[PKB] Truncated conversation_summary for PKB search to last {max_summary_chars} chars")
+                    # Normalize dashes/colons to reduce FTS5 parser surprises in some environments.
+                    summary = summary.replace("—", " ").replace("–", " ").replace("-", " ").replace(":", " ")
+                    enhanced_query = f"{summary}\n\nCurrent query: {query}"
                 
                 time_logger.info(f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'")
                 result = api.search(enhanced_query, strategy='hybrid', k=remaining_slots + 5)  # Get extra for dedup
