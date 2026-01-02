@@ -74,6 +74,19 @@ class PKBConfig:
         Returns:
             Fully resolved absolute path to database file.
         """
+        # Special-case SQLite in-memory DB identifiers.
+        #
+        # IMPORTANT:
+        # - sqlite3 treats ':memory:' specially *only* if it is passed verbatim.
+        # - Converting it to an absolute path (e.g. '/.../:memory:') turns it into a
+        #   normal on-disk file, which can lead to confusing behavior (stale schema,
+        #   cross-test contamination, etc.).
+        if self.db_path == ":memory:":
+            return ":memory:"
+        # Keep SQLite URI paths as-is; PKBDatabase.connect will enable uri=True.
+        if self.db_path.startswith("file:"):
+            return self.db_path
+
         return os.path.abspath(os.path.expanduser(os.path.expandvars(self.db_path)))
     
     def to_dict(self) -> Dict[str, Any]:

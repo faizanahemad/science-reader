@@ -73,10 +73,13 @@ class PKBDatabase:
                 os.makedirs(db_dir, exist_ok=True)
             
             # Connect with row factory for dict-like access
+            # Enable SQLite URI mode when db_path is a URI (e.g. file::memory:?cache=shared)
+            use_uri = bool(self.db_path.startswith("file:"))
             self._conn = sqlite3.connect(
                 self.db_path,
                 check_same_thread=False,  # Allow multi-threaded access
-                timeout=30.0  # Wait up to 30s for locks
+                timeout=30.0,  # Wait up to 30s for locks
+                uri=use_uri
             )
             self._conn.row_factory = sqlite3.Row
             
