@@ -88,6 +88,9 @@ def get_pkb_database():
 
 
 class Conversation:
+    # Lock key types used for field-specific locking
+    LOCK_KEYS = ("", "all", "message_operations", "memory", "messages", "uploaded_documents_list")
+    
     def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:
         self.conversation_id = conversation_id
         self.user_id = user_id
@@ -355,7 +358,7 @@ class Conversation:
 
     def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
         # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
-        prompt = f"""You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.
+        prompt = f"""You are an information extractor. You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.
 
 Previous messages: '''{previous_messages}'''
 
@@ -373,29 +376,30 @@ Response: '''{responseText}'''
 
 ---
 
-Only add new details, facts, numbers, metrics, short summarised code, from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
-Also extract user preference and behavior and goals, and any other information that will be useful to the user later.
-Refrain from adding any information that is already present in the older memory. If new information overwrites or contradicts older information then prefer the new information in User Query or Response.
-Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
-Write the new extracted information below in bullet points.
+Important Guidelines:
+- Only add new details, facts, numbers, metrics, short summarised code, from the user query and system response that the older memory does not have in a compact and brief manner while capturing all information.
+- Also extract user preference and behavior and goals, and any other information that will be useful to the user later.
+- Refrain from adding any information that is already present in the older memory. If new information overwrites or contradicts older information then prefer the new information in User Query or Response.
+- Extract only new important details, facts, numbers, metrics from the user query and system response that older memory does not possess. Only write the extracted information in simple bullet points.
+- Do not try to respond to the user query or the system response. Only extract the information.
+- Write the new extracted information below in bullet points.
 
-Write new information below in bullet points.
-
+Write new information below in bullet points below:
 """
         llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
-        new_memory = llm(prompt, temperature=0.2, stream=False)
+        new_memory = llm(prompt, temperature=0.2, stream=False, system="You are an information extractor. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.")
         new_memory = re.sub(r'\n+', '\n', new_memory)
         self.memory_pad += ("\n" + new_memory)
         # remove double \n
         memory_parts = self.memory_pad.split("\n")
 
-        if len(self.memory_pad.split()) > 12000 and len(memory_parts) > 128:
-            # split menmory pad into 8 equal parts using \n separator and then merging them back
+        while len(self.memory_pad.split()) > 12000 or len(memory_parts) > 128:
+            # split memory pad into 8 equal parts using \n separator and then merging them back
 
             part_size = len(memory_parts)//8
             memory_parts = [memory_parts[i: part_size * (i//part_size + 1)] for i in range(0, len(memory_parts), part_size)]
             memory_parts = ["\n".join(mp) for mp in memory_parts]
-            shorten_prompt = """You are given important factual information from two sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points.
+            shorten_prompt = """You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points.
 The information is as follows:
 First source of information:
 {}
@@ -403,23 +407,34 @@ First source of information:
 Second source of information:
 {}
 
-Now merge the two sources of information into a single compact list of bullet points. Merge any similar information and also remove any redundant information. Write compactly and in a brief manner while capturing all information.
+Third source of information:
+{}
+
+Fourth source of information:
+{}
+
+Now merge the four sources of information into a single compact list of bullet points. Merge any similar information and also remove any redundant information. Write compactly and in a brief manner while capturing all information.
 Compact list of bullet points:
 """
 
+            system = """You are an information merger and compaction agent who takes multiple sources of information and merges them into a single compact list of bullet points. You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points. You will remove any redundant information and merge any similar information. You will write compactly and in a brief manner while capturing the information."""
             memory_parts_futures = []
-            for i in range(0, len(memory_parts), 2):
+            for i in range(0, len(memory_parts), 4):
                 llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
-                if i + 1 < len(memory_parts):
-                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1]), temperature=0.2, stream=False))
+                if i + 3 < len(memory_parts):
+                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], memory_parts[i+2], memory_parts[i+3]), temperature=0.2, stream=False, system=system))
+                elif i + 2 < len(memory_parts):
+                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], memory_parts[i+2], ""), temperature=0.2, stream=False, system=system))
+                elif i + 1 < len(memory_parts):
+                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], "", ""), temperature=0.2, stream=False, system=system))
                 else:
-                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], ""), temperature=0.2, stream=False))
+                    memory_parts_futures.append(wrap_in_future("\n".join(memory_parts[i:])))
 
             memory_parts = [sleep_and_get_future_result(mp) for mp in memory_parts_futures]
             memory_pad = "\n".join(memory_parts)
             memory_pad = re.sub(r'\n+', '\n', memory_pad)
             self.memory_pad = memory_pad
-        time_logger.info(f"Memory pad updated with new memory , with length = {len(self.memory_pad.split())}")
+        time_logger.info(f"[Conversation] [add_to_memory_pad_from_response] Memory pad updated with new memory , with length = {len(self.memory_pad.split())}")
         return self.memory_pad
 
     @property
@@ -1196,20 +1211,68 @@ Give 4 suggestions.
         return lock.is_locked
 
     def check_all_lockfiles(self):
-        lock_status = {
-            "": self.check_lockfile(""),
-            "all": self.check_lockfile("all"),
-            "message_operations": self.check_lockfile("message_operations"),
-            "memory": self.check_lockfile("memory"),
-            "messages": self.check_lockfile("messages"),
-            "uploaded_documents_list": self.check_lockfile("uploaded_documents_list")
-        }
-        
+        lock_status = {key: self.check_lockfile(key) for key in self.LOCK_KEYS}
         any_lock_acquired = any(lock_status.values())
-        
         return {
             "any_lock_acquired": any_lock_acquired,
             "lock_status": lock_status
+        }
+
+    def force_clear_all_locks(self):
+        """Force delete all lock files for this conversation.
+        Returns dict with list of cleared locks.
+        """
+        cleared = []
+        for key in self.LOCK_KEYS:
+            lock_location = self._get_lock_location(key)
+            lock_path = f"{lock_location}.lock"
+            if os.path.exists(lock_path):
+                try:
+                    os.remove(lock_path)
+                    cleared.append(f"{self.conversation_id}_{key}.lock" if key else f"{self.conversation_id}_.lock")
+                except Exception as e:
+                    print(f"Error clearing lock {lock_path}: {e}")
+        return {"cleared": cleared, "count": len(cleared)}
+
+    def get_stale_locks(self, age_threshold=600):
+        """Find locks that have been held longer than age_threshold seconds.
+        Returns list of stale lock file info.
+        """
+        import time
+        stale_locks = []
+        current_time = time.time()
+        
+        for key in self.LOCK_KEYS:
+            lock_location = self._get_lock_location(key)
+            lock_path = f"{lock_location}.lock"
+            if os.path.exists(lock_path):
+                try:
+                    file_age = current_time - os.path.getmtime(lock_path)
+                    if file_age > age_threshold:
+                        stale_locks.append({
+                            "key": key if key else "(main)",
+                            "file": os.path.basename(lock_path),
+                            "age_seconds": int(file_age),
+                            "path": lock_path
+                        })
+                except Exception as e:
+                    print(f"Error checking lock age {lock_path}: {e}")
+        return stale_locks
+
+    def get_lock_status(self, stale_threshold=600):
+        """Get comprehensive lock status including stale lock detection.
+        Returns dict with lock status, stale locks, and recommendations.
+        """
+        lock_status = self.check_all_lockfiles()
+        stale_locks = self.get_stale_locks(stale_threshold)
+        
+        return {
+            "conversation_id": self.conversation_id,
+            "locks_status": lock_status["lock_status"],
+            "any_locked": lock_status["any_lock_acquired"],
+            "stale_locks": [s["file"] for s in stale_locks],
+            "stale_locks_detail": stale_locks,
+            "can_cleanup": len(stale_locks) > 0 or lock_status["any_lock_acquired"]
         }
     
     @timer
