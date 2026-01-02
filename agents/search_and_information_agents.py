@@ -1629,6 +1629,7 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
         for chunk in response:
             yield {"text": chunk, "status": "MultiSourceSearchAgent"}
             answer += chunk
+        yield {"text": f"\n---\nLength of web search results: {_count_words(web_search_results_short)} words, {len(web_search_results_short)} chars\nLength of perplexity results: {_count_words(perplexity_results_short)} words, {len(perplexity_results_short)} chars\nLength of jina results: {_count_words(jina_results_short)} words, {len(jina_results_short)} chars\n---\n", "status": "MultiSourceSearchAgent"}
         yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
 
 
