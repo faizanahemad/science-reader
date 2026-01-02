@@ -179,7 +179,7 @@ class Conversation:
         Returns:
             Formatted string of relevant claims, or empty string if none found.
         """
-        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}")
+        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}, summary_len={len(conversation_summary) if conversation_summary else 0}")
         time_logger.info(f"[PKB] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
         
         if not PKB_AVAILABLE:
