@@ -285,9 +285,10 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
         yield {"text": '\n\n', "status": "Completed web search with agent"}
         combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
         yield {"text": '<web_answer>', "status": "Completed web search with agent"}
+        combined_answer = ""
         for text in combined_response:
             yield {"text": text, "status": "Completed web search with agent"}
-            answer += text
+            combined_answer += text
         # Emit lightweight stats right before closing the tag so it appears at the end of the streamed answer.
         urls = _extract_urls(web_search_results)
         max_urls_to_show = 40
@@ -304,7 +305,7 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
             "\n\n## Web search stats\n"
             f"- **Visited links**: {len(urls)}\n"
             f"- **Combiner input size (`web_search_results`)**: {_count_words(web_search_results)} words, {len(web_search_results)} chars\n"
-            f"- **Combined answer length**: {_count_words(answer)} words\n"
+            f"- **Combined answer length**: {_count_words(combined_answer)} words\n"
             f"{urls_md}\n"
         )
         yield {"text": stats_md, "status": "Completed web search with agent"}
