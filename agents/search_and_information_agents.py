@@ -1635,6 +1635,8 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
 
+        logger.info(f"MultiSourceSearchAgent: Now calling combiner LLM... Headless mode: {self.headless}, show_intermediate_results: {self.show_intermediate_results}")
+
         if not self.headless:
 
             response = llm(
@@ -1692,9 +1694,7 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             yield {"text": stats_md, "status": "MultiSourceSearchAgent"}
         else:
             # If the futures timed out or returned nothing, yield what we got so far
-            yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
             yield {"text": str(web_search_results_short or "") + "\n\n" + str(perplexity_results_short or "") + "\n\n" + str(jina_results_short or ""), "status": "MultiSourceSearchAgent"}
-        yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
 
 
 class JinaDeepResearchAgent(Agent):
