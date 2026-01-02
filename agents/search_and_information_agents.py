@@ -1094,9 +1094,10 @@ Please provide an answer for this modified scenario."""
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False):
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False, no_intermediate_llm=False):
         super().__init__(keys, model_name, detail_level, timeout, headless=headless)
         self.num_queries = num_queries
+        self.no_intermediate_llm = no_intermediate_llm
         self.perplexity_models = [
             
             "perplexity/sonar-pro",
@@ -1230,8 +1231,8 @@ Please use the given search results to answer the user's query while combining i
     
 
 class JinaSearchAgent(PerplexitySearchAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False):
-        super().__init__(keys, model_name, detail_level, timeout, num_queries, headless=headless)
+    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False, no_intermediate_llm=False):
+        super().__init__(keys, model_name, detail_level, timeout, num_queries, headless=headless, no_intermediate_llm=no_intermediate_llm)
         self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
         assert self.jina_api_key, "No Jina API key found. Please set JINA_API_KEY environment variable."
         # Default was quite aggressive and causes large latency at detail_level=1.
@@ -1526,9 +1527,9 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
 
     
     def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        web_search_agent = WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, headless=True)
-        perplexity_search_agent = PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True)
-        jina_search_agent = JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True)
+        web_search_agent = WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, headless=True, no_intermediate_llm=True)
+        perplexity_search_agent = PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True, no_intermediate_llm=True)
+        jina_search_agent = JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True, no_intermediate_llm=True)
         
         web_search_results = get_async_future(extract_answer, web_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
         perplexity_results = get_async_future(extract_answer, perplexity_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
@@ -1695,6 +1696,474 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
         else:
             # If the futures timed out or returned nothing, yield what we got so far
             yield {"text": str(web_search_results_short or "") + "\n\n" + str(perplexity_results_short or "") + "\n\n" + str(jina_results_short or ""), "status": "MultiSourceSearchAgent"}
+
+
+class InterleavedWebSearchAgent(Agent):
+    """
+    Interleaved web-search agent: supports iterative search→answer→search→answer loops.
+
+    ## Requirements / Why this exists
+    The existing agents (`WebSearchWithAgent`, `PerplexitySearchAgent`, `JinaSearchAgent`, `MultiSourceSearchAgent`)
+    do a single, non-interleaved pass:
+    1) generate queries (or accept provided query-context tuples)
+    2) fetch search results
+    3) run a combiner LLM to write the final answer
+
+    This is a mismatch for tasks that benefit from *multi-hop* reasoning where the assistant should:
+    - start answering with partial info
+    - notice gaps / sub-questions / missing citations
+    - run a follow-up search based on the partial answer
+    - continue the answer with the new evidence
+
+    `InterleavedWebSearchAgent` implements that loop with configurable steps and sources, while streaming only the
+    evolving answer (optionally hiding intermediate query planning and raw results).
+
+    ## Architecture (high level)
+    Inputs:
+    - `text`: user's query + conversation context (same convention as other agents)
+    - `interleave_steps`: number of search/answer cycles
+    - `sources`: which existing search agents to use for each step (web/perplexity/jina), configurable
+    - `num_queries_per_step`: how many follow-up queries to plan at each step
+    - `show_intermediate_results`: if True, yields collapsible query/result blocks per step; otherwise only yields answer
+
+    Loop per step:
+    1) **Query planner LLM** proposes a list of `(query, context)` tuples (Python list literal inside ```python ... ```).
+    2) For each configured source agent:
+       - run in `headless=True` mode so we can capture results without nested UI wrappers
+       - pass the planner's list literal *as a code block* appended to the text so the agent uses it directly
+    3) **Answer LLM** streams an "answer continuation" using:
+       - original user `text`
+       - `answer_so_far`
+       - the new search results from this step
+       The streamed tokens are yielded immediately.
+
+    ## Prompt caching strategy
+    True provider-side prompt caching depends on the LLM backend. This class maximizes cacheability by:
+    - keeping a stable prompt prefix and only *appending* new sections each step (answer + new evidence)
+    - avoiding reformatting earlier parts between steps
+    This allows any backend that caches prompt prefixes to reuse them effectively.
+    """
+
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level: int = 2,
+        timeout: int = 90,
+        interleave_steps: int = 3,
+        min_interleave_steps: int = 2,
+        num_queries_per_step: int = 3,
+        sources: List[str] = None,
+        min_successful_sources: int = 2,
+        show_intermediate_results: bool = False,
+        headless: bool = False,
+        planner_model_name: str = None,
+        max_sources_chars: int = 60_000,
+    ):
+        """
+        Args:
+            keys: Credentials dictionary.
+            model_name: Model for answer writing (streaming).
+            detail_level: Rough depth knob; used to set sub-agent detail level.
+            timeout: Timeout passed to search sub-agents.
+            interleave_steps: Number of search→answer cycles.
+            min_interleave_steps: Minimum number of interleave steps to run before allowing early-stop sentinels.
+            num_queries_per_step: Number of (query, context) tuples per cycle.
+            sources: List of source identifiers: "web", "perplexity", "jina".
+            min_successful_sources: Stop waiting for more sources once this many sources returned non-empty results.
+            show_intermediate_results: If True, yields collapsible planner/output per step.
+            headless: If True, does not wrap output in <web_answer> tags.
+            planner_model_name: Optional separate model for query planning.
+            max_sources_chars: Truncation limit for accumulated evidence in the answer prompt.
+        """
+        super().__init__(keys)
+        self.keys = keys
+        self.model_name = model_name
+        self.planner_model_name = planner_model_name or model_name
+        self.detail_level = detail_level
+        self.timeout = timeout
+        self.interleave_steps = max(1, int(interleave_steps))
+        self.min_interleave_steps = max(1, int(min_interleave_steps))
+        # Ensure min_interleave_steps does not exceed total configured steps.
+        self.min_interleave_steps = min(self.min_interleave_steps, self.interleave_steps)
+        self.num_queries_per_step = max(1, int(num_queries_per_step))
+        self.sources = sources or ["web", "perplexity", "jina"]
+        self.min_successful_sources = max(1, int(min_successful_sources))
+        self.show_intermediate_results = show_intermediate_results
+        self.headless = headless
+        self.max_sources_chars = max_sources_chars
+
+        # Sentinels for early stopping interleaving.
+        # - Planner sentinel is returned as a special tuple in the planned query list.
+        # - Answer sentinel is a special token emitted by the answering LLM (and filtered from user-visible output).
+        self.planner_done_sentinel = "__INTERLEAVE_DONE__"
+        self.answer_done_sentinel = "<INTERLEAVE_DONE/>"
+
+        self.query_planner_prompt = f"""
+You are an expert research assistant. You will propose follow-up web search queries to refine and complete an answer.
+
+Goal: propose the *next* set of search queries needed to continue answering the user's request.
+
+Constraints:
+- Output MUST be a Python list of tuples: [(query, context), ...]
+- Each tuple has:
+  - query: a concise search query string
+  - context: a short description of what we want from that query and why
+- Generate exactly {self.num_queries_per_step} tuples.
+- Keep queries diverse and non-overlapping; prioritize missing citations, missing sub-answers, or ambiguous claims.
+- If you are highly confident (very high confidence) that NO further searching is needed to answer well,
+  output the following sentinel *as the ONLY item*:
+  ```python
+  [("{self.planner_done_sentinel}", "HIGH_CONFIDENCE: reason why no more search is needed")]
+  ```
+
+User request / conversation context:
+<context>
+{{text}}
+</context>
+
+Current answer-so-far (may be empty):
+<answer_so_far>
+{{answer_so_far}}
+</answer_so_far>
+
+Now output ONLY a single python code block with the list of {self.num_queries_per_step} tuples:
+```python
+[(query, context), (...), ...]
+```
+""".strip()
+
+        # NOTE on prompt caching:
+        # We intentionally avoid re-formatting / re-inserting {answer_so_far} and {evidence} into the middle of a prompt
+        # each step, because that invalidates provider-side prompt prefix caching for everything after the insertion point.
+        #
+        # Instead, we keep a stable prompt prefix and append a single "Step block" each iteration:
+        #   - Evidence for this step
+        #   - Answer continuation for this step
+        #
+        # We then call the answer LLM with:
+        #   stable_prefix + rolling_history + current_step_block_prefix
+        #
+        # Where current_step_block_prefix ends with "### Answer\n" so the model continues from there. This keeps all prior
+        # content byte-for-byte identical across steps (maximizing cache hit rates in backends that support it).
+        self.answer_prompt_prefix = """
+You are a helpful assistant writing a single cohesive answer over multiple iterations.
+
+Rules:
+- Only CONTINUE the answer; do not restart from scratch.
+- Do not repeat earlier content unless needed to correct a contradiction.
+- Use the newest evidence to add missing details and include citations/links inline when possible.
+- Keep a consistent voice and structure across steps.
+- If (and only if) you are highly confident (very high confidence) the answer is complete and no further web searching
+  is needed, end your continuation with the exact sentinel token: <INTERLEAVE_DONE/>
+  Otherwise do NOT emit that sentinel.
+
+User request / conversation context:
+<context>
+{text}
+</context>
+""".strip()
+
+        self.answer_step_block_template = """
+
+---
+## Interleave step {step_idx}
+
+### Evidence
+{evidence}
+
+### Answer
+""".lstrip("\n")
+
+    def _extract_list_literal_from_codeblock(self, code_string: str) -> str:
+        """
+        Extract a Python list literal from a markdown code block.
+
+        Returns:
+            A string containing the list literal (e.g. "[('q','c'), ...]") or "" if not found.
+        """
+        if not code_string:
+            return ""
+        regex = r"```(?:\w+)?\s*(.*?)```"
+        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        if not matches:
+            return ""
+        # Prefer the last bracketed list block.
+        candidates = []
+        for m in matches:
+            s = m.strip()
+            if s.startswith("[") and s.endswith("]") and s != "[]":
+                candidates.append(s)
+        return candidates[-1].strip() if candidates else matches[-1].strip()
+
+    def _parse_query_contexts(self, planner_response: str) -> List[tuple]:
+        """
+        Parse a planner LLM response into a list of (query, context) tuples.
+        """
+        list_literal = self._extract_list_literal_from_codeblock(planner_response)
+        if not list_literal:
+            return []
+        try:
+            import ast
+            parsed = ast.literal_eval(list_literal)
+        except Exception:
+            logger.error(f"InterleavedWebSearchAgent: failed parsing planner output. Raw: {planner_response[:500]}")
+            return []
+        if not isinstance(parsed, list):
+            return []
+        out = []
+        for item in parsed:
+            if not (isinstance(item, tuple) and len(item) == 2):
+                continue
+            q, c = item
+            if not (isinstance(q, str) and isinstance(c, str)):
+                continue
+            q = q.strip()
+            c = c.strip()
+            if not q:
+                continue
+            out.append((q, c))
+        return out
+
+    def _format_query_contexts_codeblock(self, query_contexts: List[tuple]) -> str:
+        """
+        Format planned (query, context) tuples as a readable markdown ```python code block.
+
+        Requirements:
+        - Triple ticks
+        - Newline before and after the block
+        - Newline immediately after ```python
+        """
+        if not query_contexts:
+            return "\n\n```python\n[]\n```\n\n"
+        lines = ["["]
+        for q, c in query_contexts:
+            lines.append(f"  ({q!r}, {c!r}),")
+        lines.append("]")
+        body = "\n".join(lines)
+        return f"\n\n```python\n{body}\n```\n\n"
+
+    def _planner_indicates_done(self, query_contexts: List[tuple], planner_response: str = "") -> bool:
+        """
+        Decide whether the planner signaled completion.
+
+        We primarily rely on the explicit sentinel tuple, but also allow a raw sentinel substring
+        in case the LLM formatting deviates slightly.
+        """
+        if planner_response and self.planner_done_sentinel in planner_response:
+            return True
+        for q, _c in query_contexts or []:
+            if str(q).strip() == self.planner_done_sentinel:
+                return True
+        return False
+
+    def _make_headless_source_agent(self, source: str):
+        """
+        Factory for creating a headless search agent by source name.
+
+        Returns:
+            Agent instance.
+        """
+        sub_detail = 1
+        if source == "web":
+            return WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, headless=True, no_intermediate_llm=True)
+        if source == "perplexity":
+            return PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, self.num_queries_per_step, headless=True, no_intermediate_llm=True)
+        if source == "jina":
+            return JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, self.num_queries_per_step, headless=True, no_intermediate_llm=True)
+        raise ValueError(f"Unknown source '{source}'. Expected one of: web, perplexity, jina.")
+
+    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+        """
+        Stream an answer that is refined over multiple search/answer interleaves.
+
+        Notes:
+        - `stream` controls streaming of the *answer* model; search sources run headless and are collected per step.
+        - If `self.headless` is False, wraps the whole output inside <web_answer> tags.
+        """
+        planner_llm = CallLLm(self.keys, model_name=self.planner_model_name)
+        answer_llm = CallLLm(self.keys, model_name=self.model_name)
+
+        answer_so_far = ""
+        # stable_prefix + rolling_history is append-only (cache-friendly).
+        stable_prefix = self.answer_prompt_prefix.format(text=text)
+        rolling_history = ""
+
+        if not self.headless:
+            yield {"text": "<web_answer>", "status": "InterleavedWebSearchAgent"}
+
+        for step_idx in range(self.interleave_steps):
+            step_num = step_idx + 1
+            # 1) Plan follow-up queries
+            planner_prompt = self.query_planner_prompt.format(text=text, answer_so_far=answer_so_far)
+            planner_response = planner_llm(planner_prompt, images=[], temperature=0.2, stream=False, max_tokens=None, system=system)
+            query_contexts = self._parse_query_contexts(planner_response)
+
+            # Early stop via planner sentinel:
+            # - If we already have some answer, stop immediately (no more searching/answering needed).
+            # - If we have no answer yet, fall through and allow the answer LLM to produce the initial answer
+            #   (it may itself emit the answer sentinel to end after the first step).
+            if (
+                step_num >= self.min_interleave_steps
+                and self._planner_indicates_done(query_contexts, planner_response)
+                and answer_so_far.strip()
+            ):
+                logger.info("InterleavedWebSearchAgent: planner indicated DONE; stopping interleaving early.")
+                break
+
+            # Fallback: if planner fails, do not hard-fail the whole answer; proceed without evidence.
+            if not query_contexts:
+                logger.error("InterleavedWebSearchAgent: planner returned no valid queries; proceeding without new evidence.")
+
+            query_block = ""
+            if query_contexts:
+                # Keep the injected block compact (the downstream agents parse the list literal).
+                query_block = "```python\n" + str(query_contexts) + "\n```"
+
+            # Always yield planned queries as a plain triple-tick python code block for observability.
+            # (This stays stable across the step and is useful for debugging/quality evaluation.)
+            if query_contexts:
+                yield {"text": self._format_query_contexts_codeblock(query_contexts), "status": "InterleavedWebSearchAgent"}
+            elif self.show_intermediate_results:
+                yield {"text": self._format_query_contexts_codeblock([]), "status": "InterleavedWebSearchAgent"}
+
+            # 2) Run configured sources concurrently, headless, using the planned query-context tuples
+            evidence_chunks = []
+            if query_contexts:
+                search_text = f"{text}\n\n{query_block}\n"
+                from concurrent.futures import wait, FIRST_COMPLETED
+
+                futures = []
+                for source in self.sources:
+                    try:
+                        agent = self._make_headless_source_agent(source)
+                    except Exception as e:
+                        logger.error(f"InterleavedWebSearchAgent: failed creating source agent '{source}': {e}")
+                        continue
+                    futures.append(
+                        (source, get_async_future(extract_answer, agent, search_text, images, temperature, stream, max_tokens, system, web_search))
+                    )
+
+                # Collect results and short-circuit once enough sources succeeded.
+                futures_map = {fut: source for source, fut in futures}
+                pending = set(futures_map.keys())
+                successes = 0
+                # Don't require more successes than sources we actually launched.
+                target_successes = min(self.min_successful_sources, len(pending)) if pending else 0
+
+                start_wait = time.time()
+                total_timeout = self.timeout + 30
+                while pending and (time.time() - start_wait) < total_timeout and successes < target_successes:
+                    done, pending = wait(pending, timeout=2, return_when=FIRST_COMPLETED)
+                    for fut in done:
+                        source = futures_map.get(fut, "unknown")
+                        try:
+                            short_answer, _full = fut.result(timeout=1)
+                            if str(short_answer).strip():
+                                evidence_chunks.append(f"### Source: {source}\n{short_answer}")
+                                successes += 1
+                        except Exception as e:
+                            logger.error(f"InterleavedWebSearchAgent: source '{source}' failed: {e}")
+
+                # Optionally pick up any done futures left (without waiting further), so we don't waste already-computed work.
+                if pending:
+                    done_now, pending = wait(pending, timeout=0, return_when=FIRST_COMPLETED)
+                    for fut in done_now:
+                        source = futures_map.get(fut, "unknown")
+                        try:
+                            short_answer, _full = fut.result(timeout=0)
+                            if str(short_answer).strip():
+                                evidence_chunks.append(f"### Source: {source}\n{short_answer}")
+                        except Exception:
+                            pass
+
+            evidence = "\n\n".join(evidence_chunks).strip()
+
+            if self.show_intermediate_results and evidence:
+                yield {
+                    "text": convert_stream_to_iterable(
+                        collapsible_wrapper(
+                            evidence,
+                            header=f"Interleave step {step_idx + 1}: evidence",
+                            show_initially=False,
+                            add_close_button=True,
+                        )
+                    )
+                    + "\n\n",
+                    "status": "InterleavedWebSearchAgent",
+                }
+
+            # 3) Append-only prompt assembly (cache-friendly)
+            # We append a single block per step; previous blocks stay unchanged.
+            evidence_for_prompt = evidence.strip() if evidence.strip() else "_No new evidence for this step._"
+            step_block_prefix = self.answer_step_block_template.format(step_idx=step_num, evidence=evidence_for_prompt)
+
+            # Truncate rolling history if needed (keep the tail). We keep the stable_prefix intact.
+            if self.max_sources_chars and len(rolling_history) > self.max_sources_chars:
+                rolling_history = rolling_history[-self.max_sources_chars :]
+
+            step_prompt = stable_prefix + rolling_history + step_block_prefix
+
+            # 4) Stream continuation and update answer_so_far + rolling_history
+            continuation = ""
+            # We filter the answer sentinel so it never appears to the user. Because streaming chunks may split the
+            # sentinel across boundaries, we keep a small lookbehind buffer and delay output slightly.
+            done_detected = False
+            carry = ""
+            response_stream = answer_llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+            for chunk in response_stream:
+                # `CallLLm` may yield strings or dict-like; convert defensively.
+                s = str(chunk)
+                continuation += s
+
+                combined = carry + s
+                sentinel_idx = combined.find(self.answer_done_sentinel)
+                if sentinel_idx != -1:
+                    # Emit text before sentinel, drop sentinel and everything after it.
+                    before = combined[:sentinel_idx]
+                    if before:
+                        yield {"text": before, "status": "InterleavedWebSearchAgent"}
+                    done_detected = True
+                    carry = ""
+                    break
+
+                # No sentinel found. Emit everything except the last N chars (keep for boundary detection).
+                keep = max(len(self.answer_done_sentinel) - 1, 0)
+                if keep == 0:
+                    yield {"text": combined, "status": "InterleavedWebSearchAgent"}
+                    carry = ""
+                else:
+                    if len(combined) > keep:
+                        emit = combined[:-keep]
+                        if emit:
+                            yield {"text": emit, "status": "InterleavedWebSearchAgent"}
+                        carry = combined[-keep:]
+                    else:
+                        carry = combined
+
+            # Flush remaining carry if we didn't detect sentinel.
+            if carry and not done_detected:
+                yield {"text": carry, "status": "InterleavedWebSearchAgent"}
+                carry = ""
+
+            # Append a separator between steps to avoid accidental sentence smashing.
+            # If sentinel was detected, strip it from continuation so it doesn't enter state/history.
+            if self.answer_done_sentinel in continuation:
+                continuation = continuation.split(self.answer_done_sentinel, 1)[0]
+
+            if continuation and not continuation.endswith("\n"):
+                continuation += "\n"
+
+            answer_so_far = (answer_so_far + continuation).strip() + "\n"
+            rolling_history = rolling_history + step_block_prefix + continuation
+
+            # Early stop via answer sentinel.
+            if done_detected and step_num >= self.min_interleave_steps:
+                logger.info("InterleavedWebSearchAgent: answer model emitted DONE sentinel; stopping interleaving early.")
+                break
+
+        if not self.headless:
+            yield {"text": "</web_answer>", "status": "InterleavedWebSearchAgent"}
 
 
 class JinaDeepResearchAgent(Agent):

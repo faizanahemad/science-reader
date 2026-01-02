@@ -6,7 +6,7 @@ import shutil
 from textwrap import dedent
 
 import yaml
-from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent
+from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent, InterleavedWebSearchAgent
 from call_llm import MockCallLLm
 from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt, tldr_summary_prompt_system
 from filelock import FileLock
@@ -2245,6 +2245,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             agent = InstructionFollowingAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
         if field == "JinaSearchAgent":
             agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
+        if field == "InterleavedWebSearchAgent":
+            agent = InterleavedWebSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120, num_queries_per_step=kwargs.get("num_queries_per_step", 3), interleave_steps=kwargs.get("interleave_steps", 3), sources=kwargs.get("sources", ["web", "perplexity", "jina"]), show_intermediate_results=kwargs.get("show_intermediate_results", False), headless=kwargs.get("headless", False))
         if field == "JinaDeepResearchAgent":
             agent = JinaDeepResearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=180, num_queries=kwargs.get("num_queries", 1))
         if field == "PerplexitySearch":
