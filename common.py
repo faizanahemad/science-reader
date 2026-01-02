@@ -62,6 +62,8 @@ UNUSED_EXPENSIVE_LLM =  ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
                  "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder-plus", "qwen/qwen3-coder", "openai/gpt-5", "x-ai/grok-3",]
 
+OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
+
 
 CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "openai/gpt-5-mini", "gpt-4.1-mini", "x-ai/grok-4-fast", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
 LONG_CONTEXT_LLM = ["google/gemini-2.5-pro", "google/gemini-pro-1.5", "google/gemini-2.5-pro-preview", "minimax/minimax-m1"]
@@ -546,7 +548,7 @@ def check_page_status(url):
     
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.ERROR, logging.ERROR, logging.INFO)
 
 from converters import convert_html_to_pdf
 
@@ -687,7 +689,7 @@ def timer(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, {('result length:' + str(len(result))) if hasattr(result, '__len__') and isinstance(result, str) else ''}")
+        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, {('result length:' + str(len(result.split()))) if hasattr(result, '__len__') and isinstance(result, str) else ''}")
         return result
     return wrapper
 
