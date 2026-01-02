@@ -1879,7 +1879,7 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
         time_logger.debug(
             f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
         query_vs_results_count[r.get("query", "")] += 1
-    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results. {f'Query strings: {query_strings}' if len(total_count) == 0 else ''} and source counts: {source_count}")
+    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results. {f'Query strings: {query_strings}' if total_count == 0 else ''} and source counts: {source_count}")
     yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
 
 
