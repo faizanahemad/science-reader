@@ -2252,7 +2252,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if field == "WebSearch":
             agent = WebSearchWithAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "MultiSourceSearch":
-            agent = MultiSourceSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
+            agent = MultiSourceSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
         if field == "LiteratureReview":
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
         if field == "BroadSearch":
