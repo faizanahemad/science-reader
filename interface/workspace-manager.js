@@ -606,7 +606,9 @@ var WorkspaceManager = {
         });
         
         // Conversation click handlers (using event delegation)
-        $(document).off('click', '.conversation-item').on('click', '.conversation-item', function(e) {
+        // On mobile, some browsers/containers behave more reliably with touchend than click,
+        // so we handle both and keep the logic idempotent.
+        $(document).off('click touchend', '.conversation-item').on('click touchend', '.conversation-item', function(e) {
             if ($(e.target).closest('button').length) return;
             
             // Allow native "open in new tab/window" behaviors:
@@ -621,21 +623,25 @@ var WorkspaceManager = {
 
             const conversationId = $(this).data('conversation-id');
 
+            // Mobile UX: close sidebar immediately on any conversation selection.
+            // (Hide-only, never toggle.)
+            try {
+                if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+                    var sidebar = $('#chat-assistant-sidebar');
+                    var contentCol = $('#chat-assistant');
+                    if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                        sidebar.addClass('d-none');
+                        contentCol.removeClass('col-md-10').addClass('col-md-12');
+                        $(window).trigger('resize');
+                    }
+                }
+            } catch (_e) { /* best-effort */ }
+
             // If user clicked the already-open conversation, don't reload messages.
             // Just close the sidebar on mobile (if it's open) and return.
             try {
                 const currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
                 if (currentActive && String(currentActive) === String(conversationId)) {
-                    if (window.innerWidth < 768) {
-                        // Hide sidebar deterministically (same logic as interface.js toggleSidebar "hide" branch)
-                        var sidebar = $('#chat-assistant-sidebar');
-                        var contentCol = $('#chat-assistant');
-                        if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
-                            sidebar.addClass('d-none');
-                            contentCol.removeClass('col-md-10').addClass('col-md-12');
-                            $(window).trigger('resize');
-                        }
-                    }
                     return;
                 }
             } catch (_e) { /* best-effort */ }
