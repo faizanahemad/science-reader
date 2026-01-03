@@ -2942,3 +2942,29 @@ function adjustCardHeightForSlides(slideWrapper) {
         console.error('Error adjusting card height for slides:', error);
     }
 }
+
+/**
+ * Register the Service Worker for the `/interface/*` UI shell.
+ *
+ * Notes:
+ * - Service Workers require HTTPS (localhost is allowed).
+ * - Scope is intentionally limited to `/interface/` so we do not interfere with API routes.
+ * - Any failures must be non-fatal for the UI.
+ */
+(function registerInterfaceServiceWorker() {
+    try {
+        if (!('serviceWorker' in navigator)) return;
+        var isLocalhost = (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+        if (location.protocol !== 'https:' && !isLocalhost) return;
+
+        navigator.serviceWorker
+            .register('/interface/service-worker.js', { scope: '/interface/' })
+            .catch(function (err) {
+                // Non-fatal: UI should work even if SW registration fails.
+                console.warn('Service Worker registration failed:', err);
+            });
+    } catch (e) {
+        // Non-fatal: never block UI boot.
+        console.warn('Service Worker registration error:', e);
+    }
+})();

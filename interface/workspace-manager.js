@@ -244,7 +244,7 @@ var WorkspaceManager = {
         const flagStyle = hasFlag ? `color: ${flagColor};` : 'color: #6c757d;';
         
         const conversationItem = $(`
-            <a href="#" class="list-group-item list-group-item-action conversation-item" 
+            <a href="/interface/${conversation.conversation_id}" class="list-group-item list-group-item-action conversation-item" 
                data-conversation-id="${conversation.conversation_id}" 
                data-conversation-flag="${conversation.flag || 'none'}"
                draggable="true">
@@ -910,6 +910,18 @@ var WorkspaceManager = {
             top: y + 'px',
             left: x + 'px'
         }).show();
+
+        // Open the conversation in a separate window (PWA multi-window / browser tab).
+        // Important: use the single-segment URL `/interface/<conversation_id>` so relative assets
+        // in `interface/interface.html` resolve correctly.
+        $('#open-conversation-new-window').off('click').on('click', function(e) {
+            e.preventDefault();
+            try {
+                window.open(`/interface/${conversationId}`, '_blank', 'noopener');
+            } finally {
+                menu.hide();
+            }
+        });
         
         // Handle workspace selection
         $('#workspace-submenu a').off('click').on('click', function(e) {

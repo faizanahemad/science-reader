@@ -1,0 +1,25 @@
+{
+  "name": "Science Reader Chat",
+  "short_name": "SciChat",
+  "id": "/interface/",
+  "start_url": "/interface/",
+  "scope": "/interface/",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "icons": [
+    {
+      "src": "/interface/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/interface/icons/maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
+

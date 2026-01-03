@@ -3,6 +3,8 @@
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
+    <link rel="manifest" href="/interface/manifest.json">
+    <meta name="theme-color" content="#0b0f14">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.5/lib/index.umd.js"></script>
@@ -273,6 +275,7 @@
                             <!-- Context Menu for Conversations -->
                             <div id="conversation-context-menu" class="context-menu" style="display: none;">
                                 <ul class="list-unstyled mb-0">
+                                    <li><a href="#" id="open-conversation-new-window"><i class="fa fa-external-link"></i> Open in New Window</a></li>
                                     <li><a href="#" id="move-to-workspace"><i class="fa fa-folder"></i> Move to Workspace</a></li>
                                     <li class="dropdown-submenu">
                                         <a href="#" class="dropdown-toggle"><i class="fa fa-folder-open"></i> Move to...</a>
