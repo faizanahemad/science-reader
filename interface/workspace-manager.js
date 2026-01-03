@@ -77,8 +77,17 @@ var WorkspaceManager = {
 
                 const target = e.target;
                 if (!target || !target.closest) return;
+                
+                // Skip if clicking on buttons (action buttons like clone/delete/flag)
+                if (target.closest('button')) return;
+                
                 const a = target.closest('a.conversation-item');
                 if (!a) return;
+
+                // Debug logging (can be disabled via localStorage)
+                if (localStorage.getItem('DEBUG_CONVERSATION_CLICKS') === 'true') {
+                    console.log('[ConvClick] Intercepted:', e.type, 'target:', target.tagName, 'conversationId:', a.getAttribute('data-conversation-id'));
+                }
 
                 // If some other handler already processed this event, don't double-run.
                 if (e.__conversationItemHandled) return;
@@ -708,6 +717,11 @@ var WorkspaceManager = {
         // NOTE: mobile capture-phase interception is installed in `installMobileConversationInterceptor()`.
         // This handler remains for desktop and as a fallback.
         $(document).off('click touchend', '.conversation-item').on('click touchend', '.conversation-item', function(e) {
+            // Debug logging (can be disabled via localStorage)
+            if (localStorage.getItem('DEBUG_CONVERSATION_CLICKS') === 'true') {
+                console.log('[ConvClick-jQuery] Event:', e.type, 'target:', e.target.tagName, 'button?', $(e.target).closest('button').length > 0, 'handled?', e.__conversationItemHandled);
+            }
+            
             if ($(e.target).closest('button').length) return;
             if (e.__conversationItemHandled) return;
             
@@ -720,6 +734,10 @@ var WorkspaceManager = {
             // Normal tap/click should behave like the old SPA flow (no full page reload).
             e.preventDefault();
             e.stopPropagation();
+            
+            if (localStorage.getItem('DEBUG_CONVERSATION_CLICKS') === 'true') {
+                console.log('[ConvClick-jQuery] preventDefault called, cancelable:', e.cancelable);
+            }
 
             const conversationId = $(this).data('conversation-id');
 
