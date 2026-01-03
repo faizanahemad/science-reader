@@ -127,4 +127,58 @@ To force-update during development (manual):
 - Chrome DevTools → Application → Storage → “Clear site data”
 - Or bump `CACHE_VERSION` in `interface/service-worker.js`.
 
+---
+
+## Current implementation recap (what we changed)
+
+### What the PWA implementation does (today)
+- **Manifest + installability**: `interface/interface.html` links `interface/manifest.json` and sets `theme-color`.
+- **Service Worker**: `interface/service-worker.js`
+  - **Same-origin UI shell** (`/interface/*`, `/static/*`): cached to cut reload cost.
+  - **Navigation** (`/interface`, `/interface/<conversation_id>`): **NetworkFirst**, with offline fallback to cached shell.
+  - **APIs / streaming / uploads**: **not cached** (NetworkOnly by design).
+  - **Selected CDN assets**: cached conservatively for allowlisted hosts with **6-hour TTL** refresh.
+- **Multi-window / stable per-chat URL**: conversation items are real links (`/interface/<conversation_id>`), so the browser/Android can open multiple windows.
+
+### Files changed/added
+- **Added**: `interface/manifest.json`
+- **Added**: `interface/icons/app-icon.svg`
+- **Added**: `interface/icons/maskable-icon.svg`
+- **Added**: `interface/service-worker.js`
+- **Updated**: `interface/common.js` (registers Service Worker)
+- **Updated**: `interface/interface.html` (manifest link + theme-color meta + real `href` links + context menu option)
+- **Updated**: `interface/workspace-manager.js` (conversation links + click interception for SPA behavior)
+- **Updated**: `interface/common-chat.js` (mobile sidebar hide is now deterministic, not toggle)
+- **Updated**: `PWA_ANDROID.md` (this doc)
+
+---
+
+## Rendered-state persistence (ideas; not implemented yet)
+Goal: reduce “reload cost” further by restoring *already-rendered* conversation UI instantly (even if we keep APIs NetworkOnly).
+
+### Option A: client-side snapshot of rendered DOM (per conversation)
+- **What**: After a conversation finishes rendering (including MathJax), store:
+  - `chatView.innerHTML` (or per-message card HTML chunks)
+  - `scrollTop` (and potentially selected tab / UI toggles)
+  - a **schema/version key** tied to UI (`CACHE_VERSION`) so snapshots invalidate cleanly
+- **Where**: IndexedDB (preferred) or localStorage (not great for size).
+- **Restore flow**:
+  - On load of `/interface/<conversation_id>`, immediately inject snapshot into the chat container and set scroll.
+  - In parallel, fetch real conversation history via existing APIs and re-render/refresh if needed (or only refresh if snapshot version mismatches).
+- **Pros**: fastest perceived resume; works offline for already-opened chats.
+- **Cons**: storage bloat, snapshot invalidation is tricky, MathJax/layout reflow can shift scroll, and any UI code change can break old snapshots unless versioned.
+
+### Option B: structured rendered cache (per message)
+- **What**: Instead of whole DOM, store per-message:
+  - message id (if available in data / DOM)
+  - rendered HTML fragment
+  - any metadata needed to rehydrate (collapsed/expanded state, ToC ids, etc.)
+- **Pros**: smaller diffs; easier partial updates.
+- **Cons**: requires stable message identifiers (we’d likely need to derive/store them).
+
+### Option C: “soft resume” (no HTML snapshot)
+- **What**: Store only conversation history JSON + scroll, then run the same render pipeline.
+- **Pros**: simpler and safer than DOM snapshot.
+- **Cons**: still pays the big render cost (MathJax/Marked), which is what you’re trying to avoid.
+
 

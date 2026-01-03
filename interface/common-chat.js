@@ -362,6 +362,24 @@ var ConversationManager = {
     setActiveConversation: function (conversationId) {
         this.activeConversationId = conversationId;
         updateUrlWithConversationId(conversationId);
+
+        // Mobile UX: when selecting a conversation from the sidebar, we want the sidebar to
+        // reliably go away (hide-only), not "toggle" (which can accidentally re-open).
+        function hideSidebarOnMobileIfOpen() {
+            try {
+                if (window.innerWidth >= 768) return;
+                var sidebar = $('#chat-assistant-sidebar');
+                var contentCol = $('#chat-assistant');
+                if (!sidebar.length || !contentCol.length) return;
+                if (sidebar.hasClass('d-none')) return; // already hidden
+                sidebar.addClass('d-none');
+                contentCol.removeClass('col-md-10').addClass('col-md-12');
+                $(window).trigger('resize');
+            } catch (_e) { /* best-effort */ }
+        }
+
+        hideSidebarOnMobileIfOpen();
+
         // Load and render the messages in the active conversation, clear chat view
         ChatManager.listMessages(conversationId).done(function (messages) {
             ChatManager.renderMessages(conversationId, messages, true);
@@ -370,9 +388,7 @@ var ConversationManager = {
             // $(window).scrollTop(0);
             $('#messageText').focus();
             $("#show-sidebar").focus();
-            if (window.innerWidth < 768) { // Only trigger on mobile screens
-                $('#show-sidebar').click();
-            }
+            // Sidebar already hidden deterministically above.
             
 
         });

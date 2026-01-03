@@ -609,7 +609,36 @@ var WorkspaceManager = {
         $(document).off('click', '.conversation-item').on('click', '.conversation-item', function(e) {
             if ($(e.target).closest('button').length) return;
             
+            // Allow native "open in new tab/window" behaviors:
+            // - middle-click
+            // - ctrl/cmd click
+            // - shift/alt modifiers
+            if (e.which === 2 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+            // Normal tap/click should behave like the old SPA flow (no full page reload).
+            e.preventDefault();
+            e.stopPropagation();
+
             const conversationId = $(this).data('conversation-id');
+
+            // If user clicked the already-open conversation, don't reload messages.
+            // Just close the sidebar on mobile (if it's open) and return.
+            try {
+                const currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+                if (currentActive && String(currentActive) === String(conversationId)) {
+                    if (window.innerWidth < 768) {
+                        // Hide sidebar deterministically (same logic as interface.js toggleSidebar "hide" branch)
+                        var sidebar = $('#chat-assistant-sidebar');
+                        var contentCol = $('#chat-assistant');
+                        if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                            sidebar.addClass('d-none');
+                            contentCol.removeClass('col-md-10').addClass('col-md-12');
+                            $(window).trigger('resize');
+                        }
+                    }
+                    return;
+                }
+            } catch (_e) { /* best-effort */ }
             
             // Highlight this conversation immediately
             WorkspaceManager.highlightActiveConversation(conversationId);
