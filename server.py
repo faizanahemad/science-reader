@@ -22,6 +22,13 @@ import sys
 from datetime import timedelta
 from typing import Optional
 
+# Ensure local, sibling modules (e.g. `extensions.py`) are importable even when
+# the server is launched from outside the repo root or imported via a package
+# loader that doesn't put this directory on `sys.path`.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+
 from flask import Flask
 from flask.json.provider import JSONProvider
 from flask_cors import CORS
