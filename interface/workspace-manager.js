@@ -351,8 +351,11 @@ var WorkspaceManager = {
         const flagColor = hasFlag ? conversation.flag : '#6c757d';
         const flagStyle = hasFlag ? `color: ${flagColor};` : 'color: #6c757d;';
         
+        // IMPORTANT (mobile/WebView): do NOT use a real `/interface/<id>` href here.
+        // It can cause native navigation + full reloads, which breaks the desired "close sidebar + SPA switch" UX.
+        // Multi-window is supported via the explicit "Open in New Window" action.
         const conversationItem = $(`
-            <a href="/interface/${conversation.conversation_id}" class="list-group-item list-group-item-action conversation-item" 
+            <a href="#" class="list-group-item list-group-item-action conversation-item" 
                data-conversation-id="${conversation.conversation_id}" 
                data-conversation-flag="${conversation.flag || 'none'}"
                draggable="true">

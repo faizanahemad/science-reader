@@ -360,6 +360,25 @@ var ConversationManager = {
     },
 
     setActiveConversation: function (conversationId) {
+        // Option 3: If user selects the already-active conversation, don't re-fetch/re-render.
+        // Just close the sidebar on mobile and return.
+        try {
+            if (this.activeConversationId && String(this.activeConversationId) === String(conversationId)) {
+                try {
+                    if (window.innerWidth < 768) {
+                        var sidebar = $('#chat-assistant-sidebar');
+                        var contentCol = $('#chat-assistant');
+                        if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                            sidebar.addClass('d-none');
+                            contentCol.removeClass('col-md-10').addClass('col-md-12');
+                            $(window).trigger('resize');
+                        }
+                    }
+                } catch (_e) { /* ignore */ }
+                return;
+            }
+        } catch (_e) { /* ignore */ }
+
         this.activeConversationId = conversationId;
         updateUrlWithConversationId(conversationId);
 
