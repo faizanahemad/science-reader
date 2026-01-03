@@ -11,7 +11,7 @@
 
 const DEBUG = false;
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -47,6 +47,7 @@ const PRECACHE_URLS = [
   // Local JS (referenced by interface/interface.html)
   "/interface/interface/parseMessageForCheckBoxes.js",
   "/interface/interface/common.js",
+  "/interface/interface/rendered-state-manager.js",
   "/interface/interface/gamification.js",
   "/interface/interface/common-chat.js",
   "/interface/interface/markdown-editor.js",

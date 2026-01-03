@@ -1,4 +1,8 @@
 window.katex = katex;
+
+// Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
+// deterministic invalidation of cached UI assets and rendered-state snapshots.
+window.UI_CACHE_VERSION = "v1";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,

@@ -181,4 +181,28 @@ Goal: reduce “reload cost” further by restoring *already-rendered* conversat
 - **Pros**: simpler and safer than DOM snapshot.
 - **Cons**: still pays the big render cost (MathJax/Marked), which is what you’re trying to avoid.
 
+---
+
+## Rendered-state persistence (implemented: IndexedDB DOM snapshot)
+This repo now implements **Option A** (DOM snapshot per conversation) with **versioned invalidation**:
+
+- **New file**: `interface/rendered-state-manager.js`
+  - Saves `#chatView.innerHTML` + `#chatView.scrollTop` + snapshot meta (`lastMessageId`, `messageCount`)
+  - Stored in **IndexedDB** under DB `science-chat-rendered-state`, store `snapshots`
+  - Snapshots are keyed by conversation: `conv:<conversationId>`
+  - Snapshot version is `window.UI_CACHE_VERSION` (see below)
+
+- **Wiring**:
+  - `ConversationManager.setActiveConversation()` now:
+    - Restores snapshot first (instant paint)
+    - Fetches messages via `/list_messages_by_conversation/<id>` (still NetworkOnly)
+    - Skips expensive re-render if last message id + count match the snapshot meta
+  - `ChatManager.renderMessages()` schedules debounced snapshot saves after renders
+
+### Versioned invalidation (how to avoid stale snapshots)
+- Bump **one constant**:
+  - `window.UI_CACHE_VERSION` in `interface/common.js`
+  - (Recommended: keep it aligned with `CACHE_VERSION` in `interface/service-worker.js`)
+- When the version changes, old snapshots are ignored (and best-effort deleted).
+
 

@@ -380,18 +380,46 @@ var ConversationManager = {
 
         hideSidebarOnMobileIfOpen();
 
-        // Load and render the messages in the active conversation, clear chat view
-        ChatManager.listMessages(conversationId).done(function (messages) {
-            ChatManager.renderMessages(conversationId, messages, true);
-            // REMOVED: Auto-scroll to top when loading conversation - was interrupting user reading
-            // $(document).scrollTop(0);
-            // $(window).scrollTop(0);
+        // Rendered-state persistence:
+        // - Try to restore a DOM snapshot for instant paint.
+        // - Fetch messages from API (NetworkOnly) and only re-render if conversation changed
+        //   compared to snapshot meta (last message id + count).
+        var restorePromise = null;
+        try {
+            restorePromise = (window.RenderedStateManager && window.RenderedStateManager.restore)
+                ? window.RenderedStateManager.restore(conversationId)
+                : null;
+        } catch (_e) { restorePromise = null; }
+
+        if (!restorePromise) {
+            restorePromise = $.Deferred().resolve(null).promise();
+        }
+
+        var messagesRequest = ChatManager.listMessages(conversationId);
+
+        $.when(restorePromise, messagesRequest).done(function (snapshotMeta, messages) {
+            // jQuery.ajax returns [data, statusText, jqXHR] when combined in $.when.
+            var msgList = Array.isArray(messages) ? messages : (messages && messages[0] ? messages[0] : []);
+
+            var keepSnapshot = false;
+            try {
+                if (snapshotMeta && window.RenderedStateManager && window.RenderedStateManager.matchesMessages) {
+                    keepSnapshot = window.RenderedStateManager.matchesMessages(snapshotMeta, msgList);
+                }
+            } catch (_e) { keepSnapshot = false; }
+
+            if (!keepSnapshot) {
+                ChatManager.renderMessages(conversationId, msgList, true);
+            } else {
+                // Snapshot is still valid; ensure controls focus works.
+                try { $('#messageText').focus(); } catch (_e) {}
+            }
+
+            // Common post-load focus
             $('#messageText').focus();
             $("#show-sidebar").focus();
-            // Sidebar already hidden deterministically above.
-            
-
         });
+
         this.getConversationDetails().done(function (conversationDetails) {
             currentDomain["manual_domain_change"] = false;
             if (conversationDetails.domain) {
@@ -2114,6 +2142,13 @@ var ChatManager = {
                 renderNextQuestionSuggestions(conversationId);
             }, 200);
         }
+
+        // After rendering, schedule a debounced DOM snapshot save for fast resume.
+        try {
+            if (window.RenderedStateManager && window.RenderedStateManager.scheduleSave) {
+                window.RenderedStateManager.scheduleSave(conversationId);
+            }
+        } catch (_e) { /* ignore */ }
         
         return messageElement;
     },
