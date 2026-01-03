@@ -1,6 +1,7 @@
 // Complete Workspace Manager that integrates with existing server APIs
 var WorkspaceManager = {
     workspaces: {},
+    _mobileConversationInterceptorInstalled: false,
     get defaultWorkspaceId() {
         // Compose the default workspace id similar to Python: f'default_{user_email}_{domain}'
         // Fallback to 'default' if userDetails or currentDomain are not available
@@ -12,9 +13,107 @@ var WorkspaceManager = {
     
     // Initialize workspace system
     init: function() {
+        this.installMobileConversationInterceptor();
         this.setupEventHandlers();
         this.setupDragAndDrop();
         this.setupContextMenus();
+    },
+
+    installMobileConversationInterceptor: function() {
+        /**
+         * Mobile fix: ensure tapping a conversation in the sidebar does NOT trigger native link navigation
+         * (full page reload), and always hides the sidebar immediately.
+         *
+         * Why capture-phase:
+         * - On some mobile browsers/WebViews, the default navigation can win if our bubble-phase
+         *   jQuery handlers don't run (or run too late / double-fired).
+         */
+        if (this._mobileConversationInterceptorInstalled) return;
+        this._mobileConversationInterceptorInstalled = true;
+
+        let lastTouchTs = 0;
+        const CLICK_AFTER_TOUCH_MS = 700;
+
+        function isMobileWidth() {
+            try {
+                return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+            } catch (_e) {
+                return (window.innerWidth || 9999) <= 768;
+            }
+        }
+
+        function hideSidebarIfMobileOpen() {
+            try {
+                if (!isMobileWidth()) return;
+                var sidebar = $('#chat-assistant-sidebar');
+                var contentCol = $('#chat-assistant');
+                if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                    sidebar.addClass('d-none');
+                    contentCol.removeClass('col-md-10').addClass('col-md-12');
+                    $(window).trigger('resize');
+                }
+            } catch (_e) { /* ignore */ }
+        }
+
+        function shouldAllowNativeNewTab(e) {
+            try {
+                return (e.which === 2 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey);
+            } catch (_e) {
+                return false;
+            }
+        }
+
+        function handler(e) {
+            try {
+                if (!isMobileWidth()) return;
+
+                // Dedupe the common "touchend then click" sequence.
+                if (e.type === 'touchend') {
+                    lastTouchTs = Date.now();
+                }
+                if (e.type === 'click' && (Date.now() - lastTouchTs) < CLICK_AFTER_TOUCH_MS) {
+                    return;
+                }
+
+                const target = e.target;
+                if (!target || !target.closest) return;
+                const a = target.closest('a.conversation-item');
+                if (!a) return;
+
+                // If some other handler already processed this event, don't double-run.
+                if (e.__conversationItemHandled) return;
+
+                if (shouldAllowNativeNewTab(e)) return;
+
+                // Mark handled and prevent default navigation.
+                e.__conversationItemHandled = true;
+                if (e.cancelable) e.preventDefault();
+                if (e.stopPropagation) e.stopPropagation();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+                const conversationId = a.getAttribute('data-conversation-id') || $(a).data('conversation-id');
+                if (!conversationId) return;
+
+                // Always close sidebar immediately on mobile.
+                hideSidebarIfMobileOpen();
+
+                // If already open, don't re-load.
+                const currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || ConversationManager.activeConversationId || null;
+                if (currentActive && String(currentActive) === String(conversationId)) {
+                    return;
+                }
+
+                WorkspaceManager.highlightActiveConversation(conversationId);
+                ConversationManager.setActiveConversation(conversationId);
+            } catch (_e) {
+                // best-effort
+            }
+        }
+
+        // Capture-phase listeners to beat native navigation.
+        try { document.addEventListener('touchend', handler, { capture: true, passive: false }); } catch (_e) {}
+        try { document.addEventListener('pointerup', handler, true); } catch (_e) {}
+        try { document.addEventListener('click', handler, true); } catch (_e) {}
     },
 
     loadConversationsWithWorkspaces: function(autoselect = true) {
@@ -606,10 +705,11 @@ var WorkspaceManager = {
         });
         
         // Conversation click handlers (using event delegation)
-        // On mobile, some browsers/containers behave more reliably with touchend than click,
-        // so we handle both and keep the logic idempotent.
+        // NOTE: mobile capture-phase interception is installed in `installMobileConversationInterceptor()`.
+        // This handler remains for desktop and as a fallback.
         $(document).off('click touchend', '.conversation-item').on('click touchend', '.conversation-item', function(e) {
             if ($(e.target).closest('button').length) return;
+            if (e.__conversationItemHandled) return;
             
             // Allow native "open in new tab/window" behaviors:
             // - middle-click
