@@ -7,18 +7,10 @@ This document provides quick setup instructions for the Chrome Extension. The fu
 ### 1. Setup Development Environment
 
 ```bash
-# Navigate to extension directory
-cd extension
-
-# Download required libraries (if not already done)
-# marked.min.js - Markdown parser
-curl -o lib/marked.min.js https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js
-
-# highlight.min.js - Syntax highlighter
-curl -o lib/highlight.min.js https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/es/highlight.min.js
-
-# highlight.min.css - Syntax highlighting theme
-curl -o lib/highlight.min.css https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css
+cd extension  # navigate to extension directory
+curl -o lib/marked.min.js https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js  # Markdown parser
+curl -o lib/highlight.min.js https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/es/highlight.min.js  # Syntax highlighter
+curl -o lib/highlight.min.css https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css  # Syntax theme
 ```
 
 ### 2. Backend Setup
@@ -45,10 +37,9 @@ The server provides all LLM and data APIs that the extension UI consumes.
 
 ### 4. Test the Extension
 
-1. Click the extension icon in the toolbar
-2. You should see the **Login** popup
-3. Enter your credentials (same as web UI)
-4. After login, click **Open Sidepanel** to launch the main chat interface
+1. Click the extension icon in the toolbar → you should see the **Login** popup
+2. Enter your credentials (same as web UI)
+3. After login, click **Open Sidepanel** to launch the main chat interface
 
 ## File Structure
 
@@ -61,17 +52,27 @@ extension/
 │   └── popup.css                 # Styling
 ├── sidepanel/                     # Main chat interface (full height)
 │   ├── sidepanel.html            # Chat UI with conversation list
-│   ├── sidepanel.js              # Conversation and message handling
+│   ├── sidepanel.js              # Conversation handling + script creation
 │   └── sidepanel.css             # Styling
 ├── background/
-│   └── service-worker.js         # Context menus, message passing
+│   └── service-worker.js         # Context menus, message passing, script coordination
 ├── content_scripts/
 │   ├── extractor.js              # Page content extraction & quick actions
-│   └── modal.css                 # Modal styling for quick actions
+│   ├── modal.css                 # Modal styling for quick actions
+│   ├── script_runner.js          # Custom script execution engine
+│   ├── script_ui.js              # Floating toolbar + command palette
+│   └── script_ui.css             # Script UI styles
+├── editor/                        # Script editor UI (opened in a new tab)
+│   ├── editor.html               # Editor UI
+│   ├── editor.js                 # CodeMirror + action builder
+│   └── editor.css                # Editor styles
+├── sandbox/                       # Sandboxed page for script execution (no unsafe-eval)
+│   ├── sandbox.html              # Sandbox host page (manifest "sandbox")
+│   └── sandbox.js                # Sandbox runtime + RPC bridge to content script
 ├── shared/                        # Shared utilities
 │   ├── constants.js              # API config, models, message types
 │   ├── storage.js                # Chrome storage wrapper
-│   └── api.js                    # API client for extension_server
+│   └── api.js                    # API client (including script methods)
 ├── lib/                          # Third-party libraries
 │   ├── marked.min.js             # Markdown parser
 │   ├── highlight.min.js          # Syntax highlighter
@@ -96,32 +97,99 @@ extension/
 - **Markdown**: Rendered responses with syntax highlighting
 - **Streaming**: Real-time response display as it's generated
 
-### 🚀 Phase 2 (Future)
+### ✅ Implemented (Phase 2) - Custom Scripts
 
-- Custom scripts (Tampermonkey-like)
+- **Tampermonkey-like Scripts**: Create custom scripts for any website
+- **Two Creation Modes**: 
+  - Chat-driven (LLM sees page structure, iterative refinement)
+  - Direct editor (code editor + action builder)
+- **aiAssistant API**: Scripts get access to DOM, clipboard, LLM, UI, storage APIs
+- **Floating Toolbar**: Draggable toolbar showing available actions
+- **Command Palette**: Ctrl+Shift+K to search and run actions
+- **Injected Buttons**: Actions can be injected into page DOM
+- **Script Editor**: CodeMirror-based editor with syntax highlighting
+
+### 🚀 Phase 3 (Future)
+
 - Browser automation
 - MCP tools integration
 - Workflow orchestration
 - Voice input/commands
 - Auto-complete in text fields
 
+## Using Custom Scripts
+
+### Creating a Script via Chat
+
+1. Open the sidepanel
+2. Type a message like "Create a script to copy the title from this page"
+3. The LLM will analyze the page structure and generate a script
+4. Click **Test on Page** to try it
+5. Click **Save Script** to save it
+6. Click **Edit in Editor** to refine it
+
+### Creating a Script via Editor
+
+1. Press `Ctrl+Shift+K` to open command palette
+2. Select "Create New Script"
+3. Or click the floating toolbar's settings → "Create New Script"
+4. Fill in script details, write code, add actions
+5. Click **Test** to try on current page
+6. Click **Save** to save
+
+### Script Code Structure
+
+```javascript
+// Your handlers object with all actions
+const handlers = {
+    copyTitle() {
+        const title = aiAssistant.dom.getText('h1');
+        aiAssistant.clipboard.copy(title);
+        aiAssistant.ui.showToast('Copied: ' + title, 'success');
+    },
+    
+    async summarizePage() {
+        const content = aiAssistant.dom.getText('article');
+        const summary = await aiAssistant.llm.ask('Summarize: ' + content);
+        aiAssistant.ui.showModal('Summary', summary);
+    }
+};
+
+// REQUIRED: Export handlers
+window.__scriptHandlers = handlers;
+```
+
+### Available aiAssistant APIs
+
+| Category | Methods |
+|----------|---------|
+| **dom** | `exists`, `count`, `query`, `queryAll`, `getText`, `getHtml`, `getAttr`, `setAttr`, `getValue`, `waitFor`, `scrollIntoView`, `focus`, `blur`, `click`, `setValue`, `type`, `hide`, `show`, `remove`, `addClass`, `removeClass`, `toggleClass`, `setHtml` |
+| **clipboard** | `copy`, `copyHtml` |
+| **llm** | `ask`, `askStreaming` |
+| **ui** | `showToast`, `showModal`, `closeModal` |
+| **storage** | `get`, `set`, `remove` |
+
+### Script Runtime Note (Important)
+
+Scripts are executed via a sandboxed extension page for CSP safety. **Do not use direct DOM access** like `document.querySelector(...)` in user scripts.
+Instead, always use `aiAssistant.dom.*` methods (they run inside the content script and can safely interact with the page).
+
+### Action Exposure Types
+
+| Type | Description |
+|------|-------------|
+| `floating` | Shows in the floating toolbar |
+| `inject` | Injects a button into the page DOM |
+| `command` | Only appears in command palette |
+| `context_menu` | Appears in right-click menu |
+
+---
+
 ## Architecture
 
 ### Data Flow
 
-```
-User Action (Extension UI)
-    ↓
-Content Script / Service Worker (extract, coordinate)
-    ↓
-extension_server.py API (process, call LLM)
-    ↓
-LLM API (OpenAI, Anthropic, etc)
-    ↓
-Streaming Response
-    ↓
-Extension UI (render markdown, syntax highlighting)
-```
+`User Action (Extension UI) → Content Script / Service Worker → extension_server.py API → LLM API → Streaming Response → Extension UI (render markdown + syntax highlighting)`
 
 ### Authentication
 
@@ -181,13 +249,7 @@ Optional permissions (requested when needed):
 
 ### View Console Logs
 
-**Popup**: `chrome://extensions/` → Details → **Inspect views** → `popup.html`
-
-**Sidepanel**: Open sidepanel → Right-click → **Inspect**
-
-**Service Worker**: `chrome://extensions/` → Details → **Inspect views** → `service-worker.js`
-
-**Content Script**: Open any webpage → Right-click → **Inspect** → Console
+**Popup**: `chrome://extensions/` → Details → **Inspect views** → `popup.html` • **Sidepanel**: open sidepanel → right-click → **Inspect** • **Service Worker**: `chrome://extensions/` → Details → **Inspect views** → `service-worker.js` • **Content Script**: open any webpage → **Inspect** → Console
 
 ### Enable Debug Logging
 
@@ -221,7 +283,7 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 1. **Login**: Use popup to login
 2. **Create chat**: Click "New Chat" in sidepanel
-3. **Send message**: Type and press Ctrl+Enter
+3. **Send message**: Type and press Enter (Shift+Enter for newline)
 4. **Test page context**: Click "Include page" button
 5. **Quick actions**: Right-click text on page
 
@@ -270,5 +332,5 @@ For issues or questions:
 
 ---
 
-**Version**: 1.0  
-**Last Updated**: December 2024
+**Version**: 1.4  
+**Last Updated**: December 30, 2024

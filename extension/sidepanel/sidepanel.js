@@ -30,8 +30,30 @@ const state = {
         autoIncludePage: true  // Enabled by default
     },
     abortController: null,
-    availableModels: [] // Fetched from server
+    availableModels: [], // Fetched from server
+    // Script creation mode
+    scriptMode: {
+        active: false,
+        pendingScript: null, // Holds the generated script before saving
+        pageContext: null    // Page context for script generation
+    }
 };
+
+// Script creation intent patterns
+const SCRIPT_INTENT_PATTERNS = [
+    /create\s+(a\s+)?script/i,
+    /make\s+(a\s+)?script/i,
+    /build\s+(a\s+)?script/i,
+    /write\s+(a\s+)?script/i,
+    /generate\s+(a\s+)?script/i,
+    /i\s+want\s+(a\s+)?script/i,
+    /can\s+you\s+(create|make|build|write)\s+(a\s+)?script/i,
+    /script\s+(to|that|for|which)/i,
+    /userscript/i,
+    /tampermonkey/i,
+    /custom\s+script/i,
+    /automation\s+script/i
+];
 
 // ==================== DOM Elements ====================
 
@@ -68,6 +90,14 @@ const historyValue = document.getElementById('history-value');
 const autoIncludePageCheckbox = document.getElementById('auto-include-page');
 const settingsUserEmail = document.getElementById('settings-user-email');
 const logoutBtn = document.getElementById('logout-btn');
+
+// Custom Scripts (Settings)
+const scriptsCreateFromPageBtn = document.getElementById('scripts-create-from-page');
+const scriptsOpenEditorBtn = document.getElementById('scripts-open-editor');
+const scriptsRefreshBtn = document.getElementById('scripts-refresh');
+const scriptsListEl = document.getElementById('scripts-list');
+const scriptsHelpBtn = document.getElementById('scripts-help-btn');
+const scriptsHelpPopover = document.getElementById('scripts-help-popover');
 
 // Chat
 const chatContainer = document.getElementById('chat-container');
@@ -176,6 +206,27 @@ function setupEventListeners() {
     settingsBtn.addEventListener('click', () => toggleSettings(true));
     closeSettingsBtn.addEventListener('click', () => toggleSettings(false));
     logoutBtn.addEventListener('click', handleLogout);
+
+    // Custom Scripts (Settings)
+    scriptsCreateFromPageBtn?.addEventListener('click', async () => {
+        const description = prompt(
+            'Describe what you want to automate on this page.\n\n' +
+            'Tip: scripts use aiAssistant.dom.click/setValue/type/hide/remove (no direct document.querySelector).'
+        );
+        if (!description || !description.trim()) return;
+        toggleSettings(false);
+        await handleScriptGeneration(description.trim());
+    });
+    scriptsOpenEditorBtn?.addEventListener('click', async () => {
+        chrome.runtime.sendMessage({ type: 'OPEN_SCRIPT_EDITOR' });
+    });
+    scriptsRefreshBtn?.addEventListener('click', async () => {
+        await refreshScriptsList();
+    });
+
+    scriptsHelpBtn?.addEventListener('click', () => {
+        scriptsHelpPopover?.classList.toggle('hidden');
+    });
     
     // Settings controls
     modelSelect.addEventListener('change', () => {
@@ -286,9 +337,63 @@ function toggleSidebar(open) {
 
 function toggleSettings(open) {
     settingsPanel.classList.toggle('open', open);
+    if (open) {
+        refreshScriptsList().catch(() => {});
+    }
 }
 
 // ==================== Settings ====================
+
+/**
+ * Render the scripts list inside Settings > Custom Scripts.
+ * Uses `/ext/scripts` and provides an Edit button to open the editor.
+ */
+async function refreshScriptsList() {
+    if (!scriptsListEl) return;
+
+    scriptsListEl.innerHTML = `<div class="scripts-empty">Loading…</div>`;
+
+    try {
+        const result = await API.getScripts();
+        const scripts = result.scripts || [];
+        if (scripts.length === 0) {
+            scriptsListEl.innerHTML = `<div class="scripts-empty">No scripts yet.</div>`;
+            return;
+        }
+
+        scriptsListEl.innerHTML = scripts.map((s) => {
+            const patterns = Array.isArray(s.match_patterns) ? s.match_patterns : [];
+            const patternPreview = patterns.slice(0, 2).join(', ') + (patterns.length > 2 ? '…' : '');
+            const type = s.script_type || 'functional';
+            const enabled = s.enabled === 0 ? 'disabled' : 'enabled';
+            return `
+                <div class="script-list-item" data-script-id="${escapeHtml(String(s.script_id || ''))}">
+                    <div class="meta">
+                        <div class="name">${escapeHtml(s.name || 'Unnamed Script')}</div>
+                        <div class="details">${escapeHtml(type)} • ${escapeHtml(enabled)} • ${escapeHtml(patternPreview || '(no patterns)')}</div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-secondary btn-small scripts-edit-btn" data-script-id="${escapeHtml(String(s.script_id || ''))}">
+                            Edit
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Attach edit handlers
+        scriptsListEl.querySelectorAll('.scripts-edit-btn').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const scriptId = btn.getAttribute('data-script-id');
+                if (!scriptId) return;
+                chrome.runtime.sendMessage({ type: 'OPEN_SCRIPT_EDITOR', scriptId });
+            });
+        });
+    } catch (e) {
+        console.warn('[Sidepanel] Failed to refresh scripts list:', e);
+        scriptsListEl.innerHTML = `<div class="scripts-empty">Failed to load scripts. Try again.</div>`;
+    }
+}
 
 async function loadSettings() {
     // Fetch models from server
@@ -655,6 +760,13 @@ async function sendMessage() {
     const text = messageInput.value.trim();
     if (!text || state.isStreaming) return;
     
+    // Check for script creation intent
+    if (detectScriptIntent(text)) {
+        console.log('[Sidepanel] Script creation intent detected');
+        handleScriptGeneration(text);
+        return;
+    }
+    
     // Ensure we have a conversation
     if (!state.currentConversation) {
         await createNewConversation();
@@ -837,6 +949,304 @@ function stopStreaming() {
     state.isStreaming = false;
     streamingIndicator.classList.add('hidden');
     stopBtnContainer.classList.add('hidden');
+}
+
+// ==================== Script Creation Mode ====================
+
+/**
+ * Check if user message indicates script creation intent
+ * @param {string} text - User message
+ * @returns {boolean} - True if script creation intent detected
+ */
+function detectScriptIntent(text) {
+    return SCRIPT_INTENT_PATTERNS.some(pattern => pattern.test(text));
+}
+
+/**
+ * Handle script generation flow
+ * @param {string} description - User's description of what the script should do
+ */
+async function handleScriptGeneration(description) {
+    console.log('[Sidepanel] Starting script generation:', description);
+    
+    // Ensure we have a conversation
+    if (!state.currentConversation) {
+        await createNewConversation();
+    }
+    
+    // Add user message to UI
+    const userMessage = {
+        message_id: 'temp-user-' + Date.now(),
+        role: 'user',
+        content: description,
+        created_at: new Date().toISOString()
+    };
+    state.messages.push(userMessage);
+    
+    // Show messages container
+    welcomeScreen.classList.add('hidden');
+    messagesContainer.classList.remove('hidden');
+    messagesContainer.insertAdjacentHTML('beforeend', renderMessage(userMessage));
+    
+    // Clear input
+    messageInput.value = '';
+    messageInput.style.height = 'auto';
+    updateSendButton();
+    
+    // Start streaming-like UI feedback
+    state.isStreaming = true;
+    streamingIndicator.classList.remove('hidden');
+    
+    // Create assistant message placeholder
+    const assistantMessage = {
+        message_id: 'temp-assistant-script-' + Date.now(),
+        role: 'assistant',
+        content: '🔧 Generating script...',
+        created_at: new Date().toISOString(),
+        isScript: true
+    };
+    state.messages.push(assistantMessage);
+    messagesContainer.insertAdjacentHTML('beforeend', renderMessage(assistantMessage));
+    
+    const assistantEl = messagesContainer.querySelector(`[data-id="${assistantMessage.message_id}"] .message-content`);
+    
+    try {
+        // Get page context for script generation
+        let pageUrl = '';
+        let pageHtml = '';
+        let pageContext = null;
+        
+        try {
+            const response = await chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' });
+            if (response) {
+                pageUrl = response.url || '';
+                pageHtml = response.htmlSnapshot || '';
+                pageContext = response;
+            }
+        } catch (e) {
+            console.warn('[Sidepanel] Could not get page context:', e);
+        }
+        
+        // Call script generation API
+        const result = await API.generateScript({
+            description: description,
+            page_url: pageUrl,
+            page_html: pageHtml,
+            page_context: pageContext
+        });
+        
+        if (result.error) {
+            throw new Error(result.error);
+        }
+        
+        // Store pending script
+        state.scriptMode.active = true;
+        state.scriptMode.pendingScript = result.script;
+        state.scriptMode.pageContext = pageContext;
+        
+        // Render script response with buttons
+        assistantEl.innerHTML = renderScriptResponse(result.script, result.explanation);
+        
+        // Attach event handlers to script buttons
+        attachScriptButtonHandlers(assistantEl, result.script);
+        
+        // Process code blocks
+        processCodeBlocks(assistantEl);
+        
+        // Update conversation title
+        updateConversationInList(description);
+        
+    } catch (error) {
+        console.error('[Sidepanel] Script generation failed:', error);
+        assistantEl.innerHTML = `
+            <div class="error-message">
+                Failed to generate script: ${escapeHtml(error.message)}
+            </div>
+            <p>You can try rephrasing your request or provide more details about what you want the script to do.</p>
+        `;
+    } finally {
+        state.isStreaming = false;
+        streamingIndicator.classList.add('hidden');
+        stopBtnContainer.classList.add('hidden');
+    }
+}
+
+/**
+ * Render script response with code and action buttons
+ * @param {Object} script - Generated script object
+ * @param {string} explanation - LLM explanation
+ * @returns {string} - HTML string
+ */
+function renderScriptResponse(script, explanation) {
+    const actionsHtml = script.actions?.length > 0 
+        ? script.actions.map(action => `
+            <div class="script-action-item">
+                <span class="action-icon">${getActionIcon(action.icon)}</span>
+                <span class="action-name">${escapeHtml(action.name)}</span>
+                <span class="action-exposure">${action.exposure || 'floating'}</span>
+            </div>
+        `).join('')
+        : '<p class="no-actions">No actions defined</p>';
+    
+    return `
+        <div class="script-response">
+            <div class="script-response-header">
+                <h4>🔧 ${escapeHtml(script.name || 'Generated Script')}</h4>
+                <details class="script-runtime-help">
+                    <summary title="Script runtime help">?</summary>
+                    <div class="script-runtime-help-body">
+                        <div><strong>Runtime:</strong> Tampermonkey-style. No direct <code>document.querySelector</code>.</div>
+                        <div>Use <code>aiAssistant.dom.click</code>, <code>setValue</code>, <code>type</code>, <code>hide</code>/<code>remove</code>.</div>
+                        <div>Export: <code>window.__scriptHandlers = handlers;</code></div>
+                    </div>
+                </details>
+            </div>
+            <p>${escapeHtml(script.description || '')}</p>
+            
+            <div class="script-meta">
+                <span class="script-type">${script.script_type || 'functional'}</span>
+                <span class="script-patterns">${(script.match_patterns || []).join(', ')}</span>
+            </div>
+            
+            <div class="script-explanation">
+                ${window.marked ? marked.parse(explanation || '') : escapeHtml(explanation || '')}
+            </div>
+            
+            <div class="script-code-section">
+                <h5>Code</h5>
+                <pre><code class="language-javascript">${escapeHtml(script.code || '')}</code></pre>
+            </div>
+            
+            <div class="script-actions-section">
+                <h5>Actions</h5>
+                <div class="script-actions-list">
+                    ${actionsHtml}
+                </div>
+            </div>
+            
+            <div class="script-buttons">
+                <button class="btn btn-primary script-save-btn">💾 Save Script</button>
+                <button class="btn btn-secondary script-test-btn">▶️ Test on Page</button>
+                <button class="btn btn-ghost script-edit-btn">✏️ Edit in Editor</button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Get emoji icon for action
+ * @param {string} iconName - Icon name
+ * @returns {string} - Emoji
+ */
+function getActionIcon(iconName) {
+    const icons = {
+        clipboard: '📋',
+        copy: '📄',
+        download: '⬇️',
+        eye: '👁️',
+        trash: '🗑️',
+        star: '⭐',
+        edit: '✏️',
+        settings: '⚙️',
+        search: '🔍',
+        refresh: '🔄',
+        play: '▶️'
+    };
+    return icons[iconName] || '🔧';
+}
+
+/**
+ * Attach event handlers to script action buttons
+ * @param {HTMLElement} container - Container element
+ * @param {Object} script - Script object
+ */
+function attachScriptButtonHandlers(container, script) {
+    // Save button
+    const saveBtn = container.querySelector('.script-save-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            try {
+                saveBtn.disabled = true;
+                saveBtn.textContent = '⏳ Saving...';
+                
+                const result = await API.saveScript(script);
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                saveBtn.textContent = '✅ Saved!';
+                state.scriptMode.active = false;
+                state.scriptMode.pendingScript = null;
+                
+                // Notify script runner to reload
+                chrome.runtime.sendMessage({ type: 'SCRIPTS_UPDATED' });
+                
+            } catch (error) {
+                console.error('[Sidepanel] Failed to save script:', error);
+                saveBtn.textContent = '❌ Save Failed';
+                setTimeout(() => {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = '💾 Save Script';
+                }, 2000);
+            }
+        });
+    }
+    
+    // Test button
+    const testBtn = container.querySelector('.script-test-btn');
+    if (testBtn) {
+        testBtn.addEventListener('click', async () => {
+            try {
+                testBtn.disabled = true;
+                testBtn.textContent = '⏳ Testing...';
+                
+                // Get active tab
+                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (!tab) {
+                    throw new Error('No active tab');
+                }
+                
+                // Send test message to content script
+                const response = await chrome.tabs.sendMessage(tab.id, {
+                    type: 'TEST_SCRIPT',
+                    code: script.code,
+                    actions: script.actions || []
+                });
+                
+                if (response.success) {
+                    testBtn.textContent = '✅ Test OK';
+                } else {
+                    throw new Error(response.error || 'Test failed');
+                }
+                
+                setTimeout(() => {
+                    testBtn.disabled = false;
+                    testBtn.textContent = '▶️ Test on Page';
+                }, 2000);
+                
+            } catch (error) {
+                console.error('[Sidepanel] Test failed:', error);
+                testBtn.textContent = '❌ Test Failed';
+                setTimeout(() => {
+                    testBtn.disabled = false;
+                    testBtn.textContent = '▶️ Test on Page';
+                }, 2000);
+            }
+        });
+    }
+    
+    // Edit button - open in editor
+    const editBtn = container.querySelector('.script-edit-btn');
+    if (editBtn) {
+        editBtn.addEventListener('click', () => {
+            // Open editor popup with script data
+            chrome.runtime.sendMessage({
+                type: 'OPEN_SCRIPT_EDITOR',
+                script: script
+            });
+        });
+    }
 }
 
 function updateConversationInList(messagePreview) {

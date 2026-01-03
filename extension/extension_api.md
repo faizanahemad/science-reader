@@ -1,563 +1,203 @@
-# Extension Server API Reference
+# Extension Server API Reference (Compact)
 
-**Base URL:** `http://localhost:5001`  
-**Authentication:** JWT Bearer Token (except where noted)  
-**Content-Type:** `application/json`
+**Base URL:** `http://localhost:5001` • **Content-Type:** `application/json` • **Auth:** `Authorization: Bearer <token>` (all endpoints except `/ext/health` and `/ext/auth/login`)
 
----
+## Endpoint Index
 
-## Authentication
+| Category | Method | Path |
+|---------|--------|------|
+| Auth | POST | `/ext/auth/login` |
+| Auth | POST | `/ext/auth/logout` |
+| Auth | POST | `/ext/auth/verify` |
+| Prompts (RO) | GET | `/ext/prompts` |
+| Prompts (RO) | GET | `/ext/prompts/<prompt_name>` |
+| Memories (RO) | GET | `/ext/memories` |
+| Memories (RO) | POST | `/ext/memories/search` |
+| Memories (RO) | GET | `/ext/memories/<claim_id>` |
+| Memories (RO) | GET | `/ext/memories/pinned` |
+| Conversations | GET | `/ext/conversations` |
+| Conversations | POST | `/ext/conversations` |
+| Conversations | GET | `/ext/conversations/<conversation_id>` |
+| Conversations | PUT | `/ext/conversations/<conversation_id>` |
+| Conversations | DELETE | `/ext/conversations/<conversation_id>` |
+| Conversations | POST | `/ext/conversations/<conversation_id>/save` |
+| Chat | POST | `/ext/chat/<conversation_id>` |
+| Chat | POST | `/ext/chat/<conversation_id>/message` |
+| Chat | DELETE | `/ext/chat/<conversation_id>/messages/<message_id>` |
+| Settings | GET | `/ext/settings` |
+| Settings | PUT | `/ext/settings` |
+| Utility | GET | `/ext/models` |
+| Utility | GET | `/ext/health` |
+| Custom Scripts | GET | `/ext/scripts` |
+| Custom Scripts | POST | `/ext/scripts` |
+| Custom Scripts | GET | `/ext/scripts/<script_id>` |
+| Custom Scripts | PUT | `/ext/scripts/<script_id>` |
+| Custom Scripts | DELETE | `/ext/scripts/<script_id>` |
+| Custom Scripts | GET | `/ext/scripts/for-url` |
+| Custom Scripts | POST | `/ext/scripts/<script_id>/toggle` |
+| Custom Scripts | POST | `/ext/scripts/generate` |
+| Custom Scripts | POST | `/ext/scripts/validate` |
 
-All endpoints except `/ext/health` and `/ext/auth/login` require authentication via:
-```
-Authorization: Bearer <token>
-```
+## Common Error Format
+
+`{"error": "Error message description"}`
+
+Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found • `500` server error • `503` unavailable
+
+## Auth
 
 ### POST `/ext/auth/login`
-Login and receive JWT token.
-
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "password": "password"
-}
-```
-
-**Response:**
-```json
-{
-  "token": "eyJ...",
-  "email": "user@example.com",
-  "name": "User"
-}
-```
-
-**Errors:** `400` (missing fields), `401` (invalid credentials)
-
----
+- **Auth**: none
+- **Request**: `{ "email": string, "password": string }`
+- **Response**: `{ "token": string, "email": string, "name": string }`
+- **Errors**: `400` missing fields, `401` invalid credentials
 
 ### POST `/ext/auth/logout`
-Logout (client should delete token).
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:**
-```json
-{"message": "Logged out successfully"}
-```
-
----
+- **Auth**: required
+- **Response**: `{ "message": "Logged out successfully" }`
 
 ### POST `/ext/auth/verify`
-Verify if token is still valid.
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Response (valid):**
-```json
-{"valid": true, "email": "user@example.com"}
-```
-
-**Response (invalid):**
-```json
-{"valid": false, "error": "Token expired"}
-```
-
----
+- **Auth**: required
+- **Response (valid)**: `{ "valid": true, "email": string }`
+- **Response (invalid)**: `{ "valid": false, "error": string }`
 
 ## Prompts (Read-Only)
 
 ### GET `/ext/prompts`
-List all available prompts.
-
-**Response:**
-```json
-{
-  "prompts": [
-    {"name": "Short", "description": "...", "category": "..."},
-    {"name": "Creative", "description": "...", "category": "..."}
-  ]
-}
-```
-
----
+- **Response**: `{ "prompts": [ { "name": string, "description": string, "category": string }, ... ] }`
 
 ### GET `/ext/prompts/<prompt_name>`
-Get specific prompt content.
-
-**Response:**
-```json
-{
-  "name": "Short",
-  "content": "Composed prompt content...",
-  "raw_content": "Original template...",
-  "description": "...",
-  "category": "...",
-  "tags": []
-}
-```
-
-**Errors:** `404` (prompt not found), `503` (prompt library unavailable)
-
----
+- **Response**: `{ "name": string, "content": string, "raw_content": string, "description": string, "category": string, "tags": [] }`
+- **Errors**: `404` prompt not found, `503` prompt library unavailable
 
 ## Memories / PKB (Read-Only)
 
 ### GET `/ext/memories`
-List user's memories (PKB claims).
-
-**Query Parameters:**
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `limit` | int | 50 | Max results |
-| `offset` | int | 0 | Pagination offset |
-| `status` | string | "active" | Filter by status |
-| `claim_type` | string | null | Filter by type |
-
-**Response:**
-```json
-{
-  "memories": [
-    {
-      "claim_id": "uuid",
-      "user_email": "user@example.com",
-      "claim_type": "fact",
-      "statement": "The capital of France is Paris",
-      "context_domain": "geography",
-      "status": "active",
-      "confidence": 0.95,
-      "created_at": "2024-01-01T00:00:00",
-      "updated_at": "2024-01-01T00:00:00"
-    }
-  ],
-  "total": 42
-}
-```
-
----
+- **Query**: `limit:int=50`, `offset:int=0`, `status:string="active"`, `claim_type:string|null`
+- **Response**: `{ "memories": [ { "claim_id": string, "user_email": string, "claim_type": string, "statement": string, "context_domain": string, "status": string, "confidence": number, "created_at": string, "updated_at": string }, ... ], "total": number }`
 
 ### POST `/ext/memories/search`
-Search memories using hybrid search.
-
-**Request:**
-```json
-{
-  "query": "search text",
-  "k": 10,
-  "strategy": "hybrid"
-}
-```
-
-**Response:**
-```json
-{
-  "results": [
-    {"claim": {...}, "score": 0.95},
-    {"claim": {...}, "score": 0.87}
-  ]
-}
-```
-
----
+- **Request**: `{ "query": string, "k": number, "strategy": "hybrid" }`
+- **Response**: `{ "results": [ { "claim": object, "score": number }, ... ] }`
 
 ### GET `/ext/memories/<claim_id>`
-Get specific memory by ID.
-
-**Response:**
-```json
-{"memory": {...}}
-```
-
-**Errors:** `404` (not found)
-
----
+- **Response**: `{ "memory": object }`
+- **Errors**: `404` not found
 
 ### GET `/ext/memories/pinned`
-Get user's globally pinned memories.
-
-**Response:**
-```json
-{"memories": [...]}
-```
-
----
+- **Response**: `{ "memories": array }`
 
 ## Conversations
 
 ### GET `/ext/conversations`
-List user's conversations.
-
-**Query Parameters:**
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `limit` | int | 50 | Max results |
-| `offset` | int | 0 | Pagination offset |
-| `include_temporary` | bool | true | Include temporary convs |
-
-**Response:**
-```json
-{
-  "conversations": [
-    {
-      "conversation_id": "uuid",
-      "title": "Chat about Python",
-      "is_temporary": false,
-      "model": "openai/gpt-4o-mini",
-      "prompt_name": "Short",
-      "history_length": 10,
-      "created_at": "2024-01-01T00:00:00",
-      "updated_at": "2024-01-01T00:00:00"
-    }
-  ],
-  "total": 15
-}
-```
-
----
+- **Query**: `limit:int=50`, `offset:int=0`, `include_temporary:bool=true`
+- **Response**: `{ "conversations": [ { "conversation_id": string, "title": string, "is_temporary": bool, "model": string, "prompt_name": string|null, "history_length": number, "created_at": string, "updated_at": string }, ... ], "total": number }`
 
 ### POST `/ext/conversations`
-Create new conversation. **By default, deletes all temporary conversations** before creating a new one.
-
-**Request:**
-```json
-{
-  "title": "My Chat",
-  "is_temporary": true,
-  "model": "openai/gpt-4o-mini",
-  "prompt_name": "Short",
-  "history_length": 10,
-  "delete_temporary": true
-}
-```
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `title` | string | "New Chat" | Conversation title |
-| `is_temporary` | bool | true | If true, will be auto-deleted on next new chat |
-| `model` | string | "openai/gpt-4o-mini" | LLM model to use |
-| `prompt_name` | string | null | System prompt name |
-| `history_length` | int | 10 | Messages to include in context |
-| `delete_temporary` | bool | true | Delete existing temporary convs first |
-
-**Response:**
-```json
-{
-  "conversation": {
-    "conversation_id": "uuid",
-    "title": "My Chat",
-    ...
-  },
-  "deleted_temporary": 3
-}
-```
-
-The `deleted_temporary` field shows how many old temporary conversations were cleaned up.
-
----
+- **Note**: by default deletes all temporary conversations before creating a new one.
+- **Request**: `{ "title": string="New Chat", "is_temporary": bool=true, "model": string="openai/gpt-4o-mini", "prompt_name": string|null, "history_length": number=10, "delete_temporary": bool=true }`
+- **Response**: `{ "conversation": object, "deleted_temporary": number }`
 
 ### GET `/ext/conversations/<conversation_id>`
-Get conversation with all messages.
-
-**Response:**
-```json
-{
-  "conversation": {
-    "conversation_id": "uuid",
-    "title": "My Chat",
-    "messages": [
-      {
-        "message_id": "uuid",
-        "role": "user",
-        "content": "Hello!",
-        "page_context": null,
-        "created_at": "..."
-      },
-      {
-        "message_id": "uuid",
-        "role": "assistant",
-        "content": "Hi there!",
-        "page_context": null,
-        "created_at": "..."
-      }
-    ],
-    ...
-  }
-}
-```
-
-**Errors:** `404` (not found)
-
----
+- **Response**: `{ "conversation": { "conversation_id": string, "title": string, "messages": [ { "message_id": string, "role": string, "content": string, "page_context": object|null, "created_at": string }, ... ], ... } }`
+- **Errors**: `404` not found
 
 ### PUT `/ext/conversations/<conversation_id>`
-Update conversation metadata.
-
-**Request:**
-```json
-{
-  "title": "New Title",
-  "is_temporary": false,
-  "model": "anthropic/claude-3.5-sonnet",
-  "history_length": 20
-}
-```
-
-**Response:**
-```json
-{"conversation": {...}}
-```
-
-**Errors:** `404` (not found)
-
----
+- **Request**: partial update allowed (e.g. `{ "title": string, "is_temporary": bool, "model": string, "history_length": number }`)
+- **Response**: `{ "conversation": object }`
+- **Errors**: `404` not found
 
 ### DELETE `/ext/conversations/<conversation_id>`
-Delete conversation and all messages.
-
-**Response:**
-```json
-{"message": "Deleted successfully"}
-```
-
-**Errors:** `404` (not found)
-
----
+- **Response**: `{ "message": "Deleted successfully" }`
+- **Errors**: `404` not found
 
 ### POST `/ext/conversations/<conversation_id>/save`
-Save a conversation (mark as non-temporary). Saved conversations won't be auto-deleted when creating new conversations.
-
-**Response:**
-```json
-{
-  "conversation": {
-    "conversation_id": "uuid",
-    "title": "My Chat",
-    "is_temporary": false,
-    ...
-  },
-  "message": "Conversation saved"
-}
-```
-
-**Errors:** `404` (not found), `500` (save failed)
-
----
+- **Response**: `{ "conversation": { "is_temporary": false, ... }, "message": "Conversation saved" }`
+- **Errors**: `404` not found, `500` save failed
 
 ## Chat
 
 ### POST `/ext/chat/<conversation_id>`
-Send message and get LLM response.
-
-**Request:**
-```json
-{
-  "message": "What is Python?",
-  "page_context": {
-    "url": "https://example.com",
-    "title": "Page Title",
-    "content": "Page content snippet..."
-  },
-  "model": "openai/gpt-4o-mini",
-  "stream": false
-}
-```
-
-**Response (non-streaming):**
-```json
-{
-  "response": "Python is a programming language...",
-  "message_id": "assistant-msg-uuid",
-  "user_message_id": "user-msg-uuid"
-}
-```
-
-**Response (streaming, `stream: true`):**
-Server-Sent Events:
-```
-data: {"chunk": "Python"}
-
-data: {"chunk": " is"}
-
-data: {"chunk": " a programming language..."}
-
-data: {"done": true, "message_id": "uuid"}
-```
-
-**Errors:** `400` (message required), `404` (conversation not found), `503` (LLM unavailable)
-
----
+- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string }|null, "model": string, "stream": bool }`
+- **Response (non-streaming)**: `{ "response": string, "message_id": string, "user_message_id": string }`
+- **Response (streaming)**: Server-Sent Events with `data: {"chunk": "..."}` and final `data: {"done": true, "message_id": "..."}`.
+- **Errors**: `400` message required, `404` conversation not found, `503` LLM unavailable
 
 ### POST `/ext/chat/<conversation_id>/message`
-Add message without LLM response.
-
-**Request:**
-```json
-{
-  "role": "user",
-  "content": "Note to self: remember this",
-  "page_context": null
-}
-```
-
-**Response:**
-```json
-{
-  "message": {
-    "message_id": "uuid",
-    "role": "user",
-    "content": "...",
-    "created_at": "..."
-  }
-}
-```
-
----
+- **Request**: `{ "role": string, "content": string, "page_context": object|null }`
+- **Response**: `{ "message": { "message_id": string, "role": string, "content": string, "created_at": string } }`
 
 ### DELETE `/ext/chat/<conversation_id>/messages/<message_id>`
-Delete a specific message.
-
-**Response:**
-```json
-{"message": "Deleted successfully"}
-```
-
-**Errors:** `404` (not found)
-
----
+- **Response**: `{ "message": "Deleted successfully" }`
+- **Errors**: `404` not found
 
 ## Settings
 
 ### GET `/ext/settings`
-Get user's extension settings.
-
-**Response:**
-```json
-{
-  "settings": {
-    "default_model": "openai/gpt-4o-mini",
-    "default_prompt": "Short",
-    "history_length": 10,
-    "auto_save_conversations": true,
-    "theme": "dark"
-  }
-}
-```
-
----
+- **Response**: `{ "settings": { "default_model": string, "default_prompt": string, "history_length": number, "auto_save_conversations": bool, "theme": string } }`
 
 ### PUT `/ext/settings`
-Update user's extension settings.
-
-**Request:**
-```json
-{
-  "default_model": "anthropic/claude-3.5-sonnet",
-  "history_length": 20
-}
-```
-
-**Response:**
-```json
-{"settings": {...}}
-```
-
----
+- **Request**: partial update allowed (e.g. `{ "default_model": string, "history_length": number }`)
+- **Response**: `{ "settings": object }`
 
 ## Utility
 
 ### GET `/ext/models`
-List available LLM models.
-
-**Response:**
-```json
-{
-  "models": [
-    {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "provider": "OpenAI"},
-    {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet", "provider": "Anthropic"},
-    ...
-  ]
-}
-```
-
----
+- **Response**: `{ "models": [ { "id": string, "name": string, "provider": string }, ... ] }`
 
 ### GET `/ext/health`
-Health check (no authentication required).
+- **Auth**: none
+- **Response**: `{ "status": "healthy", "services": { "prompt_lib": bool, "pkb": bool, "llm": bool }, "timestamp": string }`
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "services": {
-    "prompt_lib": true,
-    "pkb": true,
-    "llm": true
-  },
-  "timestamp": "2024-01-01T00:00:00"
-}
-```
+## Custom Scripts
 
----
+### GET `/ext/scripts`
+- **Query**: `enabled_only:bool=false`
+- **Response**: `{ "scripts": [ { "script_id": string, "name": string, "description": string|null, "script_type": "functional"|"parsing", "match_patterns": string[], "match_type": "glob"|"regex", "enabled": bool, "version": number, "created_at": string, "updated_at": string }, ... ] }`
 
-## Error Responses
+### POST `/ext/scripts`
+- **Request**: `{ "name": string, "description": string|null, "script_type": "functional"|"parsing", "match_patterns": string[], "match_type": "glob"|"regex", "code": string, "actions": array }`
+- **Response**: `{ "script": object }`
 
-All errors follow this format:
-```json
-{"error": "Error message description"}
-```
+### GET `/ext/scripts/<script_id>`
+- **Response**: `{ "script": { "script_id": string, "name": string, "code": string, "actions": array, ... } }`
 
-**Common HTTP Status Codes:**
-| Code | Meaning |
-|------|---------|
-| `400` | Bad Request - Missing or invalid parameters |
-| `401` | Unauthorized - Invalid or missing token |
-| `404` | Not Found - Resource doesn't exist |
-| `500` | Internal Server Error |
-| `503` | Service Unavailable - Dependent service not ready |
+### PUT `/ext/scripts/<script_id>`
+- **Request**: partial update supported (e.g. `{ "name": string, "code": string, "enabled": bool }`)
+- **Response**: `{ "script": object }`
 
----
+### DELETE `/ext/scripts/<script_id>`
+- **Response**: `{ "message": "Script deleted successfully" }`
 
-## Example Flow: Multi-turn Conversation
+### GET `/ext/scripts/for-url`
+- **Query**: `url:string` (required)
+- **Response**: `{ "scripts": [ { "script_id": string, "name": string, "code": string, "actions": array, ... }, ... ] }`
 
-```python
-import requests
+### POST `/ext/scripts/<script_id>/toggle`
+- **Response**: `{ "script": object, "enabled": bool }`
 
-BASE = "http://localhost:5001"
+### POST `/ext/scripts/generate`
+- **Request**: `{ "description": string, "page_url": string, "page_html": string, "page_context": object, "refinement": string|null }`
+- **Response**: `{ "script": { "name": string, "description": string, "match_patterns": string[], "script_type": string, "code": string, "actions": array }, "explanation": string }`
+- **Errors**: `400` description required, `503` LLM unavailable
 
-# 1. Login
-resp = requests.post(f"{BASE}/ext/auth/login", json={
-    "email": "test@example.com",
-    "password": "testpass"
-})
-token = resp.json()["token"]
-headers = {"Authorization": f"Bearer {token}"}
+### POST `/ext/scripts/validate`
+- **Request**: `{ "code": string }`
+- **Response (valid)**: `{ "valid": true }`
+- **Response (invalid)**: `{ "valid": false, "error": string }`
 
-# 2. Create conversation
-resp = requests.post(f"{BASE}/ext/conversations", json={
-    "title": "Python Help",
-    "model": "openai/gpt-4o-mini"
-}, headers=headers)
-conv_id = resp.json()["conversation"]["conversation_id"]
+## Custom Scripts Runtime Notes (Important)
 
-# 3. Send first message
-resp = requests.post(f"{BASE}/ext/chat/{conv_id}", json={
-    "message": "What is a decorator in Python?"
-}, headers=headers)
-print(resp.json()["response"])
+Scripts execute via a sandboxed extension page for CSP safety:
+- **No direct DOM access** in user scripts (`document`, `querySelector`, etc.).
+- Use `aiAssistant.dom.*` instead (content script performs DOM interactions safely).
+- Common helpers: `click`, `setValue` (dispatches `input`/`change`), `type({ clearFirst, delayMs })`, `hide`, `remove`.
 
-# 4. Follow-up question (uses conversation history)
-resp = requests.post(f"{BASE}/ext/chat/{conv_id}", json={
-    "message": "Can you show an example?"
-}, headers=headers)
-print(resp.json()["response"])
+## Example Flow (Compact)
 
-# 5. Get full conversation
-resp = requests.get(f"{BASE}/ext/conversations/{conv_id}", headers=headers)
-print(resp.json()["conversation"]["messages"])
-
-# 6. Cleanup
-requests.delete(f"{BASE}/ext/conversations/{conv_id}", headers=headers)
-requests.post(f"{BASE}/ext/auth/logout", headers=headers)
-```
+1) `POST /ext/auth/login` → store `token`  
+2) `POST /ext/conversations` → get `conversation_id`  
+3) `POST /ext/chat/<conversation_id>` (optionally `stream:true`)  
+4) `GET /ext/conversations/<conversation_id>` to retrieve full messages  
+5) `POST /ext/auth/logout` (client clears token)
 

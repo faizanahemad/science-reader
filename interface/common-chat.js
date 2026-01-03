@@ -114,23 +114,28 @@ var ConversationManager = {
     },
 
     saveMessageEditText: function (text, message_id, index, card) {
-        activeConversationId = this.activeConversationId
+        // IMPORTANT: Capture all parameters as local constants to avoid shared state issues.
+        // This prevents bugs where editing multiple cards can cause the wrong card to be updated.
+        const savedText = text;
+        const savedMessageId = message_id;
+        const savedIndex = index;
+        const savedCard = card;
+        const activeConversationId = this.activeConversationId;
+        
         return $.ajax({
-            url: '/edit_message_from_conversation/' + activeConversationId + '/' + message_id + '/' + index,
+            url: '/edit_message_from_conversation/' + activeConversationId + '/' + savedMessageId + '/' + savedIndex,
             type: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ 'text': text }),  
+            data: JSON.stringify({ 'text': savedText }),  
             success: function (result) {
-                // Rerender the card
-                answer = text
-                answerParagraph = card.find('.actual-card-text').last();
-                if (answerParagraph) {
+                // Rerender the card - use local variables to ensure correct card is updated
+                const answer = savedText;
+                const answerParagraph = savedCard.find('.actual-card-text').last();
+                if (answerParagraph.length) {
                     renderInnerContentAsMarkdown(answerParagraph, function () {
-                        if (answerParagraph.text().length > 300) {
-                            // showMore(null, text = null, textElem = answerParagraph, as_html = true, show_at_start = true);
-                        }
-                    }, continuous = false, html = answer);
-                    initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+                        // Callback after rendering
+                    }, false, answer);
+                    initialiseVoteBank(savedCard, answer, null, ConversationManager.activeConversationId);
                 }
             },
             error: function (result) {
@@ -1773,8 +1778,16 @@ var ChatManager = {
         var messageElement = null;
         
         messages.forEach(function (message, index, array) {
-            // $(document).find('.card') count number of card elements in the document
-            card_elements_count = $(document).find('.card').length;
+            // IMPORTANT:
+            // We use message-index in several API calls (edit/delete/move).
+            // This MUST be stable and refer to the message order, not arbitrary UI cards.
+            //
+            // Previously we used $(document).find('.card').length, but other UI components
+            // (e.g., Table of Contents UI uses a `.card` class) add extra `.card` nodes,
+            // which corrupts message-index and causes edits to apply to the wrong message.
+            //
+            // Count only actual message cards inside the chat view.
+            var card_elements_count = $('#chatView').find('.message-card').length;
             index = card_elements_count;
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
@@ -2258,9 +2271,10 @@ function moveMessagesUpOrDownCallback(direction, messageId=null, messageIndex=nu
 }
 
 
-function sendMessageCallback() {
+function sendMessageCallback(skipAutoClarify) {
     // Remove any existing suggestions when sending a new message
     $('#chatView .next-question-suggestions').remove();
+    skipAutoClarify = !!skipAutoClarify;
     
     already_rendering = $('#messageText').prop('working')
     if (already_rendering) {
@@ -2293,9 +2307,6 @@ function sendMessageCallback() {
     }
     // Lets split the messageText and get word count and then check if word count > 1000 then raise alert
     var wordCount = messageText.split(' ').length;
-    $('#messageText').val('');  // Clear the messageText field
-    $('#messageText').trigger('change');
-    $('#messageText').prop('working', true);
     var links = $('#linkInput').length ? $('#linkInput').val().split('\n') : [];
     var search = $('#searchInput').length ? $('#searchInput').val().split('\n') : [];
     let parsed_message = parseMessageForCheckBoxes(messageText);
@@ -2332,6 +2343,24 @@ function sendMessageCallback() {
         $('#messageText').prop('working', false);
         return;
     }
+
+    // Auto-clarify interception (optional, enabled via settings).
+    // Important: this must run BEFORE we clear the textarea; otherwise the user loses their draft.
+    try {
+        const hasClarificationsAlready = (typeof messageText === 'string') && messageText.indexOf('\n\n[Clarifications]\n') !== -1;
+        const shouldAutoClarify = !skipAutoClarify && !!options.auto_clarify && messageText.trim().length > 0 && !hasClarificationsAlready;
+        if (shouldAutoClarify && typeof ClarificationsManager !== 'undefined' && typeof ClarificationsManager.requestAndShowClarifications === 'function') {
+            ClarificationsManager.requestAndShowClarifications(ConversationManager.activeConversationId, messageText, { autoSend: true });
+            return;
+        }
+    } catch (e) {
+        console.warn('Auto-clarify interception failed (proceeding without clarifications):', e);
+    }
+
+    // Clear the messageText field only when we are actually sending.
+    $('#messageText').val('');
+    $('#messageText').trigger('change');
+    $('#messageText').prop('working', true);
 
     // Get pending memory attachments from PKBManager (Deliberate Memory Attachment feature)
     var attached_claim_ids = [];

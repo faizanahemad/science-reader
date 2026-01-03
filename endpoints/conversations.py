@@ -910,10 +910,57 @@ def send_message(conversation_id: str):
 
     @copy_current_request_context
     def generate_response():
+        # Capture message_id + answer text from the stream so we can create auto-takeaways
+        # immediately after streaming completes (without waiting for async persistence).
+        captured_response_message_id: str | None = None
+        captured_answer_parts: list[str] = []
+        answer_done = False
+
         for chunk in conversation(query, user_details):
+            # `Conversation.__call__` yields JSON-lines: json.dumps(dict) + "\n"
+            # We parse best-effort to extract `message_ids` and reconstruct the same answer
+            # that gets persisted (i.e., stop collecting once status flips to "saving answer ...").
+            try:
+                if isinstance(chunk, str):
+                    parsed = json.loads(chunk.strip())
+                    if isinstance(parsed, dict):
+                        if not captured_response_message_id:
+                            mids = parsed.get("message_ids") or {}
+                            if isinstance(mids, dict) and isinstance(mids.get("response_message_id"), str):
+                                captured_response_message_id = mids["response_message_id"]
+
+                        status = str(parsed.get("status", "") or "").lower()
+                        if "saving answer" in status:
+                            answer_done = True
+
+                        if not answer_done:
+                            txt = parsed.get("text", "")
+                            if isinstance(txt, str) and txt:
+                                captured_answer_parts.append(txt)
+            except Exception:
+                # Never let analytics/capture interfere with streaming.
+                pass
+
             response_queue.put(chunk)
         response_queue.put("<--END-->")
         conversation.clear_cancellation()
+        # Post-stream background work (must never block streaming / user experience)
+        try:
+            persist_or_not = bool(query.get("checkboxes", {}).get("persist_or_not", True))
+            if persist_or_not:
+                captured_answer_text = "".join(captured_answer_parts).strip() if captured_answer_parts else ""
+                get_async_future(
+                    _create_auto_takeaways_doubt_for_last_assistant_message,
+                    message=query["messageText"],
+                    conversation=conversation,
+                    conversation_id=conversation_id,
+                    user_email=email,
+                    users_dir=state.users_dir,
+                    message_id=captured_response_message_id,
+                    answer_text=captured_answer_text,
+                )
+        except Exception as e:
+            logger.error(f"[send_message] Failed to schedule auto-takeaways: {e}", exc_info=True)
 
     _future = get_async_future(generate_response)
 
@@ -930,4 +977,351 @@ def send_message(conversation_id: str):
 
     return Response(run_queue(), content_type="text/plain")
 
+
+def _extract_first_json_object(text: str) -> dict | None:
+    """
+    Best-effort extractor for a single JSON object from LLM output.
+
+    Why this exists:
+    - Models sometimes wrap JSON in code fences or add extra commentary.
+    - Clarifications must be **fail-open**: parsing errors should not block sends.
+
+    Returns
+    -------
+    dict | None
+        Parsed JSON object if extraction+parsing succeeded, else None.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return None
+    # Strip common code fences.
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        obj = json.loads(cleaned[start : end + 1])
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
+def _normalize_clarifications_payload(raw: dict) -> dict:
+    """
+    Normalize and bound the clarifications payload to a safe, UI-friendly schema.
+
+    Output schema (always safe):
+    - needs_clarification: bool
+    - questions: list[{id, prompt, options: list[{id, label}]}] (0..3 questions; 2..5 options each)
+    """
+    needs = bool(raw.get("needs_clarification", False))
+    questions_in = raw.get("questions", []) if isinstance(raw.get("questions", []), list) else []
+
+    questions_out: list[dict] = []
+    for qi, q in enumerate(questions_in[:3], start=1):
+        if not isinstance(q, dict):
+            continue
+        prompt = q.get("prompt") or q.get("question") or ""
+        if not isinstance(prompt, str) or not prompt.strip():
+            continue
+
+        options_in = q.get("options", [])
+        if not isinstance(options_in, list):
+            options_in = []
+
+        options_out: list[dict] = []
+        for oi, opt in enumerate(options_in[:5], start=1):
+            if isinstance(opt, dict):
+                label = opt.get("label") or opt.get("text") or opt.get("value") or ""
+            else:
+                label = str(opt)
+            if isinstance(label, str) and label.strip():
+                options_out.append({"id": f"q{qi}_opt{oi}", "label": label.strip()})
+
+        # Require at least 2 options to be a usable MCQ.
+        if len(options_out) < 2:
+            continue
+
+        questions_out.append({"id": f"q{qi}", "prompt": prompt.strip(), "options": options_out})
+
+    if not questions_out:
+        needs = False
+
+    return {"needs_clarification": needs, "questions": questions_out}
+
+
+@conversations_bp.route("/clarify_intent/<conversation_id>", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def clarify_intent(conversation_id: str):
+    """
+    Return up to 3 MCQ-style clarification questions for a draft user message.
+
+    Purpose
+    -------
+    This endpoint is called by the UI *before* sending a message, when the user
+    clicks a manual “Clarify” button. It uses an LLM to propose 0–3 MCQs that
+    clarify intent/objective when the message is ambiguous.
+
+    Contract
+    --------
+    Request JSON:
+    - messageText: str (required)
+    - checkboxes: dict (optional)
+    - links: list|str (optional)
+    - search: list|str (optional)
+
+    Response JSON:
+    - needs_clarification: bool
+    - questions: list[ {id, prompt, options: list[{id, label}]} ]  # length 0..3
+
+    Failure behavior (important)
+    ----------------------------
+    Fail-open: on any LLM/parse error, we return `{needs_clarification:false, questions:[]}`.
+    """
+    keys = keyParser(session)
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    payload = request.json if request.is_json and request.json else {}
+    message_text = payload.get("messageText")
+    if not isinstance(message_text, str) or not message_text.strip():
+        return json_error("messageText is required", status=400, code="invalid_request")
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    # We include light context (summary + last turn) so the model can avoid asking
+    # clarifications that are already obvious from the chat.
+    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+
+    try:
+        from call_llm import CallLLm
+        from common import VERY_CHEAP_LLM
+
+        # Context signals (bounded): summary + last turn.
+        try:
+            conversation_summary = conversation.running_summary if hasattr(conversation, "running_summary") else ""
+        except Exception:
+            conversation_summary = ""
+        conversation_summary = (conversation_summary or "").strip()
+        if not conversation_summary:
+            conversation_summary = "(No summary available)"
+        conversation_summary = conversation_summary[:10_000]
+
+        try:
+            messages = conversation.get_message_list() or []
+        except Exception:
+            messages = []
+
+        # Extract the most recent user+assistant pair (last turn).
+        last_user_text = ""
+        last_assistant_text = ""
+        try:
+            for msg in reversed(messages):
+                if isinstance(msg, dict) and not last_assistant_text and msg.get("sender") == "model":
+                    last_assistant_text = str(msg.get("text", "") or "")
+                elif isinstance(msg, dict) and not last_user_text and msg.get("sender") == "user":
+                    last_user_text = str(msg.get("text", "") or "")
+                if last_user_text and last_assistant_text:
+                    break
+        except Exception:
+            last_user_text = ""
+            last_assistant_text = ""
+
+        last_user_text = " ".join(last_user_text.split())[:18_000] if last_user_text else "(none)"
+        last_assistant_text = " ".join(last_assistant_text.split())[:22_000] if last_assistant_text else "(none)"
+
+        prompt = f"""
+You are an intent-clarification assistant. Given a user's draft message and brief conversation context, decide if clarifications are needed.
+
+Conversation summary:
+\"\"\"{conversation_summary}\"\"\"
+
+Last turn (most recent):
+- Last user message: \"\"\"{last_user_text}\"\"\"
+- Last assistant message: \"\"\"{last_assistant_text}\"\"\"
+
+Draft message:
+\"\"\"{message_text.strip()}\"\"\"
+
+Rules:
+- If the draft is already specific enough to answer, set needs_clarification=false and questions=[].
+- Otherwise, propose up to 3 multiple-choice questions to clarify intent/objective.
+- Each question must have 2 to 5 options.
+- The questions can be generic to clarify the intent of the user's message. Or specific to the conversation context and the user message.
+- Keep questions short and practical.
+- Do NOT ask about facts that are already answered by the conversation summary or last turn.
+- Output MUST be STRICT JSON only (no markdown, no code fences, no extra text).
+- For Free form text option input, Put the option as "Other (please specify)" which when checked will show a text input field to enter the free form text. 
+
+JSON schema:
+{{
+  "needs_clarification": true|false,
+  "questions": [
+    {{
+      "prompt": "question text",
+      "options": ["option 1", "option 2"]
+    }}
+  ]
+}}
+""".strip()
+
+        llm = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
+        raw = llm(
+            prompt,
+            images=[],
+            temperature=0.2,
+            stream=False,
+            max_tokens=700,
+            system="You produce strict JSON only. No extra commentary.",
+        )
+
+        parsed = _extract_first_json_object(raw)
+        if not parsed:
+            return jsonify({"needs_clarification": False, "questions": []})
+
+        safe = _normalize_clarifications_payload(parsed)
+        return jsonify(safe)
+    except Exception as e:
+        logger.error(f"[clarify_intent] Fail-open due to error: {e}", exc_info=True)
+        return jsonify({"needs_clarification": False, "questions": []})
+
+
+def _create_auto_takeaways_doubt_for_last_assistant_message(
+    *,
+    message: str,
+    conversation: Conversation,
+    conversation_id: str,
+    user_email: str,
+    users_dir: str,
+    message_id: str | None = None,
+    answer_text: str | None = None,
+) -> None:
+    """
+    Generate and persist an automatic “Auto takeaways” root doubt for the last assistant message.
+
+    This runs asynchronously after `/send_message` finishes streaming.
+    It must be failure-isolated: errors are logged and never propagate.
+    """
+    try:
+        from database.doubts import add_doubt, get_doubts_for_message
+        from call_llm import CallLLm
+        from common import VERY_CHEAP_LLM
+
+        max_wait_seconds = 120
+
+        # Fast path: if the caller already captured the `response_message_id` and the final
+        # assistant answer text from the stream, we can create the doubt immediately (no waiting
+        # for async persistence).
+        if not (isinstance(message_id, str) and message_id.strip() and isinstance(answer_text, str) and answer_text.strip()):
+            # Fallback: Persist is async inside Conversation.reply(); wait for the persisted message to exist.
+            #
+            # Why we may need to wait:
+            # - `Conversation.persist_current_turn()` does *multiple* async LLM calls (summary/title + next-question suggestions)
+            #   and holds a lock while updating `messages`. On slower models or under load, this can exceed 15s.
+            # - This runs in a background thread, so waiting here does not affect streaming UX.
+            import time as _time
+
+            message_id = None
+            answer_text = None
+            poll_interval_seconds = 0.5
+            max_polls = int(max_wait_seconds / poll_interval_seconds)
+            for _ in range(max_polls):
+                try:
+                    messages = conversation.get_field("messages") or []
+                except Exception:
+                    messages = []
+
+                last_assistant = None
+                for msg in reversed(messages):
+                    if isinstance(msg, dict) and msg.get("sender") == "model":
+                        last_assistant = msg
+                        break
+
+                if last_assistant and last_assistant.get("message_id") and last_assistant.get("text"):
+                    message_id = last_assistant.get("message_id")
+                    answer_text = last_assistant.get("text")
+                    break
+
+                _time.sleep(poll_interval_seconds)
+
+        if not message_id or not answer_text:
+            logger.info(
+                f"[auto_takeaways] Skipping (no persisted assistant message within {max_wait_seconds}s) "
+                f"conv={conversation_id}"
+            )
+            return
+
+        # Dedup: if a root doubt with the same marker exists, do nothing.
+        try:
+            existing = get_doubts_for_message(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                user_email=user_email,
+                users_dir=users_dir,
+                logger=logger,
+            )
+        except Exception:
+            existing = []
+
+        for d in existing:
+            if isinstance(d, dict) and d.get("doubt_text") == "Auto takeaways":
+                return
+
+        answer_trimmed = " ".join(str(answer_text).split())
+        answer_trimmed = answer_trimmed[:50_000]
+        conversation_summary = conversation.running_summary if hasattr(conversation, "running_summary") else ""
+
+        takeaways_prompt = f"""
+Rewrite the following assistant answer into a short, crisp quick-reference.
+
+Requirements:
+- No preamble. Start directly with content.
+- Stay strictly on-topic about what the user is asking for; ignore tangents.
+- Target 120–250 words.
+- Use markdown headings and bullet points.
+- Structure:
+  Key takeaways and learnings: (4–8 bullets)
+  Actionables: (0–5 bullets; only if meaningful)
+  Important facts/constraints: (optional; short)
+- You can be flexible with the structure if needed.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User message:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed}\"\"\"
+""".strip()
+
+        llm = CallLLm(conversation.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
+        takeaways = llm(
+            takeaways_prompt,
+            images=[],
+            temperature=0.2,
+            stream=False,
+            max_tokens=650,
+            system="You write compact, actionable summaries with no preamble.",
+        )
+
+        if not isinstance(takeaways, str) or not takeaways.strip():
+            return
+
+        add_doubt(
+            conversation_id=conversation_id,
+            user_email=user_email,
+            message_id=message_id,
+            doubt_text="Auto takeaways",
+            doubt_answer=takeaways.strip(),
+            parent_doubt_id=None,
+            users_dir=users_dir,
+            logger=logger,
+        )
+    except Exception as e:
+        logger.error(f"[auto_takeaways] Error generating/persisting: {e}", exc_info=True)
 

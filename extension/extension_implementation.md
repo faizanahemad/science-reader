@@ -1,8 +1,8 @@
 # Chrome Extension Implementation Documentation
 
-**Version:** 1.3  
-**Last Updated:** December 25, 2024  
-**Purpose:** Technical reference for extension UI implementation, file structure, and backend integration.
+**Version:** 1.4  
+**Last Updated:** December 31, 2025  
+**Purpose:** Technical reference for extension UI implementation, file structure, backend integration, and custom scripts system.
 
 ---
 
@@ -15,12 +15,13 @@
 5. [Popup UI](#5-popup-ui)
 6. [Sidepanel UI](#6-sidepanel-ui)
 7. [Content Scripts](#7-content-scripts)
-8. [Backend Integration](#8-backend-integration)
-9. [Data Flow Diagrams](#9-data-flow-diagrams)
-10. [State Management](#10-state-management)
-11. [Styling Architecture](#11-styling-architecture)
-12. [Message Passing](#12-message-passing)
-13. [Extension Lifecycle](#13-extension-lifecycle)
+8. [Custom Scripts System](#8-custom-scripts-system)
+9. [Backend Integration](#9-backend-integration)
+10. [Data Flow Diagrams](#10-data-flow-diagrams)
+11. [State Management](#11-state-management)
+12. [Styling Architecture](#12-styling-architecture)
+13. [Message Passing](#13-message-passing)
+14. [Extension Lifecycle](#14-extension-lifecycle)
 
 ---
 
@@ -92,7 +93,7 @@ extension/
 │   └── api.js                       # Backend API client
 │
 ├── background/                      # Background processes
-│   └── service-worker.js            # Context menu, messaging hub
+│   └── service-worker.js            # Context menu, messaging hub, script coordination
 │
 ├── popup/                           # Extension popup (toolbar icon click)
 │   ├── popup.html                   # Login and quick actions UI
@@ -101,12 +102,24 @@ extension/
 │
 ├── sidepanel/                       # Main chat interface (full height)
 │   ├── sidepanel.html               # Chat UI structure
-│   ├── sidepanel.js                 # Chat logic, streaming
+│   ├── sidepanel.js                 # Chat logic, streaming, script creation
 │   └── sidepanel.css                # Comprehensive styling
 │
 ├── content_scripts/                 # Injected into web pages
 │   ├── extractor.js                 # Page extraction, quick action modal
-│   └── modal.css                    # Modal styling
+│   ├── modal.css                    # Modal styling
+│   ├── script_runner.js             # Custom script execution engine
+│   ├── script_ui.js                 # Floating toolbar, command palette
+│   └── script_ui.css                # Script UI styles
+│
+├── editor/                          # Script editor UI
+│   ├── editor.html                  # Editor UI structure
+│   ├── editor.js                    # CodeMirror, action builder, save/test
+│   └── editor.css                   # Editor styling
+│
+├── sandbox/                         # Sandboxed page for script execution (no unsafe-eval)
+│   ├── sandbox.html                 # Sandbox host page (manifest "sandbox")
+│   └── sandbox.js                   # Sandbox runtime + RPC bridge to content script
 │
 ├── lib/                             # Third-party libraries
 │   ├── marked.min.js                # Markdown parser
@@ -335,55 +348,13 @@ await API.sendMessageStreaming(conversation.conversation_id,
 
 **Purpose:** Entry point UI when user clicks extension icon.
 
-**View Structure:**
+**View / IDs (compact):**
 
-```
-popup/popup.html
-├── #loading-view          (Initial loading spinner)
-├── #login-view            (When not authenticated)
-│   ├── .login-header      (Logo + title)
-│   ├── #login-form        (Email + password inputs)
-│   └── .login-footer      (Web app link)
-├── #main-view             (When authenticated)
-│   ├── .main-header       (Title + settings button)
-│   ├── .quick-actions     (Open sidepanel, summarize, ask)
-│   ├── .recent-section    (Recent conversations list)
-│   └── .main-footer       (User email + logout)
-└── #settings-view         (Settings panel)
-    ├── .settings-header   (Back button + title)
-    ├── .settings-content  (Model, prompt, history, theme)
-    └── #save-settings     (Save button)
-```
-
-**DOM Element IDs:**
-
-| ID | Element | Purpose |
-|----|---------|---------|
-| `loading-view` | div | Initial loading state |
-| `login-view` | div | Login form container |
-| `main-view` | div | Authenticated main view |
-| `settings-view` | div | Settings panel |
-| `login-form` | form | Login form |
-| `email` | input | Email field |
-| `password` | input | Password field |
-| `login-btn` | button | Login submit |
-| `login-error` | div | Error message display |
-| `open-sidepanel` | button | Open sidepanel action |
-| `summarize-page` | button | Summarize current page |
-| `ask-selection` | button | Ask about selection |
-| `recent-list` | ul | Recent conversations |
-| `recent-empty` | div | Empty state |
-| `user-email` | span | Logged in user email |
-| `logout-btn` | button | Logout action |
-| `settings-btn` | button | Open settings |
-| `back-to-main` | button | Back from settings |
-| `default-model` | select | Model dropdown |
-| `default-prompt` | select | Prompt dropdown |
-| `history-length` | input | History slider |
-| `history-length-value` | span | Slider value display |
-| `auto-save` | checkbox | Auto-save toggle |
-| `theme` | select | Theme dropdown |
-| `save-settings` | button | Save settings |
+- **Top-level views**: `loading-view`, `login-view`, `main-view`, `settings-view`
+- **Login**: `login-form` (form), `email` (input), `password` (input), `login-btn` (submit), `login-error` (error display)
+- **Main actions**: `open-sidepanel` (open sidepanel), `summarize-page` (summarize current page), `ask-selection` (ask about selection)
+- **Recents + user**: `recent-list` (recent conversations), `recent-empty` (empty state), `user-email` (logged-in email), `logout-btn` (logout)
+- **Settings**: `settings-btn` (open settings), `back-to-main` (close settings), `default-model` (model select), `default-prompt` (prompt select), `history-length` (history slider), `history-length-value` (slider label), `auto-save` (toggle), `theme` (theme select), `save-settings` (save settings)
 
 ---
 
@@ -432,24 +403,7 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 
 **Purpose:** Styling for popup UI (320px width, dark theme).
 
-**CSS Variables:**
-```css
---bg-primary: #0d1117;
---bg-secondary: #161b22;
---bg-tertiary: #21262d;
---bg-hover: #30363d;
---text-primary: #f0f6fc;
---text-secondary: #8b949e;
---text-muted: #6e7681;
---accent: #58a6ff;
---accent-hover: #79b8ff;
---success: #3fb950;
---warning: #d29922;
---error: #f85149;
---border: #30363d;
---popup-width: 320px;
---popup-max-height: 500px;
-```
+**CSS Variables (compact):** `--bg-primary:#0d1117; --bg-secondary:#161b22; --bg-tertiary:#21262d; --bg-hover:#30363d; --text-primary:#f0f6fc; --text-secondary:#8b949e; --text-muted:#6e7681; --accent:#58a6ff; --accent-hover:#79b8ff; --success:#3fb950; --warning:#d29922; --error:#f85149; --border:#30363d; --popup-width:320px; --popup-max-height:500px;`
 
 **Key Classes:**
 
@@ -475,85 +429,16 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 
 **Purpose:** Main chat interface, full-height sidepanel.
 
-**View Structure:**
+**View / IDs (compact):**
 
-```
-sidepanel/sidepanel.html
-├── #login-view                    (When not authenticated)
-│   └── .login-container           (Centered login form)
-│
-└── #main-view                     (Main chat interface)
-    ├── .header                    (Toggle, title, new chat, settings)
-    ├── #sidebar                   (Conversation list - slidable)
-    │   ├── .sidebar-header
-    │   ├── #conversation-list
-    │   └── #conversation-empty
-    ├── #sidebar-overlay           (Click to close sidebar)
-    ├── #settings-panel            (Settings - slidable from right)
-    │   ├── .settings-header
-    │   └── .settings-content
-    └── .main-content
-        ├── #page-context-bar      (Shows attached page)
-        ├── #chat-container
-        │   ├── #welcome-screen    (Initial state)
-        │   │   └── .quick-suggestions
-        │   ├── #messages-container
-        │   └── #streaming-indicator
-        └── .input-area
-            ├── .input-actions     (Attach, multi-tab, voice)
-            ├── .input-wrapper     (Textarea + send button)
-            └── #stop-btn-container
-
-#tab-modal                         (Multi-tab selection modal)
-```
-
-**DOM Element IDs:**
-
-| ID | Element | Purpose |
-|----|---------|---------|
-| `login-view` | div | Login container |
-| `main-view` | div | Main chat interface |
-| `login-form` | form | Sidepanel login form |
-| `email` | input | Email field |
-| `password` | input | Password field |
-| `login-error` | div | Error display |
-| `toggle-sidebar` | button | Open/close sidebar |
-| `new-chat-btn` | button | Create new conversation |
-| `settings-btn` | button | Open settings panel |
-| `sidebar` | aside | Conversation list sidebar |
-| `sidebar-overlay` | div | Click to close sidebar |
-| `close-sidebar` | button | Close sidebar button |
-| `conversation-list` | ul | List of conversations |
-| `conversation-empty` | div | Empty state |
-| `sidebar-new-chat` | button | New chat in empty state |
-| `settings-panel` | div | Settings panel |
-| `close-settings` | button | Close settings |
-| `model-select` | select | Model dropdown |
-| `prompt-select` | select | Prompt dropdown |
-| `history-length-slider` | input | History length |
-| `history-value` | span | Slider value |
-| `auto-include-page` | checkbox | Auto-include page content |
-| `settings-user-email` | span | User email display |
-| `logout-btn` | button | Logout button |
-| `page-context-bar` | div | Page context indicator |
-| `page-context-title` | span | Page title display |
-| `remove-page-context` | button | Remove attached page |
-| `chat-container` | div | Chat scroll container |
-| `welcome-screen` | div | Initial welcome state |
-| `messages-container` | div | Message list |
-| `streaming-indicator` | div | Typing indicator |
-| `attach-page-btn` | button | Attach current page |
-| `multi-tab-btn` | button | Multi-tab selector |
-| `voice-btn` | button | Voice input |
-| `message-input` | textarea | Message input |
-| `send-btn` | button | Send message |
-| `stop-btn-container` | div | Stop button wrapper |
-| `stop-btn` | button | Stop streaming |
-| `tab-modal` | div | Tab selection modal |
-| `tab-list` | ul | List of tabs |
-| `close-tab-modal` | button | Close modal |
-| `cancel-tab-modal` | button | Cancel selection |
-| `confirm-tab-modal` | button | Confirm selection |
+- **Top-level views**: `login-view`, `main-view`
+- **Login**: `login-form` (form), `email` (input), `password` (input), `login-error` (error display)
+- **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new chat), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
+- **Conversation list**: `conversation-list` (list), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
+- **Settings controls**: `model-select`, `prompt-select`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
+- **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
+- **Input**: `attach-page-btn` (attach page), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
+- **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `confirm-tab-modal` (confirm)
 
 ---
 
@@ -589,94 +474,37 @@ const state = {
 };
 ```
 
-**Functions:**
+**Functions (compact):**
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| **Initialization** |
-| `initialize()` | `async () → void` | Entry point, checks auth |
-| `initializeMainView()` | `async () → void` | Load conversations, settings |
-| `showView(viewName)` | `(string) → void` | Switch login/main views |
-| `setupEventListeners()` | `() → void` | Attach all event handlers |
-| **Authentication** |
-| `handleLogin(e)` | `async (Event) → void` | Login form handler |
-| `handleLogout()` | `async () → void` | Logout handler |
-| **Sidebar** |
-| `toggleSidebar(open)` | `(boolean) → void` | Show/hide sidebar |
-| `toggleSettings(open)` | `(boolean) → void` | Show/hide settings |
-| **Settings** |
-| `loadSettings()` | `async () → void` | Fetch models from server, load and populate settings |
-| `saveSettings()` | `async () → void` | Save to storage and server |
-| **Conversations** |
-| `loadConversations()` | `async () → void` | Fetch conversations list |
-| `renderConversationList()` | `() → void` | Render conversation sidebar |
-| `handleConversationClick(e)` | `async (Event) → void` | Click handler delegation |
-| `selectConversation(id)` | `async (string) → void` | Load and display conversation |
-| `createNewConversation()` | `async () → void` | Create new conversation (deletes temp) |
-| `deleteConversation(id)` | `async (string) → void` | Delete conversation |
-| `saveConversation(id)` | `async (string) → void` | Save conversation (mark non-temporary) |
-| **Messages** |
-| `renderMessages()` | `() → void` | Render all messages |
-| `renderMessage(msg)` | `(object) → string` | Render single message HTML |
-| `addCopyButtons()` | `() → void` | Add copy buttons to code blocks |
-| `scrollToBottom()` | `() → void` | Scroll chat to bottom |
-| **Input Handling** |
-| `handleInputChange()` | `() → void` | Textarea resize, button state |
-| `handleInputKeydown(e)` | `(Event) → void` | Enter to send (Shift+Enter for newline) |
-| `updateSendButton()` | `() → void` | Enable/disable send |
-| **Sending Messages** |
-| `sendMessage()` | `async () → void` | Send message with streaming |
-| `stopStreaming()` | `() → void` | Cancel streaming response |
-| `updateConversationInList(preview)` | `(string) → void` | Update title from message |
-| **Page Context** |
-| `attachPageContent()` | `async () → void` | Attach current page |
-| `removePageContext()` | `() → void` | Remove attached page |
-| **Multi-Tab** |
-| `showTabModal()` | `async () → void` | Show tab selection modal |
-| `handleTabSelection()` | `async () → void` | Extract & combine content from selected tabs |
-| `truncateUrl(url)` | `(string) → string` | Shorten URL for display |
-| `updateTabSelectionCount()` | `() → void` | Update confirm button text |
-| `updateMultiTabIndicator()` | `() → void` | Update button tooltip |
-| **Quick Suggestions** |
-| `handleQuickSuggestion(action)` | `async (string) → void` | Handle suggestion clicks |
-| **Runtime Messages** |
-| `handleRuntimeMessage(msg, sender, respond)` | `(object, object, function) → void` | Handle incoming messages |
-| **Utilities** |
-| `escapeHtml(text)` | `(string) → string` | Sanitize HTML |
-| `formatTime(timestamp)` | `(string) → string` | Format HH:MM |
-| `formatTimeAgo(timestamp)` | `(string) → string` | Relative time |
+- **Initialization**: `initialize(): async ()→void` (entry point, checks auth); `initializeMainView(): async ()→void` (load conversations + settings); `showView(viewName): (string)→void` (switch login/main views); `setupEventListeners(): ()→void` (attach handlers)
+- **Authentication**: `handleLogin(e): async (Event)→void` (login form); `handleLogout(): async ()→void` (logout)
+- **Sidebar**: `toggleSidebar(open): (boolean)→void` (show/hide sidebar); `toggleSettings(open): (boolean)→void` (show/hide settings)
+- **Settings**: `loadSettings(): async ()→void` (fetch models, populate settings); `saveSettings(): async ()→void` (save to storage + server)
+- **Conversations**: `loadConversations(): async ()→void` (fetch list); `renderConversationList(): ()→void` (render list); `handleConversationClick(e): async (Event)→void` (delegated click handling); `selectConversation(id): async (string)→void` (load + display); `createNewConversation(): async ()→void` (create; deletes temp); `deleteConversation(id): async (string)→void` (delete); `saveConversation(id): async (string)→void` (mark non-temporary)
+- **Messages**: `renderMessages(): ()→void` (render all); `renderMessage(msg): (object)→string` (render one); `addCopyButtons(): ()→void` (copy buttons for code blocks); `scrollToBottom(): ()→void` (scroll)
+- **Input**: `handleInputChange(): ()→void` (resize + button state); `handleInputKeydown(e): (Event)→void` (Enter send, Shift+Enter newline); `updateSendButton(): ()→void` (enable/disable)
+- **Send/Streaming**: `sendMessage(): async ()→void` (send w/ streaming); `stopStreaming(): ()→void` (cancel); `updateConversationInList(preview): (string)→void` (update preview/title)
+- **Page Context**: `attachPageContent(): async ()→void` (attach current page); `removePageContext(): ()→void` (detach)
+- **Multi-Tab**: `showTabModal(): async ()→void` (open selector); `handleTabSelection(): async ()→void` (extract + combine); `truncateUrl(url): (string)→string` (shorten for display); `updateTabSelectionCount(): ()→void` (confirm label); `updateMultiTabIndicator(): ()→void` (tooltip)
+- **Quick Suggestions**: `handleQuickSuggestion(action): async (string)→void` (handle suggestion buttons)
+- **Runtime**: `handleRuntimeMessage(msg, sender, respond): (object, object, function)→void` (incoming messages)
+- **Utilities**: `escapeHtml(text): (string)→string`; `formatTime(timestamp): (string)→string`; `formatTimeAgo(timestamp): (string)→string`
 
-**Event Listeners:**
+**Event Listeners (compact):**
 
-| Element | Event | Handler |
-|---------|-------|---------|
-| `loginForm` | submit | `handleLogin` |
-| `toggleSidebarBtn` | click | `toggleSidebar(true)` |
-| `closeSidebarBtn` | click | `toggleSidebar(false)` |
-| `sidebarOverlay` | click | `toggleSidebar(false)` |
-| `sidebarNewChatBtn` | click | `createNewConversation` |
-| `settingsBtn` | click | `toggleSettings(true)` |
-| `closeSettingsBtn` | click | `toggleSettings(false)` |
-| `logoutBtn` | click | `handleLogout` |
-| `modelSelect` | change | Update settings, save |
-| `promptSelect` | change | Update settings, save |
-| `historyLengthSlider` | input | Update settings, save |
-| `autoIncludePageCheckbox` | change | Update settings, save |
-| `newChatBtn` | click | `createNewConversation` |
-| `messageInput` | input | `handleInputChange` |
-| `messageInput` | keydown | `handleInputKeydown` |
-| `sendBtn` | click | `sendMessage` |
-| `stopBtn` | click | `stopStreaming` |
-| `attachPageBtn` | click | `attachPageContent` |
-| `removePageContextBtn` | click | `removePageContext` |
-| `multiTabBtn` | click | `showTabModal` |
-| `voiceBtn` | click | Placeholder alert |
-| `suggestionBtns` | click | `handleQuickSuggestion` |
-| `conversationList` | click | `handleConversationClick` |
-| `closeTabModalBtn` | click | Hide modal |
-| `cancelTabModalBtn` | click | Hide modal |
-| `confirmTabModalBtn` | click | `handleTabSelection` |
-| `chrome.runtime.onMessage` | message | `handleRuntimeMessage` |
+- `loginForm: submit → handleLogin`
+- `toggleSidebarBtn: click → toggleSidebar(true)`; `closeSidebarBtn: click → toggleSidebar(false)`; `sidebarOverlay: click → toggleSidebar(false)`
+- `sidebarNewChatBtn: click → createNewConversation`; `newChatBtn: click → createNewConversation`
+- `settingsBtn: click → toggleSettings(true)`; `closeSettingsBtn: click → toggleSettings(false)`
+- `logoutBtn: click → handleLogout`
+- `modelSelect: change → update settings + save`; `promptSelect: change → update settings + save`; `historyLengthSlider: input → update settings + save`; `autoIncludePageCheckbox: change → update settings + save`
+- `messageInput: input → handleInputChange`; `messageInput: keydown → handleInputKeydown`
+- `sendBtn: click → sendMessage`; `stopBtn: click → stopStreaming`
+- `attachPageBtn: click → attachPageContent`; `removePageContextBtn: click → removePageContext`
+- `multiTabBtn: click → showTabModal`; `voiceBtn: click → placeholder alert`
+- `suggestionBtns: click → handleQuickSuggestion`; `conversationList: click → handleConversationClick`
+- `closeTabModalBtn: click → hide modal`; `cancelTabModalBtn: click → hide modal`; `confirmTabModalBtn: click → handleTabSelection`
+- `chrome.runtime.onMessage: message → handleRuntimeMessage`
 
 ---
 
@@ -684,77 +512,11 @@ const state = {
 
 **Purpose:** Comprehensive styling for sidepanel (dark theme, electric cyan accent).
 
-**CSS Variables:**
-```css
-/* Colors - Midnight Blue Dark Theme */
---bg-primary: #0a0e14;
---bg-secondary: #0d1219;
---bg-tertiary: #151c25;
---bg-elevated: #1a2332;
---bg-hover: #1e2a3a;
+**CSS Variables (compact):** `--bg-primary:#0a0e14; --bg-secondary:#0d1219; --bg-tertiary:#151c25; --bg-elevated:#1a2332; --bg-hover:#1e2a3a; --text-primary:#e6edf3; --text-secondary:#9ca6b3; --text-muted:#6b7785; --accent:#00d4ff; --accent-hover:#33ddff; --accent-glow:rgba(0, 212, 255, 0.15); --accent-dim:rgba(0, 212, 255, 0.3); --user-bg:linear-gradient(135deg, #1e3a5f 0%, #1a2f4a 100%); --user-border:#2563eb; --assistant-bg:var(--bg-tertiary); --assistant-border:#374151; --header-height:52px; --input-area-height:120px; --sidebar-width:280px;`
 
---text-primary: #e6edf3;
---text-secondary: #9ca6b3;
---text-muted: #6b7785;
+**Key Classes (compact):** `.view` (full-height view), `.header` (fixed header), `.sidebar` (slide-in list), `.sidebar.open` (visible), `.sidebar-overlay` (dim overlay), `.settings-panel` (slide-in settings), `.settings-panel.open` (visible), `.main-content` (chat container), `.chat-container` (scroll area), `.welcome-screen` (empty state), `.messages-container` (message list), `.message` (wrapper), `.message.user` (right-aligned user), `.message.assistant` (left-aligned assistant), `.message-content` (body), `.streaming-indicator` (typing dots), `.input-area` (fixed input), `.input-wrapper` (textarea wrapper), `.action-btn` (input action buttons), `.send-btn` (send), `.page-context-bar` (attached page indicator), `.modal` (overlay), `.modal-content` (modal box), `.quick-suggestions` (welcome buttons), `.suggestion-btn` (suggestion button), `.code-block-header` (code header + copy)
 
-/* Accent - Electric Cyan */
---accent: #00d4ff;
---accent-hover: #33ddff;
---accent-glow: rgba(0, 212, 255, 0.15);
---accent-dim: rgba(0, 212, 255, 0.3);
-
-/* User message */
---user-bg: linear-gradient(135deg, #1e3a5f 0%, #1a2f4a 100%);
---user-border: #2563eb;
-
-/* Assistant message */
---assistant-bg: var(--bg-tertiary);
---assistant-border: #374151;
-
-/* Sizing */
---header-height: 52px;
---input-area-height: 120px;
---sidebar-width: 280px;
-```
-
-**Key Classes:**
-
-| Class | Purpose |
-|-------|---------|
-| `.view` | Full-height view container |
-| `.header` | Fixed header bar |
-| `.sidebar` | Slide-in conversation list |
-| `.sidebar.open` | Visible sidebar state |
-| `.sidebar-overlay` | Dim background when sidebar open |
-| `.settings-panel` | Slide-in settings from right |
-| `.settings-panel.open` | Visible settings state |
-| `.main-content` | Chat area container |
-| `.chat-container` | Scrollable messages area |
-| `.welcome-screen` | Initial empty state |
-| `.messages-container` | Message list |
-| `.message` | Message wrapper |
-| `.message.user` | User message (right-aligned) |
-| `.message.assistant` | Assistant message (left-aligned) |
-| `.message-content` | Message body |
-| `.streaming-indicator` | Typing dots animation |
-| `.input-area` | Fixed input area |
-| `.input-wrapper` | Textarea container |
-| `.action-btn` | Input action buttons |
-| `.send-btn` | Send button |
-| `.page-context-bar` | Attached page indicator |
-| `.modal` | Modal overlay |
-| `.modal-content` | Modal box |
-| `.quick-suggestions` | Welcome screen buttons |
-| `.suggestion-btn` | Suggestion button |
-| `.code-block-header` | Code block header with copy |
-
-**Animations:**
-
-| Animation | Duration | Used For |
-|-----------|----------|----------|
-| `fadeIn` | 0.3s | Message appearance |
-| `bounce` | 1.4s | Typing indicator dots |
-| `spin` | 1s | Loading spinners |
+**Animations (compact):** `fadeIn` (0.3s, message appearance), `bounce` (1.4s, typing dots), `spin` (1s, loading spinners)
 
 ---
 
@@ -774,32 +536,13 @@ const state = {
 })();
 ```
 
-**Functions:**
+**Functions (compact):**
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| **Page Extraction** |
-| `extractPageContent()` | `() → object` | Extract readable content |
-| `getSelectedText()` | `() → object` | Get currently selected text |
-| **Modal** |
-| `injectModalStyles()` | `() → void` | Inject CSS for modal |
-| `showModal(title)` | `(string) → void` | Show modal with loading |
-| `updateModalContent(content)` | `(string) → void` | Update modal body HTML |
-| `closeModal()` | `() → void` | Remove modal from DOM |
-| `copyModalContent()` | `() → void` | Copy modal content |
-| `continueInChat()` | `() → void` | Open sidepanel |
-| **Quick Actions** |
-| `handleQuickAction(action, text)` | `async (string, string) → void` | Process quick action |
+- **Page extraction**: `extractPageContent(): ()→object` (extract readable content); `getSelectedText(): ()→object` (current selection)
+- **Modal**: `injectModalStyles(): ()→void` (inject modal CSS); `showModal(title): (string)→void` (show loading modal); `updateModalContent(content): (string)→void` (update modal HTML); `closeModal(): ()→void` (remove modal); `copyModalContent(): ()→void` (copy); `continueInChat(): ()→void` (open sidepanel)
+- **Quick actions**: `handleQuickAction(action, text): async (string, string)→void` (process action)
 
-**Message Listener:**
-
-| Message Type | Response |
-|--------------|----------|
-| `EXTRACT_PAGE` | `{ title, url, content, meta, length }` |
-| `GET_SELECTION` | `{ text, hasSelection }` |
-| `QUICK_ACTION` | `{ success: true }` (calls handleQuickAction) |
-| `SHOW_MODAL` | `{ success: true }` (shows modal) |
-| `HIDE_MODAL` | `{ success: true }` (closes modal) |
+**Message Listener (compact):** `EXTRACT_PAGE → { title, url, content, meta, length }`; `GET_SELECTION → { text, hasSelection }`; `QUICK_ACTION → { success:true }` (calls `handleQuickAction`); `SHOW_MODAL → { success:true }`; `HIDE_MODAL → { success:true }`
 
 **Content Extraction Logic:**
 1. Check for user selection (>100 chars) - use that preferentially
@@ -813,7 +556,7 @@ const state = {
 5. Limit to 100,000 characters
 
 **Floating Button:**
-- Appears at bottom-left of every page
+- Appears at bottom-right of every page
 - SVG icon with gradient background
 - Click opens sidepanel via `chrome.runtime.sendMessage`
 - Styled in `injectModalStyles()` function
@@ -835,9 +578,320 @@ const state = {
 
 ---
 
-## 8. Backend Integration
+## 8. Custom Scripts System
 
-### 8.1 API Endpoints Used
+### 8.1 Overview
+
+The custom scripts system enables Tampermonkey-like functionality within the extension. Users can create scripts that:
+
+- **Parse pages**: Extract structured content for chat context
+- **Perform actions**: Execute functions on specific websites (copy, modify, etc.)
+- **Per-page behavior**: Same script can expose different actions based on URL
+
+**Two Creation Modes:**
+1. **Chat-Driven**: LLM sees page structure and helps build scripts iteratively
+2. **Direct Editor**: Editor UI (opened in a new tab) with code editor and action builder
+
+### 8.2 File Structure
+
+```
+extension/
+├── content_scripts/
+│   ├── script_runner.js     # Script execution engine + aiAssistant API
+│   ├── script_ui.js         # Floating toolbar + command palette
+│   └── script_ui.css        # UI styles for scripts
+│
+└── editor/
+    ├── editor.html          # Script editor UI
+    ├── editor.js            # Editor logic + CodeMirror
+    └── editor.css           # Editor styles
+```
+
+### 8.3 `content_scripts/script_runner.js`
+
+**Purpose:** Execute user scripts in a sandboxed environment with the `aiAssistant` API.
+
+**Key Components:**
+
+| Component | Description |
+|-----------|-------------|
+| `loadedScripts` | Map of currently loaded scripts and handlers |
+| `createAiAssistantAPI(scriptId)` | Creates isolated API for each script |
+| `executeScript(script)` | Sends script code to sandbox page (no unsafe-eval) and registers handlers |
+| `callHandler(scriptId, handlerName)` | Invokes a specific handler function |
+| `getPageContext()` | Extracts rich page structure for LLM |
+
+**aiAssistant API:**
+
+```javascript
+window.aiAssistant = {
+    dom: {
+        query(selector),           // Returns first match
+        queryAll(selector),        // Returns array of matches
+        exists(selector),          // Returns boolean
+        count(selector),           // Returns number
+        getText(selector),         // Get text content
+        getHtml(selector),         // Get innerHTML
+        getAttr(selector, name),   // Get attribute
+        setAttr(selector, name, value), // Set attribute
+        getValue(selector),        // Get input/select value
+        waitFor(selector, timeout), // Wait for element (Promise)
+        scrollIntoView(selector, behavior), // Scroll to element
+        focus(selector),           // Focus element
+        blur(selector),            // Blur element
+        hide(selector),            // Hide element(s)
+        show(selector),            // Show element(s)
+        remove(selector),          // Remove element(s)
+        addClass(selector, className), // Add class
+        removeClass(selector, className), // Remove class
+        toggleClass(selector, className, force?), // Toggle class
+        setHtml(selector, html),   // Set innerHTML
+        getHtml(selector),         // Get innerHTML
+        click(selector),           // Click element
+        setValue(selector, value), // Set value + dispatch input/change
+        type(selector, text, opts), // Type with optional delay/clearFirst
+    },
+    clipboard: {
+        copy(text),                // Copy text to clipboard
+        copyHtml(html),            // Copy as rich text
+    },
+    llm: {
+        ask(prompt),               // Ask LLM (Promise<string>)
+        askStreaming(prompt, onChunk), // Streaming response
+    },
+    ui: {
+        showToast(message, type),  // Show notification
+        showModal(title, content), // Show modal dialog
+        closeModal(),              // Close modal
+    },
+    storage: {
+        get(key),                  // Get from script storage
+        set(key, value),           // Save to script storage
+        remove(key),               // Remove from storage
+    },
+};
+```
+
+**Script Format:**
+
+```javascript
+// User scripts must export handlers via window.__scriptHandlers
+const handlers = {
+    copyProblem() {
+        const title = aiAssistant.dom.getText('h1');
+        aiAssistant.clipboard.copy(title);
+        aiAssistant.ui.showToast('Copied!', 'success');
+    },
+    
+    async analyzePage() {
+        const content = aiAssistant.dom.getText('article');
+        const analysis = await aiAssistant.llm.ask('Summarize: ' + content);
+        aiAssistant.ui.showModal('Analysis', analysis);
+    }
+};
+
+window.__scriptHandlers = handlers;
+```
+
+**Message Handlers:**
+
+| Message Type | Response |
+|--------------|----------|
+| `EXECUTE_SCRIPT_ACTION` | `{ success, result }` |
+| `GET_LOADED_SCRIPTS` | `{ scripts: [...] }` |
+| `TEST_SCRIPT` | `{ success }` or `{ error }` |
+| `RELOAD_SCRIPTS` | `{ success: true }` |
+| `GET_PAGE_CONTEXT` | `{ url, title, headings, forms, ... }` |
+
+### 8.4 `content_scripts/script_ui.js`
+
+**Purpose:** Floating toolbar and command palette for action discovery.
+
+**Key Components:**
+
+| Component | Description |
+|-----------|-------------|
+| `FloatingToolbar` | Draggable toolbar showing available actions |
+| `CommandPalette` | Searchable action list (Ctrl+Shift+K) |
+| `InjectedButtons` | Buttons injected into page DOM |
+
+**Floating Toolbar Features:**
+- Draggable positioning (persisted)
+- Collapsible/expandable
+- Shows actions from loaded scripts
+- "Create New Script" button opens editor
+
+**Command Palette Features:**
+- Opens with `Ctrl+Shift+K`
+- Fuzzy search across all actions
+- Shows action source (script name)
+- System commands: "Edit Scripts", "Create New Script"
+
+**Action Exposure Types:**
+
+| Type | Description |
+|------|-------------|
+| `floating` | Shown in floating toolbar |
+| `inject` | Injected as button in page DOM |
+| `command` | Only in command palette |
+| `context_menu` | Right-click context menu |
+
+### 8.5 `editor/editor.html` + `editor.js`
+
+**Purpose:** Dedicated editor UI for creating/editing scripts (opened in a new tab by the service worker).
+
+**Features:**
+- CodeMirror editor with JavaScript syntax highlighting
+- Action builder UI (add/remove/configure)
+- URL pattern configuration with test
+- Test button to run script on current page
+- Save button to persist to backend
+- "Ask AI" button to open sidepanel with context
+
+**DOM Elements:**
+
+| ID | Purpose |
+|----|---------|
+| `scriptName` | Script name input |
+| `scriptDescription` | Description input |
+| `scriptType` | Type select (functional/parsing) |
+| `patternsList` | URL patterns list |
+| `codeEditor` | CodeMirror container |
+| `actionsList` | Actions list |
+| `actionModal` | Modal for editing actions |
+| `testModal` | Modal for test results |
+
+**Key Functions:**
+
+| Function | Description |
+|----------|-------------|
+| `loadScript(scriptId)` | Load existing script for editing |
+| `saveScript()` | Save to backend API |
+| `testScript()` | Execute on current page |
+| `openAiAssistant()` | Open sidepanel with script context |
+| `loadPendingScript(script)` | Load AI-generated script |
+| `renderActions()` | Render actions list |
+| `validateCode()` | Check for syntax errors |
+
+### 8.6 Chat-Driven Script Creation
+
+**Flow in Sidepanel:**
+
+1. User types message with script intent (e.g., "create a script to copy...")
+2. `detectScriptIntent()` matches against patterns
+3. `handleScriptGeneration()` extracts page context
+4. API call to `/ext/scripts/generate`
+5. `renderScriptResponse()` shows code with buttons
+6. User can Test, Save, or Edit in Editor
+
+**Intent Detection Patterns:**
+
+```javascript
+const SCRIPT_INTENT_PATTERNS = [
+    /create\s+(a\s+)?script/i,
+    /make\s+(a\s+)?script/i,
+    /build\s+(a\s+)?script/i,
+    /write\s+(a\s+)?script/i,
+    /generate\s+(a\s+)?script/i,
+    /script\s+(to|that|for|which)/i,
+    /userscript/i,
+    /tampermonkey/i,
+];
+```
+
+**Script Response UI:**
+
+```
+┌────────────────────────────────────────────┐
+│ 🔧 LeetCode Helper                         │
+│ Copies problem details to clipboard        │
+│                                            │
+│ [functional] [*://leetcode.com/*]          │
+│                                            │
+│ I created a script that extracts...        │
+│                                            │
+│ ┌──────────────────────────────────────┐   │
+│ │ const handlers = {                    │   │
+│ │   copyProblem() { ... }               │   │
+│ │ };                                    │   │
+│ └──────────────────────────────────────┘   │
+│                                            │
+│ Actions:                                   │
+│ [📋] Copy Problem - floating               │
+│                                            │
+│ [💾 Save Script] [▶️ Test] [✏️ Edit]       │
+└────────────────────────────────────────────┘
+```
+
+### 8.7 Database Schema
+
+**CustomScripts Table:**
+
+```sql
+CREATE TABLE CustomScripts (
+    script_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    script_type TEXT DEFAULT 'functional',  -- 'functional' | 'parsing'
+    match_patterns TEXT NOT NULL,           -- JSON array
+    match_type TEXT DEFAULT 'glob',         -- 'glob' | 'regex'
+    code TEXT NOT NULL,
+    actions TEXT,                           -- JSON array
+    enabled INTEGER DEFAULT 1,
+    version INTEGER DEFAULT 1,
+    conversation_id TEXT,                   -- Links to creation chat
+    created_with_llm INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ext_script_match_patterns ON CustomScripts(match_patterns);
+CREATE INDEX idx_ext_script_script_type ON CustomScripts(script_type);
+```
+
+**Action Schema:**
+
+```json
+{
+  "id": "action-xyz123",
+  "name": "Copy Problem",
+  "description": "Copy problem details to clipboard",
+  "handler": "copyProblem",
+  "icon": "clipboard",
+  "exposure": "floating",
+  "page_pattern": null,
+  "inject_selector": null,
+  "inject_position": null
+}
+```
+
+### 8.8 Security Considerations
+
+| Aspect | Implementation |
+|--------|----------------|
+| **Sandboxed Execution** | Scripts run in isolated scope with timeout |
+| **Limited API** | Only `aiAssistant` methods exposed, no direct DOM access outside |
+| **LLM Proxy** | LLM calls go through service worker, not direct |
+| **Storage Isolation** | Each script has namespaced storage |
+| **No Network Access** | Scripts cannot make fetch calls directly |
+| **No Extension APIs** | No access to chrome.* APIs |
+
+### 8.9 Known Limitations / Caveats
+
+1. **SPA Navigation**: Scripts may need to re-inject on URL changes (MutationObserver used)
+2. **Shadow DOM**: Cannot easily select inside shadow roots
+3. **CSP Issues**: Some sites block injected scripts
+4. **Page Reload**: Scripts re-execute on every page load
+5. **Storage Limits**: chrome.storage.local has ~5MB limit
+6. **LLM Latency**: `aiAssistant.llm.ask()` can be slow
+7. **Injection Timing**: `document_idle` may miss early content
+
+---
+
+## 9. Backend Integration
+
+### 9.1 API Endpoints Used
 
 | Category | Endpoint | Method | Used By |
 |----------|----------|--------|---------|
@@ -861,85 +915,24 @@ const state = {
 | **Models** | `/ext/models` | GET | (Available) |
 | **Health** | `/ext/health` | GET | (Available) |
 
-### 8.2 Authentication Flow
+### 9.2 Authentication Flow
 
-```
-┌────────────┐     ┌────────────┐     ┌────────────┐
-│   User     │     │  Extension │     │   Server   │
-└─────┬──────┘     └─────┬──────┘     └─────┬──────┘
-      │                  │                  │
-      │ Enter email/pass │                  │
-      │─────────────────▶│                  │
-      │                  │                  │
-      │                  │ POST /ext/auth/login
-      │                  │─────────────────▶│
-      │                  │                  │
-      │                  │ { token, email } │
-      │                  │◀─────────────────│
-      │                  │                  │
-      │                  │ Storage.setToken(token)
-      │                  │ Storage.setUserInfo({...})
-      │                  │                  │
-      │  Show main UI    │                  │
-      │◀─────────────────│                  │
-```
+**Compact flow:** User enters email/password → Extension calls `POST /ext/auth/login` → Server returns `{ token, email, name }` → Extension stores `Storage.setToken(token)` + `Storage.setUserInfo({...})` → UI shows authenticated view.
 
-### 8.3 Streaming Response Flow
+### 9.3 Streaming Response Flow
 
-```
-┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐
-│   User     │     │  Sidepanel │     │   Server   │     │    LLM     │
-└─────┬──────┘     └─────┬──────┘     └─────┬──────┘     └─────┬──────┘
-      │                  │                  │                  │
-      │ Send message     │                  │                  │
-      │─────────────────▶│                  │                  │
-      │                  │                  │                  │
-      │                  │ POST /ext/chat/{id}                 │
-      │                  │ { message, stream: true }           │
-      │                  │─────────────────▶│                  │
-      │                  │                  │                  │
-      │                  │                  │ Call LLM API     │
-      │                  │                  │─────────────────▶│
-      │                  │                  │                  │
-      │                  │ SSE: data: {"chunk": "Hello"}       │
-      │ Update UI        │◀─────────────────│◀─────────────────│
-      │◀─────────────────│                  │                  │
-      │                  │                  │                  │
-      │                  │ SSE: data: {"chunk": " world"}      │
-      │ Update UI        │◀─────────────────│◀─────────────────│
-      │◀─────────────────│                  │                  │
-      │                  │                  │                  │
-      │                  │ SSE: data: {"done": true}           │
-      │ Final render     │◀─────────────────│                  │
-      │◀─────────────────│                  │                  │
-```
+**Compact flow:** User sends message → Sidepanel calls `POST /ext/chat/<id>` with `{ message, stream:true }` → Server calls LLM → Server streams SSE chunks (`data: {"chunk": "..."}`) → Sidepanel appends chunks live → final SSE includes `data: {"done": true, "message_id": "..."}` → Sidepanel finalizes render.
 
-### 8.4 Page Content Grounding
+### 9.4 Page Content Grounding
 
 When page content is attached, the server injects it as a **separate user message** before the user's actual question. This ensures the LLM explicitly acknowledges and uses the page content.
 
-**Flow:**
-```
-User message: "Summarize this page"
-Page context: { url: "...", title: "...", content: "..." }
-
-→ Server injects TWO messages to LLM:
-
-Message 1 (user): 
-  "I'm currently viewing this web page:
-   **URL:** https://example.com
-   **Title:** Example Page
-   **Page Content:**
-   [page content up to 64,000 chars]
-   
-   Please use the above page content to answer my questions."
-
-Message 2 (assistant): 
-  "I've read the page content. I'll use it to help answer your questions."
-
-Message 3 (user): 
-  "Summarize this page"
-```
+**Flow (compact):**
+- Input: user message (e.g., `"Summarize this page"`) + `page_context = { url, title, content }`
+- Server injects **two** messages *before* the user message:
+  - Message 1 (**user**): “I’m currently viewing this web page… URL, Title, Page Content (up to 64,000 chars; truncated with notice). Please use the above page content…”
+  - Message 2 (**assistant**): “I’ve read the page content. I’ll use it to help answer your questions.”
+- Then sends Message 3 (**user**): the original user message.
 
 **Key Details:**
 - Page content limit: **64,000 characters** (truncated with notice if exceeded)
@@ -949,103 +942,25 @@ Message 3 (user):
 
 ---
 
-## 9. Data Flow Diagrams
+## 10. Data Flow Diagrams
 
-### 9.1 Login Flow
+### 10.1 Login Flow
 
-```
-[Popup/Sidepanel] ──▶ [API.login(email, pass)]
-                              │
-                              ▼
-                     POST /ext/auth/login
-                              │
-                              ▼
-                     ┌────────────────┐
-                     │ extension_server │
-                     │ verify password  │
-                     │ generate JWT     │
-                     └────────┬───────┘
-                              │
-                              ▼
-                     { token, email, name }
-                              │
-                              ▼
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-    Storage.setToken(token)      Storage.setUserInfo({...})
-              │                               │
-              └───────────────┬───────────────┘
-                              │
-                              ▼
-                     Show authenticated UI
-```
+**Compact flow:** Popup/Sidepanel → `API.login(email, password)` → `POST /ext/auth/login` → Server verifies password + generates JWT → returns `{ token, email, name }` → `Storage.setToken(token)` + `Storage.setUserInfo({...})` → show authenticated UI.
 
-### 9.2 Page Extraction Flow
+### 10.2 Page Extraction Flow
 
-```
-[User clicks "Include Page"]
-              │
-              ▼
-[Sidepanel: attachPageContent()]
-              │
-              ▼
-chrome.runtime.sendMessage({ type: EXTRACT_PAGE })
-              │
-              ▼
-[Service Worker: handleExtractPage()]
-              │
-              ▼
-chrome.tabs.sendMessage(tabId, { type: EXTRACT_PAGE })
-              │
-              ▼
-[Content Script: extractPageContent()]
-              │
-              ▼
-{ title, url, content, meta, length }
-              │
-              ▼
-[Sidepanel: state.pageContext = {...}]
-              │
-              ▼
-Show page context bar
-```
+**Compact flow:** User clicks “Include Page” → Sidepanel `attachPageContent()` → `chrome.runtime.sendMessage({ type: EXTRACT_PAGE })` → Service worker `handleExtractPage()` → `chrome.tabs.sendMessage(tabId,{ type: EXTRACT_PAGE })` → content script `extractPageContent()` → returns `{ title, url, content, meta, length }` → Sidepanel sets `state.pageContext` → shows page context bar.
 
-### 9.3 Context Menu Quick Action Flow
+### 10.3 Context Menu Quick Action Flow
 
-```
-[User selects text, right-clicks "Explain"]
-              │
-              ▼
-[Service Worker: chrome.contextMenus.onClicked]
-              │
-              ▼
-chrome.tabs.sendMessage(tabId, { type: QUICK_ACTION, action: 'explain', text })
-              │
-              ▼
-[Content Script: handleQuickAction('explain', text)]
-              │
-              ▼
-showModal('💡 Explanation')
-              │
-              ▼
-fetch('/ext/chat/quick', { action, text })
-              │
-              ▼
-[Server: LLM call]
-              │
-              ▼
-{ response: "..." }
-              │
-              ▼
-updateModalContent(response)
-```
+**Compact flow:** User selects text + context menu “Explain” → service worker `chrome.contextMenus.onClicked` → `chrome.tabs.sendMessage(tabId,{ type: QUICK_ACTION, action:'explain', text })` → content script `handleQuickAction()` shows modal → calls `POST /ext/chat/quick` → server calls LLM → returns `{ response }` → content script `updateModalContent(response)`.
 
 ---
 
-## 10. State Management
+## 11. State Management
 
-### 10.1 Chrome Storage
+### 11.1 Chrome Storage
 
 | Key | Type | Contents |
 |-----|------|----------|
@@ -1055,7 +970,7 @@ updateModalContent(response)
 | `currentConversation` | string | Active conversation ID |
 | `recentConversations` | array | Last 5 accessed conversations |
 
-### 10.2 Sidepanel State
+### 11.2 Sidepanel State
 
 ```javascript
 const state = {
@@ -1075,7 +990,7 @@ const state = {
 };
 ```
 
-### 10.3 State Persistence
+### 11.3 State Persistence
 
 | State | Storage Location | Persistence |
 |-------|------------------|-------------|
@@ -1090,9 +1005,9 @@ const state = {
 
 ---
 
-## 11. Styling Architecture
+## 12. Styling Architecture
 
-### 11.1 CSS File Organization
+### 12.1 CSS File Organization
 
 | File | Scope | Variables Defined |
 |------|-------|-------------------|
@@ -1101,7 +1016,7 @@ const state = {
 | `content_scripts/modal.css` | Page-injected modal | Inline in extractor.js |
 | `assets/styles/common.css` | Shared reference | `--ai-*` prefixed |
 
-### 11.2 Theme Colors
+### 12.2 Theme Colors
 
 **Popup Theme (slightly lighter):**
 - Background: `#0d1117` → `#161b22` → `#21262d`
@@ -1111,7 +1026,7 @@ const state = {
 - Background: `#0a0e14` → `#0d1219` → `#151c25`
 - Accent: `#00d4ff` (Cyan)
 
-### 11.3 Responsive Considerations
+### 12.3 Responsive Considerations
 
 | Breakpoint | Adjustment |
 |------------|------------|
@@ -1123,9 +1038,9 @@ const state = {
 
 ---
 
-## 12. Message Passing
+## 13. Message Passing
 
-### 12.1 Message Types
+### 13.1 Message Types
 
 | Type | Direction | Data |
 |------|-----------|------|
@@ -1143,33 +1058,36 @@ const state = {
 | `AUTH_STATE_CHANGED` | Any → All | `{ isAuthenticated }` |
 | `TAB_CHANGED` | SW → Sidepanel | `{ tabId, url, title }` |
 | `TAB_UPDATED` | SW → Sidepanel | `{ tabId, url, title }` |
+| **Custom Scripts Messages** |
+| `GET_SCRIPTS_FOR_URL` | SW → API | `{ url }` → `{ scripts: [...] }` |
+| `EXECUTE_SCRIPT_ACTION` | Any → CS | `{ scriptId, handlerName }` → `{ success, result }` |
+| `GET_LOADED_SCRIPTS` | Any → CS | none → `{ scripts: [...] }` |
+| `TEST_SCRIPT` | Editor → CS | `{ code, actions }` → `{ success }` |
+| `RELOAD_SCRIPTS` | Any → CS | none → `{ success: true }` |
+| `GET_PAGE_CONTEXT` | Any → CS | none → `{ url, title, headings, forms, ... }` |
+| `SCRIPTS_UPDATED` | Any → SW | none → notifies all tabs to reload |
+| `OPEN_SCRIPT_EDITOR` | Any → SW | `{ script?, scriptId? }` → opens editor tab |
+| `SCRIPT_LLM_REQUEST` | CS → SW | `{ prompt }` → `{ response }` |
 
-### 12.2 Message Flow Example
+### 13.2 Message Flow Example
 
 ```javascript
-// From popup - open sidepanel
-chrome.runtime.sendMessage({ type: MESSAGE_TYPES.OPEN_SIDEPANEL });
-
-// From sidepanel - extract page
-chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE }, (response) => {
-    // response = { title, url, content, meta, length }
-});
-
-// In service worker - forward to content script
-chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.EXTRACT_PAGE });
+chrome.runtime.sendMessage({ type: MESSAGE_TYPES.OPEN_SIDEPANEL }); // open sidepanel
+chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE }, (res) => { /* { title,url,content,meta,length } */ }); // extract page
+chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.EXTRACT_PAGE }); // SW forwards to CS
 ```
 
 ---
 
-## 13. Extension Lifecycle
+## 14. Extension Lifecycle
 
-### 13.1 Installation
+### 14.1 Installation
 
 1. `chrome.runtime.onInstalled` fires in service worker
 2. Context menus are created
 3. Sidepanel behavior is configured
 
-### 13.2 Popup Open
+### 14.2 Popup Open
 
 1. `popup.html` loads
 2. `popup.js` runs `initialize()`
@@ -1177,7 +1095,7 @@ chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.EXTRACT_PAGE });
 4. If yes: `API.verifyAuth()` → show main or login
 5. If no: show login
 
-### 13.3 Sidepanel Open
+### 14.3 Sidepanel Open
 
 1. `sidepanel.html` loads
 2. `sidepanel.js` runs `initialize()`
@@ -1189,46 +1107,13 @@ chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.EXTRACT_PAGE });
    - Check for current conversation
 5. If no: show login
 
-### 13.4 User Session
+### 14.4 User Session
 
-```
-Open Extension → Check Token → Valid?
-       │                         │
-       │                    ┌────┴────┐
-       │                    │         │
-       │                   Yes       No
-       │                    │         │
-       │                    ▼         ▼
-       │              Show Main   Show Login
-       │                    │         │
-       │                    │    (User logs in)
-       │                    │         │
-       │                    └────┬────┘
-       │                         │
-       ▼                         ▼
-   Use Extension ←────────── Store Token
-```
+**Compact flow:** Open extension → check token → if valid: show main; if invalid: show login → on successful login: store token → show main → use extension.
 
-### 13.5 Message Flow on Tab Change
+### 14.5 Message Flow on Tab Change
 
-```
-[User switches tab]
-        │
-        ▼
-chrome.tabs.onActivated
-        │
-        ▼
-[Service Worker]
-        │
-        ▼
-chrome.runtime.sendMessage({ type: 'TAB_CHANGED', ... })
-        │
-        ▼
-[Sidepanel: handleRuntimeMessage]
-        │
-        ▼
-(Could update page context UI)
-```
+**Compact flow:** User switches tab → `chrome.tabs.onActivated` (SW) → SW emits `TAB_CHANGED` runtime message → Sidepanel `handleRuntimeMessage` → UI may update page context indicator.
 
 ---
 
@@ -1315,6 +1200,28 @@ AVAILABLE_MODELS = [
 ]
 ```
 
+### Adding a New Custom Script API Method
+
+To add a new method to the `aiAssistant` API:
+
+1. Add method in `createAiAssistantAPI()` in `script_runner.js`
+2. If it needs service worker proxy, add message handler in `service-worker.js`
+3. Document in the API section of this file
+
+### Modifying Script UI (Toolbar/Palette)
+
+1. Toolbar: Edit `FloatingToolbar` class in `script_ui.js`
+2. Palette: Edit `CommandPalette` class in `script_ui.js`
+3. Styles: Update `script_ui.css`
+4. New action types: Add handling in `handleActionClick()` and render logic
+
+### Extending Script Editor
+
+1. Add form fields in `editor.html`
+2. Add handling logic in `editor.js`
+3. Update CSS in `editor.css`
+4. If new action properties: Update action schema in backend too
+
 ---
 
 ## Appendix C: Troubleshooting
@@ -1328,6 +1235,16 @@ AVAILABLE_MODELS = [
 | Streaming not working | Network tab | Check SSE format, CORS |
 | Styles not applied | Elements inspector | Check CSS specificity |
 | Messages not passing | Service worker console | Check message types match |
+| **Custom Scripts Issues** |
+| Script not loading | Check URL pattern matches | Use `window.__scriptRunner` to debug |
+| Actions not showing | Check script is enabled | Verify `exposure` type is correct |
+| Handler not found | Check handler name matches | Must match function name exactly |
+| aiAssistant undefined | Script ran too early | Use `waitFor` or check timing |
+| LLM calls failing | Check auth token | LLM proxied through service worker |
+| Toolbar not showing | Check z-index conflicts | May be hidden by page CSS |
+| Command palette stuck | Press Escape | Or click outside to close |
+| Editor not opening | Check chrome://extensions errors | Verify service worker can create a tab and editor URL is valid |
+| Test script fails | Check content script loaded | May need page refresh |
 
 ---
 
@@ -1335,92 +1252,35 @@ AVAILABLE_MODELS = [
 
 ## Appendix D: Changelog
 
+### Version 1.4 (December 30, 2024)
+
+**Custom Scripts System (Tampermonkey-like) (compact):**
+- **New files**: `content_scripts/script_runner.js` (script engine + `aiAssistant`), `content_scripts/script_ui.js` (toolbar + palette), `content_scripts/script_ui.css` (styles), `editor/editor.html|js|css` (editor UI), `sandbox/sandbox.html|js` (sandbox exec + RPC bridge).
+- **Creation modes**: Chat-driven (LLM sees page structure, iterative refinement); Direct editor (tab UI with code editor + action builder + live test).
+- **User-script API**: `aiAssistant.dom.*` (DOM query/modify + automation), `clipboard.*` (copy/copyHtml), `llm.*` (ask/stream), `ui.*` (toast/modal), `storage.*` (namespaced per-script).
+- **Action exposure**: `floating` (toolbar), `inject` (page button), `command` (palette Ctrl+Shift+K), `context_menu` (right-click).
+- **Backend endpoints**: `GET/POST /ext/scripts`, `GET /ext/scripts/for-url?url=...`, `POST /ext/scripts/generate`, `POST /ext/scripts/validate`.
+- **DB schema**: `CustomScripts` extended with `actions`, `match_type`, `conversation_id`, `created_with_llm`; indexes on `match_patterns`, `script_type`.
+- **New message types**: `GET_SCRIPTS_FOR_URL`, `EXECUTE_SCRIPT_ACTION`, `TEST_SCRIPT`, `GET_PAGE_CONTEXT`, `SCRIPTS_UPDATED`, `OPEN_SCRIPT_EDITOR`.
+- **Security**: sandboxed execution + timeout; no direct network (LLM proxied via SW); per-script storage isolation; user scripts must use `aiAssistant.dom.*` (no direct DOM APIs).
+
+---
+
 ### Version 1.3 (December 25, 2024)
 
-**Multi-Tab Reading:**
-- Full implementation of multi-tab content extraction
-- Click "Multi-tab" button to open tab selection modal
-- Checkboxes to select which tabs to read from
-- Current tab is auto-selected by default
-- Restricted URLs (chrome://, about://) are disabled
-- Content from all selected tabs is combined with clear separators
-- Backend updated to acknowledge multi-tab content explicitly
-
-**New State Properties:**
-- `multiTabContexts[]`: Array of extracted tab contexts
-- `selectedTabIds[]`: Currently selected tab IDs
-
-**New Message Type:**
-- `EXTRACT_FROM_TAB`: Extract content from specific tab by ID
-
-**New Functions (sidepanel.js):**
-- `truncateUrl(url)`: Shorten URLs for display
-- `updateTabSelectionCount()`: Update confirm button label
-- `updateMultiTabIndicator()`: Update multi-tab button tooltip
-
-**New Handler (service-worker.js):**
-- `handleExtractFromTab()`: Extract content from any tab, with content script injection fallback
-
-**UI Improvements:**
-- Multi-tab button shows active state when tabs are selected
-- Loading spinner while extracting from multiple tabs
-- Restricted tabs shown as disabled with visual indicator
-- Dynamic confirm button text shows selected count
+**Multi-Tab Reading (compact):** Full multi-tab content extraction; “Multi-tab” opens tab selection modal with checkboxes; current tab auto-selected; restricted URLs (`chrome://`, `about://`) disabled; selected tab content combined with clear separators; backend updated to acknowledge multi-tab content explicitly. **State**: `multiTabContexts[]`, `selectedTabIds[]`. **Message**: `EXTRACT_FROM_TAB` (extract by tabId). **sidepanel.js**: `truncateUrl(url)`, `updateTabSelectionCount()`, `updateMultiTabIndicator()`. **service-worker.js**: `handleExtractFromTab()` (fallback injection). **UI**: active-state indicator, loading spinner, disabled restricted tabs, confirm text shows selected count.
 
 ---
 
 ### Version 1.2 (December 25, 2024)
 
-**Auto-Include Page Content:**
-- `autoIncludePage` setting now **enabled by default**
-- When sending a message, page content is automatically attached if not already present
-- Works with screenshot fallback for canvas-based apps (Google Docs)
-
-**Temporary Conversations & Save:**
-- Creating a new conversation **automatically deletes all temporary conversations**
-- Added **Save button** (💾) for temporary conversations in sidebar
-- Saved conversations (💬) won't be auto-deleted
-- New API endpoint: `POST /ext/conversations/<id>/save`
-- Conversation icons: 💭 = temporary, 💬 = saved
-
-**UI Improvements:**
-- Removed auto-scroll behavior
-- Fixed duplicate code block headers issue
-- Added `.conv-actions` wrapper for save/delete buttons
-- Save button uses accent color, delete button uses error color on hover
-
-**Screenshot Fallback:**
-- Canvas-based apps (Google Docs, Sheets) trigger screenshot capture
-- Screenshots sent to LLM as base64 images
-- LLM acknowledges it's analyzing a screenshot
-
-**Content Extraction:**
-- Added site-specific extractors for: Google Docs, Gmail, Sheets, Twitter/X, Reddit, GitHub, YouTube, Wikipedia, Stack Overflow, LinkedIn, Medium/Substack, Notion, Quip
-- Added floating button (bottom-left) to open sidepanel
-- Selection priority: if user selects text, that's used instead of full page extraction
+**Auto-Include Page Content (compact):** `autoIncludePage` enabled by default; messages auto-attach page content if missing; works with screenshot fallback for canvas apps (Google Docs). **Temporary conversations & Save**: new conversations delete all temporary convs; Save button (💾) for temporary convs; saved convs (💬) not auto-deleted; new endpoint `POST /ext/conversations/<id>/save`; icons: 💭 temporary, 💬 saved. **UI**: removed auto-scroll; fixed duplicate code block headers; `.conv-actions` wrapper; save uses accent, delete uses error hover. **Screenshot fallback**: canvas apps (Google Docs/Sheets) capture screenshot; send base64 to LLM; LLM acknowledges screenshot. **Extraction**: site-specific extractors added for Google Docs, Gmail, Sheets, Twitter/X, Reddit, GitHub, YouTube, Wikipedia, Stack Overflow, LinkedIn, Medium/Substack, Notion, Quip; floating button bottom-right opens sidepanel; selection text prioritized over full extraction.
 
 ---
 
 ### Version 1.1 (December 25, 2024)
 
-**Input Handling:**
-- Changed from Ctrl+Enter to **Enter** to send messages
-- Shift+Enter now creates newlines
-
-**LLM Models:**
-- Models now fetched dynamically from server via `GET /ext/models`
-- Default model changed to `google/gemini-2.5-flash`
-- UI shows short model names (part after `/`)
-- New models: gemini-2.5-flash, claude-sonnet-4.5, claude-opus-4.5, gpt-5.2, gemini-3-pro-preview
-
-**Page Content Grounding:**
-- Increased page content limit from 2,000 to **64,000 characters**
-- Page content now injected as separate user message for better LLM grounding
-- LLM acknowledges page content before answering questions
-
-**State Management:**
-- Added `availableModels` array to sidepanel state
-- `loadSettings()` now fetches models from server
+**Input handling (compact):** send on Enter; Shift+Enter newline (replaces Ctrl+Enter). **Models:** fetched dynamically via `GET /ext/models`; default `google/gemini-2.5-flash`; UI displays short names (after `/`); models added: gemini-2.5-flash, claude-sonnet-4.5, claude-opus-4.5, gpt-5.2, gemini-3-pro-preview. **Grounding:** page content limit 2,000→64,000 chars; injected as separate user message; LLM acknowledges before answering. **State:** `availableModels[]` added; `loadSettings()` fetches models from server.
 
 ---
 

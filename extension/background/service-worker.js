@@ -9,6 +9,10 @@
  */
 
 import { QUICK_ACTIONS, MESSAGE_TYPES, API_BASE } from '../shared/constants.js';
+import { Storage } from '../shared/storage.js';
+
+// Ensure the toolbar icon opens the sidepanel (best-effort; may fail on older Chrome)
+chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 
 // ==================== Installation & Context Menu ====================
 
@@ -154,6 +158,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: true });
             break;
 
+        // ==================== Custom Scripts Handlers ====================
+        
+        case 'GET_SCRIPTS_FOR_URL':
+            handleGetScriptsForUrl(message, sendResponse);
+            return true;
+
+        case 'SCRIPT_LLM_REQUEST':
+            handleScriptLlmRequest(message, sendResponse);
+            return true;
+
+        case 'EXECUTE_SCRIPT_ACTION':
+            handleExecuteScriptAction(message, sender, sendResponse);
+            return true;
+
+        case 'GET_PAGE_CONTEXT':
+            handleGetPageContext(sendResponse);
+            return true;
+
+        case 'SCRIPTS_UPDATED':
+            handleScriptsUpdated(sendResponse);
+            return true;
+
+        case 'OPEN_SCRIPT_EDITOR':
+            handleOpenScriptEditor(message, sendResponse);
+            return true;
+
         default:
             console.log('[AI Assistant] Unknown message type:', message.type);
             sendResponse({ error: 'Unknown message type' });
@@ -163,27 +193,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ==================== Message Handlers ====================
 
 /**
- * Open the sidepanel
+ * Open the sidepanel.
+ *
+ * CRITICAL: `chrome.sidePanel.open()` must be called without crossing an async boundary
+ * (no `await` before calling it), otherwise Chrome may treat it as not being initiated
+ * by a user gesture and reject it.
+ *
+ * For clicks originating in a content script (like the floating button), `sender.tab.id`
+ * is available and we can open immediately.
  */
-async function handleOpenSidepanel(sender, sendResponse) {
+function handleOpenSidepanel(sender, sendResponse) {
     try {
-        const tabId = sender.tab?.id;
-        if (tabId) {
-            await chrome.sidePanel.open({ tabId });
-            sendResponse({ success: true });
-        } else {
-            // Get active tab
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tab) {
-                await chrome.sidePanel.open({ tabId: tab.id });
-                sendResponse({ success: true });
-            } else {
-                sendResponse({ error: 'No active tab' });
-            }
+        const tabId = sender?.tab?.id;
+
+        // If we don't have a tabId, we intentionally do NOT call chrome.tabs.query()
+        // because that introduces an async boundary and can break the user-gesture token.
+        if (!tabId) {
+            sendResponse({
+                error: 'No sender tab. Please click the extension icon to open the sidepanel.',
+                fallbackToIcon: true
+            });
+            return;
         }
+
+        console.log('[AI Assistant] Opening sidepanel for tab:', tabId);
+
+        // Best-effort: enable sidepanel for this tab without awaiting.
+        chrome.sidePanel
+            .setOptions({ tabId, path: 'sidepanel/sidepanel.html', enabled: true })
+            .catch(() => {});
+
+        // MUST be called immediately (no await before this line).
+        chrome.sidePanel
+            .open({ tabId })
+            .then(() => {
+                sendResponse({ success: true, opened: 'sidepanel' });
+            })
+            .catch((e) => {
+                sendResponse({
+                    error: `Sidepanel failed: ${e?.message || String(e)}`,
+                    fallbackToIcon: true
+                });
+            });
     } catch (e) {
-        console.error('[AI Assistant] Failed to open sidepanel:', e);
-        sendResponse({ error: e.message });
+        console.error('[AI Assistant] Failed to open sidepanel:', e.message, e);
+        sendResponse({
+            error: `Sidepanel failed: ${e?.message || String(e)}`,
+            fallbackToIcon: true
+        });
     }
 }
 
@@ -364,6 +421,220 @@ function broadcastAuthState(isAuthenticated) {
     }).catch(() => {
         // Ignore errors if no listeners
     });
+}
+
+// ==================== Custom Scripts Handlers ====================
+
+/**
+ * Get scripts that match a given URL
+ */
+async function handleGetScriptsForUrl(message, sendResponse) {
+    try {
+        const token = await Storage.getToken();
+        if (!token) {
+            console.log('[AI Assistant] No auth token for scripts, returning empty');
+            sendResponse({ scripts: [] });
+            return;
+        }
+
+        const url = encodeURIComponent(message.url);
+        const response = await fetch(`${API_BASE}/ext/scripts/for-url?url=${url}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                // Token expired
+                sendResponse({ scripts: [], error: 'auth_expired' });
+                return;
+            }
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[AI Assistant] Loaded scripts for URL:', data.scripts?.length || 0);
+        sendResponse({ scripts: data.scripts || [] });
+
+    } catch (e) {
+        console.error('[AI Assistant] Failed to get scripts for URL:', e);
+        sendResponse({ scripts: [], error: e.message });
+    }
+}
+
+/**
+ * Handle LLM request from a user script
+ */
+async function handleScriptLlmRequest(message, sendResponse) {
+    try {
+        const token = await Storage.getToken();
+        if (!token) {
+            sendResponse({ error: 'Not authenticated' });
+            return;
+        }
+
+        // Create a temporary conversation for the LLM request
+        const createResponse = await fetch(`${API_BASE}/ext/conversations`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: 'Script LLM Request',
+                is_temporary: true,
+                delete_temporary: false // Don't delete other temp convos
+            })
+        });
+
+        if (!createResponse.ok) {
+            throw new Error('Failed to create conversation');
+        }
+
+        const convData = await createResponse.json();
+        const conversationId = convData.conversation.conversation_id;
+
+        // Send the chat message
+        const chatResponse = await fetch(`${API_BASE}/ext/chat/${conversationId}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message.prompt,
+                stream: false
+            })
+        });
+
+        if (!chatResponse.ok) {
+            throw new Error('LLM request failed');
+        }
+
+        const chatData = await chatResponse.json();
+        sendResponse({ response: chatData.response });
+
+    } catch (e) {
+        console.error('[AI Assistant] Script LLM request failed:', e);
+        sendResponse({ error: e.message });
+    }
+}
+
+/**
+ * Execute a script action in the active tab
+ */
+async function handleExecuteScriptAction(message, sender, sendResponse) {
+    try {
+        // Get the tab to execute in
+        const tabId = message.tabId || sender.tab?.id;
+        
+        if (!tabId) {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab) {
+                sendResponse({ error: 'No active tab' });
+                return;
+            }
+            message.tabId = tab.id;
+        }
+
+        // Send to content script
+        const result = await chrome.tabs.sendMessage(message.tabId || tabId, {
+            type: 'EXECUTE_SCRIPT_ACTION',
+            scriptId: message.scriptId,
+            handlerName: message.handlerName
+        });
+
+        sendResponse(result);
+
+    } catch (e) {
+        console.error('[AI Assistant] Failed to execute script action:', e);
+        sendResponse({ success: false, error: e.message });
+    }
+}
+
+/**
+ * Get page context from active tab for script generation
+ */
+async function handleGetPageContext(sendResponse) {
+    try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab || !tab.id) {
+            sendResponse({ error: 'No active tab' });
+            return;
+        }
+
+        // Send to content script to get page context
+        const result = await chrome.tabs.sendMessage(tab.id, {
+            type: 'GET_PAGE_CONTEXT'
+        });
+
+        sendResponse(result);
+
+    } catch (e) {
+        console.error('[AI Assistant] Failed to get page context:', e);
+        sendResponse({ error: e.message });
+    }
+}
+
+/**
+ * Notify all tabs that scripts have been updated
+ */
+async function handleScriptsUpdated(sendResponse) {
+    try {
+        const tabs = await chrome.tabs.query({});
+        
+        // Notify all tabs to reload scripts
+        for (const tab of tabs) {
+            if (tab.id && tab.url && !tab.url.startsWith('chrome://')) {
+                chrome.tabs.sendMessage(tab.id, { type: 'RELOAD_SCRIPTS' }).catch(() => {
+                    // Tab might not have content script
+                });
+            }
+        }
+
+        sendResponse({ success: true });
+
+    } catch (e) {
+        console.error('[AI Assistant] Failed to notify scripts updated:', e);
+        sendResponse({ error: e.message });
+    }
+}
+
+/**
+ * Open the script editor popup with optional script data
+ */
+async function handleOpenScriptEditor(message, sendResponse) {
+    try {
+        // Create editor URL with optional scriptId
+        let editorUrl = chrome.runtime.getURL('editor/editor.html');
+        if (message.scriptId) {
+            editorUrl = `${editorUrl}?scriptId=${encodeURIComponent(message.scriptId)}`;
+        }
+        
+        if (message.script) {
+            // Store script data in storage for the editor to pick up
+            await chrome.storage.local.set({
+                '_pending_script_edit': {
+                    script: message.script,
+                    timestamp: Date.now()
+                }
+            });
+        }
+
+        // Open editor in a new tab (avoids needing the "windows" permission)
+        const tab = await chrome.tabs.create({
+            url: editorUrl,
+            active: true
+        });
+
+        sendResponse({ success: true, tabId: tab?.id });
+
+    } catch (e) {
+        console.error('[AI Assistant] Failed to open script editor:', e);
+        sendResponse({ error: e.message });
+    }
 }
 
 // ==================== Tab Change Listeners ====================

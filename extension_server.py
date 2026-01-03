@@ -1272,6 +1272,542 @@ def ext_update_settings():
 
 
 # =============================================================================
+# Custom Scripts Endpoints
+# =============================================================================
+
+@app.route('/ext/scripts', methods=['GET'])
+@require_ext_auth
+def ext_list_scripts():
+    """
+    List user's custom scripts.
+    
+    Query params:
+        enabled_only: Only return enabled scripts (default false)
+        script_type: Filter by type ('functional' or 'parsing')
+        limit: Maximum number (default 100)
+        offset: Pagination offset (default 0)
+    
+    Returns:
+        {"scripts": [...], "total": N}
+    """
+    try:
+        email = request.ext_user_email
+        enabled_only = request.args.get('enabled_only', 'false').lower() == 'true'
+        script_type = request.args.get('script_type')
+        limit = request.args.get('limit', 100, type=int)
+        offset = request.args.get('offset', 0, type=int)
+        
+        db = get_extension_db()
+        scripts = db.get_custom_scripts(
+            email,
+            enabled_only=enabled_only,
+            script_type=script_type,
+            limit=limit,
+            offset=offset
+        )
+        
+        return jsonify({
+            'scripts': scripts,
+            'total': len(scripts)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing scripts: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts', methods=['POST'])
+@require_ext_auth
+def ext_create_script():
+    """
+    Create a new custom script.
+    
+    Request body:
+        {
+            "name": "LeetCode Helper",
+            "description": "Copy problem details",
+            "script_type": "functional",
+            "match_patterns": ["*://leetcode.com/problems/*"],
+            "match_type": "glob",
+            "code": "const handlers = { ... }; window.__scriptHandlers = handlers;",
+            "actions": [
+                {
+                    "id": "copy-problem",
+                    "name": "Copy Problem",
+                    "icon": "clipboard",
+                    "exposure": "floating",
+                    "handler": "copyProblem"
+                }
+            ],
+            "conversation_id": "optional_conv_id"
+        }
+    
+    Returns:
+        {"script": {...}}
+    """
+    try:
+        email = request.ext_user_email
+        data = request.get_json() or {}
+        
+        # Validate required fields
+        name = data.get('name', '').strip()
+        if not name:
+            return jsonify({'error': 'Script name required'}), 400
+        
+        match_patterns = data.get('match_patterns', [])
+        if not match_patterns or not isinstance(match_patterns, list):
+            return jsonify({'error': 'At least one match pattern required'}), 400
+        
+        code = data.get('code', '').strip()
+        if not code:
+            return jsonify({'error': 'Script code required'}), 400
+        
+        db = get_extension_db()
+        script = db.create_custom_script(
+            user_email=email,
+            name=name,
+            match_patterns=match_patterns,
+            code=code,
+            description=data.get('description'),
+            script_type=data.get('script_type', 'functional'),
+            match_type=data.get('match_type', 'glob'),
+            actions=data.get('actions'),
+            conversation_id=data.get('conversation_id'),
+            created_with_llm=data.get('created_with_llm', True)
+        )
+        
+        return jsonify({'script': script})
+        
+    except Exception as e:
+        logger.error(f"Error creating script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/<script_id>', methods=['GET'])
+@require_ext_auth
+def ext_get_script(script_id):
+    """
+    Get a specific script by ID.
+    
+    Args:
+        script_id: ID of the script
+    
+    Returns:
+        {"script": {...}}
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        
+        script = db.get_custom_script(email, script_id)
+        if not script:
+            return jsonify({'error': 'Script not found'}), 404
+        
+        return jsonify({'script': script})
+        
+    except Exception as e:
+        logger.error(f"Error getting script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/<script_id>', methods=['PUT'])
+@require_ext_auth
+def ext_update_script(script_id):
+    """
+    Update a custom script.
+    
+    Request body:
+        {"name": "New Name", "code": "...", "actions": [...], ...}
+    
+    Returns:
+        {"script": {...}}
+    """
+    try:
+        email = request.ext_user_email
+        data = request.get_json() or {}
+        db = get_extension_db()
+        
+        # Verify script exists
+        existing = db.get_custom_script(email, script_id)
+        if not existing:
+            return jsonify({'error': 'Script not found'}), 404
+        
+        # Update the script
+        success = db.update_custom_script(email, script_id, **data)
+        
+        if success:
+            script = db.get_custom_script(email, script_id)
+            return jsonify({'script': script})
+        else:
+            return jsonify({'error': 'Update failed'}), 500
+        
+    except Exception as e:
+        logger.error(f"Error updating script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/<script_id>', methods=['DELETE'])
+@require_ext_auth
+def ext_delete_script(script_id):
+    """
+    Delete a custom script.
+    
+    Args:
+        script_id: ID of the script to delete
+    
+    Returns:
+        {"message": "Deleted successfully"}
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        
+        success = db.delete_custom_script(email, script_id)
+        
+        if success:
+            return jsonify({'message': 'Deleted successfully'})
+        else:
+            return jsonify({'error': 'Script not found'}), 404
+        
+    except Exception as e:
+        logger.error(f"Error deleting script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/for-url', methods=['GET'])
+@require_ext_auth
+def ext_get_scripts_for_url():
+    """
+    Get all scripts that match a given URL.
+    
+    Query params:
+        url: Full URL to match against (required)
+    
+    Returns:
+        {"scripts": [...]}
+    """
+    try:
+        email = request.ext_user_email
+        url = request.args.get('url', '').strip()
+        
+        if not url:
+            return jsonify({'error': 'URL parameter required'}), 400
+        
+        db = get_extension_db()
+        scripts = db.get_scripts_for_url(email, url)
+        
+        return jsonify({'scripts': scripts})
+        
+    except Exception as e:
+        logger.error(f"Error getting scripts for URL: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/<script_id>/toggle', methods=['POST'])
+@require_ext_auth
+def ext_toggle_script(script_id):
+    """
+    Toggle a script's enabled status.
+    
+    Args:
+        script_id: ID of the script
+    
+    Returns:
+        {"script": {...}, "enabled": true/false}
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        
+        # Get current state
+        script = db.get_custom_script(email, script_id)
+        if not script:
+            return jsonify({'error': 'Script not found'}), 404
+        
+        # Toggle enabled status
+        new_enabled = not script['enabled']
+        success = db.update_custom_script(email, script_id, enabled=new_enabled)
+        
+        if success:
+            script = db.get_custom_script(email, script_id)
+            return jsonify({'script': script, 'enabled': new_enabled})
+        else:
+            return jsonify({'error': 'Toggle failed'}), 500
+        
+    except Exception as e:
+        logger.error(f"Error toggling script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/generate', methods=['POST'])
+@require_ext_auth
+def ext_generate_script():
+    """
+    Generate a script using LLM based on description and page context.
+    
+    Request body:
+        {
+            "description": "Script for LeetCode to copy problem details",
+            "page_html": "<html>...",
+            "page_url": "https://leetcode.com/problems/two-sum/",
+            "conversation_id": "optional",
+            "refinement": "Make the button blue"  // Optional, for iterations
+        }
+    
+    Returns:
+        {
+            "script": {
+                "name": "LeetCode Helper",
+                "description": "...",
+                "match_patterns": ["*://leetcode.com/problems/*"],
+                "code": "...",
+                "actions": [...]
+            },
+            "explanation": "I created a script that..."
+        }
+    """
+    if not LLM_AVAILABLE:
+        return jsonify({'error': 'LLM service not available'}), 503
+    
+    try:
+        email = request.ext_user_email
+        data = request.get_json() or {}
+        
+        description = data.get('description', '').strip()
+        if not description:
+            return jsonify({'error': 'Description required'}), 400
+        
+        page_url = data.get('page_url', '')
+        page_html = data.get('page_html', '')
+        refinement = data.get('refinement', '')
+        
+        # Truncate HTML if too long (keep first 50KB)
+        if len(page_html) > 50000:
+            page_html = page_html[:50000] + "\n<!-- ... truncated ... -->"
+        
+        # Build the prompt for script generation
+        system_prompt = """You are an expert JavaScript developer specializing in browser userscripts (Tampermonkey-style).
+Your task is to create custom scripts that augment web pages with useful functionality.
+
+IMPORTANT RUNTIME CONSTRAINTS (follow strictly):
+- The script runs in a sandboxed environment with **NO direct access to the page DOM**.
+- Do NOT use `document`, `window.document`, `querySelector`, or any direct DOM access.
+- Do NOT use `eval`, `new Function`, dynamic imports, or external libraries.
+- To interact with the page, you MUST use the provided `aiAssistant.dom.*` functions (they execute in the content script).
+- Keep scripts deterministic and safe: avoid infinite loops; keep operations small and targeted.
+
+NOTE ABOUT `query/queryAll`:
+- Do NOT rely on getting a live Element back from `aiAssistant.dom.query()` / `queryAll()`.
+- Prefer `exists()`, `count()`, and action methods like `click()`, `setValue()`, `type()`, `hide()`, `remove()`, etc.
+
+SCRIPT SHAPE REQUIREMENTS:
+- Always create a handlers object: `const handlers = { ... }`
+- Always export it: `window.__scriptHandlers = handlers;`
+- Every action definition's `handler` field must match a function name in `handlers`.
+
+The scripts you create will have access to an `aiAssistant` API with these methods:
+- aiAssistant.dom.query(selector) - Returns first matching element
+- aiAssistant.dom.queryAll(selector) - Returns array of matching elements
+- aiAssistant.dom.exists(selector) - Returns true/false if element exists
+- aiAssistant.dom.count(selector) - Returns number of matching elements
+- aiAssistant.dom.getText(selector) - Gets text content
+- aiAssistant.dom.getHtml(selector) - Gets innerHTML
+- aiAssistant.dom.getAttr(selector, name) - Gets attribute value
+- aiAssistant.dom.setAttr(selector, name, value) - Sets attribute value
+- aiAssistant.dom.getValue(selector) - Gets value for inputs/textareas/selects
+- aiAssistant.dom.waitFor(selector, timeout) - Waits for element to appear
+- aiAssistant.dom.hide(selector) - Hides element(s)
+- aiAssistant.dom.show(selector) - Shows element(s)
+- aiAssistant.dom.setHtml(selector, html) - Sets innerHTML
+- aiAssistant.dom.scrollIntoView(selector, behavior) - Scroll element into view
+- aiAssistant.dom.focus(selector) - Focus element
+- aiAssistant.dom.blur(selector) - Blur element
+- aiAssistant.dom.click(selector) - Click element
+- aiAssistant.dom.setValue(selector, value) - Set value + dispatch input/change
+- aiAssistant.dom.type(selector, text, opts) - Type into element (opts: delayMs, clearFirst)
+- aiAssistant.dom.remove(selector) - Remove matching elements (useful for ads)
+- aiAssistant.dom.addClass(selector, className) - Add class to matching
+- aiAssistant.dom.removeClass(selector, className) - Remove class from matching
+- aiAssistant.dom.toggleClass(selector, className, force?) - Toggle class on matching
+- aiAssistant.clipboard.copy(text) - Copies text to clipboard
+- aiAssistant.clipboard.copyHtml(html) - Copies rich text
+- aiAssistant.ui.showToast(message, type) - Shows notification ('success', 'error', 'info')
+- aiAssistant.ui.showModal(title, content) - Shows modal dialog
+- aiAssistant.ui.closeModal() - Closes modal
+- aiAssistant.llm.ask(prompt) - Asks LLM a question, returns Promise<string>
+- aiAssistant.storage.get(key) - Gets stored value
+- aiAssistant.storage.set(key, value) - Stores value
+
+Your script MUST:
+1. Define handler functions as an object
+2. Export handlers via: window.__scriptHandlers = handlers;
+3. Each handler function should be a method that performs one action
+
+Output your response as JSON with this structure:
+{
+  "name": "Script Name",
+  "description": "What the script does",
+  "match_patterns": ["*://example.com/*"],
+  "script_type": "functional",
+  "code": "const handlers = { actionName() { ... } }; window.__scriptHandlers = handlers;",
+  "actions": [
+    {
+      "id": "action-id",
+      "name": "Action Display Name",
+      "description": "What this action does",
+      "icon": "clipboard|copy|download|eye|trash|star|edit|settings|search|refresh",
+      "exposure": "floating",
+      "handler": "actionName"
+    }
+  ],
+  "explanation": "Explanation of what the script does and how to use it"
+}
+
+Only output the JSON, no markdown code blocks."""
+
+        user_prompt = f"""Create a userscript based on this request:
+
+**Description:** {description}
+"""
+        
+        if refinement:
+            user_prompt += f"\n**Refinement/Additional requirements:** {refinement}\n"
+        
+        if page_url:
+            user_prompt += f"\n**Target URL:** {page_url}\n"
+        
+        if page_html:
+            user_prompt += f"\n**Page HTML (for understanding structure):**\n```html\n{page_html}\n```\n"
+        
+        user_prompt += "\nGenerate the script JSON now:"
+        
+        keys = keyParser_for_extension()
+        
+        # Call LLM
+        response = call_llm(
+            keys=keys,
+            model_name=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            stream=False
+        )
+        
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            response_text = response.strip()
+            
+            # Remove markdown code blocks if present
+            if response_text.startswith('```'):
+                lines = response_text.split('\n')
+                response_text = '\n'.join(lines[1:-1] if lines[-1] == '```' else lines[1:])
+            
+            script_data = json.loads(response_text)
+            
+            # Extract explanation separately
+            explanation = script_data.pop('explanation', 'Script generated successfully.')
+            
+            return jsonify({
+                'script': script_data,
+                'explanation': explanation
+            })
+            
+        except json.JSONDecodeError as e:
+            # If JSON parsing fails, return the raw response with error
+            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            return jsonify({
+                'error': 'Failed to parse generated script',
+                'raw_response': response,
+                'parse_error': str(e)
+            }), 500
+        
+    except Exception as e:
+        logger.error(f"Error generating script: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/scripts/validate', methods=['POST'])
+@require_ext_auth
+def ext_validate_script():
+    """
+    Validate script code syntax.
+    
+    Request body:
+        {"code": "const handlers = { ... };"}
+    
+    Returns:
+        {"valid": true} or {"valid": false, "error": "Syntax error at line..."}
+    """
+    try:
+        data = request.get_json() or {}
+        code = data.get('code', '')
+        
+        if not code:
+            return jsonify({'valid': False, 'error': 'No code provided'})
+        
+        # Basic JavaScript syntax validation
+        # We check for common errors but can't fully validate JS on server
+        # Real validation happens in browser
+        
+        # Check for balanced braces/brackets/parens
+        stack = []
+        pairs = {')': '(', ']': '[', '}': '{'}
+        
+        in_string = False
+        string_char = None
+        escaped = False
+        
+        for i, char in enumerate(code):
+            if escaped:
+                escaped = False
+                continue
+            
+            if char == '\\':
+                escaped = True
+                continue
+            
+            if in_string:
+                if char == string_char:
+                    in_string = False
+                continue
+            
+            if char in '"\'`':
+                in_string = True
+                string_char = char
+                continue
+            
+            if char in '([{':
+                stack.append(char)
+            elif char in ')]}':
+                if not stack or stack[-1] != pairs[char]:
+                    return jsonify({
+                        'valid': False,
+                        'error': f'Unmatched {char} at position {i}'
+                    })
+                stack.pop()
+        
+        if stack:
+            return jsonify({
+                'valid': False,
+                'error': f'Unclosed {stack[-1]}'
+            })
+        
+        if in_string:
+            return jsonify({
+                'valid': False,
+                'error': 'Unclosed string'
+            })
+        
+        return jsonify({'valid': True})
+        
+    except Exception as e:
+        logger.error(f"Error validating script: {e}")
+        return jsonify({'valid': False, 'error': str(e)})
+
+
+# =============================================================================
 # Utility Endpoints
 # =============================================================================
 

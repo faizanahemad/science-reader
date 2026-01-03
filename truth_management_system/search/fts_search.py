@@ -8,7 +8,9 @@ FTSSearchStrategy provides full-text search using SQLite FTS5:
 """
 
 import logging
+import os
 import re
+import sqlite3
 from typing import List, Optional
 
 from .base import SearchStrategy, SearchFilters, SearchResult
@@ -17,6 +19,7 @@ from ..models import Claim
 from ..constants import ClaimStatus
 
 logger = logging.getLogger(__name__)
+FTS_SANITIZER_VERSION = "2026-01-02a"
 
 # Import time_logger for guaranteed visibility
 try:
@@ -69,6 +72,8 @@ class FTSSearchStrategy(SearchStrategy):
         filters = filters or SearchFilters()
         
         # Sanitize query for FTS5
+        if os.environ.get("PKB_LOG_FTS_VERSION") == "1":
+            time_logger.info(f"[FTS] Module={__file__}, sanitizer_version={FTS_SANITIZER_VERSION}")
         fts_query = self._sanitize_query(query)
         time_logger.info(f"[FTS] Original query: '{query[:100]}...', sanitized: '{fts_query[:100]}...'")
         if not fts_query:
@@ -93,9 +98,12 @@ class FTSSearchStrategy(SearchStrategy):
             LIMIT ?
         """
         
+        def _run_fts(fts_query_to_run: str):
+            time_logger.info(f"[FTS] Executing SQL with fts_query='{fts_query_to_run}', k={k}")
+            return self.db.fetchall(sql, (fts_query_to_run,) + tuple(params) + (k,))
+
         try:
-            time_logger.info(f"[FTS] Executing SQL with fts_query='{fts_query}', k={k}")
-            rows = self.db.fetchall(sql, (fts_query,) + tuple(params) + (k,))
+            rows = _run_fts(fts_query)
             time_logger.info(f"[FTS] Query returned {len(rows)} rows")
             
             results = []
@@ -112,6 +120,44 @@ class FTSSearchStrategy(SearchStrategy):
             time_logger.info(f"[FTS] Search '{query[:50]}...' returned {len(results)} results")
             return results
             
+        except sqlite3.OperationalError as e:
+            # Defensive retry:
+            # If the MATCH query accidentally contains an FTS column-scope like `opus:term`,
+            # SQLite will raise "no such column: opus". This can happen if upstream code
+            # passes raw FTS syntax or if the sanitizer is bypassed in a deployment.
+            msg = str(e)
+            # We also see this error with hyphenated tokens like 'claude-opus*' which
+            # the FTS5 parser can interpret in a way that triggers a bogus column lookup
+            # for the suffix token ('opus').
+            if "no such column" in msg and (":" in query or "-" in query or "–" in query or "—" in query):
+                try:
+                    retry_query = re.sub(r"\b(\w+)\s*:\s*", r"\1 ", query)
+                    retry_query = re.sub(r"[-–—]+", " ", retry_query)
+                    retry_fts_query = self._sanitize_query(retry_query)
+                    time_logger.warning(
+                        f"[FTS] OperationalError='{msg}'. Retrying with safer query: "
+                        f"orig='{query[:120]}', retry_sanitized='{retry_fts_query[:120]}'"
+                    )
+                    if retry_fts_query and retry_fts_query != fts_query:
+                        rows = _run_fts(retry_fts_query)
+                        results = []
+                        for row in rows:
+                            claim = Claim.from_row(row)
+                            results.append(
+                                SearchResult.from_claim(
+                                    claim=claim,
+                                    score=row["score"],
+                                    source=self.name(),
+                                    metadata={"fts_query": retry_fts_query, "retry": True},
+                                )
+                            )
+                        return results
+                except Exception:
+                    # Fall through to returning []
+                    pass
+
+            time_logger.error(f"[FTS] Search failed: {e}", exc_info=True)
+            return []
         except Exception as e:
             time_logger.error(f"[FTS] Search failed: {e}", exc_info=True)
             return []
@@ -129,9 +175,18 @@ class FTSSearchStrategy(SearchStrategy):
         Returns:
             Sanitized FTS5 query string.
         """
-        # Remove FTS5 operators that might cause issues
-        # Keep alphanumeric, spaces, and basic punctuation
-        sanitized = re.sub(r'[^\w\s\-]', ' ', query)
+        # Remove any explicit FTS column scoping patterns like `foo:bar`.
+        # We treat these as normal text unless the caller explicitly uses `search_by_column`.
+        query = re.sub(r"\b(\w+)\s*:\s*", r"\1 ", query)
+        # Hyphenated model names / identifiers (e.g. 'claude-opus-4.5') are common in prompts.
+        # FTS5 treats '-' as an operator in many contexts; unquoted tokens like 'claude-opus*'
+        # can produce OperationalError: "no such column: opus". Convert hyphens to spaces so
+        # we only emit plain term tokens.
+        query = re.sub(r"[-–—]+", " ", query)
+
+        # Remove FTS5 operators / punctuation that might cause syntax errors.
+        # Keep alphanumeric, spaces, and underscores.
+        sanitized = re.sub(r"[^\w\s]", " ", query)
         
         # Collapse multiple spaces
         sanitized = ' '.join(sanitized.split())
@@ -225,13 +280,33 @@ class FTSSearchStrategy(SearchStrategy):
         Returns:
             List of SearchResults from the specified column.
         """
+        allowed_columns = {"statement", "predicate", "subject_text", "object_text", "context_domain"}
+        if column not in allowed_columns:
+            raise ValueError(
+                f"Invalid FTS column '{column}'. Allowed columns: {sorted(allowed_columns)}"
+            )
+
         filters = filters or SearchFilters()
         conditions, params = filters.to_sql_conditions()
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         
-        # Column-specific query
-        sanitized = self._sanitize_query(query)
-        fts_query = f"{column}:{sanitized}"
+        # Column-scoped query: apply the column prefix to each term.
+        # We do NOT reuse _sanitize_query output directly because it can contain OR/quotes
+        # that need column prefixes on each term.
+        raw = re.sub(r"\b(\w+)\s*:\s*", r"\1 ", query)
+        raw = re.sub(r"[-–—]+", " ", raw)
+        raw = re.sub(r"[^\w\s]", " ", raw)
+        raw = " ".join(raw.split())
+        if not raw:
+            return []
+
+        words = raw.split()
+        if len(words) == 1:
+            fts_query = f"{column}:{words[0]}*"
+        else:
+            terms = [f'{column}:"{raw}"']
+            terms.extend([f"{column}:{w}*" for w in words])
+            fts_query = " OR ".join(terms)
         
         sql = f"""
             SELECT c.*, -bm25(claims_fts) as score

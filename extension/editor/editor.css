@@ -1,0 +1,649 @@
+/**
+ * Script Editor Styles
+ */
+
+/* ==========================================================================
+   CSS Variables
+   ========================================================================== */
+
+:root {
+    --editor-bg: #1a1a2e;
+    --editor-bg-secondary: #16213e;
+    --editor-bg-tertiary: #0f3460;
+    --editor-text: #e8e8e8;
+    --editor-text-secondary: #a0a0a0;
+    --editor-text-muted: #666;
+    --editor-primary: #4f86f7;
+    --editor-primary-hover: #3a6fd8;
+    --editor-success: #10b981;
+    --editor-error: #ef4444;
+    --editor-warning: #f59e0b;
+    --editor-border: #2d3748;
+    --editor-radius: 8px;
+    --editor-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --editor-mono: 'JetBrains Mono', 'Fira Code', 'Monaco', monospace;
+}
+
+/* ==========================================================================
+   Reset & Base
+   ========================================================================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--editor-font);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--editor-text);
+    background: var(--editor-bg);
+    min-height: 100vh;
+}
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+
+.editor-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Header */
+.editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--editor-bg-secondary);
+    border-bottom: 1px solid var(--editor-border);
+}
+
+.editor-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.editor-logo {
+    font-size: 24px;
+}
+
+.editor-title {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.editor-header-right {
+    display: flex;
+    gap: 8px;
+}
+
+/* Main Content */
+.editor-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px;
+    gap: 16px;
+}
+
+/* Info Section */
+.editor-info {
+    background: var(--editor-bg-secondary);
+    border-radius: var(--editor-radius);
+    padding: 16px;
+    border: 1px solid var(--editor-border);
+}
+
+/* Two-Column Layout */
+.editor-columns {
+    flex: 1;
+    display: flex;
+    gap: 16px;
+    overflow: hidden;
+}
+
+.editor-code {
+    flex: 2;
+    display: flex;
+    flex-direction: column;
+    background: var(--editor-bg-secondary);
+    border-radius: var(--editor-radius);
+    border: 1px solid var(--editor-border);
+    overflow: hidden;
+}
+
+.editor-actions {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--editor-bg-secondary);
+    border-radius: var(--editor-radius);
+    border: 1px solid var(--editor-border);
+    overflow: hidden;
+    min-width: 280px;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--editor-border);
+}
+
+.section-header h2 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--editor-text-secondary);
+}
+
+.section-title-with-help {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.editor-help summary {
+    list-style: none;
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid var(--editor-border);
+    background: var(--editor-bg-tertiary);
+    color: var(--editor-text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.editor-help summary::-webkit-details-marker {
+    display: none;
+}
+
+.editor-help[open] summary {
+    border-color: rgba(79, 134, 247, 0.6);
+    color: var(--editor-primary);
+}
+
+.editor-help-body {
+    margin-top: 10px;
+    padding: 12px;
+    border: 1px solid var(--editor-border);
+    border-radius: var(--editor-radius);
+    background: var(--editor-bg-secondary);
+    color: var(--editor-text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 520px;
+}
+
+.editor-help-body ul {
+    margin: 8px 0;
+    padding-left: 18px;
+}
+
+.editor-help-body code {
+    font-family: var(--editor-mono);
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1px 5px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--editor-text);
+}
+
+/* Code Editor */
+.code-editor-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+.CodeMirror {
+    height: 100% !important;
+    font-family: var(--editor-mono);
+    font-size: 13px;
+}
+
+.code-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--editor-success);
+}
+
+.code-status.error {
+    color: var(--editor-error);
+}
+
+/* Actions List */
+.actions-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.actions-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--editor-text-muted);
+}
+
+.action-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: var(--editor-bg-tertiary);
+    border-radius: var(--editor-radius);
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.action-item:hover {
+    background: rgba(79, 134, 247, 0.1);
+}
+
+.action-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--editor-primary);
+    color: white;
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+.action-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.action-name {
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+.action-handler {
+    font-size: 12px;
+    color: var(--editor-text-muted);
+    font-family: var(--editor-mono);
+}
+
+.action-badge {
+    padding: 2px 8px;
+    background: var(--editor-bg);
+    border-radius: 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--editor-text-secondary);
+}
+
+.action-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* Footer */
+.editor-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 20px;
+    background: var(--editor-bg-secondary);
+    border-top: 1px solid var(--editor-border);
+    font-size: 12px;
+    color: var(--editor-text-muted);
+}
+
+.script-id {
+    font-family: var(--editor-mono);
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group:last-child {
+    margin-bottom: 0;
+}
+
+.flex-1 { flex: 1; }
+.flex-2 { flex: 2; }
+
+label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--editor-text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.label-hint {
+    font-weight: 400;
+    text-transform: none;
+    opacity: 0.7;
+}
+
+input[type="text"],
+select,
+textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--editor-bg);
+    border: 1px solid var(--editor-border);
+    border-radius: 6px;
+    color: var(--editor-text);
+    font-family: inherit;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+input[type="text"]:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--editor-primary);
+}
+
+input::placeholder {
+    color: var(--editor-text-muted);
+}
+
+select {
+    cursor: pointer;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--editor-text-muted);
+}
+
+/* Radio Group */
+.radio-group {
+    display: flex;
+    gap: 16px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--editor-text);
+}
+
+.radio-label input[type="radio"] {
+    width: auto;
+}
+
+/* Patterns List */
+.patterns-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.pattern-item {
+    display: flex;
+    gap: 8px;
+}
+
+.pattern-input {
+    flex: 1;
+}
+
+.remove-pattern {
+    flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--editor-bg-tertiary);
+    border: 1px solid var(--editor-border);
+    border-radius: 6px;
+    color: var(--editor-text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn:hover {
+    background: var(--editor-border);
+}
+
+.btn-primary {
+    background: var(--editor-primary);
+    border-color: var(--editor-primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--editor-primary-hover);
+}
+
+.btn-secondary {
+    background: transparent;
+    border-color: var(--editor-border);
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--editor-primary);
+}
+
+.btn-ghost:hover {
+    background: rgba(79, 134, 247, 0.1);
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--editor-text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    background: var(--editor-border);
+    color: var(--editor-text);
+}
+
+.btn-danger {
+    color: var(--editor-error);
+}
+
+.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* ==========================================================================
+   Modal
+   ========================================================================== */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal {
+    width: 480px;
+    max-width: 90vw;
+    max-height: 90vh;
+    background: var(--editor-bg-secondary);
+    border-radius: var(--editor-radius);
+    border: 1px solid var(--editor-border);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-lg {
+    width: 640px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--editor-border);
+}
+
+.modal-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--editor-border);
+}
+
+.form-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--editor-border);
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ==========================================================================
+   Test Results
+   ========================================================================== */
+
+.test-results {
+    min-height: 100px;
+}
+
+.test-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--editor-bg);
+    border-radius: var(--editor-radius);
+}
+
+.test-status.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--editor-success);
+}
+
+.test-status.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--editor-error);
+}
+
+.test-icon {
+    font-size: 24px;
+}
+
+.test-message {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--editor-bg);
+    border-radius: var(--editor-radius);
+    font-family: var(--editor-mono);
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow-x: auto;
+}
+
+/* ==========================================================================
+   Scrollbar
+   ========================================================================== */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--editor-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--editor-border);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--editor-text-muted);
+}
+

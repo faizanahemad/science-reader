@@ -2553,6 +2553,7 @@ function getOptions(parentElementId, type) {
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : $('#settings-enable_planner').is(':checked'),
         search_exact: $(`#${parentElementId}-${type}-search-exact`).length ? $(`#${parentElementId}-${type}-search-exact`).is(':checked') : $('#settings-search-exact').is(':checked'),
         ensemble: $(`#${parentElementId}-${type}-ensemble`).length ? $(`#${parentElementId}-${type}-ensemble`).is(':checked') : false,
+        auto_clarify: $(`#${parentElementId}-${type}-auto_clarify`).length ? $(`#${parentElementId}-${type}-auto_clarify`).is(':checked') : ($('#settings-auto_clarify').length ? $('#settings-auto_clarify').is(':checked') : false),
         persist_or_not: $(`#${parentElementId}-${type}-persist_or_not`).length ? $(`#${parentElementId}-${type}-persist_or_not`).is(':checked') : $('#settings-persist_or_not').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
         render_slides_inline: $('#settings-render-slides-inline').is(':checked'),

@@ -422,6 +422,46 @@ export const API = {
         });
     },
 
+    // ==================== Script Methods ====================
+
+    /**
+     * Generate a script using LLM
+     * @param {Object} data - {description, page_url, page_html, page_context, refinement}
+     * @returns {Promise<{script: Object, explanation: string}>}
+     */
+    async generateScript(data) {
+        return this.call('/ext/scripts/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                description: data.description,
+                page_url: data.page_url || '',
+                page_html: data.page_html || '',
+                page_context: data.page_context || null,
+                refinement: data.refinement || ''
+            })
+        });
+    },
+
+    /**
+     * Save a generated script
+     * @param {Object} scriptData - Full script object
+     * @returns {Promise<{script: Object}>}
+     */
+    async saveScript(scriptData) {
+        return this.call('/ext/scripts', {
+            method: 'POST',
+            body: JSON.stringify(scriptData)
+        });
+    },
+
+    /**
+     * Get all scripts for current user
+     * @returns {Promise<{scripts: Array}>}
+     */
+    async getScripts() {
+        return this.call('/ext/scripts');
+    },
+
     // ==================== Utility Methods ====================
 
     /**

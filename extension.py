@@ -342,22 +342,66 @@ class ExtensionDB:
                 )
             """)
             
-            # CustomScripts table (for Phase 2)
+            # CustomScripts table - Tampermonkey-like user scripts
+            # Supports both parsing scripts (extract page content) and functional scripts (multiple actions)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS CustomScripts (
                     script_id TEXT PRIMARY KEY,
                     user_email TEXT NOT NULL,
                     name TEXT NOT NULL,
-                    domain TEXT NOT NULL,
+                    description TEXT,
+                    script_type TEXT DEFAULT 'functional',
+                    
+                    -- URL Matching
                     match_patterns TEXT NOT NULL,
-                    script TEXT NOT NULL,
+                    match_type TEXT DEFAULT 'glob',
+                    
+                    -- Script Code
+                    code TEXT NOT NULL,
+                    
+                    -- Actions (JSON array for functional scripts)
+                    actions TEXT,
+                    
+                    -- Metadata
                     enabled INTEGER DEFAULT 1,
-                    created_with_llm INTEGER DEFAULT 0,
                     version INTEGER DEFAULT 1,
+                    conversation_id TEXT,
+                    created_with_llm INTEGER DEFAULT 1,
+                    
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Migration: Add new columns if upgrading from old schema
+            # This handles existing databases that have the old schema
+            try:
+                cursor.execute("ALTER TABLE CustomScripts ADD COLUMN description TEXT")
+            except:
+                pass  # Column already exists
+            try:
+                cursor.execute("ALTER TABLE CustomScripts ADD COLUMN script_type TEXT DEFAULT 'functional'")
+            except:
+                pass
+            try:
+                cursor.execute("ALTER TABLE CustomScripts ADD COLUMN match_type TEXT DEFAULT 'glob'")
+            except:
+                pass
+            try:
+                cursor.execute("ALTER TABLE CustomScripts ADD COLUMN actions TEXT")
+            except:
+                pass
+            try:
+                cursor.execute("ALTER TABLE CustomScripts ADD COLUMN conversation_id TEXT")
+            except:
+                pass
+            # Rename 'script' to 'code' if old column exists
+            try:
+                cursor.execute("ALTER TABLE CustomScripts RENAME COLUMN script TO code")
+            except:
+                pass
+            # Remove 'domain' column by recreating table if needed (SQLite limitation)
+            # For now, domain column will be ignored if present
             
             # ExtensionSettings table
             cursor.execute("""
@@ -398,8 +442,12 @@ class ExtensionDB:
                 ON CustomScripts(user_email)
             """)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_ext_script_domain 
-                ON CustomScripts(domain)
+                CREATE INDEX IF NOT EXISTS idx_ext_script_enabled 
+                ON CustomScripts(user_email, enabled)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ext_script_type 
+                ON CustomScripts(script_type)
             """)
             
             conn.commit()
@@ -1163,6 +1211,392 @@ class ExtensionDB:
             
         except Error as e:
             raise RuntimeError(f"Failed to update settings: {e}")
+        finally:
+            conn.close()
+    
+    # -------------------------------------------------------------------------
+    # Custom Scripts CRUD
+    # -------------------------------------------------------------------------
+    
+    def create_custom_script(
+        self,
+        user_email: str,
+        name: str,
+        match_patterns: List[str],
+        code: str,
+        description: str = None,
+        script_type: str = 'functional',
+        match_type: str = 'glob',
+        actions: List[Dict] = None,
+        conversation_id: str = None,
+        created_with_llm: bool = True
+    ) -> Dict:
+        """
+        Create a new custom script.
+        
+        Args:
+            user_email: User's email
+            name: Script name
+            match_patterns: List of URL patterns (glob or regex)
+            code: JavaScript code
+            description: Optional description
+            script_type: 'functional' or 'parsing'
+            match_type: 'glob' or 'regex'
+            actions: List of action definitions (for functional scripts)
+            conversation_id: Optional link to creation conversation
+            created_with_llm: Whether script was created via LLM
+            
+        Returns:
+            Created script dict
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        script_id = secrets.token_hex(16)
+        now = datetime.utcnow().isoformat()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO CustomScripts
+                (script_id, user_email, name, description, script_type,
+                 match_patterns, match_type, code, actions, enabled,
+                 version, conversation_id, created_with_llm, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                script_id,
+                user_email,
+                name,
+                description,
+                script_type,
+                json.dumps(match_patterns),
+                match_type,
+                code,
+                json.dumps(actions) if actions else None,
+                1,  # enabled
+                1,  # version
+                conversation_id,
+                1 if created_with_llm else 0,
+                now,
+                now
+            ))
+            
+            conn.commit()
+            
+            return {
+                'script_id': script_id,
+                'user_email': user_email,
+                'name': name,
+                'description': description,
+                'script_type': script_type,
+                'match_patterns': match_patterns,
+                'match_type': match_type,
+                'code': code,
+                'actions': actions or [],
+                'enabled': True,
+                'version': 1,
+                'conversation_id': conversation_id,
+                'created_with_llm': created_with_llm,
+                'created_at': now,
+                'updated_at': now
+            }
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to create script: {e}")
+        finally:
+            conn.close()
+    
+    def get_custom_script(self, user_email: str, script_id: str) -> Optional[Dict]:
+        """
+        Get a specific script by ID.
+        
+        Args:
+            user_email: User's email (for authorization)
+            script_id: Script ID
+            
+        Returns:
+            Script dict or None if not found
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                SELECT script_id, user_email, name, description, script_type,
+                       match_patterns, match_type, code, actions, enabled,
+                       version, conversation_id, created_with_llm,
+                       created_at, updated_at
+                FROM CustomScripts
+                WHERE script_id = ? AND user_email = ?
+            """, (script_id, user_email))
+            
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            return {
+                'script_id': row[0],
+                'user_email': row[1],
+                'name': row[2],
+                'description': row[3],
+                'script_type': row[4],
+                'match_patterns': json.loads(row[5]) if row[5] else [],
+                'match_type': row[6],
+                'code': row[7],
+                'actions': json.loads(row[8]) if row[8] else [],
+                'enabled': bool(row[9]),
+                'version': row[10],
+                'conversation_id': row[11],
+                'created_with_llm': bool(row[12]),
+                'created_at': row[13],
+                'updated_at': row[14]
+            }
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to get script: {e}")
+        finally:
+            conn.close()
+    
+    def get_custom_scripts(
+        self,
+        user_email: str,
+        enabled_only: bool = False,
+        script_type: str = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict]:
+        """
+        List user's custom scripts.
+        
+        Args:
+            user_email: User's email
+            enabled_only: If True, only return enabled scripts
+            script_type: Optional filter by type ('functional' or 'parsing')
+            limit: Maximum number to return
+            offset: Pagination offset
+            
+        Returns:
+            List of script dicts
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            query = """
+                SELECT script_id, user_email, name, description, script_type,
+                       match_patterns, match_type, code, actions, enabled,
+                       version, conversation_id, created_with_llm,
+                       created_at, updated_at
+                FROM CustomScripts
+                WHERE user_email = ?
+            """
+            params = [user_email]
+            
+            if enabled_only:
+                query += " AND enabled = 1"
+            
+            if script_type:
+                query += " AND script_type = ?"
+                params.append(script_type)
+            
+            query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            
+            return [
+                {
+                    'script_id': row[0],
+                    'user_email': row[1],
+                    'name': row[2],
+                    'description': row[3],
+                    'script_type': row[4],
+                    'match_patterns': json.loads(row[5]) if row[5] else [],
+                    'match_type': row[6],
+                    'code': row[7],
+                    'actions': json.loads(row[8]) if row[8] else [],
+                    'enabled': bool(row[9]),
+                    'version': row[10],
+                    'conversation_id': row[11],
+                    'created_with_llm': bool(row[12]),
+                    'created_at': row[13],
+                    'updated_at': row[14]
+                }
+                for row in cursor.fetchall()
+            ]
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to list scripts: {e}")
+        finally:
+            conn.close()
+    
+    def update_custom_script(
+        self,
+        user_email: str,
+        script_id: str,
+        **updates
+    ) -> bool:
+        """
+        Update a custom script.
+        
+        Args:
+            user_email: User's email (for authorization)
+            script_id: Script ID
+            **updates: Fields to update (name, description, code, actions, etc.)
+            
+        Returns:
+            True if updated, False if not found
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        allowed_fields = {
+            'name', 'description', 'script_type', 'match_patterns',
+            'match_type', 'code', 'actions', 'enabled', 'conversation_id'
+        }
+        
+        # Filter to allowed fields
+        valid_updates = {k: v for k, v in updates.items() if k in allowed_fields}
+        
+        if not valid_updates:
+            return False
+        
+        # Convert complex types to JSON
+        if 'match_patterns' in valid_updates:
+            valid_updates['match_patterns'] = json.dumps(valid_updates['match_patterns'])
+        if 'actions' in valid_updates:
+            valid_updates['actions'] = json.dumps(valid_updates['actions'])
+        if 'enabled' in valid_updates:
+            valid_updates['enabled'] = 1 if valid_updates['enabled'] else 0
+        
+        try:
+            # Build update query
+            set_clause = ", ".join([f"{k} = ?" for k in valid_updates.keys()])
+            values = list(valid_updates.values())
+            
+            now = datetime.utcnow().isoformat()
+            values.extend([now, script_id, user_email])
+            
+            cursor.execute(f"""
+                UPDATE CustomScripts
+                SET {set_clause}, version = version + 1, updated_at = ?
+                WHERE script_id = ? AND user_email = ?
+            """, values)
+            
+            conn.commit()
+            return cursor.rowcount > 0
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to update script: {e}")
+        finally:
+            conn.close()
+    
+    def delete_custom_script(self, user_email: str, script_id: str) -> bool:
+        """
+        Delete a custom script.
+        
+        Args:
+            user_email: User's email (for authorization)
+            script_id: Script ID
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                DELETE FROM CustomScripts
+                WHERE script_id = ? AND user_email = ?
+            """, (script_id, user_email))
+            
+            conn.commit()
+            return cursor.rowcount > 0
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to delete script: {e}")
+        finally:
+            conn.close()
+    
+    def get_scripts_for_url(self, user_email: str, url: str) -> List[Dict]:
+        """
+        Get all enabled scripts that match a given URL.
+        
+        Supports glob patterns (with * wildcards) and regex patterns.
+        
+        Args:
+            user_email: User's email
+            url: Full URL to match against
+            
+        Returns:
+            List of matching script dicts
+        """
+        import fnmatch
+        import re
+        
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        
+        try:
+            # Get all enabled scripts for user
+            cursor.execute("""
+                SELECT script_id, user_email, name, description, script_type,
+                       match_patterns, match_type, code, actions, enabled,
+                       version, conversation_id, created_with_llm,
+                       created_at, updated_at
+                FROM CustomScripts
+                WHERE user_email = ? AND enabled = 1
+            """, (user_email,))
+            
+            matching_scripts = []
+            
+            for row in cursor.fetchall():
+                match_patterns = json.loads(row[5]) if row[5] else []
+                match_type = row[6] or 'glob'
+                
+                # Check if URL matches any pattern
+                matches = False
+                for pattern in match_patterns:
+                    try:
+                        if match_type == 'regex':
+                            if re.match(pattern, url):
+                                matches = True
+                                break
+                        else:  # glob
+                            # Convert glob to regex for proper URL matching
+                            # Handle *:// prefix for any protocol
+                            regex_pattern = pattern.replace('.', r'\.')
+                            regex_pattern = regex_pattern.replace('*', '.*')
+                            regex_pattern = f'^{regex_pattern}$'
+                            if re.match(regex_pattern, url):
+                                matches = True
+                                break
+                    except re.error:
+                        continue  # Skip invalid patterns
+                
+                if matches:
+                    matching_scripts.append({
+                        'script_id': row[0],
+                        'user_email': row[1],
+                        'name': row[2],
+                        'description': row[3],
+                        'script_type': row[4],
+                        'match_patterns': match_patterns,
+                        'match_type': match_type,
+                        'code': row[7],
+                        'actions': json.loads(row[8]) if row[8] else [],
+                        'enabled': bool(row[9]),
+                        'version': row[10],
+                        'conversation_id': row[11],
+                        'created_with_llm': bool(row[12]),
+                        'created_at': row[13],
+                        'updated_at': row[14]
+                    })
+            
+            return matching_scripts
+            
+        except Error as e:
+            raise RuntimeError(f"Failed to get scripts for URL: {e}")
         finally:
             conn.close()
 

@@ -1,0 +1,466 @@
+/**
+ * Script UI Styles
+ * 
+ * Styles for the floating toolbar and command palette
+ * used by custom scripts.
+ */
+
+/* ==========================================================================
+   CSS Variables
+   ========================================================================== */
+
+:root {
+    --ai-script-primary: #3b82f6;
+    --ai-script-primary-hover: #2563eb;
+    --ai-script-success: #10b981;
+    --ai-script-error: #ef4444;
+    --ai-script-warning: #f59e0b;
+    --ai-script-bg: #ffffff;
+    --ai-script-bg-secondary: #f3f4f6;
+    --ai-script-text: #111827;
+    --ai-script-text-secondary: #6b7280;
+    --ai-script-border: #e5e7eb;
+    --ai-script-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+    --ai-script-radius: 12px;
+    --ai-script-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --ai-script-bg: #1f2937;
+        --ai-script-bg-secondary: #374151;
+        --ai-script-text: #f9fafb;
+        --ai-script-text-secondary: #9ca3af;
+        --ai-script-border: #4b5563;
+    }
+}
+
+/* ==========================================================================
+   Floating Toolbar
+   ========================================================================== */
+
+.ai-script-toolbar {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 280px;
+    background: var(--ai-script-bg);
+    border-radius: var(--ai-script-radius);
+    box-shadow: var(--ai-script-shadow);
+    font-family: var(--ai-script-font);
+    z-index: 2147483640;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.ai-script-toolbar.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.ai-script-toolbar.minimized {
+    width: auto;
+    height: auto;
+}
+
+.ai-script-toolbar.minimized .ai-script-toolbar-content,
+.ai-script-toolbar.minimized .ai-script-toolbar-footer {
+    display: none;
+}
+
+/* Toolbar Header */
+.ai-script-toolbar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--ai-script-bg-secondary);
+    cursor: move;
+    user-select: none;
+}
+
+.ai-script-toolbar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ai-script-text);
+}
+
+.ai-script-toolbar-title-icon {
+    font-size: 16px;
+}
+
+.ai-script-toolbar-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.ai-script-toolbar-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--ai-script-text-secondary);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.ai-script-toolbar-btn:hover {
+    background: var(--ai-script-border);
+    color: var(--ai-script-text);
+}
+
+/* Toolbar Content */
+.ai-script-toolbar-content {
+    padding: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.ai-script-toolbar-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--ai-script-text-secondary);
+    font-size: 13px;
+}
+
+/* Action Buttons */
+.ai-script-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.ai-script-action:hover {
+    background: var(--ai-script-bg-secondary);
+}
+
+.ai-script-action-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ai-script-primary);
+    color: white;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.ai-script-action-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.ai-script-action-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ai-script-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-script-action-script {
+    font-size: 11px;
+    color: var(--ai-script-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Script Groups */
+.ai-script-group {
+    margin-bottom: 8px;
+}
+
+.ai-script-group:last-child {
+    margin-bottom: 0;
+}
+
+.ai-script-group-header {
+    padding: 8px 12px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ai-script-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Toolbar Footer */
+.ai-script-toolbar-footer {
+    padding: 8px;
+    border-top: 1px solid var(--ai-script-border);
+}
+
+.ai-script-create-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px;
+    background: var(--ai-script-bg-secondary);
+    border: 1px dashed var(--ai-script-border);
+    border-radius: 8px;
+    color: var(--ai-script-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ai-script-create-btn:hover {
+    background: var(--ai-script-primary);
+    border-color: var(--ai-script-primary);
+    color: white;
+}
+
+/* ==========================================================================
+   Command Palette
+   ========================================================================== */
+
+.ai-script-palette-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+    z-index: 2147483645;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.ai-script-palette-overlay.show {
+    opacity: 1;
+}
+
+.ai-script-palette {
+    width: 560px;
+    max-width: 90vw;
+    background: var(--ai-script-bg);
+    border-radius: var(--ai-script-radius);
+    box-shadow: var(--ai-script-shadow);
+    overflow: hidden;
+    transform: translateY(-20px) scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.ai-script-palette-overlay.show .ai-script-palette {
+    transform: translateY(0) scale(1);
+}
+
+/* Palette Search */
+.ai-script-palette-search {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid var(--ai-script-border);
+}
+
+.ai-script-palette-search-icon {
+    color: var(--ai-script-text-secondary);
+    font-size: 18px;
+}
+
+.ai-script-palette-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-size: 16px;
+    font-family: var(--ai-script-font);
+    color: var(--ai-script-text);
+}
+
+.ai-script-palette-input::placeholder {
+    color: var(--ai-script-text-secondary);
+}
+
+/* Palette Results */
+.ai-script-palette-results {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.ai-script-palette-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--ai-script-text-secondary);
+    font-size: 14px;
+}
+
+.ai-script-palette-section {
+    margin-bottom: 8px;
+}
+
+.ai-script-palette-section:last-child {
+    margin-bottom: 0;
+}
+
+.ai-script-palette-section-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ai-script-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ai-script-palette-divider {
+    height: 1px;
+    background: var(--ai-script-border);
+    margin: 8px 0;
+}
+
+/* Palette Items */
+.ai-script-palette-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ai-script-palette-item:hover,
+.ai-script-palette-item.selected {
+    background: var(--ai-script-bg-secondary);
+}
+
+.ai-script-palette-item-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ai-script-primary);
+    color: white;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.ai-script-palette-item.system .ai-script-palette-item-icon {
+    background: var(--ai-script-bg-secondary);
+    color: var(--ai-script-text-secondary);
+}
+
+.ai-script-palette-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.ai-script-palette-item-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ai-script-text);
+}
+
+.ai-script-palette-item-desc {
+    font-size: 12px;
+    color: var(--ai-script-text-secondary);
+}
+
+.ai-script-palette-item-shortcut {
+    padding: 4px 8px;
+    background: var(--ai-script-bg-secondary);
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--ai-script-text-secondary);
+}
+
+/* Palette Footer */
+.ai-script-palette-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--ai-script-border);
+    font-size: 12px;
+    color: var(--ai-script-text-secondary);
+}
+
+.ai-script-palette-hint {
+    display: flex;
+    gap: 16px;
+}
+
+.ai-script-palette-hint-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ai-script-palette-hint-key {
+    padding: 2px 6px;
+    background: var(--ai-script-bg-secondary);
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+/* Scrollbar styling */
+.ai-script-toolbar-content::-webkit-scrollbar,
+.ai-script-palette-results::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ai-script-toolbar-content::-webkit-scrollbar-track,
+.ai-script-palette-results::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ai-script-toolbar-content::-webkit-scrollbar-thumb,
+.ai-script-palette-results::-webkit-scrollbar-thumb {
+    background: var(--ai-script-border);
+    border-radius: 4px;
+}
+
+.ai-script-toolbar-content::-webkit-scrollbar-thumb:hover,
+.ai-script-palette-results::-webkit-scrollbar-thumb:hover {
+    background: var(--ai-script-text-secondary);
+}
+
+/* Animation for minimized state */
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+.ai-script-toolbar.minimized .ai-script-toolbar-header {
+    animation: pulse 2s infinite;
+}
+

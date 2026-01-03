@@ -14,12 +14,14 @@ from truth_management_system import (
 
 
 @pytest.fixture(scope="function")
-def db():
-    """Create fresh in-memory database for each test."""
+def db(tmp_path):
+    """Create fresh database for each test."""
     from truth_management_system.config import PKBConfig
     from truth_management_system.database import PKBDatabase
-    
-    config = PKBConfig(db_path=":memory:")
+
+    # Use a unique on-disk path to avoid SQLite ':memory:' special-case pitfalls
+    # and potential cross-test contamination.
+    config = PKBConfig(db_path=str(tmp_path / "pkb_test.sqlite"))
     db = PKBDatabase(config)
     db.connect()
     db.initialize_schema()
@@ -88,6 +90,32 @@ class TestFTSSearch:
         results = fts.search("favorite color blue", k=5)
         
         assert len(results) > 0
+
+    def test_colon_token_does_not_break_fts(self, populated_db):
+        """
+        Regression: user queries sometimes contain trailing colon tokens (e.g. 'Opus: ...').
+        SQLite FTS5 can interpret `token:` as a column scope and error if token isn't a real
+        FTS column. We sanitize colons away and should never raise.
+        """
+        fts = FTSSearchStrategy(populated_db)
+        results = fts.search("opus: hello world", k=5)
+        assert isinstance(results, list)
+
+    def test_hyphenated_token_does_not_break_fts(self, populated_db):
+        """
+        Regression: model names often include hyphens (e.g. 'claude-opus-4.5').
+        SQLite FTS5 can interpret '-' as an operator; we sanitize hyphens to spaces
+        so MATCH never raises OperationalError like 'no such column: opus'.
+        """
+        fts = FTSSearchStrategy(populated_db)
+        results = fts.search("claude-opus-4.5", k=5)
+        assert isinstance(results, list)
+
+    def test_search_by_column_rejects_unknown_column(self, populated_db):
+        """Regression: search_by_column should validate column names."""
+        fts = FTSSearchStrategy(populated_db)
+        with pytest.raises(ValueError):
+            fts.search_by_column("opus", "hello", k=5)
 
 
 class TestSearchFilters:

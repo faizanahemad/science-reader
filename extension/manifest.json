@@ -19,14 +19,13 @@
   ],
   
   "action": {
-    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "assets/icons/icon16.png",
       "32": "assets/icons/icon32.png",
       "48": "assets/icons/icon48.png",
       "128": "assets/icons/icon128.png"
     },
-    "default_title": "AI Assistant"
+    "default_title": "AI Assistant - Click to open sidepanel"
   },
   
   "side_panel": {
@@ -38,17 +37,32 @@
     "type": "module"
   },
   
+  "sandbox": {
+    "pages": ["sandbox/sandbox.html"]
+  },
+
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["content_scripts/extractor.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_scripts/script_runner.js", "content_scripts/script_ui.js"],
       "run_at": "document_idle"
     }
   ],
   
   "web_accessible_resources": [
     {
-      "resources": ["content_scripts/modal.css", "assets/styles/common.css"],
+      "resources": [
+        "content_scripts/modal.css",
+        "content_scripts/script_ui.css",
+        "assets/styles/common.css",
+        "sandbox/sandbox.html",
+        "sandbox/sandbox.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ],

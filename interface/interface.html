@@ -1170,6 +1170,58 @@
         </div>
     </div>
 
+    <!-- Clarifications Modal -->
+    <div id="clarifications-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1082;">
+        <div class="modal-dialog modal-lg" style="max-width: 900px;">
+            <div class="modal-content" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <div class="modal-header" style="border-bottom: 1px solid #ddd; padding: 0.5rem 0.9rem;">
+                    <h5 class="modal-title" style="color: #333; font-size: 1.05rem; margin-bottom: 0;">
+                        <i class="fa fa-question-circle"></i>&nbsp;Clarify Your Question
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto; font-size: 0.95rem; padding: 0.9rem;">
+                    <div id="clarifications-loading" class="text-center mb-3" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                        <p class="mt-2 text-muted">Analyzing your question...</p>
+                    </div>
+
+                    <div id="clarifications-error" class="alert alert-warning" style="display: none;">
+                        <i class="fa fa-exclamation-triangle"></i>
+                        <span id="clarifications-error-text"></span>
+                    </div>
+
+                    <div id="clarifications-questions" style="display: none;">
+                        <p class="text-muted mb-3">Please answer these questions to help clarify your intent (you can select multiple options if needed):</p>
+                        <div id="clarifications-questions-list">
+                            <!-- MCQ questions will be dynamically rendered here -->
+                        </div>
+                    </div>
+
+                    <div id="clarifications-not-needed" class="text-center text-muted" style="display: none;">
+                        <i class="fa fa-check-circle" style="font-size: 3rem; opacity: 0.3;"></i>
+                        <p class="mt-2">Your question is already clear.</p>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid #ddd; padding: 0.5rem 0.9rem;">
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">
+                        <i class="fa fa-times"></i>&nbsp;Cancel
+                    </button>
+                    <button type="button" id="clarifications-apply-btn" class="btn btn-primary btn-sm" style="display: none;">
+                        <i class="fa fa-check"></i>&nbsp;Apply
+                    </button>
+                    <button type="button" id="clarifications-apply-send-btn" class="btn btn-success btn-sm" style="display: none;">
+                        <i class="fa fa-paper-plane"></i>&nbsp;Apply &amp; Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- LLM Context Menu -->
     <div id="llm-context-menu" class="llm-context-menu" style="display: none;">
         <ul class="list-unstyled mb-0">
@@ -1631,6 +1683,12 @@
                                     </div>
                                     <div class="col-md-3">
                                         <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-auto_clarify" type="checkbox">
+                                            <label class="form-check-label" for="settings-auto_clarify">Auto Clarify</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-persist_or_not" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-persist_or_not">Persist</label>
                                         </div>
@@ -1752,7 +1810,12 @@
                                 <div class="row">
                                     <div class="col">
                                         <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
-                                            <i class="fa fa-trash"></i> Delete Last Turn
+                                            <i class="fa fa-trash"></i> Last Turn
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
+                                            <i class="fa fa-question-circle"></i> Clarify Draft
                                         </button>
                                     </div>
                                     <div class="col">
@@ -1782,7 +1845,7 @@
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
-                                            <i class="bi bi-chat-left-text"></i> Prompt Manager
+                                            <i class="bi bi-pencil-square"></i> Prompts
                                         </button>
                                     </div>
                                 </div>
@@ -2355,6 +2418,7 @@ greet("World");</code></pre>
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
     <script src="interface/doubt-manager.js"></script>
+    <script src="interface/clarifications-manager.js"></script>
     <script src="interface/temp-llm-manager.js"></script>
     <script src="interface/context-menu-manager.js"></script>
     <script src="interface/prompt-manager.js"></script>

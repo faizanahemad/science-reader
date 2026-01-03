@@ -127,6 +127,50 @@ Some endpoints stream responses for UX:
 
 Clients should treat these responses as streams (not a single JSON object).
 
+---
+
+## Recent additions: pre-send clarifications + post-send auto-takeaways
+
+These live in `endpoints/conversations.py` and are intentionally implemented as:
+- **Fail-open** (never blocks chat)
+- **Non-blocking** (runs after streaming completes)
+- **DB-compatible** (reuses existing `database/doubts.py` helpers; no schema migration)
+
+### `POST /clarify_intent/<conversation_id>` (clarifications)
+
+Implementation notes:
+- **Auth + rate limit**: `@login_required` + `@limiter.limit(...)` (same pattern as other conversation endpoints).
+- **Conversation context**:
+  - Loads the `Conversation` via `get_conversation_with_keys(...)`.
+  - Includes bounded context in the prompt (conversation running summary + last user+assistant turn) to avoid redundant clarifiers.
+- **LLM**:
+  - Uses `CallLLm(..., model_name=VERY_CHEAP_LLM[0])`.
+  - Forces **strict JSON** output and parses it with a best-effort extractor so the endpoint can remain fail-open.
+- **Schema normalization**:
+  - The server clamps output to **0–3** questions and **2–5** options per question and returns a stable UI-friendly schema.
+
+### Auto-doubt: “Auto takeaways” after `POST /send_message/<conversation_id>`
+
+Goal:
+- After streaming is complete, generate and persist a short quick-reference version of the assistant answer as a **root doubt**:
+  - `doubt_text == "Auto takeaways"` (used for dedup)
+  - `doubt_answer ==` generated takeaways
+
+How it is triggered:
+- In `send_message()` → `generate_response()`, after `response_queue.put("<--END-->")` and `conversation.clear_cancellation()`.
+- Guarded by `checkboxes.persist_or_not` (if disabled, we skip auto-takeaways).
+
+How it is made fast:
+- The server **captures the assistant `response_message_id` and the final answer text from the streamed JSON-lines** emitted by `Conversation.__call__` (which yields `json.dumps(dict) + "\\n"`).
+- This avoids waiting for `Conversation.persist_current_turn()` (which can be slow because it performs additional async LLM work like summaries/suggestions).
+
+Fallback behavior:
+- If `response_message_id` or answer text cannot be captured from the stream, we fall back to polling `conversation.get_field("messages")` for a bounded time window.
+
+Persistence + dedup:
+- Uses `database.doubts.get_doubts_for_message(...)` to check whether a root doubt with `doubt_text == "Auto takeaways"` already exists for that `(conversation_id, message_id)`.
+- If none exists, inserts via `database.doubts.add_doubt(...)` with `parent_doubt_id=None`.
+
 ### How to add a new API endpoint
 
 1. Choose the correct module (or create a new blueprint file if it’s a new domain).

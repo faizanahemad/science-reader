@@ -77,6 +77,36 @@ function chat_interface_readiness() {
     
     $('#sendMessageButton').on('click', sendMessageCallback);
     $('#stopResponseButton').on('click', stopCurrentResponse);
+    $('#settings-clarifyDraftButton').on('click', function () {
+        try {
+            const already_rendering = $('#messageText').prop('working');
+            if (already_rendering) {
+                if (typeof showToast === 'function') {
+                    showToast('Please wait for the current response to finish.', 'warning');
+                } else {
+                    alert('Please wait for the current response to finish.');
+                }
+                return;
+            }
+            const messageText = $('#messageText').val();
+            if (!messageText || messageText.trim().length === 0) {
+                if (typeof showToast === 'function') {
+                    showToast('Please type a message first.', 'warning');
+                } else {
+                    alert('Please type a message first.');
+                }
+                return;
+            }
+            if (typeof ClarificationsManager === 'undefined' || typeof ClarificationsManager.requestAndShowClarifications !== 'function') {
+                console.warn('ClarificationsManager not available.');
+                return;
+            }
+            // Keep chat settings modal open/closed state as-is; show clarifications modal on top.
+            ClarificationsManager.requestAndShowClarifications(ConversationManager.activeConversationId, messageText);
+        } catch (e) {
+            console.error('Clarify draft click handler error:', e);
+        }
+    });
     $('#stop-hint-button').on('click', stopCodingHint);
     $('#stop-solution-button').on('click', stopCodingSolution);
     $('#stop-doubt-chat-button').on('click', stopDoubtClearing);
@@ -451,6 +481,7 @@ function buildSettingsStateFromControlsOrDefaults() {
     const state = {
         perform_web_search: $('#chat-options-assistant-perform-web-search-checkbox').length ? $('#chat-options-assistant-perform-web-search-checkbox').is(':checked') : ($('#settings-perform-web-search-checkbox').is(':checked') || false),
         search_exact: $('#chat-options-assistant-search-exact').length ? $('#chat-options-assistant-search-exact').is(':checked') : ($('#settings-search-exact').is(':checked') || false),
+        auto_clarify: $('#chat-options-assistant-auto_clarify').length ? $('#chat-options-assistant-auto_clarify').is(':checked') : ($('#settings-auto_clarify').is(':checked') || false),
         persist_or_not: $('#chat-options-assistant-persist_or_not').length ? $('#chat-options-assistant-persist_or_not').is(':checked') : ($('#settings-persist_or_not').is(':checked') || true),
         use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : ($('#settings-use_memory_pad').is(':checked') || false),
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
@@ -473,6 +504,7 @@ function setModalFromState(state) {
     if (!state) { return; }
     $('#settings-perform-web-search-checkbox').prop('checked', !!state.perform_web_search);
     $('#settings-search-exact').prop('checked', !!state.search_exact);
+    $('#settings-auto_clarify').prop('checked', !!state.auto_clarify);
     $('#settings-persist_or_not').prop('checked', state.persist_or_not !== false);
     $('#settings-use_memory_pad').prop('checked', !!state.use_memory_pad);
     $('#settings-enable_planner').prop('checked', !!state.enable_planner);
@@ -559,6 +591,7 @@ function collectSettingsFromModal() {
     return {
         perform_web_search: $('#settings-perform-web-search-checkbox').is(':checked'),
         search_exact: $('#settings-search-exact').is(':checked'),
+        auto_clarify: $('#settings-auto_clarify').is(':checked'),
         persist_or_not: $('#settings-persist_or_not').is(':checked'),
         use_memory_pad: $('#settings-use_memory_pad').is(':checked'),
         enable_planner: $('#settings-enable_planner').is(':checked'),
@@ -759,6 +792,7 @@ function resetSettingsToDefaults() {
     // Basic Options
     $('#settings-perform-web-search-checkbox').prop('checked', false);
     $('#settings-search-exact').prop('checked', false);
+    $('#settings-auto_clarify').prop('checked', false);
     $('#settings-persist_or_not').prop('checked', true);
     $('#settings-ppt-answer').prop('checked', false);
     $('#settings-use_memory_pad').prop('checked', false);
@@ -839,6 +873,7 @@ function computeDefaultStateForTab(tab) {
     return {
         perform_web_search: false,
         search_exact: false,
+        auto_clarify: false,
         persist_or_not: true,
         use_memory_pad: false,
         enable_planner: false,

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Script Editor - AI Assistant</title>
+    <link rel="stylesheet" href="editor.css">
+    <!-- CodeMirror 6 via CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+</head>
+<body>
+    <div class="editor-container">
+        <!-- Header -->
+        <header class="editor-header">
+            <div class="editor-header-left">
+                <span class="editor-logo">🤖</span>
+                <h1 class="editor-title">Script Editor</h1>
+            </div>
+            <div class="editor-header-right">
+                <button id="askAiBtn" class="btn btn-secondary">
+                    <span>🤖</span>
+                    <span>Ask AI</span>
+                </button>
+                <button id="testBtn" class="btn btn-secondary">
+                    <span>▶️</span>
+                    <span>Test</span>
+                </button>
+                <button id="saveBtn" class="btn btn-primary">
+                    <span>💾</span>
+                    <span>Save</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="editor-main">
+            <!-- Script Info Panel -->
+            <section class="editor-info">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label for="scriptName">Script Name</label>
+                        <input type="text" id="scriptName" placeholder="e.g., LeetCode Helper" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label for="scriptType">Type</label>
+                        <select id="scriptType">
+                            <option value="functional">Functional</option>
+                            <option value="parsing">Parsing</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="scriptDescription">Description</label>
+                    <input type="text" id="scriptDescription" placeholder="What does this script do?">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        URL Patterns
+                        <span class="label-hint">Use * as wildcard (e.g., *://leetcode.com/problems/*)</span>
+                    </label>
+                    <div id="patternsList" class="patterns-list">
+                        <div class="pattern-item">
+                            <input type="text" class="pattern-input" placeholder="*://example.com/*">
+                            <button type="button" class="btn-icon remove-pattern" title="Remove">✕</button>
+                        </div>
+                    </div>
+                    <button type="button" id="addPatternBtn" class="btn btn-small btn-ghost">
+                        <span>+</span> Add Pattern
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label>Match Type</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="matchType" value="glob" checked>
+                            <span>Glob (wildcards)</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="matchType" value="regex">
+                            <span>Regex</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Two-Column Layout: Code + Actions -->
+            <div class="editor-columns">
+                <!-- Code Editor -->
+                <section class="editor-code">
+                    <div class="section-header">
+                        <div class="section-title-with-help">
+                            <h2>Code</h2>
+                            <details class="editor-help">
+                                <summary title="Runtime help">?</summary>
+                                <div class="editor-help-body">
+                                    <div><strong>Runtime:</strong> Tampermonkey-style. Scripts must use <code>aiAssistant</code> to interact with the page.</div>
+                                    <div><strong>No direct DOM:</strong> don’t use <code>document.querySelector</code>. Use:</div>
+                                    <ul>
+                                        <li><code>aiAssistant.dom.click(selector)</code></li>
+                                        <li><code>aiAssistant.dom.setValue(selector, value)</code></li>
+                                        <li><code>aiAssistant.dom.type(selector, text, { clearFirst: true })</code></li>
+                                        <li><code>aiAssistant.dom.hide/remove(selector)</code></li>
+                                    </ul>
+                                    <div><strong>Required:</strong> <code>window.__scriptHandlers = handlers;</code></div>
+                                </div>
+                            </details>
+                        </div>
+                        <div class="code-status" id="codeStatus">
+                            <span class="status-icon">✓</span>
+                            <span class="status-text">Valid</span>
+                        </div>
+                    </div>
+                    <div id="codeEditor" class="code-editor-container"></div>
+                </section>
+
+                <!-- Actions Panel -->
+                <section class="editor-actions">
+                    <div class="section-header">
+                        <h2>Actions</h2>
+                        <button type="button" id="addActionBtn" class="btn btn-small btn-ghost">
+                            <span>+</span> Add Action
+                        </button>
+                    </div>
+                    <div id="actionsList" class="actions-list">
+                        <!-- Actions will be added here dynamically -->
+                    </div>
+                    <div class="actions-empty" id="actionsEmpty">
+                        <p>No actions yet. Add actions to expose script functions in the toolbar.</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Footer / Status Bar -->
+        <footer class="editor-footer">
+            <div class="footer-left">
+                <span id="scriptId" class="script-id"></span>
+            </div>
+            <div class="footer-right">
+                <span id="lastSaved" class="last-saved"></span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Action Editor Modal -->
+    <div id="actionModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="actionModalTitle">Add Action</h3>
+                <button type="button" class="btn-icon modal-close" id="closeActionModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="actionName">Action Name</label>
+                    <input type="text" id="actionName" placeholder="e.g., Copy Problem">
+                </div>
+                
+                <div class="form-group">
+                    <label for="actionHandler">Handler Function</label>
+                    <input type="text" id="actionHandler" placeholder="e.g., copyProblem">
+                    <span class="form-hint">The function name in your script (must match exactly)</span>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="actionIcon">Icon</label>
+                        <select id="actionIcon">
+                            <option value="clipboard">📋 Clipboard</option>
+                            <option value="copy">📄 Copy</option>
+                            <option value="download">⬇️ Download</option>
+                            <option value="eye">👁️ View</option>
+                            <option value="star">⭐ Star</option>
+                            <option value="edit">✏️ Edit</option>
+                            <option value="search">🔍 Search</option>
+                            <option value="refresh">🔄 Refresh</option>
+                            <option value="play">▶️ Play</option>
+                            <option value="settings">⚙️ Settings</option>
+                            <option value="trash">🗑️ Delete</option>
+                        </select>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label for="actionExposure">Exposure</label>
+                        <select id="actionExposure">
+                            <option value="floating">Floating Toolbar</option>
+                            <option value="inject">Inject into Page</option>
+                            <option value="command">Command Palette Only</option>
+                            <option value="context_menu">Context Menu</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Inject-specific options -->
+                <div id="injectOptions" class="form-section hidden">
+                    <div class="form-group">
+                        <label for="injectSelector">CSS Selector</label>
+                        <input type="text" id="injectSelector" placeholder="e.g., .problem-container">
+                    </div>
+                    <div class="form-group">
+                        <label for="injectPosition">Position</label>
+                        <select id="injectPosition">
+                            <option value="before">Before element</option>
+                            <option value="after">After element</option>
+                            <option value="inside">Inside element</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="actionDescription">Description (optional)</label>
+                    <input type="text" id="actionDescription" placeholder="What does this action do?">
+                </div>
+
+                <div class="form-group">
+                    <label for="actionPagePattern">Page Pattern (optional)</label>
+                    <input type="text" id="actionPagePattern" placeholder="Only show on specific pages">
+                    <span class="form-hint">Leave empty to show on all matching pages</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="cancelActionBtn" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="saveActionBtn" class="btn btn-primary">Save Action</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Results Modal -->
+    <div id="testModal" class="modal-overlay hidden">
+        <div class="modal modal-lg">
+            <div class="modal-header">
+                <h3>Test Results</h3>
+                <button type="button" class="btn-icon modal-close" id="closeTestModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div id="testResults" class="test-results">
+                    <div class="test-status">
+                        <span class="test-icon">⏳</span>
+                        <span class="test-text">Running test...</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" id="closeTestBtn" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="editor.js"></script>
+</body>
+</html>
+

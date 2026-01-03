@@ -26,6 +26,8 @@ import re
 import traceback
 import sys
 
+from urllib.parse import urlparse
+
 script_pattern = re.compile(r'<script.*?>.*?</script>', re.IGNORECASE | re.DOTALL)
 noscript_pattern = re.compile(r'<noscript.*?>.*?</noscript>', re.IGNORECASE | re.DOTALL)
 script_pattern_inside_header = re.compile(r'<header.*?>.*?<script.*?>.*?</script>.*?</header>', re.IGNORECASE | re.DOTALL)
@@ -62,13 +64,105 @@ def check_js_needed(html):
 
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.INFO, logging.ERROR, logging.INFO)
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.ERROR, logging.ERROR, logging.INFO)
 from tenacity import (
     retry,
     RetryError,
     stop_after_attempt,
     wait_random_exponential,
 )
+
+# -----------------------------
+# Fail-fast cache for bad domains/links
+# -----------------------------
+try:
+    import diskcache as dc
+except Exception:
+    dc = None
+
+_FAIL_CACHE = None
+_FAIL_CACHE_DIR = os.path.join(os.getcwd(), "storage", "failure_cache")
+_FAIL_EXPIRE_SECONDS = 6 * 60 * 60  # 6 hours
+_DOMAIN_FAIL_THRESHOLD = 8
+_LINK_FAIL_THRESHOLD = 3
+
+
+def _get_fail_cache():
+    global _FAIL_CACHE
+    if _FAIL_CACHE is not None:
+        return _FAIL_CACHE
+    if dc is None:
+        return None
+    os.makedirs(_FAIL_CACHE_DIR, exist_ok=True)
+    _FAIL_CACHE = dc.Cache(_FAIL_CACHE_DIR)
+    return _FAIL_CACHE
+
+
+def _safe_domain(url: str) -> str:
+    try:
+        return (urlparse(url).netloc or "").lower()
+    except Exception:
+        return ""
+
+
+def _cache_incr(cache_obj, key: str, *, expire: int, delta: int = 1) -> int:
+    """Diskcache doesn't always guarantee atomic incr for missing keys; do a safe get/set."""
+    try:
+        cur = cache_obj.get(key, 0) or 0
+        nxt = int(cur) + int(delta)
+        cache_obj.set(key, nxt, expire=expire)
+        return nxt
+    except Exception:
+        return 0
+
+
+def _record_failure(url: str, reason: str) -> None:
+    cache_obj = _get_fail_cache()
+    if cache_obj is None:
+        return
+    domain = _safe_domain(url)
+    if domain:
+        _cache_incr(cache_obj, f"fail_domain:{domain}", expire=_FAIL_EXPIRE_SECONDS, delta=1)
+        cache_obj.set(f"fail_domain_reason:{domain}", reason, expire=_FAIL_EXPIRE_SECONDS)
+    _cache_incr(cache_obj, f"fail_link:{url}", expire=_FAIL_EXPIRE_SECONDS, delta=1)
+    cache_obj.set(f"fail_link_reason:{url}", reason, expire=_FAIL_EXPIRE_SECONDS)
+
+
+def _record_success(url: str) -> None:
+    cache_obj = _get_fail_cache()
+    if cache_obj is None:
+        return
+    domain = _safe_domain(url)
+    try:
+        if domain:
+            # On success, reduce penalty quickly.
+            cur = cache_obj.get(f"fail_domain:{domain}", 0) or 0
+            cache_obj.set(f"fail_domain:{domain}", max(0, int(cur) - 2), expire=_FAIL_EXPIRE_SECONDS)
+        cur_l = cache_obj.get(f"fail_link:{url}", 0) or 0
+        cache_obj.set(f"fail_link:{url}", max(0, int(cur_l) - 2), expire=_FAIL_EXPIRE_SECONDS)
+    except Exception:
+        return
+
+
+def _should_fail_fast(url: str) -> tuple[bool, str]:
+    cache_obj = _get_fail_cache()
+    if cache_obj is None:
+        return False, ""
+    try:
+        domain = _safe_domain(url)
+        if domain:
+            dcount = int(cache_obj.get(f"fail_domain:{domain}", 0) or 0)
+            if dcount >= _DOMAIN_FAIL_THRESHOLD:
+                reason = cache_obj.get(f"fail_domain_reason:{domain}", "") or "frequent_failures"
+                return True, f"domain={domain} fail_count={dcount} reason={reason}"
+        lcount = int(cache_obj.get(f"fail_link:{url}", 0) or 0)
+        if lcount >= _LINK_FAIL_THRESHOLD:
+            reason = cache_obj.get(f"fail_link_reason:{url}", "") or "frequent_failures"
+            return True, f"link_fail_count={lcount} reason={reason}"
+    except Exception:
+        return False, ""
+    return False, ""
+
 
 # Check response code and then fall back to another api or playwright based call.
 # On success parse the content and return it.
@@ -987,11 +1081,19 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
     ant_service_result = None
     bright_data_result = None
     jina_service_result = None
+
+    # Fail fast on domains/links that have repeatedly 404'd or hit ALL_FAILED recently.
+    ff, ff_reason = _should_fail_fast(link)
+    if ff:
+        failed_links.add(link)
+        raise GenericShortException(f"[web_scrape_page][FAIL_FAST] {ff_reason} url={link}")
+
     if failed_links.count(link) > 2:
         raise GenericShortException(f"[send_request_for_webpage] Detected Previously Failed link: {link}")
     page_stat = check_page_status(link) if "leetcode.com" not in link else True
     if not page_stat:
         failed_links.add(link)
+        _record_failure(link, "page_not_found")
         raise GenericShortException(f"[send_request_for_webpage] Page not found {link}")
     # if "zenrows" in apikeys:
     #     zenrows_service_result = get_async_future(send_request_for_webpage, link, apikeys['zenrows'], zenrows_or_ant='zenrows')
@@ -1021,7 +1123,9 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                 time_logger.info(f"[web_scrape_page]:: Got result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
                 if result_validity and result is not None:
                     time_logger.info(f"[web_scrape_page]:: Return result with validity = {result_validity} from {result_from} and result len = {len(result['text'].strip().split()) if result_validity else 0} with time spent = {time.time() - st} for link {link}")
-                    return post_process_web_page_scrape(link, result_from, result, st)
+                    out = post_process_web_page_scrape(link, result_from, result, st)
+                    _record_success(link)
+                    return out
     else:
         results = []
         for i, future in enumerate(as_completed(scraping_futures_list)):
@@ -1046,14 +1150,17 @@ def web_scrape_page(link, context, apikeys, web_search_tmp_marker_name=None, det
                         new_results[key] += (value + "\n\n---\n\n")
 
             time_logger.info(f"[web_scrape_page]:: Return multiple results = {len(new_results['text'].strip().split())} and number of results = {len(results)} and sources = {', '.join([r['result_from'] for r in results])} with time spent = {time.time() - st} for link {link}")
+            _record_success(link)
             return new_results
         else:
             logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
             failed_links.add(link)
+            _record_failure(link, "all_failed")
             raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")
 
     logger.error(f"[web_scrape_page]:: All failed with time spent = {time.time() - st} for {link}")
     failed_links.add(link)
+    _record_failure(link, "all_failed")
     raise ScrapingValidityException(f"[web_scrape_page] [ALL_FAILED] None succeeded in time. No result for {link}")
 
 def web_scrape_page_deprecated(link, context, apikeys, web_search_tmp_marker_name=None):

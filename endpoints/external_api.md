@@ -73,6 +73,28 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 - **Purpose**: stream assistant response for the provided user query payload.
 - **Request (JSON)**: “legacy” chat payload (varies; forwarded into `Conversation.__call__`).
 - **Response (text/plain)**: streamed chunks (ends with an internal end marker).
+- **Side-effect (when enabled)**: if `checkboxes.persist_or_not` is true (default), the server may automatically create a root doubt for the assistant message with:
+  - `doubt_text == "Auto takeaways"`
+  - `doubt_answer ==` a short, crisp quick-reference version of the assistant response
+  This will show up in `GET /get_doubts/<conversation_id>/<message_id>` for that assistant message.
+
+#### `POST /clarify_intent/<conversation_id>`
+- **Purpose**: generate up to 3 MCQ-style clarification questions for a *draft* user message (manual “Clarify” button flow).
+- **Request (JSON)**:
+  - `messageText` (required string)
+  - `checkboxes` (optional object)
+  - `links` (optional list or string)
+  - `search` (optional list or string)
+- **Response (JSON)**:
+  - `needs_clarification` (bool)
+  - `questions` (array, length 0–3), where each question is:
+    - `id` (string)
+    - `prompt` (string)
+    - `options` (array, length 2–5) of `{ id: string, label: string }`
+- **Notes**:
+  - The server may use brief conversation context (running summary + last turn) to avoid asking redundant questions.
+  - If an option label is exactly `"Other (please specify)"`, the UI may show a free-text input for that selection.
+- **Fail-open**: on LLM/parse errors the server returns `{ "needs_clarification": false, "questions": [] }` (never blocks sending).
 
 #### Conversation editing / state
 - `POST /edit_message_from_conversation/<conversation_id>/<message_id>/<index>`
@@ -151,6 +173,7 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 #### `GET /get_doubts/<conversation_id>/<message_id>`
 - **Response (JSON)**: `{ "success": true, "doubts": [...], "count": <int> }`
+- **Note**: after a successful `/send_message` (when persistence is enabled), the server may automatically create a root doubt with `doubt_text == "Auto takeaways"` for the assistant message. It will appear in this list.
 
 #### `POST /temporary_llm_action` (streaming)
 - **Purpose**: run an ephemeral LLM action, optionally with conversation context.

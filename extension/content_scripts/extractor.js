@@ -1003,12 +1003,19 @@
             }
             
             /* Floating Button Styles */
+            :root {
+                /* Tune these if the FAB overlaps site UI */
+                --ai-assistant-fab-right: 12px;
+                --ai-assistant-fab-bottom: 160px;
+                --ai-assistant-fab-size: 40px;
+            }
+
             #ai-assistant-floating-btn {
                 position: fixed;
-                bottom: 20px;
-                left: 20px;
-                width: 48px;
-                height: 48px;
+                bottom: var(--ai-assistant-fab-bottom);
+                right: var(--ai-assistant-fab-right);
+                width: var(--ai-assistant-fab-size);
+                height: var(--ai-assistant-fab-size);
                 border-radius: 50%;
                 background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
                 border: none;
@@ -1024,7 +1031,7 @@
             }
             
             #ai-assistant-floating-btn:hover {
-                transform: scale(1.1);
+                transform: scale(1.08);
                 box-shadow: 0 6px 24px rgba(0, 212, 255, 0.6);
             }
             
@@ -1033,8 +1040,8 @@
             }
             
             #ai-assistant-floating-btn svg {
-                width: 24px;
-                height: 24px;
+                width: 20px;
+                height: 20px;
             }
         `;
         document.head.appendChild(styles);
@@ -1247,6 +1254,64 @@
         return true; // Keep channel open for async
     });
 
+    // ==================== Toast Notification ====================
+
+    /**
+     * Show a toast notification to the user
+     * @param {string} message - Message to display
+     * @param {number} duration - Duration in ms (default 4000)
+     */
+    function showToast(message, duration = 4000) {
+        // Remove existing toast if any
+        const existingToast = document.getElementById('ai-assistant-toast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+        
+        const toast = document.createElement('div');
+        toast.id = 'ai-assistant-toast';
+        toast.innerHTML = `
+            <style>
+                #ai-assistant-toast {
+                    position: fixed;
+                    bottom: calc(var(--ai-assistant-fab-bottom) + var(--ai-assistant-fab-size) + 12px);
+                    right: var(--ai-assistant-fab-right);
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                    color: #e8e8e8;
+                    padding: 14px 20px;
+                    border-radius: 12px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 14px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                    z-index: 2147483647;
+                    animation: ai-toast-slide-in 0.3s ease-out;
+                    max-width: 320px;
+                    border: 1px solid rgba(79, 134, 247, 0.3);
+                }
+                #ai-assistant-toast.hiding {
+                    animation: ai-toast-slide-out 0.3s ease-in forwards;
+                }
+                @keyframes ai-toast-slide-in {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                @keyframes ai-toast-slide-out {
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(100%); opacity: 0; }
+                }
+            </style>
+            ${message}
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // Auto-remove after duration
+        setTimeout(() => {
+            toast.classList.add('hiding');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
     // ==================== Floating Button ====================
 
     function createFloatingButton() {
@@ -1267,8 +1332,33 @@
             </svg>
         `;
         
-        button.addEventListener('click', () => {
-            chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL' });
+        button.addEventListener('click', (e) => {
+            // Stop propagation to prevent page scripts from handling this click
+            // (fixes issues on sites like Hacker News where their JS tries to call .split() on SVG className)
+            e.stopPropagation();
+            e.preventDefault();
+            
+            console.log('[AI Assistant] Floating button clicked, requesting sidepanel open');
+            
+            chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL' }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error('[AI Assistant] Failed to send OPEN_SIDEPANEL message:', chrome.runtime.lastError.message);
+                    showToast('Click the extension icon (🤖) in the toolbar to open AI Assistant');
+                    return;
+                }
+                if (response && response.error) {
+                    console.error('[AI Assistant] Sidepanel open failed:', response.error);
+                    // If Chrome blocks sidePanel.open(), the service worker may fall back to a popup window.
+                    // Otherwise, guide the user to click the extension icon.
+                    if (response.fallbackToIcon) {
+                        showToast('Click the extension icon (🤖) in the toolbar to open AI Assistant');
+                    } else {
+                        showToast('Could not open AI Assistant. Please try clicking the extension icon (🤖).');
+                    }
+                } else if (response && response.success) {
+                    console.log('[AI Assistant] Sidepanel opened successfully');
+                }
+            });
         });
         
         document.body.appendChild(button);

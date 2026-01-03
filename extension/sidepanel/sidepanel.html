@@ -128,6 +128,45 @@
 
                 <div class="setting-divider"></div>
 
+                <!-- Custom Scripts -->
+                <div class="setting-group">
+                    <label class="scripts-label-row">
+                        <span>Custom Scripts</span>
+                        <button type="button" class="help-icon" id="scripts-help-btn" aria-label="About Custom Scripts">?</button>
+                    </label>
+                    <div class="help-popover hidden" id="scripts-help-popover" role="dialog" aria-label="Custom Scripts Help">
+                        <div class="help-popover-title">Tampermonkey-style scripts</div>
+                        <div class="help-popover-body">
+                            <p>Scripts run safely and interact with pages via <code>aiAssistant</code> (no direct <code>document.querySelector</code>).</p>
+                            <p><strong>Common actions:</strong></p>
+                            <ul>
+                                <li><code>aiAssistant.dom.click(selector)</code></li>
+                                <li><code>aiAssistant.dom.setValue(selector, value)</code></li>
+                                <li><code>aiAssistant.dom.type(selector, text, { clearFirst: true })</code></li>
+                                <li><code>aiAssistant.dom.hide(selector)</code> / <code>aiAssistant.dom.remove(selector)</code></li>
+                            </ul>
+                            <p><strong>Required export:</strong> <code>window.__scriptHandlers = handlers;</code></p>
+                        </div>
+                    </div>
+                    <div class="scripts-settings-hint">
+                        Create page-specific automations (Tampermonkey-like). You can also type “create a script…” in chat,
+                        or use <span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">K</span>.
+                    </div>
+                    <div class="scripts-settings-actions">
+                        <button id="scripts-create-from-page" class="btn btn-primary btn-small">Create from this page</button>
+                        <button id="scripts-open-editor" class="btn btn-secondary btn-small">Open Script Editor</button>
+                    </div>
+                    <div class="scripts-settings-subheader">
+                        Your scripts
+                        <button id="scripts-refresh" class="btn btn-ghost btn-small">Refresh</button>
+                    </div>
+                    <div id="scripts-list" class="scripts-list">
+                        <div class="scripts-empty">No scripts yet.</div>
+                    </div>
+                </div>
+
+                <div class="setting-divider"></div>
+
                 <div class="user-section">
                     <div class="user-info">
                         <span class="user-avatar">👤</span>
