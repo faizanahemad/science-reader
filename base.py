@@ -175,6 +175,7 @@ Only provide answer from the document given above.
                 continue
         
         # Wait for all results and collect them in order
+        result = ""
         for future in futures:
             try:
                 result = sleep_and_get_future_result(future)
@@ -1922,7 +1923,7 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
                                    previous_turn_search_results=None,
                                    gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
                                    web_search_tmp_marker_name=web_search_tmp_marker_name)
-    max_time_to_wait_for_web_results = timeout
+    max_time_to_wait_for_web_results = max(MAX_TIME_TO_WAIT_FOR_WEB_RESULTS, timeout * provide_detailed_answers)
     cut_off = 15
     search_results = next(web_results.result()[0].result())
     atext = f"**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + "\n"
@@ -1948,8 +1949,7 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
     while True:
         qu_wait = time.time()
         break_condition = len(web_text_accumulator) >= cut_off or (
-                (qu_wait - qu_st) > max(max_time_to_wait_for_web_results,
-                                        max_time_to_wait_for_web_results * provide_detailed_answers))
+                (qu_wait - qu_st) > max_time_to_wait_for_web_results)
         if break_condition and result_queue.empty():
             break
         one_web_result = None
@@ -1990,7 +1990,7 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
 
         answer += read_links
     else:
-        read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
+        read_links = f"\nWe could not read any of the links you provided. Please try again later. Timeout at {timeout}s.\n"
 
         answer += read_links
     answer += "</div>\n"
@@ -2716,8 +2716,12 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
     def yield_timeout():
-        while True:
-            yield dict(keep_going_marker=web_search_tmp_marker_name)
+        try:
+            while True:
+                yield dict(keep_going_marker=web_search_tmp_marker_name)
+        except Exception as e:
+            traceback.print_exc()
+            pass
     task_queue = orchestrator_with_queue(zip(yeild_one(), yield_timeout()), fn2, call_back, max_workers=threads, timeout=MAX_TIME_TO_WAIT_FOR_WEB_RESULTS * (3 if provide_detailed_answers else 2))
     return task_queue
 
