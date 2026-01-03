@@ -417,8 +417,27 @@ var ConversationManager = {
         var messagesRequest = ChatManager.listMessages(conversationId);
 
         $.when(restorePromise, messagesRequest).done(function (snapshotMeta, messages) {
-            // jQuery.ajax returns [data, statusText, jqXHR] when combined in $.when.
-            var msgList = Array.isArray(messages) ? messages : (messages && messages[0] ? messages[0] : []);
+            // When used inside $.when, a jQuery.ajax success value becomes:
+            //   messages = [data, statusText, jqXHR]
+            // where `data` is the actual list of message objects.
+            var msgList = [];
+            try {
+                if (Array.isArray(messages)) {
+                    // Detect the $.when(jqXHR) tuple shape.
+                    if (messages.length === 3 && Array.isArray(messages[0]) && typeof messages[1] === 'string') {
+                        msgList = messages[0];
+                    } else {
+                        // Normal case: already an array of message objects
+                        msgList = messages;
+                    }
+                } else if (messages && Array.isArray(messages[0])) {
+                    msgList = messages[0];
+                } else {
+                    msgList = [];
+                }
+            } catch (_e) {
+                msgList = [];
+            }
 
             var keepSnapshot = false;
             try {
