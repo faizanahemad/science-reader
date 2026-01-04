@@ -11,7 +11,7 @@
 
 const DEBUG = false;
 
-const CACHE_VERSION = "v6";
+const CACHE_VERSION = "v7";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -84,6 +84,10 @@ const ASSET_EXTENSIONS = new Set([
   ".otf",
   ".map",
   ".json",
+  // pdf.js static resources
+  ".bcmap",       // character maps (CMaps)
+  ".pfb",         // built-in font programs
+  ".properties",  // locale strings
 ]);
 
 function log(...args) {
