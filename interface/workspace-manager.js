@@ -213,8 +213,39 @@ var WorkspaceManager = {
                     ConversationManager.setActiveConversation(conversationId);
                     this.highlightActiveConversation(conversationId);
                 } else if (conversations.length > 0) {
-                    ConversationManager.setActiveConversation(conversations[0].conversation_id);
-                    this.highlightActiveConversation(conversations[0].conversation_id);
+                    // Resume last chat when the app is launched at `/interface/` (no conversation id in URL).
+                    // This is critical for Android PWA behavior because the home-screen icon opens `start_url`
+                    // (typically `/interface/`), not the last visited deep-link.
+                    function _lastConversationStorageKey() {
+                        try {
+                            const email =
+                                (typeof userDetails !== 'undefined' && userDetails && userDetails.email)
+                                    ? String(userDetails.email)
+                                    : 'unknown';
+                            const domain =
+                                (typeof currentDomain !== 'undefined' && currentDomain && currentDomain['domain'])
+                                    ? String(currentDomain['domain'])
+                                    : 'unknown';
+                            return `lastActiveConversationId:${email}:${domain}`;
+                        } catch (_e) {
+                            return 'lastActiveConversationId:unknown:unknown';
+                        }
+                    }
+
+                    let resumeId = null;
+                    try {
+                        resumeId = localStorage.getItem(_lastConversationStorageKey());
+                    } catch (_e) {
+                        resumeId = null;
+                    }
+
+                    // Only resume if it still exists in the loaded conversation list.
+                    const resumeExists =
+                        !!resumeId && conversations.some(c => String(c.conversation_id) === String(resumeId));
+
+                    const targetId = resumeExists ? resumeId : conversations[0].conversation_id;
+                    ConversationManager.setActiveConversation(targetId);
+                    this.highlightActiveConversation(targetId);
                 }
             } else {
                 // When autoselect is false, preserve any existing active conversation

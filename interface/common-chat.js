@@ -360,6 +360,26 @@ var ConversationManager = {
     },
 
     setActiveConversation: function (conversationId) {
+        function _lastConversationStorageKey() {
+            /**
+             * Persisted "resume last chat" key.
+             * Scopes by user email + current domain when available, but degrades gracefully.
+             */
+            try {
+                const email =
+                    (typeof userDetails !== 'undefined' && userDetails && userDetails.email)
+                        ? String(userDetails.email)
+                        : 'unknown';
+                const domain =
+                    (typeof currentDomain !== 'undefined' && currentDomain && currentDomain['domain'])
+                        ? String(currentDomain['domain'])
+                        : 'unknown';
+                return `lastActiveConversationId:${email}:${domain}`;
+            } catch (_e) {
+                return 'lastActiveConversationId:unknown:unknown';
+            }
+        }
+
         // Option 3: If user selects the already-active conversation, don't re-fetch/re-render.
         // Just close the sidebar on mobile and return.
         try {
@@ -380,6 +400,10 @@ var ConversationManager = {
         } catch (_e) { /* ignore */ }
 
         this.activeConversationId = conversationId;
+        // Resume-on-open: record the last active conversation id so `/interface/` can reopen it.
+        try {
+            localStorage.setItem(_lastConversationStorageKey(), String(conversationId));
+        } catch (_e) { /* ignore */ }
         updateUrlWithConversationId(conversationId);
 
         // Mobile UX: when selecting a conversation from the sidebar, we want the sidebar to

@@ -11,7 +11,7 @@
 
 const DEBUG = false;
 
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 

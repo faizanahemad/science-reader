@@ -9,8 +9,8 @@ This repo’s web UI can be used “app-like” on Android by installing it as a
 - **Service Worker**: `interface/service-worker.js` (served at `/interface/service-worker.js`)
 - **Service Worker registration**: appended to `interface/common.js`
 - **Multi-window chats**:
-  - Conversation list items now have real `href="/interface/<conversation_id>"` in `interface/workspace-manager.js`
   - Conversation context menu includes “Open in New Window” (UI: `interface/interface.html`, handler: `interface/workspace-manager.js`)
+  - Sidebar conversation items are **NOT** real navigation links anymore (they use `href="#"`) to avoid mobile/WebView full reloads; multi-window is done via the explicit action above.
 
 ---
 
@@ -20,6 +20,7 @@ This repo’s web UI can be used “app-like” on Android by installing it as a
 - **UI shell + assets** under:
   - `/interface/*` (local JS/CSS/icons, and cached HTML shell as fallback)
   - `/static/*` (if/when you ship assets there)
+  - **pdf.js fixed assets** under `/interface/pdf.js/*` (viewer JS/CSS + images + CMaps/fonts/locales)
 
 ### Cache-eligible (selected CDN assets, GET only)
 Some third-party libraries referenced in `interface/interface.html` are fetched from CDNs. The Service Worker now caches **asset-like** requests (script/style/font/image) for an allowlisted set of hosts, with a **6-hour TTL** refresh policy.
@@ -59,9 +60,26 @@ Avoid deep-linking into `/interface/<conversation_id>/<message_id>` for new wind
 
 ### How to use
 - From the chat list:
-  - **Long-press** a conversation and choose “open in new tab/window” (works because items now have real `href`s), or
-  - Use the custom right-click context menu on desktop: **Open in New Window**
+  - Use the conversation context menu: **Open in New Window**
 - In PWA mode, each “new tab” typically becomes a separate **PWA window** you can switch between using the Android app switcher.
+
+---
+
+## “Resume last open chat” on app relaunch (Android PWA)
+Android PWAs launched from the home-screen icon typically open the manifest `start_url` (here `/interface/`), not the last deep-link you were viewing.
+
+To make relaunch open the same chat you last had open, we persist the last active conversation id client-side and auto-open it on startup **only when the URL has no conversation id**.
+
+### How it works
+- On every chat switch, `ConversationManager.setActiveConversation(conversationId)` stores:
+  - `localStorage["lastActiveConversationId:<email>:<domain>"] = <conversationId>`
+- On boot at `/interface/` (no conversation id in URL), after conversations load:
+  - If that stored id still exists, we open it.
+  - Otherwise we fall back to the most recent conversation.
+
+### Reset / troubleshooting
+- To “forget” the last chat and go back to default behavior:
+  - DevTools → Application → Storage → Clear site data, or manually delete the `lastActiveConversationId:*` keys in `localStorage`.
 
 ---
 
@@ -107,7 +125,7 @@ If streaming/upload breaks, the SW cache boundary is too broad (should not happe
 ---
 
 ## Update policy (how new UI code deploys)
-- The Service Worker uses a **versioned cache** name (`ui-shell-v1`).
+- The Service Worker uses a **versioned cache** name (`ui-shell-<CACHE_VERSION>`).
 - It does **not** call `skipWaiting()` or `clients.claim()` (conservative).
 - A new SW will take control on a subsequent navigation/reload as per standard SW lifecycle.
 
@@ -116,7 +134,7 @@ You have two complementary ways to avoid stale UI assets after you deploy change
 
 1) **Deterministic (recommended): bump `CACHE_VERSION`**
 - In `interface/service-worker.js`, change:
-  - `const CACHE_VERSION = "v1";` → `"v2"`, etc.
+  - `const CACHE_VERSION = "vX";` → `"vY"`, etc.
 - This forces a new cache namespace and deletes old caches on activate.
 
 2) **Time-based safety net: 6-hour TTL**
@@ -138,7 +156,8 @@ To force-update during development (manual):
   - **Navigation** (`/interface`, `/interface/<conversation_id>`): **NetworkFirst**, with offline fallback to cached shell.
   - **APIs / streaming / uploads**: **not cached** (NetworkOnly by design).
   - **Selected CDN assets**: cached conservatively for allowlisted hosts with **6-hour TTL** refresh.
-- **Multi-window / stable per-chat URL**: conversation items are real links (`/interface/<conversation_id>`), so the browser/Android can open multiple windows.
+- **Multi-window / stable per-chat URL**: use the explicit **Open in New Window** action; we avoid sidebar native navigation links on mobile.
+- **Rendered-state persistence**: restores a cached rendered DOM snapshot (IndexedDB) for instant resume when available.
 
 ### Files changed/added
 - **Added**: `interface/manifest.json`
@@ -146,9 +165,11 @@ To force-update during development (manual):
 - **Added**: `interface/icons/maskable-icon.svg`
 - **Added**: `interface/service-worker.js`
 - **Updated**: `interface/common.js` (registers Service Worker)
-- **Updated**: `interface/interface.html` (manifest link + theme-color meta + real `href` links + context menu option)
-- **Updated**: `interface/workspace-manager.js` (conversation links + click interception for SPA behavior)
-- **Updated**: `interface/common-chat.js` (mobile sidebar hide is now deterministic, not toggle)
+- **Updated**: `interface/interface.html` (manifest link + theme-color meta + context menu option + loads `rendered-state-manager.js`)
+- **Added**: `interface/rendered-state-manager.js` (IndexedDB rendered DOM snapshots)
+- **Updated**: `interface/workspace-manager.js` (sidebar items use `href="#"` to avoid reloads; SPA switching; “Open in New Window”)
+- **Updated**: `interface/common-chat.js` (same-conversation guard; snapshot restore/compare; robust message extraction for `$.when`)
+- **Updated**: `interface/service-worker.js` (CDN allowlist caching + TTL, snapshot asset, pdf.js resource extensions)
 - **Updated**: `PWA_ANDROID.md` (this doc)
 
 ---
