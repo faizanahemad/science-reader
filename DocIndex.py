@@ -1739,6 +1739,15 @@ class ImageDocIndex(DocIndex):
         
         # TODO: Convert image to pdf if it is an image, change the extension to pdf
         self.doc_source = doc_source
+        # Keep a stable reference to the original image for vision-capable LLM calls.
+        #
+        # Why:
+        # - Later in this initializer, we convert images to a PDF and overwrite `self.doc_source`
+        #   with the generated PDF path for downstream indexing/storage.
+        # - If callers (e.g., `Conversation.reply`) use `doc_source` as the image input, they
+        #   will end up sending a PDF disguised as an image, which providers reject with
+        #   "Could not process image".
+        self._llm_image_source = doc_source
         
         
         self.doc_filetype = doc_filetype
@@ -1757,8 +1766,8 @@ class ImageDocIndex(DocIndex):
         def complete_init_image_doc_index():
             llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LLM[0])
             llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LONG_CONTEXT_LLM[0])
-            doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
-            doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[self.doc_source], stream=False)
+            doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[self.llm_image_source], stream=False)
+            doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[self.llm_image_source], stream=False)
 
             while not doc_text_f1.done() or not doc_text_f2.done():
                 time.sleep(1)
@@ -1818,6 +1827,16 @@ class ImageDocIndex(DocIndex):
             doc_filetype = "pdf"
         self.doc_source = doc_source
 
+    @property
+    def llm_image_source(self) -> str:
+        """
+        Return the best image path to use for vision-capable LLM calls.
+
+        This intentionally prefers the original image file over `self.doc_source`,
+        because `self.doc_source` may be rewritten to a PDF during initialization.
+        """
+        return getattr(self, "_llm_image_source", self.doc_source)
+
     def is_init_complete(self):
         # setattr that init_complete
         if hasattr(self, "init_complete"):
@@ -1849,7 +1868,7 @@ class ImageDocIndex(DocIndex):
         if mode["provide_detailed_answers"] >= 3:
             llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name=EXPENSIVE_LLM[0])
             prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
-            answer = llm(prompt, images=[self.doc_source], temperature=0.7, stream=False)
+            answer = llm(prompt, images=[self.llm_image_source], temperature=0.7, stream=False)
             yield answer
         else:
             yield text

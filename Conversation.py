@@ -3346,7 +3346,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             answer += "\n\n**Response was cancelled by user**"
             yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
         yield {"text": '', "status": "Preparing images if any attached documents are images ..."}
-        images = [d.doc_source for d in attached_docs if isinstance(d, ImageDocIndex)]
+        # For image documents, prefer the original image path used for vision LLM calls.
+        # `ImageDocIndex.doc_source` may be rewritten to a PDF during initialization.
+        images = [d.llm_image_source for d in attached_docs if isinstance(d, ImageDocIndex)]
         ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)) and agent is None
         if isinstance(model_name, (list, tuple)):
             model_name = list(set(model_name))

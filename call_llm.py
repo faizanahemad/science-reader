@@ -61,6 +61,46 @@ gpt4_enc = tiktoken.encoding_for_model("gpt-4")
 # Deep research model names
 DEEP_RESEARCH_MODELS = ["o3-deep-research", "o4-mini-deep-research"]
 
+def normalize_image_media_type_from_extension(ext: str) -> str:
+    """
+    Normalize a file extension to a provider-safe image media type.
+
+    Why this exists
+    ---------------
+    Some providers (notably Anthropic via OpenRouter) strictly validate image media types
+    and reject common-but-nonstandard ones like ``image/jpg``. This helper ensures we only
+    emit media types that are broadly accepted: ``image/jpeg``, ``image/png``,
+    ``image/gif``, ``image/webp``.
+
+    Args
+    ----
+    ext:
+        File extension such as "jpg", "jpeg", "png", "gif", "webp". Case-insensitive.
+        A leading dot is allowed (e.g., ".jpg").
+
+    Returns
+    -------
+    str
+        A valid media type string.
+    """
+    ext_norm = (ext or "").strip().lower()
+    if ext_norm.startswith("."):
+        ext_norm = ext_norm[1:]
+
+    # Only return media types we know downstream providers accept.
+    if ext_norm in ("jpg", "jpeg"):
+        return "image/jpeg"
+    if ext_norm == "png":
+        return "image/png"
+    if ext_norm == "gif":
+        return "image/gif"
+    if ext_norm == "webp":
+        return "image/webp"
+
+    # Conservative fallback: preserve previous behavior (defaulting to png),
+    # while avoiding invalid types like image/jpg.
+    return "image/png"
+
 
 def call_openai_deep_research_model(model, text, images, temperature, system, keys):
     """
@@ -266,7 +306,8 @@ Avoid writing code unless asked to or if needed explicitly.
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
         self.gpt4_enc = gpt4_enc
-        self.model_name = model_name
+        # Normalize model name to avoid allowlist mismatches due to whitespace.
+        self.model_name = model_name.strip() if isinstance(model_name, str) else model_name
         
     @property
     def model_type(self):
@@ -299,6 +340,9 @@ Avoid writing code unless asked to or if needed explicitly.
                                                                                                                                                  "google/gemini-pro-1.5",
                                                                                                                                                  "google/gemini-flash-1.5",
                                                                                                                                                  "liuhaotian/llava-yi-34b", "openai/chatgpt-4o-latest",
+                                                                                                                                                 "google/gemini-3-flash-preview", "google/gemini-3-pro-preview",
+                                                                                                                                                 "anthropic/claude-opus-4.5",
+                                                                                                                                                 "openai/gpt-5.2",
                                                                                                                                                  "anthropic/claude-4-opus-20250522",
                                                                                                                                                  "anthropic/claude-4-sonnet-20250522",
                                                                                                                                                  "google/gemini-2.5-pro", "google/gemini-2.0-flash-001", "google/gemini-2.5-flash",
@@ -307,17 +351,25 @@ Avoid writing code unless asked to or if needed explicitly.
             for img in images:
                 if os.path.exists(img):
                     base64_image = encode_image(img)
-                    # get image type from extension of img
-                    image_type = img.split(".")[-1]
+                    # Normalize file extension -> provider-safe media type (e.g., jpg -> image/jpeg)
+                    image_type = os.path.splitext(img)[1]
+                    media_type = normalize_image_media_type_from_extension(image_type)
                     if self.model_name in [ "google/gemini-pro-1.5"]:
                         encoded_images.append(f"data:image/png;base64,{base64_image}")
                     else:
-                        encoded_images.append(f"data:image/{image_type};base64,{base64_image}")
+                        encoded_images.append(f"data:{media_type};base64,{base64_image}")
 
                 elif len(enhanced_robust_url_extractor(img))==1:
                     encoded_images.append(img)
                 elif isinstance(img, str):
-                    encoded_images.append(f"data:image/png;base64,{img}")
+                    img_stripped = img.strip()
+                    # If caller already passed a data URL, normalize common invalid MIME types.
+                    # This avoids Anthropic/OpenRouter rejecting `image/jpg`.
+                    if img_stripped.lower().startswith("data:image/jpg;"):
+                        img_stripped = "data:image/jpeg;" + img_stripped[len("data:image/jpg;"):]
+                    encoded_images.append(
+                        img_stripped if img_stripped.lower().startswith("data:image/") else f"data:image/png;base64,{img_stripped}"
+                    )
             images = encoded_images
             system = f"{self.base_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n{system if system is not None else ''}"
         if self.model_type == "openai":
