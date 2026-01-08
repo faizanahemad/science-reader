@@ -236,7 +236,7 @@ def login():
 
 
 @auth_bp.route("/logout")
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def logout():
     session.pop("name", None)

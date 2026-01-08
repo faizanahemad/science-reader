@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 @documents_bp.route("/upload_doc_to_conversation/<conversation_id>", methods=["POST"])
-@limiter.limit("10 per minute")
+@limiter.limit("100 per minute")
 @login_required
 def upload_doc_to_conversation_route(conversation_id: str):
     state, keys = get_state_and_keys()
