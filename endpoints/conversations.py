@@ -310,8 +310,28 @@ def delete_message_from_conversation(conversation_id: str, message_id: str, inde
         return json_error("Conversation not found", status=404, code="conversation_not_found")
 
     conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
-    conversation.delete_message(message_id, index)
-    return jsonify({"message": f"Message {message_id} deleted"})
+    try:
+        conversation.delete_message(message_id, index)
+    except ValueError:
+        return json_error("Invalid index", status=400, code="invalid_index")
+    except json.JSONDecodeError:
+        logger.exception(f"Conversation JSON storage is corrupted for conversation_id={conversation_id}")
+        return json_error(
+            "Conversation storage is corrupted (invalid JSON). "
+            "This can happen if the server was interrupted mid-write. "
+            "Please retry after refresh; if it persists, contact support.",
+            status=500,
+            code="conversation_storage_corrupt",
+        )
+    except Exception as e:
+        # Covers GenericShortException and other runtime errors.
+        logger.exception(
+            f"Failed to delete message for conversation_id={conversation_id}, message_id={message_id}, index={index}: {e}"
+        )
+        return json_error("Failed to delete message", status=500, code="delete_message_failed")
+
+    # Some clients send "undefined" for message_id; include index for clarity.
+    return jsonify({"message": f"Message deleted", "message_id": message_id, "index": index})
 
 
 @conversations_bp.route("/delete_last_message/<conversation_id>", methods=["DELETE"])
@@ -327,7 +347,20 @@ def delete_last_message(conversation_id: str):
         return json_error("Conversation not found", status=404, code="conversation_not_found")
 
     conversation: Conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
-    conversation.delete_last_turn()
+    try:
+        conversation.delete_last_turn()
+    except json.JSONDecodeError:
+        logger.exception(f"Conversation JSON storage is corrupted for conversation_id={conversation_id}")
+        return json_error(
+            "Conversation storage is corrupted (invalid JSON). "
+            "This can happen if the server was interrupted mid-write. "
+            "Please retry after refresh; if it persists, contact support.",
+            status=500,
+            code="conversation_storage_corrupt",
+        )
+    except Exception as e:
+        logger.exception(f"Failed to delete last turn for conversation_id={conversation_id}: {e}")
+        return json_error("Failed to delete last message", status=500, code="delete_last_message_failed")
     return jsonify({"message": f"Message {message_id} deleted"})
 
 

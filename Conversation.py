@@ -3,6 +3,8 @@ import inspect
 import types
 import collections.abc  
 import shutil
+import os
+import uuid
 from textwrap import dedent
 
 import yaml
@@ -755,6 +757,7 @@ Compact list of bullet points:
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
+        json_bak_filepath = f"{json_filepath}.bak"
         try:
             assert top_key in self.store_separate
         except Exception as e:
@@ -765,11 +768,68 @@ Compact list of bullet points:
         else:
             if os.path.exists(json_filepath):
                 try:
-                    with open(json_filepath, "r") as f:
+                    with open(json_filepath, "r", encoding="utf-8") as f:
                         obj = json.load(f)
-                except Exception as e:
-                    with open(json_filepath, "r") as f:
-                        obj = json.load(f)
+                except json.JSONDecodeError as e:
+                    # The JSON file may have been truncated/corrupted mid-write. Try fallback sources.
+                    logger.error(
+                        f"Corrupt JSON for conversation_id={doc_id}, top_key={top_key}, "
+                        f"path={json_filepath}: {repr(e)}"
+                    )
+
+                    # 1) Try the last-known-good backup copy, if present.
+                    if os.path.exists(json_bak_filepath):
+                        try:
+                            with open(json_bak_filepath, "r", encoding="utf-8") as f:
+                                obj = json.load(f)
+                            # Restore primary JSON from backup to self-heal future reads.
+                            try:
+                                self._atomic_write_json(json_filepath, obj, make_backup=False)
+                            except Exception:
+                                logger.warning(
+                                    f"Failed to restore JSON from backup for conversation_id={doc_id}, "
+                                    f"top_key={top_key}",
+                                    exc_info=True,
+                                )
+                            setattr(self, top_key, obj)
+                            return obj
+                        except Exception:
+                            logger.warning(
+                                f"Backup JSON also unreadable for conversation_id={doc_id}, top_key={top_key}",
+                                exc_info=True,
+                            )
+
+                    # 2) Try rebuilding from dill partial, if available.
+                    if os.path.exists(filepath):
+                        try:
+                            with open(filepath, "rb") as f:
+                                obj = dill.load(f)
+                            try:
+                                self._atomic_write_json(json_filepath, obj, make_backup=True)
+                            except Exception:
+                                logger.warning(
+                                    f"Failed to rewrite JSON from dill partial for conversation_id={doc_id}, "
+                                    f"top_key={top_key}",
+                                    exc_info=True,
+                                )
+                            setattr(self, top_key, obj)
+                            return obj
+                        except Exception:
+                            logger.warning(
+                                f"Dill partial also unreadable for conversation_id={doc_id}, top_key={top_key}",
+                                exc_info=True,
+                            )
+
+                    raise GenericShortException(
+                        f"Conversation storage corrupted for conversation_id={doc_id}, field={top_key}. "
+                        f"Primary JSON could not be decoded and no valid fallback was available."
+                    )
+                except Exception:
+                    logger.warning(
+                        f"Failed reading JSON for conversation_id={doc_id}, top_key={top_key} from {json_filepath}",
+                        exc_info=True,
+                    )
+                    raise
                 setattr(self, top_key, obj)
                 return obj
             elif os.path.exists(filepath):
@@ -781,11 +841,12 @@ Compact list of bullet points:
                         obj = dill.load(f)
                 if top_key not in ["indices", "raw_documents", "raw_documents_index"]:
                     try:
-                        with open(json_filepath, "w") as f:
-                            json.dump(obj, f)
-                    except Exception as e:
-                        with open(json_filepath, "w") as f:
-                            json.dump(obj, f)
+                        self._atomic_write_json(json_filepath, obj, make_backup=True)
+                    except Exception:
+                        logger.warning(
+                            f"Failed to write JSON cache for conversation_id={doc_id}, top_key={top_key}",
+                            exc_info=True,
+                        )
                 setattr(self, top_key, obj)
                 return obj
             else:
@@ -824,11 +885,49 @@ Compact list of bullet points:
             else:
                 setattr(self, top_key, value)
             if top_key not in ["indices", "raw_documents_index"]:
-                with open(json_filepath, "w") as f:
-                    json.dump(getattr(self, top_key, None), f)
+                self._atomic_write_json(json_filepath, getattr(self, top_key, None), make_backup=True)
             else:
                 with open(os.path.join(filepath), "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
+
+    def _atomic_write_json(self, path: str, obj, make_backup: bool = True, make_backup_suffix: str = ".bak"):
+        """
+        Atomically write JSON to `path` to prevent file corruption.
+
+        Why this exists:
+        - `open(path, "w")` truncates first; if the process dies mid-write, the JSON is invalid.
+        - Atomic write avoids partially-written JSON that breaks subsequent reads.
+
+        Strategy:
+        - Write to a unique temp file in the same directory
+        - Optionally copy the current file to `path + make_backup_suffix`
+        - Replace temp -> path using `os.replace` (atomic on POSIX)
+
+        Args:
+            path: Destination JSON file path.
+            obj: JSON-serializable object to write.
+            make_backup: Whether to write a best-effort backup of the current file.
+            make_backup_suffix: Suffix for the backup file (default ".bak").
+        """
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp_path = f"{path}.tmp.{uuid.uuid4().hex}"
+        bak_path = f"{path}{make_backup_suffix}"
+
+        # Write temp first
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Best-effort backup (keep the previous version around for recovery)
+        if make_backup and os.path.exists(path):
+            try:
+                import shutil
+                shutil.copy2(path, bak_path)
+            except Exception:
+                logger.warning(f"Failed to create JSON backup for {path}", exc_info=True)
+
+        os.replace(tmp_path, path)
 
     def set_messages_field(self, messages, overwrite=False):
         self.set_field("messages", messages, overwrite=overwrite)
@@ -2016,10 +2115,46 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
     
     def delete_message(self, message_id, index):
-        index = int(index)
-        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-        messages = self.get_field("messages")
-        messages = [m for i, m in enumerate(messages) if m["message_id"] != message_id and i != index]
+        """
+        Delete a message from the conversation by message_id and/or index.
+
+        Notes:
+        - Some clients may send `"undefined"` as message_id. In that case, deletion should
+          still work via the `index` parameter.
+        - We treat either match as deletable: if `message_id` matches OR `i == index`, the
+          message will be removed.
+
+        Args:
+            message_id: Message identifier (string-ish). May be missing/invalid.
+            index: Message index (string or int).
+        """
+        try:
+            index_int = int(index)
+        except Exception:
+            raise GenericShortException(f"Invalid index for delete_message: {index!r}")
+
+        # Normalize message_id (clients sometimes send 'undefined')
+        message_id_norm = None if message_id is None else str(message_id)
+        if message_id_norm in {"None", "", "nan", "undefined"}:
+            message_id_norm = None
+
+        get_async_future(
+            self.set_field,
+            "memory",
+            {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        )
+        messages = self.get_field("messages") or []
+        if not isinstance(messages, list):
+            raise GenericShortException("Conversation messages field is not a list")
+
+        def should_keep(i: int, m: dict) -> bool:
+            if i == index_int:
+                return False
+            if message_id_norm is not None and m.get("message_id") == message_id_norm:
+                return False
+            return True
+
+        messages = [m for i, m in enumerate(messages) if should_keep(i, m)]
         self.set_messages_field(messages, overwrite=True)
         self.save_local()
 
@@ -3981,13 +4116,35 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                    "status": "reward evaluation error"}
 
     def delete_last_turn(self):
-        messages = self.get_field("messages")
+        """
+        Delete the last user+assistant turn (2 messages) from the conversation.
+
+        This is used by the `/delete_last_message/<conversation_id>` endpoint.
+        """
+        messages = self.get_field("messages") or []
+        if not isinstance(messages, list) or len(messages) < 2:
+            logger.info(
+                f"delete_last_turn no-op for conversation_id={self.conversation_id}: "
+                f"messages not a list or too short (len={len(messages) if isinstance(messages, list) else 'N/A'})"
+            )
+            return
+
         messages = messages[:-2]
         self.set_messages_field(messages, overwrite=True)
-        memory = self.get_field("memory")
-        memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        memory["running_summary"] = memory["running_summary"][:-1]
-        self.running_summary = "".join(memory["running_summary"][-1:])
+
+        memory = self.get_field("memory") or {}
+        if isinstance(memory, dict):
+            memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(memory.get("running_summary"), list) and len(memory["running_summary"]) > 0:
+                memory["running_summary"] = memory["running_summary"][:-1]
+                self.running_summary = "".join(memory["running_summary"][-1:])
+            self.set_field("memory", memory, overwrite=True)
+        else:
+            logger.warning(
+                f"delete_last_turn: memory is not a dict for conversation_id={self.conversation_id}",
+                exc_info=False,
+            )
+
         if len(messages) > 3:
             previous_messages_text = messages[-4]["text"] + "\n\n" + messages[-3]["text"]
         else:
@@ -3997,8 +4154,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         else:
             nqs = []
         self.set_next_question_suggestions(nqs)
-
-        self.set_field("memory", memory, overwrite=True)
 
 
     
