@@ -820,6 +820,25 @@ Compact list of bullet points:
                                 exc_info=True,
                             )
 
+                    # 3) Attempt deterministic salvage (no .bak available, no dill partial).
+                    salvaged = self._attempt_json_salvage(json_filepath, top_key=top_key)
+                    if salvaged is not None:
+                        setattr(self, top_key, salvaged)
+                        return salvaged
+
+                    # 4) Attempt LLM-based repair (disabled only if _LLM_JSON_REPAIR_ENABLED=False).
+                    try:
+                        repaired = self._attempt_json_llm_repair(json_filepath, top_key=top_key, error=e)
+                    except Exception:
+                        repaired = None
+                        logger.warning(
+                            f"LLM JSON repair crashed for conversation_id={doc_id}, top_key={top_key}",
+                            exc_info=True,
+                        )
+                    if repaired is not None:
+                        setattr(self, top_key, repaired)
+                        return repaired
+
                     raise GenericShortException(
                         f"Conversation storage corrupted for conversation_id={doc_id}, field={top_key}. "
                         f"Primary JSON could not be decoded and no valid fallback was available."
@@ -928,6 +947,529 @@ Compact list of bullet points:
                 logger.warning(f"Failed to create JSON backup for {path}", exc_info=True)
 
         os.replace(tmp_path, path)
+
+    def _quarantine_corrupt_file(self, path: str) -> str:
+        """
+        Move a corrupt file out of the way to preserve it for later debugging, while allowing
+        the system to rewrite a repaired version at the original path.
+
+        This is best-effort: if move fails, we leave the corrupt file in place.
+
+        Args:
+            path: The file path to quarantine.
+
+        Returns:
+            The quarantine path used (even if the move fails).
+        """
+        quarantine_path = f"{path}.corrupt.{int(time.time())}"
+        try:
+            if os.path.exists(path):
+                shutil.move(path, quarantine_path)
+        except Exception:
+            logger.warning(f"Failed to quarantine corrupt file {path}", exc_info=True)
+        return quarantine_path
+
+    def _salvage_json_array_prefix(self, text: str):
+        """
+        Salvage as many complete items as possible from a JSON array string.
+
+        This is designed for the common failure mode we see in production: a JSON file that
+        was truncated mid-write (e.g., process crash during `open(..., 'w')` write).
+
+        It works by using `json.JSONDecoder().raw_decode()` to decode one element at a time,
+        stopping at the first decode error and returning the successfully decoded prefix.
+
+        Args:
+            text: Full file contents (expected to represent a JSON array).
+
+        Returns:
+            list | None: Salvaged list of items, or None if nothing could be decoded.
+        """
+        decoder = json.JSONDecoder()
+
+        # Find start of array
+        start = text.find("[")
+        if start == -1:
+            return None
+        i = start + 1
+
+        def _skip_ws(j: int) -> int:
+            while j < len(text) and text[j] in " \t\r\n":
+                j += 1
+            return j
+
+        items = []
+        i = _skip_ws(i)
+        while i < len(text):
+            i = _skip_ws(i)
+            if i >= len(text):
+                break
+            if text[i] == "]":
+                # Clean end of array.
+                return items
+
+            try:
+                obj, end = decoder.raw_decode(text, i)
+            except json.JSONDecodeError:
+                break
+
+            items.append(obj)
+            i = _skip_ws(end)
+
+            # Consume trailing comma if present; if not, either array ends or file is truncated.
+            if i < len(text) and text[i] == ",":
+                i += 1
+                continue
+            if i < len(text) and text[i] == "]":
+                return items
+            # Otherwise, we likely hit truncation or malformed separator; stop safely.
+            break
+
+        return items if items else None
+
+    def _salvage_json_object_by_truncation(self, text: str):
+        """
+        Attempt to salvage a JSON object by truncating to the last closing brace.
+
+        This is a pragmatic recovery mechanism for small dict-shaped fields (e.g. `memory`).
+
+        Args:
+            text: Full file contents (expected to represent a JSON object).
+
+        Returns:
+            dict | None: The decoded dict if salvage succeeds, else None.
+        """
+        last = text.rfind("}")
+        if last == -1:
+            return None
+        candidate = text[: last + 1]
+        try:
+            obj = json.loads(candidate)
+        except Exception:
+            return None
+        return obj if isinstance(obj, dict) else None
+
+    def _attempt_json_salvage(self, json_filepath: str, *, top_key: str):
+        """
+        Attempt to repair a corrupt JSON file by deterministic salvage, without using an LLM.
+
+        This is intentionally conservative:
+        - For `messages`, salvage a prefix of a JSON array (list of message dicts).
+        - For `memory`, salvage a JSON object by truncation.
+
+        If salvage succeeds, we quarantine the corrupt file and rewrite a valid JSON file.
+
+        Args:
+            json_filepath: Path to the corrupt JSON file.
+            top_key: The field name associated with the JSON file.
+
+        Returns:
+            The salvaged Python object, or None if salvage fails.
+        """
+        try:
+            with open(json_filepath, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception:
+            return None
+
+        salvaged = None
+        if top_key == "messages":
+            salvaged = self._salvage_json_array_prefix(text)
+        elif top_key == "memory":
+            salvaged = self._salvage_json_object_by_truncation(text)
+
+        if salvaged is None:
+            return None
+
+        # Preserve corrupt original, then write repaired JSON.
+        self._quarantine_corrupt_file(json_filepath)
+        try:
+            self._atomic_write_json(json_filepath, salvaged, make_backup=False)
+        except Exception:
+            logger.warning(
+                f"Salvage succeeded but failed rewriting JSON for {json_filepath}",
+                exc_info=True,
+            )
+            return None
+        return salvaged
+
+    # ---------------------------------------------------------------------------------
+    # LLM-based JSON repair (enabled by default for manual testing)
+    # ---------------------------------------------------------------------------------
+    _LLM_JSON_REPAIR_ENABLED = True
+    _LLM_JSON_REPAIR_MAX_ITERS = 6
+    _LLM_JSON_REPAIR_CONTEXT_LINES = 80
+    _LLM_JSON_REPAIR_MAX_OPS = 16
+    _LLM_JSON_REPAIR_MODEL = None  # If None, uses VERY_CHEAP_LLM[0]
+
+    def _llm_repair_log(self, msg: str, *, level: str = "info"):
+        """
+        Centralized logger for LLM JSON repair so it's easy to grep in logs.
+        """
+        prefix = f"[LLM_JSON_REPAIR][conv={getattr(self, 'conversation_id', None)}]"
+        if level == "warning":
+            logger.warning(f"{prefix} {msg}")
+        elif level == "error":
+            logger.error(f"{prefix} {msg}")
+        else:
+            logger.info(f"{prefix} {msg}")
+
+    def _coerce_llm_response_to_text(self, resp) -> str:
+        """
+        CallLLm can return either a string or an iterator of chunks depending on `stream`.
+        Normalize to a single string.
+        """
+        try:
+            if isinstance(resp, str):
+                return resp
+            # Generator / iterator case
+            return "".join(list(resp))
+        except Exception:
+            return str(resp)
+
+    def _apply_llm_json_patch_ops(self, lines: list[str], ops: list[dict]) -> list[str]:
+        """
+        Apply patch operations returned by the LLM onto a list of lines (1-based line indexing).
+
+        Supported ops (all dicts):
+        - {"op": "line_replace_range", "line": 123, "start_col": 0, "end_col": 10, "text": "..."}
+        - {"op": "line_insert", "line": 123, "col": 10, "text": "..."}  # insert at col
+        - {"op": "line_delete_range", "line": 123, "start_col": 0, "end_col": 10}
+        - {"op": "line_append", "line": 123, "text": "..."}
+        - {"op": "line_prepend", "line": 123, "text": "..."}
+        - {"op": "line_truncate_end", "line": 123, "remove_last_n": 5}
+        - {"op": "file_append", "text": "..."}  # appends to end of file (may add new lines)
+
+        Notes:
+        - Columns are 0-based character offsets into the line string.
+        - Negative columns are interpreted from the end of the line (e.g. -1 means last char).
+        """
+
+        def _norm_col(col: int, line_len: int) -> int:
+            if col < 0:
+                col = line_len + col
+            return max(0, min(col, line_len))
+
+        # Apply non-line ops first (file_append)
+        for op in ops:
+            if op.get("op") == "file_append":
+                text = op.get("text", "")
+                if not isinstance(text, str):
+                    continue
+                # Append raw text; if it contains newlines, split and extend.
+                if "\n" in text:
+                    extra = text.splitlines(True)
+                    # If the last existing line doesn't end with newline, keep it as-is and just append.
+                    if len(lines) == 0:
+                        lines.extend([s.rstrip("\n") for s in text.splitlines()])
+                    else:
+                        # Append by extending the raw string to last line if no newline first.
+                        if not text.startswith("\n"):
+                            lines[-1] = lines[-1] + extra[0].rstrip("\n")
+                            extra = extra[1:]
+                        for s in extra:
+                            lines.append(s.rstrip("\n"))
+                else:
+                    if len(lines) == 0:
+                        lines.append(text)
+                    else:
+                        lines[-1] = lines[-1] + text
+
+        # Group line operations (skip file_append)
+        line_ops: dict[int, list[dict]] = {}
+        for op in ops:
+            if op.get("op") == "file_append":
+                continue
+            line = op.get("line")
+            if not isinstance(line, int):
+                continue
+            line_ops.setdefault(line, []).append(op)
+
+        # Apply line ops by line, processing edits from right-to-left so offsets remain stable.
+        for line_no, ops_for_line in sorted(line_ops.items(), key=lambda x: x[0]):
+            if line_no < 1 or line_no > len(lines):
+                continue
+            s = lines[line_no - 1]
+            line_len = len(s)
+
+            normalized_ops = []
+            for op in ops_for_line:
+                op_type = op.get("op")
+                if op_type == "line_insert":
+                    col = op.get("col", 0)
+                    if not isinstance(col, int):
+                        continue
+                    col = _norm_col(col, line_len)
+                    normalized_ops.append(
+                        {"op": "line_replace_range", "start_col": col, "end_col": col, "text": op.get("text", "")}
+                    )
+                elif op_type == "line_delete_range":
+                    sc = op.get("start_col", 0)
+                    ec = op.get("end_col", 0)
+                    if not isinstance(sc, int) or not isinstance(ec, int):
+                        continue
+                    sc = _norm_col(sc, line_len)
+                    ec = _norm_col(ec, line_len)
+                    normalized_ops.append({"op": "line_replace_range", "start_col": sc, "end_col": ec, "text": ""})
+                elif op_type == "line_append":
+                    normalized_ops.append(
+                        {"op": "line_replace_range", "start_col": line_len, "end_col": line_len, "text": op.get("text", "")}
+                    )
+                elif op_type == "line_prepend":
+                    normalized_ops.append(
+                        {"op": "line_replace_range", "start_col": 0, "end_col": 0, "text": op.get("text", "")}
+                    )
+                elif op_type == "line_truncate_end":
+                    n = op.get("remove_last_n", 0)
+                    if not isinstance(n, int) or n <= 0:
+                        continue
+                    sc = max(0, line_len - n)
+                    normalized_ops.append({"op": "line_replace_range", "start_col": sc, "end_col": line_len, "text": ""})
+                elif op_type == "line_replace_range":
+                    sc = op.get("start_col", 0)
+                    ec = op.get("end_col", 0)
+                    if not isinstance(sc, int) or not isinstance(ec, int):
+                        continue
+                    sc = _norm_col(sc, line_len)
+                    ec = _norm_col(ec, line_len)
+                    normalized_ops.append(
+                        {
+                            "op": "line_replace_range",
+                            "start_col": sc,
+                            "end_col": ec,
+                            "text": op.get("text", ""),
+                        }
+                    )
+
+            # Sort replace_range ops descending by start_col (right-to-left)
+            normalized_ops.sort(key=lambda o: int(o.get("start_col", 0)), reverse=True)
+            for op in normalized_ops:
+                sc = int(op["start_col"])
+                ec = int(op["end_col"])
+                if sc > ec:
+                    sc, ec = ec, sc
+                repl = op.get("text", "")
+                if not isinstance(repl, str):
+                    repl = str(repl)
+                s = s[:sc] + repl + s[ec:]
+            lines[line_no - 1] = s
+
+        return lines
+
+    def _attempt_json_llm_repair(self, json_filepath: str, *, top_key: str, error: json.JSONDecodeError):
+        """
+        Attempt to repair corrupt JSON using an LLM in a bounded patch loop.
+
+        Key property: we do NOT ask the LLM to emit the full corrected JSON. Instead, we ask it
+        to produce a small list of patch operations ("ops") that mutate the file text in-place.
+        This keeps it workable even when the JSON file is huge (single-line arrays, etc.).
+
+        The loop:
+        - read file content
+        - build a prompt with error position and a window of surrounding lines
+        - ask LLM for patch ops
+        - apply ops in-memory
+        - validate with `json.loads`
+        - on success: quarantine the corrupt file and atomically write normalized JSON
+
+        Returns:
+            Repaired object (list/dict/etc) or None if repair fails.
+        """
+        if not getattr(self, "_LLM_JSON_REPAIR_ENABLED", False):
+            return None
+
+        # Avoid invoking LLM when API keys aren't present.
+        try:
+            api_keys = self.get_api_keys()
+        except Exception:
+            self._llm_repair_log("Skipping LLM repair: could not get API keys", level="warning")
+            return None
+
+        try:
+            with open(json_filepath, "r", encoding="utf-8") as f:
+                original_text = f.read()
+        except Exception:
+            return None
+
+        # Prepare context window around the error line.
+        all_lines = original_text.splitlines()
+        err_line = getattr(error, "lineno", 1) or 1
+        err_col = getattr(error, "colno", 1) or 1
+        err_pos = getattr(error, "pos", None)
+        ctx = int(getattr(self, "_LLM_JSON_REPAIR_CONTEXT_LINES", 80))
+        start_line = max(1, err_line - ctx)
+        end_line = min(len(all_lines), err_line + ctx)
+
+        # Build a numbered excerpt (truncate extremely long lines for display, but allow col edits).
+        def _truncate_for_display(s: str, limit: int = 4000) -> str:
+            if len(s) <= limit:
+                return s
+            head = s[: int(limit * 0.7)]
+            tail = s[-int(limit * 0.3) :]
+            return f"{head} ...<TRUNCATED {len(s)-len(head)-len(tail)} chars>... {tail}"
+
+        excerpt_lines = []
+        for i in range(start_line, end_line + 1):
+            line = all_lines[i - 1]
+            excerpt_lines.append(f"{i}: {_truncate_for_display(line)}")
+        excerpt = "\n".join(excerpt_lines)
+
+        # Include a raw character window around the error position (helps single-line JSON).
+        around = ""
+        if isinstance(err_pos, int):
+            w = 4000
+            lo = max(0, err_pos - w)
+            hi = min(len(original_text), err_pos + w)
+            around = original_text[lo:hi]
+
+        system_prompt = (
+            "You are a careful software agent that repairs corrupted JSON files.\n"
+            "You MUST output ONLY valid JSON (no markdown, no prose) matching the required schema.\n"
+            "Your goal is to propose a SMALL set of patch operations that, when applied, makes the file valid JSON.\n"
+            "Do NOT output the whole JSON file.\n"
+            "Prefer minimal edits: remove stray/truncated tokens, add missing delimiters/brackets at end, etc.\n"
+        )
+
+        schema_hint = {
+            "schema": {
+                "ops": [
+                    {
+                        "op": "line_replace_range|line_insert|line_delete_range|line_append|line_prepend|line_truncate_end|file_append",
+                        "line": "1-based line number (required for line_* ops)",
+                        "start_col": "0-based (may be negative = from end) for replace/delete",
+                        "end_col": "0-based (may be negative = from end) for replace/delete",
+                        "col": "0-based (may be negative = from end) for insert",
+                        "text": "string to insert/replace/append/prepend",
+                        "remove_last_n": "int for line_truncate_end",
+                    }
+                ],
+                "notes": "brief string",
+            }
+        }
+
+        prompt = f"""
+We failed to parse a JSON file and need to repair it by editing the text in-place using patch operations.
+
+File: {json_filepath}
+Field/top_key: {top_key}
+JSONDecodeError: {repr(error)}
+Error position: line={err_line}, col={err_col}, pos={err_pos}
+
+IMPORTANT:
+- Output ONLY JSON matching the schema, no markdown.
+- Propose at most {int(getattr(self, "_LLM_JSON_REPAIR_MAX_OPS", 16))} ops.
+- You can edit within a line using character columns. If a line is extremely long, you may use negative columns
+  (e.g. start_col=-10 means 10 chars from end).
+- If the file is truncated, you may need to add closing brackets at EOF using file_append.
+- Keep edits minimal and localized around the error location.
+
+Schema:
+{json.dumps(schema_hint, indent=2)}
+
+Excerpt with absolute line numbers ({start_line}..{end_line}):
+{excerpt}
+
+Raw text window around error (may be partial):
+{around}
+
+Now return JSON with 'ops' and 'notes'.
+""".strip()
+
+        # Run bounded repair loop in-memory
+        max_iters = int(getattr(self, "_LLM_JSON_REPAIR_MAX_ITERS", 6))
+        current_text = original_text
+
+        from call_llm import CallLLm
+
+        model_name = getattr(self, "_LLM_JSON_REPAIR_MODEL", None) or CHEAP_LLM[0]
+        llm = CallLLm(api_keys, model_name=model_name, use_gpt4=False, use_16k=True)
+
+        self._llm_repair_log(
+            f"Starting LLM repair: top_key={top_key}, model={model_name}, max_iters={max_iters}, file_len={len(original_text)}"
+        )
+
+        for it in range(1, max_iters + 1):
+            self._llm_repair_log(f"Iteration {it}/{max_iters}: requesting patch ops...")
+            try:
+                llm_resp = llm(prompt, system=system_prompt, stream=False, temperature=0.0)
+                llm_text = self._coerce_llm_response_to_text(llm_resp).strip()
+            except Exception as e:
+                self._llm_repair_log(f"Iteration {it}: LLM call failed: {repr(e)}", level="warning")
+                continue
+
+            # Parse JSON response
+            try:
+                plan = json.loads(llm_text)
+                ops = plan.get("ops", [])
+                notes = plan.get("notes", "")
+                if not isinstance(ops, list):
+                    raise ValueError("ops is not a list")
+            except Exception as e:
+                self._llm_repair_log(
+                    f"Iteration {it}: could not parse LLM JSON response: {repr(e)}; raw_len={len(llm_text)}",
+                    level="warning",
+                )
+                # Tighten prompt slightly on next iteration by adding last output
+                prompt = prompt + "\n\nYour last output was invalid JSON. Output ONLY valid JSON per schema.\nLAST_OUTPUT:\n" + llm_text[:4000]
+                continue
+
+            self._llm_repair_log(f"Iteration {it}: received {len(ops)} ops. notes={notes!r}")
+            if len(ops) == 0:
+                prompt = prompt + "\n\nNo ops were provided. Provide at least 1 op.\n"
+                continue
+
+            if len(ops) > int(getattr(self, "_LLM_JSON_REPAIR_MAX_OPS", 16)):
+                ops = ops[: int(getattr(self, "_LLM_JSON_REPAIR_MAX_OPS", 16))]
+                self._llm_repair_log(f"Iteration {it}: truncated ops to {len(ops)} due to max ops limit", level="warning")
+
+            # Apply ops in-memory
+            try:
+                lines = current_text.splitlines()
+                patched_lines = self._apply_llm_json_patch_ops(lines, ops)
+                patched_text = "\n".join(patched_lines)
+            except Exception as e:
+                self._llm_repair_log(f"Iteration {it}: failed applying ops: {repr(e)}", level="warning")
+                continue
+
+            # Validate JSON
+            try:
+                obj = json.loads(patched_text)
+            except json.JSONDecodeError as e:
+                self._llm_repair_log(
+                    f"Iteration {it}: still invalid JSON after patch: {repr(e)} (line={e.lineno}, col={e.colno}, pos={e.pos})",
+                    level="warning",
+                )
+                # Update prompt with new error and allow iterative fixes.
+                prompt = prompt + "\n\nAFTER_PATCH_JSON_STILL_INVALID:\n" + repr(e) + "\n"
+                current_text = patched_text
+                continue
+            except Exception as e:
+                self._llm_repair_log(f"Iteration {it}: unexpected validation failure: {repr(e)}", level="warning")
+                current_text = patched_text
+                continue
+
+            # Sanity: for known keys enforce type
+            if top_key == "messages" and not isinstance(obj, list):
+                self._llm_repair_log(f"Iteration {it}: JSON valid but not a list for messages; got {type(obj)}", level="warning")
+                current_text = patched_text
+                continue
+            if top_key == "memory" and not isinstance(obj, dict):
+                self._llm_repair_log(f"Iteration {it}: JSON valid but not a dict for memory; got {type(obj)}", level="warning")
+                current_text = patched_text
+                continue
+
+            # Success: quarantine original and write normalized JSON
+            self._llm_repair_log(f"Iteration {it}: SUCCESS. Quarantining corrupt file and writing repaired JSON.")
+            self._quarantine_corrupt_file(json_filepath)
+            try:
+                self._atomic_write_json(json_filepath, obj, make_backup=False)
+            except Exception as e:
+                self._llm_repair_log(f"Iteration {it}: failed writing repaired JSON: {repr(e)}", level="error")
+                return None
+            return obj
+
+        self._llm_repair_log("LLM repair failed after max iterations", level="warning")
+        return None
 
     def set_messages_field(self, messages, overwrite=False):
         self.set_field("messages", messages, overwrite=overwrite)
