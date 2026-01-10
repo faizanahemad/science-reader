@@ -74,7 +74,21 @@ flowchart TD
 </pre>
     <script type="text/javascript">
         $(document).ready(function mf() {
+            function normalizeMermaidText(text) {
+                if (text === null || text === undefined) {
+                    return text;
+                }
+                if (typeof text !== 'string') {
+                    text = String(text);
+                }
+                return text
+                    .replace(/\u00A0/g, ' ')
+                    .replace(/\u202F/g, ' ')
+                    .replace(/[“”]/g, '"')
+                    .replace(/[‘’]/g, "'");
+            }
             function cleanMermaidCode(mermaidCode) {  
+                mermaidCode = normalizeMermaidText(mermaidCode || "");
                 return mermaidCode  
                   .split('\n')  
                   .map(line => line.trimRight())  

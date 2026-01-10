@@ -1463,6 +1463,106 @@ function hasUnclosedMermaidTag(htmlString) {
     return stack.length > 0; // If the stack is not empty, there is at least one unclosed tag
 }
  
+function normalizeMermaidText(text) {
+    /**
+     * Normalize unicode characters that commonly break Mermaid parsing/rendering.
+     *
+     * Replaces:
+     * - NBSP (U+00A0) and narrow NBSP (U+202F) with a normal space
+     * - “ ” with "
+     * - ‘ ’ with '
+     *
+     * @param {string} text - Mermaid source (or wrapper text containing Mermaid source)
+     * @returns {string} - Normalized text
+     */
+    if (text === null || text === undefined) {
+        return text;
+    }
+    if (typeof text !== 'string') {
+        text = String(text);
+    }
+    return text
+        .replace(/\u00A0/g, ' ')
+        .replace(/\u202F/g, ' ')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'");
+}
+
+function cleanMermaidCode(mermaidCode) {
+    /**
+     * Prepare Mermaid code for rendering:
+     * - Normalize unicode that breaks parsing (NBSP, smart quotes)
+     * - Trim trailing whitespace
+     * - Remove empty lines and accidental wrapper-tag artifacts
+     *
+     * @param {string} mermaidCode
+     * @returns {string}
+     */
+    mermaidCode = normalizeMermaidText(mermaidCode || "");
+    return mermaidCode
+        .split('\n')
+        .map(function(line) { return line.trimRight(); })
+        .filter(function(line) {
+            return line.length > 0 &&
+                   !line.includes('pre class="mermaid"') &&
+                   !line.includes("pre class='mermaid");
+        })
+        .join('\n');
+}
+
+function normalizeMermaidBlocks(rootElem) {
+    /**
+     * Normalize Mermaid <pre class="mermaid"> blocks in the DOM before calling mermaid.run().
+     *
+     * @param {HTMLElement|JQuery|null} rootElem - Root container to scan (defaults to document)
+     */
+    var $root = rootElem ? $(rootElem) : $(document);
+    $root.find('pre.mermaid, .mermaid').each(function(_idx, block) {
+        // Avoid rewriting already-rendered blocks (Mermaid replaces with SVG inside)
+        if (block && !block.querySelector('svg')) {
+            var code = block.textContent || block.innerText || "";
+            block.textContent = cleanMermaidCode(code);
+        }
+    });
+}
+
+function normalizeTextForClipboard(textElem, textToCopy, mode) {
+    /**
+     * Guard clipboard copy for Mermaid/code-like text without touching normal prose.
+     *
+     * @param {HTMLElement|JQuery|null} textElem
+     * @param {string} textToCopy
+     * @param {string} mode
+     * @returns {string}
+     */
+    if (textToCopy === null || textToCopy === undefined) {
+        return textToCopy;
+    }
+    var text = (typeof textToCopy === 'string') ? textToCopy : String(textToCopy);
+
+    // Always normalize for explicitly code-oriented copy modes.
+    if (mode === "code" || mode === "codemirror") {
+        return normalizeMermaidText(text);
+    }
+
+    // For generic "text" copies, normalize only if it looks like Mermaid/markdown code.
+    var looksLikeMermaidOrCode =
+        text.indexOf("```") !== -1 ||
+        text.toLowerCase().indexOf("```mermaid") !== -1 ||
+        text.toLowerCase().indexOf('<pre class="mermaid"') !== -1 ||
+        text.toLowerCase().indexOf('class="mermaid"') !== -1;
+
+    if (!looksLikeMermaidOrCode && textElem) {
+        try {
+            if ($(textElem).closest('pre.mermaid, .mermaid, code.language-mermaid').length > 0) {
+                looksLikeMermaidOrCode = true;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    return looksLikeMermaidOrCode ? normalizeMermaidText(text) : text;
+}
+
 // Function to attach listeners directly to section elements
 function attachSectionListeners(elem_to_render_in) {
     $(elem_to_render_in).off('click', 'details summary');
@@ -2259,19 +2359,7 @@ ${innerSectionWithCode}
                             blocksToClean.push(block);
                         }
                     });
-                    
-                    // Clean mermaid code helper
-                    function cleanMermaidCode(mermaidCode) {
-                        return mermaidCode
-                            .split('\n')
-                            .map(function(line) { return line.trimRight(); })
-                            .filter(function(line) { 
-                                return line.length > 0 && 
-                                       !line.includes('pre class="mermaid"') && 
-                                       !line.includes("pre class='mermaid"); 
-                            })
-                            .join('\n');
-                    }
+                    // Clean mermaid code helper is global: cleanMermaidCode()
                     
                     // Batch DOM writes
                     blocksToClean.forEach(function(block) {
@@ -2407,6 +2495,7 @@ function renderMermaidIfDetailsTagOpened() {
         if (isOpen) {
             // Small delay to ensure DOM is updated before running mermaid
             setTimeout(function() {
+                normalizeMermaidBlocks(document);
                 mermaid.run({querySelector: "pre.mermaid"});
             }, 50);
         }
@@ -2421,6 +2510,7 @@ function renderMermaidIfDetailsTagOpened() {
         if (willBeOpen) {
             // Delay to allow the details to open first
             setTimeout(function() {
+                normalizeMermaidBlocks(document);
                 mermaid.run({querySelector: "pre.mermaid"});
             }, 100);
         }
@@ -2435,6 +2525,7 @@ function renderMermaidIfDetailsTagOpened() {
                     if (target.tagName.toLowerCase() === 'details' && target.hasAttribute('open')) {
                         console.log('details opened via MutationObserver');
                         setTimeout(function() {
+                            normalizeMermaidBlocks(document);
                             mermaid.run({querySelector: "pre.mermaid"});
                         }, 50);
                     }
@@ -2499,6 +2590,9 @@ function copyToClipboard(textElem, textToCopy, mode = "text") {
             }  
         });  
     }  
+
+    // Guard clipboard output for Mermaid/code-like text
+    textToCopy = normalizeTextForClipboard(textElem, textToCopy, mode);
   
     if (navigator.clipboard && navigator.clipboard.writeText) {  
         // New Clipboard API  

@@ -846,6 +846,31 @@ def extract_drawio(code_string):
     return ''
 
 
+def normalize_mermaid_text(text: str) -> str:
+    """
+    Normalize unicode characters that commonly break Mermaid parsing/rendering.
+
+    Replaces:
+    - NBSP (\\u00A0) and narrow NBSP (\\u202F) with a normal space
+    - “ ” with "
+    - ‘ ’ with '
+
+    Args:
+        text: Raw Mermaid source (or wrapper text containing Mermaid source).
+
+    Returns:
+        Normalized text that is safer to feed into Mermaid.
+    """
+    if not text:
+        return text
+    # Spaces
+    text = text.replace("\u00A0", " ").replace("\u202F", " ")
+    # Smart quotes → straight quotes
+    text = text.replace("“", '"').replace("”", '"')
+    text = text.replace("‘", "'").replace("’", "'")
+    return text
+
+
 mermaid_diagram_wrapping_str = '<pre class="mermaid">\n{cleaned_content}\n</pre>'
 def extract_mermaid(code_string):
     """
@@ -868,7 +893,7 @@ def extract_mermaid(code_string):
     mermaid_blocks = []
     for match in mermaid_matches:
         # Strip whitespace from content
-        cleaned_content = match.strip()
+        cleaned_content = normalize_mermaid_text(match.strip())
         if cleaned_content:
             # Check if it contains valid Mermaid content (expanded detection)
             if ("graph" in cleaned_content.lower() or 
@@ -926,7 +951,7 @@ def extract_last_mermaid(code_string):
     # Sort by position and get the last match
     if all_matches:
         all_matches.sort(key=lambda x: x[0])
-        last_match_content = all_matches[-1][1]
+        last_match_content = normalize_mermaid_text(all_matches[-1][1])
         
         # Validate that it contains Mermaid content
         if (last_match_content and 
@@ -940,7 +965,10 @@ def extract_last_mermaid(code_string):
              "journey" in last_match_content.lower() or
              "erDiagram" in last_match_content.lower())):
             
-            return mermaid_diagram_wrapping_str.format(cleaned_content=last_match_content.replace("```mermaid", "").replace("```", "").strip())
+            cleaned_content = normalize_mermaid_text(
+                last_match_content.replace("```mermaid", "").replace("```", "").strip()
+            )
+            return mermaid_diagram_wrapping_str.format(cleaned_content=cleaned_content)
     
     return ""
 
@@ -969,7 +997,7 @@ def extract_mermaid_from_pre_tags(html_string):
     mermaid_blocks = []
     for match in mermaid_matches:
         # Strip whitespace from content
-        cleaned_content = match.strip()
+        cleaned_content = normalize_mermaid_text(match.strip())
         if cleaned_content:
             # Check if it contains valid Mermaid content
             if ("graph" in cleaned_content.lower() or 

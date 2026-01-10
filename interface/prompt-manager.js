@@ -591,7 +591,7 @@ const PromptManager = {
      * Copy prompt content to clipboard
      */
     copyToClipboard: function() {
-        const content = $('#prompt-content-textarea').val();
+        let content = $('#prompt-content-textarea').val();
         
         if (!content) {
             this.showError('No content to copy');
@@ -599,6 +599,16 @@ const PromptManager = {
         }
 
         const textarea = document.createElement('textarea');
+        // If prompt content contains Mermaid/code, normalize unicode that can break renderers on paste.
+        if (typeof normalizeMermaidText === 'function') {
+            content = normalizeMermaidText(content);
+        } else {
+            content = String(content)
+                .replace(/\u00A0/g, ' ')
+                .replace(/\u202F/g, ' ')
+                .replace(/[“”]/g, '"')
+                .replace(/[‘’]/g, "'");
+        }
         textarea.value = content;
         textarea.style.position = 'fixed';
         textarea.style.opacity = '0';

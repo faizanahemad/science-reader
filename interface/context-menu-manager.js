@@ -443,9 +443,20 @@ const ContextMenuManager = {
      * Copy text to clipboard
      */
     copyText: function() {
-        const textToCopy = this.currentSelection || this.currentMessageText;
+        let textToCopy = this.currentSelection || this.currentMessageText;
         
         if (textToCopy) {
+            // Normalize unicode that can break Mermaid/code when pasting elsewhere.
+            if (typeof normalizeMermaidText === 'function') {
+                textToCopy = normalizeMermaidText(textToCopy);
+            } else {
+                // Minimal fallback
+                textToCopy = String(textToCopy)
+                    .replace(/\u00A0/g, ' ')
+                    .replace(/\u202F/g, ' ')
+                    .replace(/[“”]/g, '"')
+                    .replace(/[‘’]/g, "'");
+            }
             navigator.clipboard.writeText(textToCopy).then(() => {
                 this.showToast('Text copied to clipboard', 'success');
             }).catch(err => {

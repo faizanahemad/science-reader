@@ -16,7 +16,7 @@ from filelock import FileLock
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
 from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent, InstructionFollowingAgent
 from agents.tts_and_podcast_agent import CodeTTSAgent, StreamingCodeTTSAgent, CodePodcastAgent, StreamingCodePodcastAgent
-from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, \
+from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, normalize_mermaid_text, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
 
 from prompts import *
@@ -4232,7 +4232,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 download_link = f"\n[Download XML File]({file_path})\n"
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
-            mermaid_to_execute = extract_last_mermaid(answer)
+            mermaid_to_execute = normalize_mermaid_text(extract_last_mermaid(answer))
             if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and ("\n" in txt and txt.endswith("\n")):
                 already_executed_mermaid.append(mermaid_to_execute)
                 yield {"text": "\n\n", "status": "answering in progress"}
@@ -4289,7 +4289,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         answer_temp = answer
         while True:
-            mermaid_to_execute = extract_last_mermaid(answer_temp)
+            mermaid_to_execute = normalize_mermaid_text(extract_last_mermaid(answer_temp))
             if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:
                 already_executed_mermaid.append(mermaid_to_execute)
                 yield {"text": "\n\n", "status": "answering in progress"}

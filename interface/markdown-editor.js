@@ -548,6 +548,9 @@ var MarkdownEditorManager = (function() {
                     $(this).replaceWith('<div class="mermaid" id="' + id + '">' + code + '</div>');
                 });
                 try {
+                    if (typeof normalizeMermaidBlocks === 'function') {
+                        normalizeMermaidBlocks(previewPane[0]);
+                    }
                     mermaid.run({ querySelector: '#message-edit-preview .mermaid' });
                 } catch (e) {
                     console.warn('Mermaid rendering failed:', e);

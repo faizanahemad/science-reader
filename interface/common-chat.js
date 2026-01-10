@@ -1154,6 +1154,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            if (typeof normalizeMermaidBlocks === 'function') {
+                normalizeMermaidBlocks(document);
+            }
             mermaid.run({querySelector: "pre.mermaid"});
             
             // Add scroll-to-top button for streamed messages
@@ -2085,6 +2088,9 @@ var ChatManager = {
         });
 
         setTimeout(function() {
+            if (typeof normalizeMermaidBlocks === 'function') {
+                normalizeMermaidBlocks(document);
+            }
             mermaid.run({querySelector: "pre.mermaid"});
         }, 100);
         
