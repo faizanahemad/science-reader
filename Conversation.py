@@ -10,7 +10,7 @@ from textwrap import dedent
 import yaml
 from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent, InterleavedWebSearchAgent
 from call_llm import MockCallLLm
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt, tldr_summary_prompt_system, manager_assist_agent_prompt, manager_assist_agent_short_prompt
+from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt, tldr_summary_prompt_system, manager_assist_agent_prompt, manager_assist_agent_short_prompt, manager_to_manager_framework_prompt
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
@@ -2872,6 +2872,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += manager_assist_agent_prompt
         if "Manager Assist Short" in preamble_options:
             preamble += manager_assist_agent_short_prompt
+        if "Manager to Manager Framework" in preamble_options:
+            preamble += manager_to_manager_framework_prompt
         if "Relationship" in preamble_options:
             preamble += relationship_prompt
         if "Dating Maverick" in preamble_options:

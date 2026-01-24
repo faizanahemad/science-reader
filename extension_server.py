@@ -158,6 +158,7 @@ EXTENSION_PROMPT_ALLOWLIST = [
     "default",
     "manager_assist_agent_prompt",
     "manager_assist_agent_short_prompt",
+    "manager_to_manager_framework_prompt",
 ]
 
 
