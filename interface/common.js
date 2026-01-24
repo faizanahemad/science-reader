@@ -1105,17 +1105,23 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
  * @param {string} buttonClass - Additional CSS classes for the button
  */
 window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonClass = '') {
+    var $cardElem = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
     console.log('[addScrollToTopButton] Called with:', {
-        cardElem: cardElem,
-        cardExists: cardElem && cardElem.length > 0,
+        cardElem: $cardElem,
+        cardExists: $cardElem && $cardElem.length > 0,
         buttonText: buttonText,
         buttonClass: buttonClass
     });
     
+    if (!$cardElem || $cardElem.length === 0) {
+        console.warn('[addScrollToTopButton] Card element not found, skipping');
+        return null;
+    }
+    
     // Check if button already exists to avoid duplicates
-    if (cardElem.find('.scroll-to-top-btn').length > 0) {
+    if ($cardElem.find('.scroll-to-top-btn').length > 0) {
         console.log('[addScrollToTopButton] Button already exists, skipping');
-        return; // Button already exists, don't add another
+        return $cardElem.find('.scroll-to-top-btn').first();
     }
     
     console.log('[addScrollToTopButton] Creating button...');
@@ -1142,90 +1148,105 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
         );
     
     // Click handler to scroll to top of the card
+    /**
+     * Find the nearest scrollable ancestor for the card.
+     * @param {jQuery} $elem - The element to search from.
+     * @returns {jQuery|null} - The scrollable container or null if none found.
+     */
+    function getScrollableAncestor($elem) {
+        var preferredContainers = $('#doubt-chat-messages, #temp-llm-messages, #chatView');
+        for (var i = 0; i < preferredContainers.length; i++) {
+            var $container = $(preferredContainers[i]);
+            if ($container.length > 0 && $container.find($elem).length > 0) {
+                return $container;
+            }
+        }
+        
+        var $parents = $elem.parents();
+        for (var j = 0; j < $parents.length; j++) {
+            var $parent = $($parents[j]);
+            var overflowY = ($parent.css('overflow-y') || '').toLowerCase();
+            var overflow = ($parent.css('overflow') || '').toLowerCase();
+            var isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll');
+            if (isScrollable && $parent[0] && $parent[0].scrollHeight > $parent[0].clientHeight) {
+                return $parent;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Scroll a container so the target element aligns to the top of the container viewport.
+     * @param {jQuery} $container - The scrollable container.
+     * @param {jQuery} $target - The element to bring into view.
+     * @returns {boolean} - True if a scroll was initiated.
+     */
+    function scrollContainerToTargetTop($container, $target) {
+        if (!$container || !$container.length || !$target || !$target.length) {
+            return false;
+        }
+        
+        var containerEl = $container[0];
+        var targetEl = $target[0];
+        if (!containerEl || !targetEl) {
+            return false;
+        }
+        
+        var containerRect = containerEl.getBoundingClientRect();
+        var targetRect = targetEl.getBoundingClientRect();
+        var delta = targetRect.top - containerRect.top;
+        var targetScrollTop = $container.scrollTop() + delta;
+        
+        if (!isFinite(targetScrollTop)) {
+            return false;
+        }
+        
+        $container.animate({ scrollTop: targetScrollTop }, 300, 'swing');
+        return true;
+    }
+    
     scrollTopBtn.click(function(e) {
         e.preventDefault();
         e.stopPropagation();
         
-        // Check if card is in doubt chat messages (modal)
-        const doubtMessages = $('#doubt-chat-messages');
-        if (doubtMessages.length > 0 && doubtMessages.find(cardElem).length > 0) {
-            // Card is inside doubt modal
-            const cardRelativeTop = cardElem.position().top;
-            
-            // Scroll doubt messages container to show the top of the card
-            doubtMessages.animate({
-                scrollTop: doubtMessages.scrollTop() + cardRelativeTop
-            }, 300, 'swing');
-            return;
-        }
-        
-        // Check if card is in temp LLM messages (modal)
-        const tempLLMMessages = $('#temp-llm-messages');
-        if (tempLLMMessages.length > 0 && tempLLMMessages.find(cardElem).length > 0) {
-            // Card is inside temp LLM modal
-            const cardRelativeTop = cardElem.position().top;
-            
-            // Scroll temp LLM messages container to show the top of the card
-            tempLLMMessages.animate({
-                scrollTop: tempLLMMessages.scrollTop() + cardRelativeTop
-            }, 300, 'swing');
-            return;
-        }
-        
-        // Check if card is in chat view
-        const chatView = $('#chatView');
-        if (chatView.length > 0 && chatView.find(cardElem).length > 0) {
-            // Card is inside chatView
-            const cardRelativeTop = cardElem.position().top;
-            
-            // Scroll chatView to show the top of the card
-            chatView.animate({
-                scrollTop: chatView.scrollTop() + cardRelativeTop
-            }, 300, 'swing');
-            return;
-        }
-        
-        // Check if card is in any modal body with overflow-y scroll container
-        const scrollableParent = cardElem.closest('[style*="overflow-y: auto"], [style*="overflow-y:auto"], .modal-body');
-        if (scrollableParent.length > 0) {
-            // Card is in a scrollable container
-            const cardRelativeTop = cardElem.position().top;
-            
-            // Scroll the parent container to show the top of the card
-            scrollableParent.animate({
-                scrollTop: scrollableParent.scrollTop() + cardRelativeTop
-            }, 300, 'swing');
-            return;
+        var $scrollableParent = getScrollableAncestor($cardElem);
+        if ($scrollableParent) {
+            if (scrollContainerToTargetTop($scrollableParent, $cardElem)) {
+                return;
+            }
         }
         
         // Default: Card is in the main window, scroll window
-        const cardTop = cardElem.offset().top;
-        $('html, body').animate({
-            scrollTop: cardTop - 20 // 20px padding from top
-        }, 300, 'swing');
+        var cardTop = $cardElem.offset().top;
+        if (isFinite(cardTop)) {
+            $('html, body').animate({
+                scrollTop: cardTop - 20 // 20px padding from top
+            }, 300, 'swing');
+        }
     });
     
     // Ensure the card has relative positioning for absolute button positioning
-    const currentPosition = cardElem.css('position');
+    const currentPosition = $cardElem.css('position');
     console.log('[addScrollToTopButton] Card current position:', currentPosition);
     if (currentPosition === 'static') {
         console.log('[addScrollToTopButton] Setting position to relative');
-        cardElem.css('position', 'relative');
+        $cardElem.css('position', 'relative');
     }
     
     // Add the button to the card
     console.log('[addScrollToTopButton] Appending button to card...');
-    cardElem.append(scrollTopBtn);
+    $cardElem.append(scrollTopBtn);
     
     // Verify button was added
-    const buttonAdded = cardElem.find('.scroll-to-top-btn').length > 0;
+    const buttonAdded = $cardElem.find('.scroll-to-top-btn').length > 0;
     console.log('[addScrollToTopButton] Button added successfully:', buttonAdded);
     
     if (!buttonAdded) {
         console.error('[addScrollToTopButton] Failed to add button!');
-        console.log('[addScrollToTopButton] Card still exists:', cardElem.length > 0);
-        console.log('[addScrollToTopButton] Card parent:', cardElem.parent().length > 0);
-        console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, cardElem[0]));
+        console.log('[addScrollToTopButton] Card still exists:', $cardElem.length > 0);
+        console.log('[addScrollToTopButton] Card parent:', $cardElem.parent().length > 0);
+        console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, $cardElem[0]));
     }
     
     // Return the button element in case further customization is needed
