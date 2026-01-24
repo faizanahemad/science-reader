@@ -4203,21 +4203,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
         code_session = None
-        yield {"text": '', "status": "Starting to stream answer ..., prompt length: " + str(prompt_length)}
-        for dcit in main_ans_gen:
-            if self.is_cancelled():
-                logger.info(f"Response cancelled for conversation {self.conversation_id}")
-                answer += "\n\n**Response was cancelled by user**"
-                yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
-                break
-            if isinstance(dcit, dict):
-                txt = dcit["text"]
-                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
-            else:
-                txt = dcit
-                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
-            yield {"text": txt, "status": status}
-            answer += str(txt)
+        stream_check_interval_chars = int(checkboxes.get("stream_check_interval_chars", 100))
+        if stream_check_interval_chars <= 0:
+            stream_check_interval_chars = 100
+        chars_since_last_check = 0
+
+        def _process_stream_artifacts(txt, force_flush=False):
+            """Process expensive stream checks (drawio/mermaid/code) with optional flush."""
+            nonlocal answer, code_session, already_executed_code, already_executed_drawio, already_executed_mermaid
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
             drawio_code = extract_drawio(answer)
             if len(drawio_code.strip()) > 0 and drawio_code not in already_executed_drawio:
@@ -4250,7 +4243,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
             mermaid_to_execute = normalize_mermaid_text(extract_last_mermaid(answer))
-            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and ("\n" in txt and txt.endswith("\n")):
+            should_emit_mermaid = ("\n" in str(txt) and str(txt).endswith("\n")) or force_flush
+            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and should_emit_mermaid:
                 already_executed_mermaid.append(mermaid_to_execute)
                 yield {"text": "\n\n", "status": "answering in progress"}
                 yield {"text": mermaid_to_execute, "status": "answering in progress"}
@@ -4302,7 +4296,29 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     stderr = "\n" + f"```shell\n{stderr}\n{failure_reason}\n```\n"
                     yield {"text": stderr, "status": "answering in progress"}
                     answer += stderr
+        yield {"text": '', "status": "Starting to stream answer ..., prompt length: " + str(prompt_length)}
+        for dcit in main_ans_gen:
+            if self.is_cancelled():
+                logger.info(f"Response cancelled for conversation {self.conversation_id}")
+                answer += "\n\n**Response was cancelled by user**"
+                yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
+                break
+            if isinstance(dcit, dict):
+                txt = dcit["text"]
+                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
+            else:
+                txt = dcit
+                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
+            yield {"text": txt, "status": status}
+            answer += str(txt)
+            chars_since_last_check += len(str(txt))
+            if chars_since_last_check >= stream_check_interval_chars:
+                chars_since_last_check = 0
+                yield from _process_stream_artifacts(txt)
 
+
+        if chars_since_last_check > 0:
+            yield from _process_stream_artifacts("", force_flush=True)
 
         answer_temp = answer
         while True:
