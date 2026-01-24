@@ -72,6 +72,8 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 
 **Extension prompt allowlist:** `/ext/prompts` only returns prompts listed in `EXTENSION_PROMPT_ALLOWLIST` in `extension_server.py`. If the allowlist is empty, all prompts from `prompts.json` are exposed. Requests for non-allowlisted prompts return `404`.
 
+**Where prompt content comes from:** The server loads `prompts.json` into `prompt_manager` (via `prompt_lib`). During `/ext/chat/<conversation_id>`, the server resolves the conversation’s `prompt_name` to actual prompt text using `prompt_manager[prompt_name]`. The allowlist only filters/validates names—it does not store prompt content.
+
 ### GET `/ext/prompts`
 - **Response**: `{ "prompts": [ { "name": string, "description": string, "category": string }, ... ] }` (filtered by allowlist)
 
@@ -163,6 +165,8 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 - **Request**: `{ "images": [ "data:image/png;base64,...", ... ], "url": string|null, "title": string|null, "model": string|null }`
 - **Response**: `{ "text": string, "pages": [ { "index": number, "text": string }, ... ] }`
 - **Errors**: `400` images required/too many, `503` LLM unavailable
+
+**OCR output structure:** The OCR prompt requests both raw text and document structure (headings, sections, tables, lists, form fields) in reading order.
 
 ### GET `/ext/agents`
 - **Response**: `{ "agents": [ string, ... ] }` (filtered by `EXTENSION_AGENT_ALLOWLIST`)

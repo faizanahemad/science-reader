@@ -156,7 +156,8 @@ EXTENSION_PROMPT_ALLOWLIST = [
     "short_coding_interview_prompt",
     "more_related_questions_prompt",
     "default",
-    
+    "manager_assist_agent_prompt",
+    "manager_assist_agent_short_prompt",
 ]
 
 

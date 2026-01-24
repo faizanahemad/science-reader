@@ -2554,7 +2554,7 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             - HR/Policy risk: Low/Med/High  
             - Reputation risk (for me): Low/Med/High  
             - Delivery risk: Low/Med/High  
-            - "Needs pre-wire with Chitta?" Yes/No + why  
+            - "Needs pre-wire with Manager?" Yes/No + why  
             - "Needs HR consultation?" Yes/No + why  
             4) List the top 5 failure modes (how this could blow up).  
             5) Provide the top 3 safest strategies using these principles:  
@@ -2562,7 +2562,7 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             - Norms, not laws  
             - Pre-wire, then send  
             - Receipts, not riddles  
-            - Reduce my manager's cognitive load (Chitta rule)  
+            - Reduce my manager's cognitive load (Manager rule)  
             OUTPUT FORMAT:  
             - One paragraph summary of what you think and how I should proceed.  
             - A table: Category | Risk | Why | Pre-wire? | What not to say/do  
@@ -2586,7 +2586,7 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             - What deliverable, by when, quality bar, and how we’ll know  
             3) Identify all phrases that create “policy vibes” and replace them:  
             - banned words list: “required”, “must”, “allowed only if”, “normal working hours”, “irrespective of holidays”, “you are expected to be online”, etc.  
-            4) Create a “Pre-wire packet” for Chitta if needed:  
+            4) Create a “Pre-wire packet” for my Manager if needed:  
             - 5-bullet forward-ready summary (wins/risks/asks)  
             - the decision I recommend  
             - what I need from him (approval/awareness/escalation)  
@@ -2595,7 +2595,7 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             - One paragraph summary of what you think and how I should proceed.
             - A table: Goal | Mechanism | Owner | Cadence | Artifact (doc/link) | Why this is HR-safe  
             - A “language sanitization” list: Replace X → With Y  
-            - If pre-wire needed: a 5-bullet message I can send Chitta that he can forward unedited  
+            - If pre-wire needed: a 5-bullet message I can send Manager that he can forward unedited  
         """),
         
         dedent("""

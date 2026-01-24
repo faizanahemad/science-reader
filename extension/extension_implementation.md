@@ -196,6 +196,8 @@ import { API_BASE, MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 | `clearUserInfo()` | `async () → void` | Remove user info |
 | `getSettings()` | `async () → object` | Get settings (with defaults) |
 | `setSettings(settings)` | `async (object) → void` | Update settings (merges) |
+| `getApiBaseUrl()` | `async () → string` | Get stored API base URL (falls back to `API_BASE`) |
+| `setApiBaseUrl(url)` | `async (string) → void` | Persist API base URL used by the extension |
 | `getCurrentConversation()` | `async () → string\|null` | Get active conversation ID |
 | `setCurrentConversation(id)` | `async (string) → void` | Set active conversation |
 | `getRecentConversations()` | `async () → array` | Get recent conversations list |
@@ -253,6 +255,15 @@ await Storage.setSettings({ historyLength: 20 });
 | **Utility** | `getModels()` | `async () → object` | List available models |
 | **Utility** | `healthCheck()` | `async () → object` | Server health check |
 
+**Prompt resolution flow (server-side):**
+- `EXTENSION_PROMPT_ALLOWLIST` controls which *names* are allowed in the extension UI and API.
+- `prompt_manager` (loaded from `prompts.json` via `prompt_lib`) contains the actual prompt content.
+- `/ext/chat/<conversation_id>` pulls `prompt_name` from the conversation, validates it against the allowlist, then loads the prompt text from `prompt_manager[prompt_name]`.
+
+**API base URL resolution:**
+- All extension requests resolve the base URL from `Storage.getApiBaseUrl()` at call time.
+- The login and settings UIs expose a Server URL field (with quick presets) so you can switch between hosted and local servers without rebuilding the extension.
+
 **Streaming Callbacks:**
 ```javascript
 {
@@ -294,6 +305,7 @@ await API.sendMessageStreaming(conversation.conversation_id,
 2. Handle context menu clicks
 3. Coordinate messages between popup, sidepanel, content scripts
 4. Manage sidepanel open/close
+5. Capture full-page screenshots and drive scrolling OCR
 
 **Event Listeners:**
 
@@ -304,6 +316,10 @@ await API.sendMessageStreaming(conversation.conversation_id,
 | `chrome.runtime.onMessage` | Message router | Inter-component communication |
 | `chrome.tabs.onActivated` | Tab change notification | When user switches tabs |
 | `chrome.tabs.onUpdated` | Tab update notification | When tab content changes |
+
+**Full-page OCR capture notes:**
+- Before capture starts, the worker scrolls to the top if the page is not already at `scrollY=0`.
+- Capture uses an overlap step to avoid missing content between screenshots.
 
 **Context Menu Items Created:**
 

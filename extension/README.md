@@ -209,11 +209,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### API Base URL
 
-Edit `shared/constants.js`:
-
-```javascript
-export const API_BASE = 'http://localhost:5001';  // Change to your server
-```
+Set **Server URL** in the extension UI (login screen or Settings). The value is stored in `chrome.storage` and used by all extension API calls. Defaults to `http://localhost:5001` if not set. Quick presets are available in the UI: **Use Hosted** and **Use Local**.
 
 ### Available Models
 

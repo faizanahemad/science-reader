@@ -82,6 +82,8 @@ engineering_excellence_prompt = manager["engineering_excellence_prompt"]
 base_system = manager["base_system"]
 chat_slow_reply_prompt = manager["chat_slow_reply_prompt"]
 persist_current_turn_prompt = manager["persist_current_turn_prompt"]
+manager_assist_agent_prompt = manager["manager_assist_agent_prompt"]
+manager_assist_agent_short_prompt = manager["manager_assist_agent_short_prompt"]
 
 # Extract preamble prompts from manager and assign them to variables
 preamble_easy_copy = manager["preamble_easy_copy"]
