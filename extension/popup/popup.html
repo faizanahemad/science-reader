@@ -39,6 +39,18 @@
                     autocomplete="current-password"
                 >
             </div>
+            <div class="form-group">
+                <input
+                    type="url"
+                    id="server-url"
+                    placeholder="Server URL (https://assist-chat.site)"
+                >
+                <div class="form-help">Used for all extension API calls.</div>
+                <div class="server-presets">
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                </div>
+            </div>
             <button type="submit" class="btn btn-primary" id="login-btn">
                 <span class="btn-text">Login</span>
                 <span class="btn-loading hidden">
@@ -132,6 +144,16 @@
                 <select id="default-prompt" class="select">
                     <!-- Populated by JS -->
                 </select>
+            </div>
+
+            <div class="setting-group">
+                <label for="server-url-settings">Server URL</label>
+                <input id="server-url-settings" type="url" class="text-input" placeholder="https://assist-chat.site">
+                <div class="setting-help">Controls which backend the extension uses.</div>
+                <div class="server-presets">
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                </div>
             </div>
 
             <div class="setting-group">

@@ -1208,6 +1208,45 @@
         }
     }
 
+    /**
+     * Get page scroll + viewport metrics for full-page capture.
+     * @returns {Object} Page metrics including scroll and viewport sizes.
+     */
+    function getPageMetrics() {
+        const docEl = document.documentElement;
+        const body = document.body;
+        const scrollHeight = Math.max(
+            docEl.scrollHeight,
+            body?.scrollHeight || 0
+        );
+        const scrollWidth = Math.max(
+            docEl.scrollWidth,
+            body?.scrollWidth || 0
+        );
+        return {
+            scrollHeight,
+            scrollWidth,
+            viewportHeight: window.innerHeight,
+            viewportWidth: window.innerWidth,
+            scrollY: window.scrollY,
+            scrollX: window.scrollX,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            url: window.location.href,
+            title: document.title
+        };
+    }
+
+    /**
+     * Scroll page to a specific Y position for screenshot stitching.
+     * @param {number} y - Vertical scroll position.
+     * @returns {{scrollY: number}} The new scroll position.
+     */
+    function scrollToPosition(y) {
+        const safeY = Math.max(0, Number.isFinite(y) ? y : 0);
+        window.scrollTo(0, safeY);
+        return { scrollY: window.scrollY };
+    }
+
     // ==================== Message Listener ====================
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1223,6 +1262,14 @@
 
                 case 'GET_SELECTION':
                     sendResponse(getSelectedText());
+                    break;
+
+                case 'GET_PAGE_METRICS':
+                    sendResponse(getPageMetrics());
+                    break;
+
+                case 'SCROLL_TO':
+                    sendResponse(scrollToPosition(message.y));
                     break;
 
                 case 'QUICK_ACTION':

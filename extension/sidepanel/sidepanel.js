@@ -23,14 +23,20 @@ const state = {
     pageContext: null,
     multiTabContexts: [],  // Array of {tabId, url, title, content} for multi-tab reading
     selectedTabIds: [],     // Tab IDs selected in the modal
+    ocrCache: {},           // In-memory OCR cache by URL
+    pendingImages: [],      // User-attached images for next message
     settings: {
         model: 'google/gemini-2.5-flash',
-        promptName: 'Short',
+        promptName: 'preamble_short',
+        agentName: 'None',
+        workflowId: '',
         historyLength: 10,
-        autoIncludePage: true  // Enabled by default
+        autoIncludePage: true,  // Enabled by default
+        apiBaseUrl: ''
     },
     abortController: null,
     availableModels: [], // Fetched from server
+    workflows: [],
     // Script creation mode
     scriptMode: {
         active: false,
@@ -65,6 +71,7 @@ const mainView = document.getElementById('main-view');
 const loginForm = document.getElementById('login-form');
 const emailInput = document.getElementById('email');
 const passwordInput = document.getElementById('password');
+const serverUrlInput = document.getElementById('server-url');
 const loginError = document.getElementById('login-error');
 
 // Header
@@ -85,6 +92,15 @@ const settingsPanel = document.getElementById('settings-panel');
 const closeSettingsBtn = document.getElementById('close-settings');
 const modelSelect = document.getElementById('model-select');
 const promptSelect = document.getElementById('prompt-select');
+const serverUrlSettingsInput = document.getElementById('server-url-settings');
+const agentSelect = document.getElementById('agent-select');
+const workflowSelect = document.getElementById('workflow-select');
+const workflowNewBtn = document.getElementById('workflow-new');
+const workflowSaveBtn = document.getElementById('workflow-save');
+const workflowDeleteBtn = document.getElementById('workflow-delete');
+const workflowNameInput = document.getElementById('workflow-name');
+const workflowStepsEl = document.getElementById('workflow-steps');
+const workflowAddStepBtn = document.getElementById('workflow-add-step');
 const historyLengthSlider = document.getElementById('history-length-slider');
 const historyValue = document.getElementById('history-value');
 const autoIncludePageCheckbox = document.getElementById('auto-include-page');
@@ -112,9 +128,13 @@ const removePageContextBtn = document.getElementById('remove-page-context');
 
 // Input
 const attachPageBtn = document.getElementById('attach-page-btn');
+const attachScreenshotBtn = document.getElementById('attach-screenshot-btn');
+const attachScrollshotBtn = document.getElementById('attach-scrollshot-btn');
 const multiTabBtn = document.getElementById('multi-tab-btn');
 const voiceBtn = document.getElementById('voice-btn');
 const messageInput = document.getElementById('message-input');
+const inputWrapper = document.getElementById('input-wrapper');
+const imageAttachmentsEl = document.getElementById('image-attachments');
 const sendBtn = document.getElementById('send-btn');
 const stopBtnContainer = document.getElementById('stop-btn-container');
 const stopBtn = document.getElementById('stop-btn');
@@ -131,10 +151,53 @@ const suggestionBtns = document.querySelectorAll('.suggestion-btn');
 
 // ==================== Initialization ====================
 
+/**
+ * Normalize API base URL input to avoid trailing slashes.
+ * @param {string} value - Raw input value.
+ * @returns {string}
+ */
+function normalizeApiBaseUrl(value) {
+    return (value || '').trim().replace(/\/+$/, '');
+}
+
+/**
+ * Sync server URL inputs between login and settings views.
+ * @param {string} value - Server URL to apply.
+ */
+function syncServerUrlInputs(value) {
+    if (serverUrlInput) serverUrlInput.value = value;
+    if (serverUrlSettingsInput) serverUrlSettingsInput.value = value;
+}
+
+/**
+ * Load server URL from storage into UI and state.
+ * @returns {Promise<void>}
+ */
+async function loadServerUrlSetting() {
+    const stored = await Storage.getApiBaseUrl();
+    const normalized = normalizeApiBaseUrl(stored);
+    state.settings.apiBaseUrl = normalized;
+    syncServerUrlInputs(normalized);
+}
+
+/**
+ * Persist server URL to storage and update state.
+ * @param {string} value - Server URL value.
+ * @returns {Promise<void>}
+ */
+async function persistServerUrlSetting(value) {
+    const normalized = normalizeApiBaseUrl(value);
+    if (!normalized) return;
+    state.settings.apiBaseUrl = normalized;
+    syncServerUrlInputs(normalized);
+    await Storage.setApiBaseUrl(normalized);
+}
+
 async function initialize() {
     console.log('[Sidepanel] Initializing...');
     
     try {
+        await loadServerUrlSetting();
         const isAuth = await Storage.isAuthenticated();
         
         if (isAuth) {
@@ -192,14 +255,24 @@ function showView(viewName) {
 function setupEventListeners() {
     // Login
     loginForm.addEventListener('submit', handleLogin);
+    serverUrlInput?.addEventListener('change', async () => {
+        await persistServerUrlSetting(serverUrlInput.value);
+    });
+    document.querySelectorAll('.server-preset-btn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const url = btn.getAttribute('data-url') || '';
+            if (!url) return;
+            await persistServerUrlSetting(url);
+        });
+    });
     
     // Sidebar
     toggleSidebarBtn.addEventListener('click', () => toggleSidebar(true));
     closeSidebarBtn.addEventListener('click', () => toggleSidebar(false));
     sidebarOverlay.addEventListener('click', () => toggleSidebar(false));
-    sidebarNewChatBtn.addEventListener('click', () => {
+    sidebarNewChatBtn.addEventListener('click', async () => {
         toggleSidebar(false);
-        createNewConversation();
+        await createNewConversation();
     });
     
     // Settings
@@ -238,6 +311,41 @@ function setupEventListeners() {
         state.settings.promptName = promptSelect.value;
         saveSettings();
     });
+
+    serverUrlSettingsInput?.addEventListener('change', async () => {
+        await persistServerUrlSetting(serverUrlSettingsInput.value);
+        saveSettings();
+    });
+
+    agentSelect?.addEventListener('change', () => {
+        state.settings.agentName = agentSelect.value;
+        saveSettings();
+    });
+
+    workflowSelect?.addEventListener('change', () => {
+        state.settings.workflowId = workflowSelect.value || '';
+        const selected = state.workflows.find(w => w.workflow_id === state.settings.workflowId);
+        if (selected) {
+            loadWorkflowIntoForm(selected);
+        }
+        saveSettings();
+    });
+
+    workflowNewBtn?.addEventListener('click', () => {
+        loadWorkflowIntoForm({ workflow_id: '', name: '', steps: [] });
+    });
+
+    workflowSaveBtn?.addEventListener('click', async () => {
+        await saveWorkflowFromForm();
+    });
+
+    workflowDeleteBtn?.addEventListener('click', async () => {
+        await deleteWorkflowFromForm();
+    });
+
+    workflowAddStepBtn?.addEventListener('click', () => {
+        addWorkflowStep();
+    });
     
     historyLengthSlider.addEventListener('input', () => {
         state.settings.historyLength = parseInt(historyLengthSlider.value);
@@ -261,6 +369,8 @@ function setupEventListeners() {
     
     // Page context
     attachPageBtn.addEventListener('click', attachPageContent);
+    attachScreenshotBtn?.addEventListener('click', attachScreenshotFromPage);
+    attachScrollshotBtn?.addEventListener('click', attachScrollingScreenshotFromPage);
     removePageContextBtn.addEventListener('click', removePageContext);
     
     // Multi-tab
@@ -278,6 +388,19 @@ function setupEventListeners() {
     suggestionBtns.forEach(btn => {
         btn.addEventListener('click', () => handleQuickSuggestion(btn.dataset.action));
     });
+
+    // Image drag-and-drop (input + whole panel)
+    const dragTargets = [inputWrapper, mainView].filter(Boolean);
+    dragTargets.forEach((target) => {
+        target.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            inputWrapper?.classList.add('drag-over');
+        });
+        target.addEventListener('dragleave', () => {
+            inputWrapper?.classList.remove('drag-over');
+        });
+        target.addEventListener('drop', handleImageDrop);
+    });
     
     // Conversation list delegation
     conversationList.addEventListener('click', handleConversationClick);
@@ -290,6 +413,7 @@ async function handleLogin(e) {
     
     const email = emailInput.value.trim();
     const password = passwordInput.value;
+    const serverUrl = serverUrlInput?.value || '';
     
     if (!email || !password) return;
     
@@ -299,6 +423,9 @@ async function handleLogin(e) {
     loginError.classList.add('hidden');
     
     try {
+        if (serverUrl) {
+            await persistServerUrlSetting(serverUrl);
+        }
         await API.login(email, password);
         await initializeMainView();
     } catch (error) {
@@ -428,16 +555,52 @@ async function loadSettings() {
         }
     } catch (e) {
         console.warn('[Sidepanel] Failed to load prompts:', e);
-        promptSelect.innerHTML = '<option value="Short">Short</option>';
+        promptSelect.innerHTML = '<option value="preamble_short">preamble_short</option>';
     }
+
+    // Populate agent dropdown
+    try {
+        const agentsData = await API.getAgents();
+        if (agentsData.agents && agentsData.agents.length > 0) {
+            agentSelect.innerHTML = agentsData.agents.map(a =>
+                `<option value="${a}">${a}</option>`
+            ).join('');
+        } else {
+            agentSelect.innerHTML = '<option value="None">None</option>';
+        }
+    } catch (e) {
+        console.warn('[Sidepanel] Failed to load agents:', e);
+        agentSelect.innerHTML = '<option value="None">None</option>';
+    }
+
+    // Populate workflow dropdown + form
+    await refreshWorkflows();
     
     // Load saved settings
     const savedSettings = await Storage.getSettings();
     state.settings = { ...state.settings, ...savedSettings };
+    if (!state.settings.apiBaseUrl) {
+        state.settings.apiBaseUrl = await Storage.getApiBaseUrl();
+    }
     
     // Apply to UI
     modelSelect.value = state.settings.defaultModel || state.settings.model;
     promptSelect.value = state.settings.defaultPrompt || state.settings.promptName;
+    if (!promptSelect.value && promptSelect.options.length > 0) {
+        promptSelect.value = promptSelect.options[0].value;
+    }
+    state.settings.promptName = promptSelect.value;
+    if (serverUrlSettingsInput) {
+        serverUrlSettingsInput.value = state.settings.apiBaseUrl || '';
+    }
+    agentSelect.value = state.settings.defaultAgent || state.settings.agentName || 'None';
+    if (workflowSelect) {
+        workflowSelect.value = state.settings.defaultWorkflowId || state.settings.workflowId || '';
+        const selected = state.workflows.find(w => w.workflow_id === workflowSelect.value);
+        if (selected) {
+            loadWorkflowIntoForm(selected);
+        }
+    }
     historyLengthSlider.value = state.settings.historyLength;
     historyValue.textContent = state.settings.historyLength;
     // Default to true if not explicitly set to false
@@ -448,7 +611,10 @@ async function saveSettings() {
     await Storage.setSettings({
         defaultModel: state.settings.model,
         defaultPrompt: state.settings.promptName,
+        defaultAgent: state.settings.agentName,
+        defaultWorkflowId: state.settings.workflowId,
         historyLength: state.settings.historyLength,
+        apiBaseUrl: state.settings.apiBaseUrl,
         autoIncludePage: state.settings.autoIncludePage
     });
 }
@@ -505,6 +671,147 @@ function renderConversationList() {
     `).join('');
 }
 
+// ==================== Workflows ====================
+
+/**
+ * Refresh workflows list from the backend and update UI.
+ */
+async function refreshWorkflows() {
+    try {
+        const data = await API.getWorkflows();
+        state.workflows = data.workflows || [];
+        renderWorkflowSelect();
+        if (state.workflows.length === 0) {
+            loadWorkflowIntoForm({ workflow_id: '', name: '', steps: [] });
+        }
+    } catch (error) {
+        console.warn('[Sidepanel] Failed to load workflows:', error);
+        state.workflows = [];
+        renderWorkflowSelect();
+        loadWorkflowIntoForm({ workflow_id: '', name: '', steps: [] });
+    }
+}
+
+/**
+ * Render the workflow dropdown.
+ */
+function renderWorkflowSelect() {
+    if (!workflowSelect) return;
+    const options = ['<option value="">None</option>']
+        .concat(state.workflows.map(w => `<option value="${w.workflow_id}">${escapeHtml(w.name)}</option>`));
+    workflowSelect.innerHTML = options.join('');
+}
+
+/**
+ * Load workflow data into the editor form.
+ * @param {Object} workflow - Workflow object.
+ */
+function loadWorkflowIntoForm(workflow) {
+    if (!workflowNameInput || !workflowStepsEl) return;
+    workflowNameInput.value = workflow.name || '';
+    workflowStepsEl.innerHTML = '';
+    const steps = Array.isArray(workflow.steps) ? workflow.steps : [];
+    if (steps.length === 0) {
+        addWorkflowStep();
+    } else {
+        steps.forEach(step => addWorkflowStep(step));
+    }
+    workflowStepsEl.dataset.workflowId = workflow.workflow_id || '';
+}
+
+/**
+ * Add a workflow step block to the editor.
+ * @param {Object} step - Optional step data.
+ */
+function addWorkflowStep(step = {}) {
+    if (!workflowStepsEl) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'workflow-step';
+    wrapper.innerHTML = `
+        <div class="workflow-step-header">
+            <input class="workflow-input workflow-step-title" type="text" placeholder="Step title" value="${escapeHtml(step.title || '')}">
+            <button class="remove-btn" type="button">Remove</button>
+        </div>
+        <textarea class="workflow-textarea workflow-step-prompt" rows="3" placeholder="Step prompt">${escapeHtml(step.prompt || '')}</textarea>
+    `;
+    wrapper.querySelector('.remove-btn').addEventListener('click', () => {
+        wrapper.remove();
+    });
+    workflowStepsEl.appendChild(wrapper);
+}
+
+/**
+ * Read workflow data from the editor form.
+ * @returns {Object} Workflow payload.
+ */
+function readWorkflowFromForm() {
+    const workflowId = workflowStepsEl?.dataset.workflowId || '';
+    const name = workflowNameInput?.value?.trim() || '';
+    const steps = [];
+    workflowStepsEl?.querySelectorAll('.workflow-step').forEach((el) => {
+        const title = el.querySelector('.workflow-step-title')?.value?.trim() || '';
+        const prompt = el.querySelector('.workflow-step-prompt')?.value?.trim() || '';
+        if (title || prompt) {
+            steps.push({ title, prompt });
+        }
+    });
+    return { workflowId, name, steps };
+}
+
+/**
+ * Save workflow from the editor form (create or update).
+ */
+async function saveWorkflowFromForm() {
+    const { workflowId, name, steps } = readWorkflowFromForm();
+    if (!name) {
+        alert('Workflow name is required.');
+        return;
+    }
+    if (steps.length === 0) {
+        alert('Add at least one step.');
+        return;
+    }
+    try {
+        if (workflowId) {
+            await API.updateWorkflow(workflowId, { name, steps });
+        } else {
+            const res = await API.createWorkflow({ name, steps });
+            workflowStepsEl.dataset.workflowId = res.workflow.workflow_id;
+        }
+        await refreshWorkflows();
+        const selected = state.workflows.find(w => w.name === name);
+        if (selected) {
+            state.settings.workflowId = selected.workflow_id;
+            saveSettings();
+            if (workflowSelect) workflowSelect.value = selected.workflow_id;
+        }
+    } catch (e) {
+        console.error('[Sidepanel] Failed to save workflow:', e);
+        alert('Failed to save workflow.');
+    }
+}
+
+/**
+ * Delete the workflow currently loaded in the editor.
+ */
+async function deleteWorkflowFromForm() {
+    const workflowId = workflowStepsEl?.dataset.workflowId || '';
+    if (!workflowId) return;
+    if (!confirm('Delete this workflow?')) return;
+    try {
+        await API.deleteWorkflow(workflowId);
+        workflowStepsEl.dataset.workflowId = '';
+        await refreshWorkflows();
+        state.settings.workflowId = '';
+        saveSettings();
+        if (workflowSelect) workflowSelect.value = '';
+        loadWorkflowIntoForm({ workflow_id: '', name: '', steps: [] });
+    } catch (e) {
+        console.error('[Sidepanel] Failed to delete workflow:', e);
+        alert('Failed to delete workflow.');
+    }
+}
+
 async function handleConversationClick(e) {
     const li = e.target.closest('li');
     if (!li) return;
@@ -554,6 +861,8 @@ async function selectConversation(convId) {
 
 async function createNewConversation() {
     try {
+        clearOcrCache();
+        clearImageAttachments();
         const data = await API.createConversation({
             title: 'New Chat',
             is_temporary: true,
@@ -578,9 +887,12 @@ async function createNewConversation() {
         updateSendButton();
         
         await Storage.setCurrentConversation(data.conversation.conversation_id);
-        
+        return true;
     } catch (error) {
         console.error('[Sidepanel] Failed to create conversation:', error);
+        alert(`Failed to start chat: ${error.message || error}`);
+        state.currentConversation = null;
+        return false;
     }
 }
 
@@ -751,17 +1063,20 @@ function handleInputKeydown(e) {
 }
 
 function updateSendButton() {
-    sendBtn.disabled = !messageInput.value.trim() || state.isStreaming;
+    const hasText = !!messageInput.value.trim();
+    const hasImages = state.pendingImages.length > 0;
+    sendBtn.disabled = (!hasText && !hasImages) || state.isStreaming;
 }
 
 // ==================== Send Message ====================
 
 async function sendMessage() {
     const text = messageInput.value.trim();
-    if (!text || state.isStreaming) return;
+    const hasImages = state.pendingImages.length > 0;
+    if ((!text && !hasImages) || state.isStreaming) return;
     
     // Check for script creation intent
-    if (detectScriptIntent(text)) {
+    if (text && detectScriptIntent(text)) {
         console.log('[Sidepanel] Script creation intent detected');
         handleScriptGeneration(text);
         return;
@@ -769,7 +1084,10 @@ async function sendMessage() {
     
     // Ensure we have a conversation
     if (!state.currentConversation) {
-        await createNewConversation();
+        const created = await createNewConversation();
+        if (!created || !state.currentConversation) {
+            return;
+        }
     }
     
     // Auto-attach page content if enabled and not already attached
@@ -778,36 +1096,12 @@ async function sendMessage() {
         console.log('[Sidepanel] Auto-attaching page content (no existing context)');
         try {
             const response = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE });
-            if (response && !response.error && response.content) {
-                // Check if we need screenshot fallback
-                if (response.needsScreenshot || response.canvasApp) {
-                    try {
-                        const screenshotResponse = await chrome.runtime.sendMessage({ 
-                            type: MESSAGE_TYPES.CAPTURE_SCREENSHOT 
-                        });
-                        if (screenshotResponse && screenshotResponse.screenshot) {
-                            state.pageContext = {
-                                url: response.url,
-                                title: response.title,
-                                content: response.instructions || '',
-                                screenshot: screenshotResponse.screenshot,
-                                isScreenshot: true
-                            };
-                        }
-                    } catch (e) {
-                        console.warn('[Sidepanel] Screenshot capture failed:', e);
-                    }
-                } else {
-                    state.pageContext = {
-                        url: response.url,
-                        title: response.title,
-                        content: response.content
-                    };
-                    console.log('[Sidepanel] Auto-attached single page:', response.title, response.content?.length);
-                }
-                
-                if (state.pageContext) {
-                    pageContextTitle.textContent = state.pageContext.title || 'Page content';
+            if (response && !response.error) {
+                const context = await buildPageContextFromResponse(response, { showAlerts: false });
+                if (context) {
+                    state.pageContext = context;
+                    const prefix = context.isOcr ? '🧾 ' : context.isScreenshot ? '📷 ' : '';
+                    pageContextTitle.textContent = `${prefix}${state.pageContext.title || 'Page content'}`;
                     pageContextBar.classList.remove('hidden');
                     attachPageBtn.classList.add('active');
                 }
@@ -827,7 +1121,7 @@ async function sendMessage() {
     const userMessage = {
         message_id: 'temp-user-' + Date.now(),
         role: 'user',
-        content: text,
+        content: text || '[Image attached]',
         created_at: new Date().toISOString()
     };
     state.messages.push(userMessage);
@@ -891,12 +1185,18 @@ async function sendMessage() {
             console.log('[Sidepanel] Restored multi-tab pageContext:', state.pageContext.content?.length);
         }
         
+        const workflowId = state.settings.workflowId || '';
+        const agentToUse = workflowId ? 'PromptWorkflowAgent' : state.settings.agentName;
+
         await API.sendMessageStreaming(
             state.currentConversation.conversation_id,
             {
                 message: text,
                 pageContext: state.pageContext,
-                model: state.settings.model
+                model: state.settings.model,
+                agent: agentToUse,
+                workflow_id: workflowId || null,
+                images: state.pendingImages.map((img) => img.dataUrl)
             },
             {
                 onChunk: (chunk) => {
@@ -917,7 +1217,10 @@ async function sendMessage() {
                     processCodeBlocks(assistantEl);
                     
                     // Update conversation in list
-                    updateConversationInList(text);
+                    updateConversationInList(text || '[Image attached]');
+
+                    // Clear image attachments after successful send
+                    clearImageAttachments();
                 },
                 onError: (error) => {
                     console.error('[Sidepanel] Streaming error:', error);
@@ -1273,6 +1576,291 @@ function updateConversationInList(messagePreview) {
 
 // ==================== Page Context ====================
 
+/**
+ * Clear OCR cache when starting a new chat.
+ */
+function clearOcrCache() {
+    state.ocrCache = {};
+}
+
+/**
+ * Clear pending image attachments for the next message.
+ */
+function clearImageAttachments() {
+    state.pendingImages = [];
+    renderImageAttachments();
+    updateSendButton();
+}
+
+/**
+ * Render the image attachment thumbnails.
+ */
+function renderImageAttachments() {
+    if (!imageAttachmentsEl) return;
+    if (state.pendingImages.length === 0) {
+        imageAttachmentsEl.classList.add('hidden');
+        imageAttachmentsEl.innerHTML = '';
+        return;
+    }
+
+    imageAttachmentsEl.classList.remove('hidden');
+    imageAttachmentsEl.innerHTML = state.pendingImages.map((img) => `
+        <div class="image-attachment" data-id="${img.id}">
+            <img src="${img.dataUrl}" alt="${img.name || 'attachment'}">
+            <button class="remove-btn" aria-label="Remove image">×</button>
+        </div>
+    `).join('');
+
+    imageAttachmentsEl.querySelectorAll('.remove-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const container = btn.closest('.image-attachment');
+            const id = container?.getAttribute('data-id');
+            if (!id) return;
+            state.pendingImages = state.pendingImages.filter((img) => img.id !== id);
+            renderImageAttachments();
+            updateSendButton();
+        });
+    });
+}
+
+/**
+ * Add image file(s) to pending attachments.
+ * @param {FileList|File[]} files - Files dropped by the user.
+ */
+async function addImageFiles(files) {
+    const maxAttachments = 5;
+    const list = Array.from(files || []);
+    for (const file of list) {
+        if (!file.type.startsWith('image/')) continue;
+        if (state.pendingImages.length >= maxAttachments) {
+            alert(`You can attach up to ${maxAttachments} images per message.`);
+            break;
+        }
+        const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+        });
+        state.pendingImages.push({
+            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            name: file.name,
+            dataUrl
+        });
+    }
+    renderImageAttachments();
+    updateSendButton();
+}
+
+/**
+ * Handle drag-and-drop images into the input area.
+ * @param {DragEvent} e - Drop event.
+ */
+function handleImageDrop(e) {
+    e.preventDefault();
+    inputWrapper?.classList.remove('drag-over');
+    const files = e.dataTransfer?.files || [];
+    addImageFiles(files).catch((err) => {
+        console.error('[Sidepanel] Failed to add images:', err);
+    });
+}
+
+/**
+ * Attach a screenshot of the current tab as page context.
+ */
+async function attachScreenshotFromPage() {
+    try {
+        const tabInfo = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.GET_TAB_INFO });
+        const screenshotResponse = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.CAPTURE_SCREENSHOT });
+        if (!screenshotResponse?.screenshot) {
+            alert('Could not capture a screenshot.');
+            return;
+        }
+        state.pageContext = {
+            url: tabInfo?.url,
+            title: tabInfo?.title,
+            content: 'Screenshot attached for analysis.',
+            screenshot: screenshotResponse.screenshot,
+            isScreenshot: true
+        };
+        pageContextTitle.textContent = `📷 ${tabInfo?.title || 'Screenshot attached'}`;
+        pageContextBar.classList.remove('hidden');
+        attachPageBtn.classList.add('active');
+    } catch (e) {
+        console.error('[Sidepanel] Manual screenshot failed:', e);
+        alert('Failed to capture screenshot.');
+    }
+}
+
+/**
+ * Attach a scrolling full-page screenshot and OCR content.
+ */
+async function attachScrollingScreenshotFromPage() {
+    try {
+        attachScrollshotBtn?.setAttribute('disabled', 'true');
+        pageContextTitle.textContent = '🧾 Capturing scrolling screenshot...';
+        pageContextBar.classList.remove('hidden');
+
+        const tabInfo = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.GET_TAB_INFO });
+        const ocrContext = await buildOcrPageContext({
+            url: tabInfo?.url,
+            title: tabInfo?.title
+        });
+        if (!ocrContext) {
+            pageContextTitle.textContent = '🧾 Scrolling screenshot failed';
+            alert('Could not capture scrolling screenshot or OCR text.');
+            return;
+        }
+        state.pageContext = ocrContext;
+        pageContextTitle.textContent = `🧾 ${tabInfo?.title || 'OCR attached'}`;
+        pageContextBar.classList.remove('hidden');
+        attachPageBtn.classList.add('active');
+    } catch (e) {
+        console.error('[Sidepanel] Scrolling screenshot failed:', e);
+        pageContextTitle.textContent = '🧾 Scrolling screenshot failed';
+        alert('Failed to capture scrolling screenshot.');
+    } finally {
+        attachScrollshotBtn?.removeAttribute('disabled');
+    }
+}
+
+/**
+ * Get cached OCR results for a URL.
+ * @param {string} url - Page URL.
+ * @returns {Object|null} Cached OCR entry if available.
+ */
+function getCachedOcr(url) {
+    return url ? state.ocrCache[url] || null : null;
+}
+
+/**
+ * Store OCR results for a URL.
+ * @param {string} url - Page URL.
+ * @param {Object} entry - OCR cache entry.
+ */
+function setCachedOcr(url, entry) {
+    if (!url) return;
+    state.ocrCache[url] = entry;
+}
+
+/**
+ * Capture full-page screenshots by scrolling with overlap.
+ * @param {Object} options - Capture options for overlap/delay.
+ * @returns {Promise<Object|null>} Capture response with screenshots.
+ */
+async function captureFullPageScreenshots(options = {}) {
+    const response = await chrome.runtime.sendMessage({
+        type: MESSAGE_TYPES.CAPTURE_FULLPAGE_SCREENSHOTS,
+        overlapRatio: options.overlapRatio ?? 0.1,
+        delayMs: options.delayMs ?? 1000
+    });
+    if (!response || response.error) {
+        console.warn('[Sidepanel] Full-page capture failed:', response?.error);
+        return null;
+    }
+    return response;
+}
+
+/**
+ * Attempt OCR-based page context for canvas-rendered apps.
+ * @param {Object} extractResponse - Response from EXTRACT_PAGE.
+ * @returns {Promise<Object|null>} Page context if OCR succeeded.
+ */
+async function buildOcrPageContext(extractResponse) {
+    const cached = getCachedOcr(extractResponse.url);
+    if (cached?.text) {
+        return {
+            url: extractResponse.url,
+            title: extractResponse.title,
+            content: cached.text,
+            isOcr: true,
+            ocrCached: true,
+            ocrPages: cached.pages?.length || 0
+        };
+    }
+
+    const capture = await captureFullPageScreenshots();
+    if (!capture?.screenshots?.length) {
+        return null;
+    }
+
+    pageContextTitle.textContent = '🧾 Running OCR...';
+    pageContextBar.classList.remove('hidden');
+
+    const ocrResult = await API.ocrScreenshots(capture.screenshots, {
+        url: extractResponse.url,
+        title: extractResponse.title
+    });
+    if (!ocrResult?.text) {
+        return null;
+    }
+
+    setCachedOcr(extractResponse.url, {
+        text: ocrResult.text,
+        pages: ocrResult.pages,
+        createdAt: Date.now()
+    });
+
+    return {
+        url: extractResponse.url,
+        title: extractResponse.title,
+        content: ocrResult.text,
+        isOcr: true,
+        ocrCached: false,
+        ocrPages: ocrResult.pages?.length || 0
+    };
+}
+
+/**
+ * Build pageContext from extraction response (text, OCR, or screenshot fallback).
+ * @param {Object} response - Extract page response.
+ * @param {Object} options - Behavior flags.
+ * @returns {Promise<Object|null>} Page context object.
+ */
+async function buildPageContextFromResponse(response, options = {}) {
+    const showAlerts = options.showAlerts ?? true;
+
+    if (response.needsScreenshot || response.canvasApp) {
+        console.log('[Sidepanel] Canvas app detected, attempting full-page OCR...');
+        try {
+            const ocrContext = await buildOcrPageContext(response);
+            if (ocrContext) {
+                return ocrContext;
+            }
+        } catch (e) {
+            console.warn('[Sidepanel] OCR failed, falling back to screenshot:', e);
+        }
+
+        try {
+            const screenshotResponse = await chrome.runtime.sendMessage({
+                type: MESSAGE_TYPES.CAPTURE_SCREENSHOT
+            });
+            if (screenshotResponse && screenshotResponse.screenshot) {
+                return {
+                    url: response.url,
+                    title: response.title,
+                    content: response.instructions || '',
+                    screenshot: screenshotResponse.screenshot,
+                    isScreenshot: true
+                };
+            }
+        } catch (screenshotError) {
+            console.error('[Sidepanel] Screenshot failed:', screenshotError);
+        }
+
+        if (showAlerts) {
+            alert(response.instructions || 'Could not extract content from this page. Try selecting text with Ctrl+A and then clicking attach again.');
+        }
+        return null;
+    }
+
+    return {
+        url: response.url,
+        title: response.title,
+        content: response.content
+    };
+}
+
 async function attachPageContent() {
     // If we already have multi-tab context, don't overwrite it
     if (state.pageContext?.isMultiTab) {
@@ -1287,46 +1875,15 @@ async function attachPageContent() {
         const response = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE });
         
         if (response && !response.error) {
-            // Check if we need to fall back to screenshot
-            if (response.needsScreenshot || response.canvasApp) {
-                console.log('[Sidepanel] Canvas app detected, attempting screenshot...');
-                
-                // Try to capture screenshot
-                try {
-                    const screenshotResponse = await chrome.runtime.sendMessage({ 
-                        type: MESSAGE_TYPES.CAPTURE_SCREENSHOT 
-                    });
-                    
-                    if (screenshotResponse && screenshotResponse.screenshot) {
-                        state.pageContext = {
-                            url: response.url,
-                            title: response.title,
-                            content: response.instructions || '',
-                            screenshot: screenshotResponse.screenshot,
-                            isScreenshot: true
-                        };
-                        
-                        pageContextTitle.textContent = `📷 ${response.title || 'Screenshot captured'}`;
-                        pageContextBar.classList.remove('hidden');
-                        return;
-                    }
-                } catch (screenshotError) {
-                    console.error('[Sidepanel] Screenshot failed:', screenshotError);
-                }
-                
-                // If screenshot failed, show instructions
-                alert(response.instructions || 'Could not extract content from this page. Try selecting text with Ctrl+A and then clicking attach again.');
+            const context = await buildPageContextFromResponse(response, { showAlerts: true });
+            if (!context) {
                 attachPageBtn.classList.remove('active');
                 return;
             }
-            
-            state.pageContext = {
-                url: response.url,
-                title: response.title,
-                content: response.content
-            };
-            
-            pageContextTitle.textContent = response.title || 'Page content attached';
+
+            state.pageContext = context;
+            const prefix = context.isOcr ? '🧾 ' : context.isScreenshot ? '📷 ' : '';
+            pageContextTitle.textContent = `${prefix}${response.title || 'Page content attached'}`;
             pageContextBar.classList.remove('hidden');
         } else {
             alert('Could not extract page content');

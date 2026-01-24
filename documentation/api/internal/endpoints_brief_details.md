@@ -1,0 +1,347 @@
+# server.py endpoints + DB functions inventory
+
+Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/server.py`
+
+> This file is generated from `server.py` to support refactoring into logical modules.
+
+## Important init/architecture notes
+
+- `server.py` currently mixes **app initialization**, **DB schema/setup**, and **route declarations** in one file.
+- `app`/`limiter` initialization appears inside `if __name__ == "__main__":` in the current file, but many `@app.route` decorators are defined at import-time. This layout will break if `server.py` is imported as a module; refactor should likely introduce a `create_app()` factory and register endpoints via blueprints.
+- Key globals / init references (needle → line):
+  - `_conversation_pinned_claims` → L1892: `_conversation_pinned_claims = {}`
+  - `_conversation_pinned_claims` → L1894: `def get_conversation_pinned_claims(conversation_id: str) -> set:`
+  - `_conversation_pinned_claims` → L1896: `return _conversation_pinned_claims.get(conversation_id, set())`
+  - `_conversation_pinned_claims` → L1900: `if conversation_id not in _conversation_pinned_claims:`
+  - `_conversation_pinned_claims` → L1901: `_conversation_pinned_claims[conversation_id] = set()`
+  - `_conversation_pinned_claims` → L1902: `_conversation_pinned_claims[conversation_id].add(claim_id)`
+  - `_conversation_pinned_claims` → L1906: `if conversation_id in _conversation_pinned_claims:`
+  - `_conversation_pinned_claims` → L1907: `_conversation_pinned_claims[conversation_id].discard(claim_id)`
+  - `_conversation_pinned_claims` → L1909: `def clear_conversation_pinned_claims(conversation_id: str):`
+  - `_conversation_pinned_claims` → L1911: `if conversation_id in _conversation_pinned_claims:`
+  - `_conversation_pinned_claims` → L1912: `del _conversation_pinned_claims[conversation_id]`
+  - `_conversation_pinned_claims` → L2885: `conv_pinned_ids = list(get_conversation_pinned_claims(conversation_id))`
+  - `_conversation_pinned_claims` → L4455: `pinned_ids = list(get_conversation_pinned_claims(conv_id))`
+  - `_conversation_pinned_claims` → L4493: `pinned_ids = list(get_conversation_pinned_claims(conv_id))`
+  - `_conversation_pinned_claims` → L4538: `clear_conversation_pinned_claims(conv_id)`
+  - `cache_dir` → L1595: `cache_dir = os.path.join(os.getcwd(), folder, "cache")`
+  - `cache_dir` → L1599: `os.makedirs(cache_dir, exist_ok=True)`
+  - `cache_dir` → L1614: `cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir,`
+  - `conversation_cache` → L1888: `conversation_cache = DefaultDictQueue(maxsize=200, default_factory=load_conversation)`
+  - `conversation_cache` → L2148: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2181: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2199: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2218: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2418: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2446: `conversations = [conversation_cache[conversation_id] for conversation_id in conversation_ids]`
+  - `conversation_cache` → L2453: `del conversation_cache[conversation.conversation_id]`
+  - `conversation_cache` → L2461: `del conversation_cache[conversation_id]`
+  - `conversation_cache` → L2630: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2653: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2667: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2879: `conversation: Conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2937: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2966: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2981: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L2998: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3018: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3034: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3063: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3197: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3497: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3514: `if conversation_id not in conversation_cache:`
+  - `conversation_cache` → L3517: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3537: `conversation_cache[new_conversation.conversation_id] = new_conversation`
+  - `conversation_cache` → L3553: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3554: `del conversation_cache[conversation_id]`
+  - `conversation_cache` → L3569: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3585: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3600: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3615: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3623: `conversation = conversation_cache[conversation_id]`
+  - `conversation_cache` → L3664: `conversation = conversation_cache[conversation_id]`
+  - `conversation_folder` → L1609: `conversation_folder = os.path.join(os.getcwd(), folder, "conversations")`
+  - `conversation_folder` → L1612: `os.makedirs(conversation_folder, exist_ok=True)`
+  - `conversation_folder` → L1878: `path = os.path.join(conversation_folder, conversation_id)`
+  - `conversation_folder` → L2616: `conversation = Conversation(email, openai_embed=get_embedding_model(keys), storage=conversation_folder,`
+  - `create_tables()` → L119: `def create_tables():`
+  - `create_tables()` → L5790: `create_tables()`
+  - `limiter_key_func` → L1527: `def limiter_key_func():`
+  - `limiter_key_func` → L1528: `# logger.info(f"limiter_key_func called with {session.get('email')}")`
+  - `limiter_key_func` → L1572: `key_func=limiter_key_func,`
+  - `locks_dir` → L1598: `locks_dir = os.path.join(folder, "locks")`
+  - `locks_dir` → L1602: `os.makedirs(locks_dir, exist_ok=True)`
+  - `locks_dir` → L1604: `for file in os.listdir(locks_dir):`
+  - `locks_dir` → L1605: `os.remove(os.path.join(locks_dir, file))`
+  - `locks_dir` → L1978: `for file in os.listdir(locks_dir):`
+  - `locks_dir` → L1979: `os.remove(os.path.join(locks_dir, file))`
+  - `pdfs_dir` → L1597: `pdfs_dir = os.path.join(os.getcwd(), folder, "pdfs")`
+  - `pdfs_dir` → L1601: `os.makedirs(pdfs_dir, exist_ok=True)`
+  - `pdfs_dir` → L2152: `# save file to disk at pdfs_dir.`
+  - `pdfs_dir` → L2153: `pdf_file.save(os.path.join(pdfs_dir, pdf_file.filename))`
+  - `pdfs_dir` → L2154: `full_pdf_path = os.path.join(pdfs_dir, pdf_file.filename)`
+  - `users_dir` → L120: `database = "{}/users.db".format(users_dir)`
+  - `users_dir` → L259: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L325: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L339: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L346: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L362: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L407: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L427: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L468: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L521: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L588: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L636: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L700: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L756: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L827: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L890: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L938: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L965: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L998: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1117: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1162: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1176: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1238: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1261: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1288: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1296: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1305: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1322: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1374: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1412: `conn = create_connection("{}/users.db".format(users_dir))`
+  - `users_dir` → L1596: `users_dir = os.path.join(os.getcwd(), folder, "users")`
+  - `users_dir` → L1600: `os.makedirs(users_dir, exist_ok=True)`
+  - `users_dir` → L1657: `tokens_file = os.path.join(users_dir, "remember_tokens.json")`
+  - `users_dir` → L1709: `tokens_file = os.path.join(users_dir, "remember_tokens.json")`
+  - `users_dir` → L1748: `tokens_file = os.path.join(users_dir, "remember_tokens.json")`
+  - `users_dir` → L1776: `tokens_file = os.path.join(users_dir, "remember_tokens.json")`
+  - `users_dir` → L3850: `pkb_db_path = os.path.join(users_dir, "pkb.sqlite") if 'users_dir' in globals() else "./users/pkb.sqlite"`
+  - `users_dir` → L5793: `#     conn = create_connection("{}/users.db".format(users_dir))`
+
+## DB / persistence helper functions (SQLite + related)
+
+- **create_connection** (L93): `def create_connection(db_file)`
+- **create_tables** (L119): `def create_tables()`
+- **load_workspaces_for_user** (L246): `def load_workspaces_for_user(user_email, domain)`
+- **addConversationToWorkspace** (L324): `def addConversationToWorkspace(user_email, conversation_id, workspace_id)`
+- **moveConversationToWorkspace** (L338): `def moveConversationToWorkspace(user_email, conversation_id, workspace_id)`
+- **removeConversationFromWorkspace** (L345): `def removeConversationFromWorkspace(user_email, conversation_id)`
+- **getWorkspaceForConversation** (L352): `def getWorkspaceForConversation(conversation_id)`
+- **getConversationsForWorkspace** (L406): `def getConversationsForWorkspace(workspace_id, user_email)`
+- **createWorkspace** (L414): `def createWorkspace(user_email, workspace_id, domain, workspace_name, workspace_color)`
+- **add_doubt** (L450): `def add_doubt(conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id=None)`
+- **delete_doubt** (L510): `def delete_doubt(doubt_id)`
+- **get_doubt** (L578): `def get_doubt(doubt_id)`
+- **get_doubts_for_message** (L624): `def get_doubts_for_message(conversation_id, message_id, user_email=None)`
+- **get_doubt_history** (L690): `def get_doubt_history(doubt_id)`
+- **get_doubt_children** (L746): `def get_doubt_children(doubt_id)`
+- **get_section_hidden_details** (L813): `def get_section_hidden_details(conversation_id, section_ids)`
+- **bulk_update_section_hidden_detail** (L876): `def bulk_update_section_hidden_detail(conversation_id, section_updates)`
+- **collapseWorkspaces** (L931): `def collapseWorkspaces(workspace_ids: list[str])`
+- **updateWorkspace** (L949): `def updateWorkspace(user_email, workspace_id, workspace_name=None, workspace_color=None, expanded=None)`
+- **deleteWorkspace** (L991): `def deleteWorkspace(workspace_id, user_email, domain)`
+- **addConversation** (L1091): `def addConversation(user_email, conversation_id, workspace_id=None, domain=None)`
+- **checkConversationExists** (L1161): `def checkConversationExists(user_email: str, conversation_id: str)`
+- **getCoversationsForUser** (L1169): `def getCoversationsForUser(user_email: str, domain: str)`
+- **deleteConversationForUser** (L1230): `def deleteConversationForUser(user_email, conversation_id)`
+- **cleanup_deleted_conversations** (L1256): `def cleanup_deleted_conversations(conversation_ids)`
+- **getAllCoversations** (L1287): `def getAllCoversations()`
+- **getConversationById** (L1295): `def getConversationById(conversation_id)`
+- **removeUserFromConversation** (L1304): `def removeUserFromConversation(user_email, conversation_id)`
+- **addUserToUserDetailsTable** (L1313): `def addUserToUserDetailsTable(user_email, user_preferences=None, user_memory=None)`
+- **getUserFromUserDetailsTable** (L1364): `def getUserFromUserDetailsTable(user_email)`
+- **updateUserInfoInUserDetailsTable** (L1400): `def updateUserInfoInUserDetailsTable(user_email, user_preferences=None, user_memory=None)`
+- **open_browser** (L5779): `def open_browser(url)`
+
+## Flask endpoints (routes)
+
+- **GET (default)** `/` → `index()` (route L2134, def L2137) (login_required, rate_limited)
+  - limiter: `@limiter.limit("200 per minute")`
+- **POST** `/cancel_coding_hint/<conversation_id>` → `cancel_coding_hint()` (route L2343, def L2346) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/cancel_coding_solution/<conversation_id>` → `cancel_coding_solution()` (route L2365, def L2368) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/cancel_doubt_clearing/<conversation_id>` → `cancel_doubt_clearing()` (route L2387, def L2390) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/cancel_response/<conversation_id>` → `cancel_response()` (route L2304, def L2307) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/cleanup_cancellations` → `cleanup_cancellations()` (route L2327, def L2328)
+- **POST** `/clear_doubt/<conversation_id>/<message_id>` → `clear_doubt()` (route L3045, def L3048) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET (default)** `/clear_locks` → `clear_locks()` (route L1973, def L1976) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/clear_session` → `clear_session()` (route L1936, def L1939) (login_required, rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **POST** `/clone_conversation/<conversation_id>` → `clone_conversation()` (route L3503, def L3506) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **POST** `/collapse_workspaces` → `collapse_workspaces()` (route L2554, def L2557) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/create_conversation/<domain>/` → `create_conversation()` (route L2495, def L2499) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/create_conversation/<domain>/<workspace_id>` → `create_conversation()` (route L2496, def L2499) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/create_prompt` → `create_prompt()` (route L5456, def L5459) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **POST** `/create_workspace/<domain>/<workspace_name>` → `create_workspace()` (route L2506, def L2509) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **DELETE** `/delete_conversation/<conversation_id>` → `delete_conversation()` (route L3544, def L3547) (login_required, rate_limited)
+  - limiter: `@limiter.limit("5000 per minute")`
+- **DELETE** `/delete_document_from_conversation/<conversation_id>/<document_id>` → `delete_document_from_conversation()` (route L2175, def L2178) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **DELETE** `/delete_doubt/<doubt_id>` → `delete_doubt_endpoint()` (route L3421, def L3424) (login_required, rate_limited)
+  - limiter: `@limiter.limit("50 per minute")`
+- **DELETE** `/delete_last_message/<conversation_id>` → `delete_last_message()` (route L3575, def L3578) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **DELETE** `/delete_message_from_conversation/<conversation_id>/<message_id>/<index>` → `delete_message_from_conversation()` (route L3560, def L3563) (login_required, rate_limited)
+  - limiter: `@limiter.limit("300 per minute")`
+- **DELETE** `/delete_workspace/<domain>/<workspace_id>` → `delete_workspace()` (route L2566, def L2569) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **GET** `/download_doc_from_conversation/<conversation_id>/<doc_id>` → `download_doc_from_conversation()` (route L2213, def L2216) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/edit_message_from_conversation/<conversation_id>/<message_id>/<index>` → `edit_message_from_conversation()` (route L2988, def L2991) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/ensure_locks_cleared/<conversation_id>` → `ensure_locks_cleared()` (route L2003, def L2006) (login_required, rate_limited)
+  - limiter: `@limiter.limit("50 per minute")`
+- **GET (default)** `/favicon.ico` → `favicon()` (route L1959, def L1961) (rate_limited)
+  - limiter: `@limiter.limit("300 per minute")`
+- **GET** `/fetch_memory_pad/<conversation_id>` → `fetch_memory_pad()` (route L3606, def L3609) (login_required, rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **POST** `/force_clear_locks/<conversation_id>` → `force_clear_locks()` (route L2024, def L2027) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **POST** `/get_coding_hint/<conversation_id>` → `get_coding_hint_endpoint()` (route L2711, def L2714) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **GET** `/get_conversation_details/<conversation_id>` → `get_conversation_details()` (route L2922, def L2925) (login_required, rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **GET** `/get_conversation_history/<conversation_id>` → `get_conversation_history()` (route L2677, def L2680) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>` → `get_conversation_output_docs()` (route L3620, def L3622) (rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **GET** `/get_doubt/<doubt_id>` → `get_doubt_endpoint()` (route L3390, def L3393) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_doubts/<conversation_id>/<message_id>` → `get_doubts_for_message_endpoint()` (route L3461, def L3464) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/get_full_solution/<conversation_id>` → `get_full_solution_endpoint()` (route L2789, def L2792) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")  # Lower limit for full solutions`
+- **GET** `/get_lock_status/<conversation_id>` → `get_lock_status()` (route L1983, def L1986) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_next_question_suggestions/<conversation_id>` → `get_next_question_suggestions()` (route L3025, def L3028) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/get_prompt_by_name/<prompt_name>` → `get_prompt_by_name()` (route L5394, def L5397) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_prompts` → `get_prompts()` (route L5336, def L5339) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_section_hidden_details` → `get_section_hidden_details_endpoint()` (route L5629, def L5632) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_user_detail` → `get_user_detail()` (route L3707, def L3710) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **GET (default)** `/get_user_info` → `get_user_info()` (route L1868, def L1871) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_user_preference` → `get_user_preference()` (route L3731, def L3734) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **GET (default)** `/interface` → `interface()` (route L2045, def L2048) (login_required, rate_limited)
+  - limiter: `@limiter.limit("200 per minute")`
+- **GET (default)** `/interface/<path:path>` → `interface_combined()` (route L2057, def L2059) (rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **POST** `/is_tts_done/<conversation_id>/<message_id>` → `is_tts_done()` (route L3683, def L3684)
+- **GET** `/list_conversation_by_user/<domain>` → `list_conversation_by_user()` (route L2434, def L2437) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **GET** `/list_documents_by_conversation/<conversation_id>` → `list_documents_by_conversation()` (route L2194, def L2197) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/list_messages_by_conversation/<conversation_id>` → `list_messages_by_conversation()` (route L2642, def L2645) (login_required, rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **GET** `/list_messages_by_conversation_shareable/<conversation_id>` → `list_messages_by_conversation_shareable()` (route L2658, def L2660) (rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/list_workspaces/<domain>` → `list_workspaces()` (route L2525, def L2528) (login_required, rate_limited)
+  - limiter: `@limiter.limit("200 per minute")`
+- **GET (default)** `/loader.gif` → `loader()` (route L1965, def L1967) (rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **GET, POST** `/login` → `login()` (route L1820, def L1821)
+- **GET (default)** `/logout` → `logout()` (route L1856, def L1859) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **PUT** `/make_conversation_stateful/<conversation_id>` → `make_conversation_stateful()` (route L2972, def L2975) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **DELETE** `/make_conversation_stateless/<conversation_id>` → `make_conversation_stateless()` (route L2957, def L2960) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **POST** `/modify_user_detail` → `modify_user_detail()` (route L3755, def L3758) (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+- **POST** `/modify_user_preference` → `modify_user_preference()` (route L3792, def L3795) (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+- **PUT** `/move_conversation_to_workspace/<conversation_id>` → `move_conversation_to_workspace()` (route L2585, def L2588) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/move_messages_up_or_down/<conversation_id>` → `move_messages_up_or_down()` (route L3004, def L3007) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/pkb/claims` → `pkb_list_claims()` (route L3944, def L3947) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/claims` → `pkb_add_claim()` (route L3999, def L4002) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **GET** `/pkb/claims/<claim_id>` → `pkb_get_claim()` (route L4164, def L4167) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **PUT** `/pkb/claims/<claim_id>` → `pkb_edit_claim()` (route L4198, def L4201) (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+- **DELETE** `/pkb/claims/<claim_id>` → `pkb_delete_claim()` (route L4254, def L4257) (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+- **POST** `/pkb/claims/<claim_id>/pin` → `pkb_pin_claim()` (route L4293, def L4296) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/claims/bulk` → `pkb_add_claims_bulk()` (route L4077, def L4080) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **GET** `/pkb/conflicts` → `pkb_list_conflicts()` (route L4695, def L4698) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **POST** `/pkb/conflicts/<conflict_id>/resolve` → `pkb_resolve_conflict()` (route L4732, def L4735) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **POST** `/pkb/conversation/<conv_id>/pin` → `pkb_conversation_pin()` (route L4407, def L4410) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/pkb/conversation/<conv_id>/pinned` → `pkb_conversation_get_pinned()` (route L4471, def L4474) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **DELETE** `/pkb/conversation/<conv_id>/pinned` → `pkb_conversation_clear_pinned()` (route L4523, def L4526) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/pkb/entities` → `pkb_list_entities()` (route L4610, def L4613) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/execute_ingest` → `pkb_execute_ingest()` (route L5011, def L5014) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **POST** `/pkb/execute_updates` → `pkb_execute_updates()` (route L5092, def L5095) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **POST** `/pkb/ingest_text` → `pkb_ingest_text()` (route L4877, def L4880) (login_required, rate_limited)
+  - limiter: `@limiter.limit("5 per minute")`
+- **GET** `/pkb/pinned` → `pkb_get_pinned()` (route L4349, def L4352) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/propose_updates` → `pkb_propose_updates()` (route L4783, def L4786) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **POST** `/pkb/relevant_context` → `pkb_get_relevant_context()` (route L5242, def L5245) (login_required, rate_limited)
+  - limiter: `@limiter.limit("60 per minute")`
+- **POST** `/pkb/search` → `pkb_search()` (route L4553, def L4556) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+- **GET** `/pkb/tags` → `pkb_list_tags()` (route L4655, def L4658) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/proxy` → `proxy()` (route L2121, def L2123) (login_required)
+- **GET** `/proxy_shared` → `proxy_shared()` (route L2128, def L2129)
+- **POST** `/run_code_once` → `run_code()` (route L5325, def L5328) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+- **POST** `/send_message/<conversation_id>` → `send_message()` (route L2867, def L2870) (login_required, rate_limited)
+  - limiter: `@limiter.limit("50 per minute")`
+- **POST** `/set_flag/<conversation_id>/<flag>` → `set_flag()` (route L2410, def L2413) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/set_memory_pad/<conversation_id>` → `set_memory_pad()` (route L3591, def L3594) (login_required, rate_limited)
+  - limiter: `@limiter.limit("25 per minute")`
+- **GET (default)** `/shared/<conversation_id>` → `shared()` (route L2102, def L2104) (rate_limited)
+  - limiter: `@limiter.limit("200 per minute")`
+- **GET** `/shared_chat/<conversation_id>` → `shared_chat()` (route L2623, def L2625) (rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **POST** `/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>` → `show_hide_message_from_conversation()` (route L3487, def L3490) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET (default)** `/static/<path:filename>` → `static_files()` (route L2051, def L2053) (rate_limited)
+  - limiter: `@limiter.limit("1000 per minute")`
+- **POST** `/temporary_llm_action` → `temporary_llm_action()` (route L3161, def L3164) (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/transcribe` → `transcribe_audio()` (route L3688, def L3689)
+- **POST** `/tts/<conversation_id>/<message_id>` → `tts()` (route L3640, def L3642) (login_required)
+- **PUT** `/update_prompt` → `update_prompt()` (route L5540, def L5543) (login_required, rate_limited)
+  - limiter: `@limiter.limit("50 per minute")`
+- **POST** `/update_section_hidden_details` → `update_section_hidden_details_endpoint()` (route L5640, def L5643) (login_required, rate_limited)
+  - limiter: `@limiter.limit("100 per minute")`
+- **PUT** `/update_workspace/<workspace_id>` → `update_workspace()` (route L2541, def L2544) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/upload_doc_to_conversation/<conversation_id>` → `upload_doc_to_conversation()` (route L2141, def L2144) (login_required, rate_limited)
+  - limiter: `@limiter.limit("10 per minute")`
+
+

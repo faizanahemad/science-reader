@@ -25,6 +25,7 @@ const views = {
 const loginForm = document.getElementById('login-form');
 const emailInput = document.getElementById('email');
 const passwordInput = document.getElementById('password');
+const serverUrlInput = document.getElementById('server-url');
 const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 
@@ -42,6 +43,7 @@ const settingsBtn = document.getElementById('settings-btn');
 const backToMainBtn = document.getElementById('back-to-main');
 const defaultModelSelect = document.getElementById('default-model');
 const defaultPromptSelect = document.getElementById('default-prompt');
+const serverUrlSettingsInput = document.getElementById('server-url-settings');
 const historyLengthInput = document.getElementById('history-length');
 const historyLengthValue = document.getElementById('history-length-value');
 const autoSaveCheckbox = document.getElementById('auto-save');
@@ -56,12 +58,53 @@ function showView(viewName) {
     });
 }
 
+/**
+ * Normalize API base URL input to avoid trailing slashes.
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeApiBaseUrl(value) {
+    return (value || '').trim().replace(/\/+$/, '');
+}
+
+/**
+ * Sync server URL inputs between login and settings.
+ * @param {string} value
+ */
+function syncServerUrlInputs(value) {
+    if (serverUrlInput) serverUrlInput.value = value;
+    if (serverUrlSettingsInput) serverUrlSettingsInput.value = value;
+}
+
+/**
+ * Load server URL from storage into UI.
+ * @returns {Promise<void>}
+ */
+async function loadServerUrlSetting() {
+    const stored = await Storage.getApiBaseUrl();
+    const normalized = normalizeApiBaseUrl(stored);
+    syncServerUrlInputs(normalized);
+}
+
+/**
+ * Persist server URL to storage and update UI.
+ * @param {string} value
+ * @returns {Promise<void>}
+ */
+async function persistServerUrlSetting(value) {
+    const normalized = normalizeApiBaseUrl(value);
+    if (!normalized) return;
+    syncServerUrlInputs(normalized);
+    await Storage.setApiBaseUrl(normalized);
+}
+
 // ==================== Initialization ====================
 
 async function initialize() {
     console.log('[Popup] Initializing...');
     
     try {
+        await loadServerUrlSetting();
         // Check if user is authenticated
         const isAuth = await Storage.isAuthenticated();
         
@@ -125,6 +168,7 @@ loginForm.addEventListener('submit', async (e) => {
     
     const email = emailInput.value.trim();
     const password = passwordInput.value;
+    const serverUrl = serverUrlInput?.value || '';
     
     if (!email || !password) return;
     
@@ -135,6 +179,9 @@ loginForm.addEventListener('submit', async (e) => {
     loginError.classList.add('hidden');
     
     try {
+        if (serverUrl) {
+            await persistServerUrlSetting(serverUrl);
+        }
         await API.login(email, password);
         await showMainView();
     } catch (error) {
@@ -146,6 +193,18 @@ loginForm.addEventListener('submit', async (e) => {
         loginBtn.querySelector('.btn-text').classList.remove('hidden');
         loginBtn.querySelector('.btn-loading').classList.add('hidden');
     }
+});
+
+serverUrlInput?.addEventListener('change', async () => {
+    await persistServerUrlSetting(serverUrlInput.value);
+});
+
+document.querySelectorAll('.server-preset-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+        const url = btn.getAttribute('data-url') || '';
+        if (!url) return;
+        await persistServerUrlSetting(url);
+    });
 });
 
 // Open sidepanel
@@ -258,16 +317,21 @@ historyLengthInput.addEventListener('input', (e) => {
 
 // Save settings
 saveSettingsBtn.addEventListener('click', async () => {
+    const normalizedServerUrl = normalizeApiBaseUrl(serverUrlSettingsInput?.value || '');
     const settings = {
         defaultModel: defaultModelSelect.value,
         defaultPrompt: defaultPromptSelect.value,
         historyLength: parseInt(historyLengthInput.value),
         autoSave: autoSaveCheckbox.checked,
-        theme: themeSelect.value
+        theme: themeSelect.value,
+        apiBaseUrl: normalizedServerUrl
     };
     
     try {
         await Storage.setSettings(settings);
+        if (normalizedServerUrl) {
+            await Storage.setApiBaseUrl(normalizedServerUrl);
+        }
         
         // Also save to server
         try {
@@ -315,7 +379,7 @@ async function loadSettings() {
         }
     } catch (e) {
         console.warn('[Popup] Failed to load prompts:', e);
-        defaultPromptSelect.innerHTML = '<option value="Short">Short</option>';
+        defaultPromptSelect.innerHTML = '<option value="preamble_short">preamble_short</option>';
     }
     
     // Load current settings
@@ -323,6 +387,12 @@ async function loadSettings() {
     
     defaultModelSelect.value = settings.defaultModel;
     defaultPromptSelect.value = settings.defaultPrompt;
+    if (serverUrlSettingsInput) {
+        serverUrlSettingsInput.value = settings.apiBaseUrl || '';
+    }
+    if (!defaultPromptSelect.value && defaultPromptSelect.options.length > 0) {
+        defaultPromptSelect.value = defaultPromptSelect.options[0].value;
+    }
     historyLengthInput.value = settings.historyLength;
     historyLengthValue.textContent = settings.historyLength;
     autoSaveCheckbox.checked = settings.autoSave;

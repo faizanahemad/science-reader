@@ -265,6 +265,7 @@ class ExtensionDB:
     - ExtensionMessages: Chat messages
     - ExtensionConversationMemories: Attached PKB claims
     - CustomScripts: Tampermonkey-like scripts (Phase 2)
+    - ExtensionWorkflows: Multi-step prompt workflows
     - ExtensionSettings: Per-user settings
     
     Why separate from main database:
@@ -403,6 +404,18 @@ class ExtensionDB:
             # Remove 'domain' column by recreating table if needed (SQLite limitation)
             # For now, domain column will be ignored if present
             
+            # ExtensionWorkflows table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ExtensionWorkflows (
+                    workflow_id TEXT PRIMARY KEY,
+                    user_email TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    steps_json TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # ExtensionSettings table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS ExtensionSettings (
@@ -448,6 +461,10 @@ class ExtensionDB:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_ext_script_type 
                 ON CustomScripts(script_type)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ext_workflow_user
+                ON ExtensionWorkflows(user_email)
             """)
             
             conn.commit()
@@ -1597,6 +1614,179 @@ class ExtensionDB:
             
         except Error as e:
             raise RuntimeError(f"Failed to get scripts for URL: {e}")
+        finally:
+            conn.close()
+
+    # -------------------------------------------------------------------------
+    # Workflow CRUD
+    # -------------------------------------------------------------------------
+
+    def create_workflow(self, user_email: str, name: str, steps: List[Dict]) -> Dict:
+        """
+        Create a new multi-step prompt workflow.
+
+        Args:
+            user_email: User's email.
+            name: Workflow name.
+            steps: List of step dicts with {title, prompt}.
+
+        Returns:
+            Created workflow dict.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        workflow_id = secrets.token_hex(16)
+        now = datetime.utcnow().isoformat()
+
+        try:
+            cursor.execute("""
+                INSERT INTO ExtensionWorkflows
+                (workflow_id, user_email, name, steps_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                workflow_id,
+                user_email,
+                name,
+                json.dumps(steps),
+                now,
+                now
+            ))
+            conn.commit()
+            return {
+                'workflow_id': workflow_id,
+                'user_email': user_email,
+                'name': name,
+                'steps': steps,
+                'created_at': now,
+                'updated_at': now
+            }
+        except Error as e:
+            raise RuntimeError(f"Failed to create workflow: {e}")
+        finally:
+            conn.close()
+
+    def get_workflow(self, user_email: str, workflow_id: str) -> Optional[Dict]:
+        """
+        Get a workflow by ID.
+
+        Args:
+            user_email: User's email.
+            workflow_id: Workflow ID.
+
+        Returns:
+            Workflow dict or None.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT workflow_id, user_email, name, steps_json, created_at, updated_at
+                FROM ExtensionWorkflows
+                WHERE workflow_id = ? AND user_email = ?
+            """, (workflow_id, user_email))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                'workflow_id': row[0],
+                'user_email': row[1],
+                'name': row[2],
+                'steps': json.loads(row[3]) if row[3] else [],
+                'created_at': row[4],
+                'updated_at': row[5]
+            }
+        except Error as e:
+            raise RuntimeError(f"Failed to get workflow: {e}")
+        finally:
+            conn.close()
+
+    def list_workflows(self, user_email: str) -> List[Dict]:
+        """
+        List workflows for a user.
+
+        Args:
+            user_email: User's email.
+
+        Returns:
+            List of workflow dicts.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT workflow_id, user_email, name, steps_json, created_at, updated_at
+                FROM ExtensionWorkflows
+                WHERE user_email = ?
+                ORDER BY updated_at DESC
+            """, (user_email,))
+            rows = cursor.fetchall()
+            workflows = []
+            for row in rows:
+                workflows.append({
+                    'workflow_id': row[0],
+                    'user_email': row[1],
+                    'name': row[2],
+                    'steps': json.loads(row[3]) if row[3] else [],
+                    'created_at': row[4],
+                    'updated_at': row[5]
+                })
+            return workflows
+        except Error as e:
+            raise RuntimeError(f"Failed to list workflows: {e}")
+        finally:
+            conn.close()
+
+    def update_workflow(self, user_email: str, workflow_id: str, name: str, steps: List[Dict]) -> bool:
+        """
+        Update an existing workflow.
+
+        Args:
+            user_email: User's email.
+            workflow_id: Workflow ID.
+            name: Updated name.
+            steps: Updated steps list.
+
+        Returns:
+            True if updated, False otherwise.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        try:
+            cursor.execute("""
+                UPDATE ExtensionWorkflows
+                SET name = ?, steps_json = ?, updated_at = ?
+                WHERE workflow_id = ? AND user_email = ?
+            """, (name, json.dumps(steps), now, workflow_id, user_email))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Error as e:
+            raise RuntimeError(f"Failed to update workflow: {e}")
+        finally:
+            conn.close()
+
+    def delete_workflow(self, user_email: str, workflow_id: str) -> bool:
+        """
+        Delete a workflow.
+
+        Args:
+            user_email: User's email.
+            workflow_id: Workflow ID.
+
+        Returns:
+            True if deleted, False otherwise.
+        """
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                DELETE FROM ExtensionWorkflows
+                WHERE workflow_id = ? AND user_email = ?
+            """, (workflow_id, user_email))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Error as e:
+            raise RuntimeError(f"Failed to delete workflow: {e}")
         finally:
             conn.close()
 

@@ -31,8 +31,11 @@ export const QUICK_ACTIONS = [
 // Default Settings
 export const DEFAULT_SETTINGS = {
     defaultModel: 'google/gemini-2.5-flash',
-    defaultPrompt: 'Short',
+    defaultPrompt: 'preamble_short',
+    defaultAgent: 'None',
+    defaultWorkflowId: null,
     historyLength: 10,
+    apiBaseUrl: API_BASE,
     autoSave: false,
     autoIncludePage: true, // Auto-include page content with every message
     theme: 'system' // 'light', 'dark', or 'system'
@@ -56,6 +59,9 @@ export const MESSAGE_TYPES = {
     EXTRACT_PAGE: 'EXTRACT_PAGE',
     GET_SELECTION: 'GET_SELECTION',
     CAPTURE_SCREENSHOT: 'CAPTURE_SCREENSHOT',
+    CAPTURE_FULLPAGE_SCREENSHOTS: 'CAPTURE_FULLPAGE_SCREENSHOTS',
+    GET_PAGE_METRICS: 'GET_PAGE_METRICS',
+    SCROLL_TO: 'SCROLL_TO',
     
     // Sidepanel
     OPEN_SIDEPANEL: 'OPEN_SIDEPANEL',

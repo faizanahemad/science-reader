@@ -1,0 +1,97 @@
+# Route Parity Checklist (generated from endpoints_brief_details.md)
+
+Goal: as we extract routes from server.py into endpoints/* blueprints, tick each item once the route exists with identical path+methods and equivalent auth/limiter behavior.
+
+## Blueprint URL prefix decision
+
+- [ ] Use empty url_prefix for all blueprints (preserve exact paths); keep `/pkb/*` routes in pkb blueprint via route definitions (no extra prefix).
+
+## Routes
+
+- [ ] `POST` `/cancel_coding_hint/<conversation_id>`
+- [ ] `POST` `/cancel_coding_solution/<conversation_id>`
+- [ ] `POST` `/cancel_doubt_clearing/<conversation_id>`
+- [ ] `POST` `/cancel_response/<conversation_id>`
+- [ ] `POST` `/cleanup_cancellations`
+- [ ] `POST` `/clear_doubt/<conversation_id>/<message_id>`
+- [ ] `GET` `/clear_session`
+- [ ] `POST` `/clone_conversation/<conversation_id>`
+- [ ] `POST` `/collapse_workspaces`
+- [ ] `POST` `/create_conversation/<domain>/`
+- [ ] `POST` `/create_conversation/<domain>/<workspace_id>`
+- [ ] `POST` `/create_prompt`
+- [ ] `POST` `/create_workspace/<domain>/<workspace_name>`
+- [ ] `DELETE` `/delete_conversation/<conversation_id>`
+- [ ] `DELETE` `/delete_document_from_conversation/<conversation_id>/<document_id>`
+- [ ] `DELETE` `/delete_doubt/<doubt_id>`
+- [ ] `DELETE` `/delete_last_message/<conversation_id>`
+- [ ] `DELETE` `/delete_message_from_conversation/<conversation_id>/<message_id>/<index>`
+- [ ] `DELETE` `/delete_workspace/<domain>/<workspace_id>`
+- [ ] `GET` `/download_doc_from_conversation/<conversation_id>/<doc_id>`
+- [ ] `POST` `/edit_message_from_conversation/<conversation_id>/<message_id>/<index>`
+- [ ] `POST` `/ensure_locks_cleared/<conversation_id>`
+- [ ] `GET` `/fetch_memory_pad/<conversation_id>`
+- [ ] `POST` `/force_clear_locks/<conversation_id>`
+- [ ] `POST` `/get_coding_hint/<conversation_id>`
+- [ ] `GET` `/get_conversation_details/<conversation_id>`
+- [ ] `GET` `/get_conversation_history/<conversation_id>`
+- [ ] `GET` `/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>`
+- [ ] `GET` `/get_doubt/<doubt_id>`
+- [ ] `GET` `/get_doubts/<conversation_id>/<message_id>`
+- [ ] `POST` `/get_full_solution/<conversation_id>`
+- [ ] `GET` `/get_lock_status/<conversation_id>`
+- [ ] `GET` `/get_next_question_suggestions/<conversation_id>`
+- [ ] `GET` `/get_prompt_by_name/<prompt_name>`
+- [ ] `GET` `/get_prompts`
+- [ ] `GET` `/get_section_hidden_details`
+- [ ] `GET` `/get_user_detail`
+- [ ] `GET` `/get_user_preference`
+- [ ] `POST` `/is_tts_done/<conversation_id>/<message_id>`
+- [ ] `GET` `/list_conversation_by_user/<domain>`
+- [ ] `GET` `/list_documents_by_conversation/<conversation_id>`
+- [ ] `GET` `/list_messages_by_conversation/<conversation_id>`
+- [ ] `GET` `/list_messages_by_conversation_shareable/<conversation_id>`
+- [ ] `GET` `/list_workspaces/<domain>`
+- [ ] `GET, POST` `/login`
+- [ ] `PUT` `/make_conversation_stateful/<conversation_id>`
+- [ ] `DELETE` `/make_conversation_stateless/<conversation_id>`
+- [ ] `POST` `/modify_user_detail`
+- [ ] `POST` `/modify_user_preference`
+- [ ] `PUT` `/move_conversation_to_workspace/<conversation_id>`
+- [ ] `POST` `/move_messages_up_or_down/<conversation_id>`
+- [ ] `GET` `/pkb/claims`
+- [ ] `POST` `/pkb/claims`
+- [ ] `GET` `/pkb/claims/<claim_id>`
+- [ ] `PUT` `/pkb/claims/<claim_id>`
+- [ ] `DELETE` `/pkb/claims/<claim_id>`
+- [ ] `POST` `/pkb/claims/<claim_id>/pin`
+- [ ] `POST` `/pkb/claims/bulk`
+- [ ] `GET` `/pkb/conflicts`
+- [ ] `POST` `/pkb/conflicts/<conflict_id>/resolve`
+- [ ] `POST` `/pkb/conversation/<conv_id>/pin`
+- [ ] `GET` `/pkb/conversation/<conv_id>/pinned`
+- [ ] `DELETE` `/pkb/conversation/<conv_id>/pinned`
+- [ ] `GET` `/pkb/entities`
+- [ ] `POST` `/pkb/execute_ingest`
+- [ ] `POST` `/pkb/execute_updates`
+- [ ] `POST` `/pkb/ingest_text`
+- [ ] `GET` `/pkb/pinned`
+- [ ] `POST` `/pkb/propose_updates`
+- [ ] `POST` `/pkb/relevant_context`
+- [ ] `POST` `/pkb/search`
+- [ ] `GET` `/pkb/tags`
+- [ ] `GET` `/proxy`
+- [ ] `GET` `/proxy_shared`
+- [ ] `POST` `/run_code_once`
+- [ ] `POST` `/send_message/<conversation_id>`
+- [ ] `POST` `/set_flag/<conversation_id>/<flag>`
+- [ ] `POST` `/set_memory_pad/<conversation_id>`
+- [ ] `GET` `/shared_chat/<conversation_id>`
+- [ ] `POST` `/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>`
+- [ ] `POST` `/temporary_llm_action`
+- [ ] `POST` `/transcribe`
+- [ ] `POST` `/tts/<conversation_id>/<message_id>`
+- [ ] `PUT` `/update_prompt`
+- [ ] `POST` `/update_section_hidden_details`
+- [ ] `PUT` `/update_workspace/<workspace_id>`
+- [ ] `POST` `/upload_doc_to_conversation/<conversation_id>`

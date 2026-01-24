@@ -1,0 +1,117 @@
+### Route parity report
+
+- **Expected entries**: 86 (method+path from `endpoints_brief_details.md`)
+- **Actual entries**: 96 (method+path from `app.url_map`)
+- **Missing**: 0
+- **Extra**: 10
+- **Method mismatches (by path)**: 0
+
+## Extra (registered but not in checklist)
+- **GET** `/` → `static_routes.index`
+- **GET** `/clear_locks` → `static_routes.clear_locks`
+- **GET** `/favicon.ico` → `static_routes.favicon`
+- **GET** `/get_user_info` → `auth.get_user_info`
+- **GET** `/interface` → `static_routes.interface`
+- **GET** `/interface/<path:path>` → `static_routes.interface_combined_route`
+- **GET** `/loader.gif` → `static_routes.loader`
+- **GET,POST** `/login` → `auth.login`
+- **GET** `/logout` → `auth.logout`
+- **GET** `/shared/<conversation_id>` → `static_routes.shared`
+
+## Full actual route table
+- **GET** `/` → `static_routes.index`
+- **POST** `/cancel_coding_hint/<conversation_id>` → `conversations.cancel_coding_hint`
+- **POST** `/cancel_coding_solution/<conversation_id>` → `conversations.cancel_coding_solution`
+- **POST** `/cancel_doubt_clearing/<conversation_id>` → `conversations.cancel_doubt_clearing`
+- **POST** `/cancel_response/<conversation_id>` → `conversations.cancel_response`
+- **POST** `/cleanup_cancellations` → `conversations.cleanup_cancellations`
+- **POST** `/clear_doubt/<conversation_id>/<message_id>` → `doubts.clear_doubt_route`
+- **GET** `/clear_locks` → `static_routes.clear_locks`
+- **GET** `/clear_session` → `static_routes.clear_session_route`
+- **POST** `/clone_conversation/<conversation_id>` → `conversations.clone_conversation`
+- **POST** `/collapse_workspaces` → `workspaces.collapse_workspaces`
+- **POST** `/create_conversation/<domain>/` → `conversations.create_conversation`
+- **POST** `/create_conversation/<domain>/<workspace_id>` → `conversations.create_conversation`
+- **POST** `/create_prompt` → `prompts.create_prompt_route`
+- **POST** `/create_workspace/<domain>/<workspace_name>` → `workspaces.create_workspace`
+- **DELETE** `/delete_conversation/<conversation_id>` → `conversations.delete_conversation`
+- **DELETE** `/delete_document_from_conversation/<conversation_id>/<document_id>` → `documents.delete_document_from_conversation_route`
+- **DELETE** `/delete_doubt/<doubt_id>` → `doubts.delete_doubt_route`
+- **DELETE** `/delete_last_message/<conversation_id>` → `conversations.delete_last_message`
+- **DELETE** `/delete_message_from_conversation/<conversation_id>/<message_id>/<index>` → `conversations.delete_message_from_conversation`
+- **DELETE** `/delete_workspace/<domain>/<workspace_id>` → `workspaces.delete_workspace`
+- **GET** `/download_doc_from_conversation/<conversation_id>/<doc_id>` → `documents.download_doc_from_conversation_route`
+- **POST** `/edit_message_from_conversation/<conversation_id>/<message_id>/<index>` → `conversations.edit_message_from_conversation`
+- **POST** `/ensure_locks_cleared/<conversation_id>` → `static_routes.ensure_locks_cleared`
+- **GET** `/favicon.ico` → `static_routes.favicon`
+- **GET** `/fetch_memory_pad/<conversation_id>` → `conversations.fetch_memory_pad`
+- **POST** `/force_clear_locks/<conversation_id>` → `static_routes.force_clear_locks`
+- **POST** `/get_coding_hint/<conversation_id>` → `conversations.get_coding_hint_endpoint`
+- **GET** `/get_conversation_details/<conversation_id>` → `conversations.get_conversation_details`
+- **GET** `/get_conversation_history/<conversation_id>` → `conversations.get_conversation_history`
+- **GET** `/get_conversation_output_docs/31256greagy89/<conversation_id>/<document_file_name>` → `conversations.get_conversation_output_docs`
+- **GET** `/get_doubt/<doubt_id>` → `doubts.get_doubt_route`
+- **GET** `/get_doubts/<conversation_id>/<message_id>` → `doubts.get_doubts_for_message_route`
+- **POST** `/get_full_solution/<conversation_id>` → `conversations.get_full_solution_endpoint`
+- **GET** `/get_lock_status/<conversation_id>` → `static_routes.get_lock_status`
+- **GET** `/get_next_question_suggestions/<conversation_id>` → `conversations.get_next_question_suggestions`
+- **GET** `/get_prompt_by_name/<prompt_name>` → `prompts.get_prompt_by_name_route`
+- **GET** `/get_prompts` → `prompts.get_prompts_route`
+- **GET** `/get_section_hidden_details` → `sections.get_section_hidden_details_route`
+- **GET** `/get_user_detail` → `users.get_user_detail_route`
+- **GET** `/get_user_info` → `auth.get_user_info`
+- **GET** `/get_user_preference` → `users.get_user_preference_route`
+- **GET** `/interface` → `static_routes.interface`
+- **GET** `/interface/<path:path>` → `static_routes.interface_combined_route`
+- **POST** `/is_tts_done/<conversation_id>/<message_id>` → `audio.is_tts_done_route`
+- **GET** `/list_conversation_by_user/<domain>` → `conversations.list_conversation_by_user`
+- **GET** `/list_documents_by_conversation/<conversation_id>` → `documents.list_documents_by_conversation_route`
+- **GET** `/list_messages_by_conversation/<conversation_id>` → `conversations.list_messages_by_conversation`
+- **GET** `/list_messages_by_conversation_shareable/<conversation_id>` → `conversations.list_messages_by_conversation_shareable`
+- **GET** `/list_workspaces/<domain>` → `workspaces.list_workspaces`
+- **GET** `/loader.gif` → `static_routes.loader`
+- **GET,POST** `/login` → `auth.login`
+- **GET** `/logout` → `auth.logout`
+- **PUT** `/make_conversation_stateful/<conversation_id>` → `conversations.make_conversation_stateful`
+- **DELETE** `/make_conversation_stateless/<conversation_id>` → `conversations.make_conversation_stateless`
+- **POST** `/modify_user_detail` → `users.modify_user_detail_route`
+- **POST** `/modify_user_preference` → `users.modify_user_preference_route`
+- **PUT** `/move_conversation_to_workspace/<conversation_id>` → `workspaces.move_conversation_to_workspace`
+- **POST** `/move_messages_up_or_down/<conversation_id>` → `conversations.move_messages_up_or_down`
+- **GET** `/pkb/claims` → `pkb.pkb_list_claims_route`
+- **POST** `/pkb/claims` → `pkb.pkb_add_claim_route`
+- **DELETE** `/pkb/claims/<claim_id>` → `pkb.pkb_delete_claim_route`
+- **GET** `/pkb/claims/<claim_id>` → `pkb.pkb_get_claim_route`
+- **PUT** `/pkb/claims/<claim_id>` → `pkb.pkb_update_claim_route`
+- **POST** `/pkb/claims/<claim_id>/pin` → `pkb.pkb_pin_claim_route`
+- **POST** `/pkb/claims/bulk` → `pkb.pkb_add_claims_bulk_route`
+- **GET** `/pkb/conflicts` → `pkb.pkb_list_conflicts_route`
+- **POST** `/pkb/conflicts/<conflict_id>/resolve` → `pkb.pkb_resolve_conflict_route`
+- **POST** `/pkb/conversation/<conv_id>/pin` → `pkb.pkb_conversation_pin_route`
+- **DELETE** `/pkb/conversation/<conv_id>/pinned` → `pkb.pkb_conversation_clear_pinned_route`
+- **GET** `/pkb/conversation/<conv_id>/pinned` → `pkb.pkb_conversation_get_pinned_route`
+- **GET** `/pkb/entities` → `pkb.pkb_list_entities_route`
+- **POST** `/pkb/execute_ingest` → `pkb.pkb_execute_ingest_route`
+- **POST** `/pkb/execute_updates` → `pkb.pkb_execute_updates_route`
+- **POST** `/pkb/ingest_text` → `pkb.pkb_ingest_text_route`
+- **GET** `/pkb/pinned` → `pkb.pkb_get_pinned_route`
+- **POST** `/pkb/propose_updates` → `pkb.pkb_propose_updates_route`
+- **POST** `/pkb/relevant_context` → `pkb.pkb_get_relevant_context_route`
+- **POST** `/pkb/search` → `pkb.pkb_search_route`
+- **GET** `/pkb/tags` → `pkb.pkb_list_tags_route`
+- **GET** `/proxy` → `static_routes.proxy_route`
+- **GET** `/proxy_shared` → `static_routes.proxy_shared_route`
+- **POST** `/run_code_once` → `code_runner.run_code_once_route`
+- **POST** `/send_message/<conversation_id>` → `conversations.send_message`
+- **POST** `/set_flag/<conversation_id>/<flag>` → `conversations.set_flag`
+- **POST** `/set_memory_pad/<conversation_id>` → `conversations.set_memory_pad`
+- **GET** `/shared/<conversation_id>` → `static_routes.shared`
+- **GET** `/shared_chat/<conversation_id>` → `conversations.shared_chat`
+- **POST** `/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>` → `conversations.show_hide_message_from_conversation`
+- **POST** `/temporary_llm_action` → `doubts.temporary_llm_action_route`
+- **POST** `/transcribe` → `audio.transcribe_audio_route`
+- **POST** `/tts/<conversation_id>/<message_id>` → `audio.tts_route`
+- **PUT** `/update_prompt` → `prompts.update_prompt_route`
+- **POST** `/update_section_hidden_details` → `sections.update_section_hidden_details_route`
+- **PUT** `/update_workspace/<workspace_id>` → `workspaces.update_workspace`
+- **POST** `/upload_doc_to_conversation/<conversation_id>` → `documents.upload_doc_to_conversation_route`

@@ -5,7 +5,7 @@
  * Abstracts away callback-style API with Promise-based methods.
  */
 
-import { STORAGE_KEYS, DEFAULT_SETTINGS } from './constants.js';
+import { STORAGE_KEYS, DEFAULT_SETTINGS, API_BASE } from './constants.js';
 
 export const Storage = {
     /**
@@ -127,6 +127,24 @@ export const Storage = {
     async setSettings(settings) {
         const current = await this.getSettings();
         return this.set(STORAGE_KEYS.SETTINGS, { ...current, ...settings });
+    },
+
+    /**
+     * Get the API base URL used by extension requests.
+     * @returns {Promise<string>}
+     */
+    async getApiBaseUrl() {
+        const settings = await this.getSettings();
+        return settings.apiBaseUrl || API_BASE;
+    },
+
+    /**
+     * Persist the API base URL used by extension requests.
+     * @param {string} apiBaseUrl
+     * @returns {Promise<void>}
+     */
+    async setApiBaseUrl(apiBaseUrl) {
+        return this.setSettings({ apiBaseUrl });
     },
 
     // ==================== Conversation Methods ====================

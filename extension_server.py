@@ -46,10 +46,15 @@ import sys
 import json
 import logging
 import argparse
+import inspect
+import types
+import collections.abc
+import re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from queue import Queue
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
@@ -99,6 +104,11 @@ PKB_DB_PATH = os.path.join(STORAGE_USERS_DIR, "pkb.sqlite")
 USER_DETAILS_DB_PATH = os.path.join(USERS_DIR, "users.db")
 PROMPTS_FILE = os.path.join(PROJECT_ROOT, "prompts.json")
 
+# OCR / Vision configuration
+OCR_VISION_MODEL = os.getenv("EXT_OCR_MODEL", "openai/gpt-4o")
+OCR_MAX_IMAGES = int(os.getenv("EXT_OCR_MAX_IMAGES", "30"))
+OCR_MAX_WORKERS = int(os.getenv("EXT_OCR_MAX_WORKERS", "4"))
+
 # Ensure directories exist
 os.makedirs(USERS_DIR, exist_ok=True)
 os.makedirs(STORAGE_USERS_DIR, exist_ok=True)
@@ -132,6 +142,357 @@ except ImportError as e:
 except Exception as e:
     logger.warning(f"Failed to load prompts from {PROMPTS_FILE}: {e}")
     prompt_manager = None
+
+# =============================================================================
+# Extension Prompt Allowlist
+# =============================================================================
+
+# Keep this list focused on prompts intended for the extension UI.
+# If empty, all prompts from prompts.json are allowed.
+EXTENSION_PROMPT_ALLOWLIST = [
+    "base_system",
+    "preamble_short",
+    "relationship_prompt",
+    "short_coding_interview_prompt",
+    "more_related_questions_prompt",
+    "default",
+    
+]
+
+
+def get_extension_prompt_allowlist() -> Optional[set]:
+    """
+    Return the allowlist of prompt names for the extension.
+
+    Returns:
+        set of allowed prompt names, or None to allow all prompts.
+    """
+    allowlist = [name for name in EXTENSION_PROMPT_ALLOWLIST if name]
+    return set(allowlist) if allowlist else None
+
+
+def get_default_prompt_name() -> str:
+    """
+    Get the default prompt name for the extension UI.
+
+    Returns:
+        A prompt name that is allowed and likely present in prompts.json.
+    """
+    allowlist = get_extension_prompt_allowlist()
+    if not allowlist:
+        return "base_system"
+    if "Short" in allowlist:
+        return "Short"
+    if "preamble_short" in allowlist:
+        return "preamble_short"
+    
+    return sorted(allowlist)[0]
+
+
+def validate_prompt_name(prompt_name: Optional[str]) -> Optional[str]:
+    """
+    Validate a prompt name against the allowlist and prompt library.
+
+    Args:
+        prompt_name: The prompt name to validate.
+
+    Returns:
+        None if valid, otherwise an error message.
+    """
+    if not prompt_name:
+        return None
+
+    allowlist = get_extension_prompt_allowlist()
+    if allowlist and prompt_name not in allowlist:
+        return f"Prompt '{prompt_name}' is not available for the extension."
+
+    if prompt_manager and prompt_name not in prompt_manager:
+        return f"Prompt '{prompt_name}' not found."
+
+    return None
+
+# =============================================================================
+# Extension Agent Allowlist
+# =============================================================================
+
+# Allowed agents for extension usage (based on interface.html Agent dropdown).
+# Keep this list to agents that are supported in Conversation.get_preamble().
+EXTENSION_AGENT_ALLOWLIST = [
+    "None",
+    "NStepCodeAgent",
+    "PerplexitySearch",
+    "JinaSearchAgent",
+    "InterleavedWebSearchAgent",
+    "WebSearch",
+    "MultiSourceSearch",
+    "PromptWorkflowAgent",
+]
+
+
+def get_extension_agent_allowlist() -> Optional[set]:
+    """
+    Return the allowlist of agent names for the extension.
+
+    Returns:
+        set of allowed agent names, or None to allow all agents.
+    """
+    allowlist = [name for name in EXTENSION_AGENT_ALLOWLIST if name]
+    return set(allowlist) if allowlist else None
+
+
+def validate_agent_name(agent_name: Optional[str]) -> Optional[str]:
+    """
+    Validate an agent name against the allowlist.
+
+    Args:
+        agent_name: Agent name to validate (or None/"None" to disable).
+
+    Returns:
+        None if valid, otherwise an error message.
+    """
+    if not agent_name or agent_name == "None":
+        return None
+
+    allowlist = get_extension_agent_allowlist()
+    if allowlist and agent_name not in allowlist:
+        return f"Agent '{agent_name}' is not available for the extension."
+
+    return None
+
+
+def instantiate_extension_agent(
+    agent_name: str,
+    model_name: str,
+    keys: dict,
+    conversation_id: str,
+    detail_level: int = 1
+):
+    """
+    Instantiate an agent compatible with Conversation.get_preamble() selections.
+
+    Args:
+        agent_name: Agent name from allowlist.
+        model_name: Model name to use for the agent.
+        keys: LLM API keys/config.
+        conversation_id: Conversation id (used by some agents).
+        detail_level: Detail level for agent behavior.
+
+    Returns:
+        Agent instance or None.
+    """
+    if not agent_name or agent_name == "None":
+        return None
+
+    # Import lazily to avoid startup overhead
+    from agents import (
+        NResponseAgent,
+        InstructionFollowingAgent,
+        MLSystemDesignAgent,
+        CodeSolveAgent,
+        NStepCodeAgent,
+        WebSearchWithAgent,
+        MultiSourceSearchAgent,
+        BroadSearchAgent,
+        LiteratureReviewAgent,
+        PerplexitySearchAgent,
+        WhatIfAgent,
+        JinaDeepResearchAgent,
+        BookCreatorAgent,
+        ToCGenerationAgent,
+        InterviewSimulatorAgent,
+        InterviewSimulatorAgentV2,
+        PromptWorkflowAgent,
+    )
+    from agents.search_and_information_agents import (
+        JinaSearchAgent,
+        InterleavedWebSearchAgent
+    )
+
+    if agent_name == "InstructionFollowingAgent":
+        return InstructionFollowingAgent(keys, model_name=model_name, detail_level=detail_level, timeout=90)
+    if agent_name == "JinaSearchAgent":
+        return JinaSearchAgent(keys, model_name=model_name, detail_level=detail_level, timeout=120)
+    if agent_name == "InterleavedWebSearchAgent":
+        return InterleavedWebSearchAgent(
+            keys,
+            model_name=model_name,
+            detail_level=detail_level,
+            timeout=120,
+            num_queries_per_step=3,
+            interleave_steps=3,
+            sources=["web", "perplexity", "jina"],
+            show_intermediate_results=False,
+            headless=False
+        )
+    if agent_name == "JinaDeepResearchAgent":
+        return JinaDeepResearchAgent(keys, model_name=model_name, detail_level=detail_level, timeout=180, num_queries=1)
+    if agent_name == "PerplexitySearch":
+        return PerplexitySearchAgent(keys, model_name=model_name, detail_level=detail_level, timeout=90)
+    if agent_name == "WebSearch":
+        return WebSearchWithAgent(keys, model_name=model_name, detail_level=detail_level, timeout=90, gscholar=False)
+    if agent_name == "MultiSourceSearch":
+        return MultiSourceSearchAgent(keys, model_name=model_name, detail_level=detail_level, timeout=120)
+    if agent_name == "LiteratureReview":
+        return LiteratureReviewAgent(keys, model_name=model_name, detail_level=detail_level, timeout=90, gscholar=False)
+    if agent_name == "BroadSearch":
+        return BroadSearchAgent(keys, model_name=model_name, detail_level=detail_level, timeout=90, gscholar=False)
+    if agent_name == "InterviewSimulator":
+        return InterviewSimulatorAgent(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+    if agent_name == "InterviewSimulatorV2":
+        return InterviewSimulatorAgentV2(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+    if agent_name == "NResponseAgent":
+        return NResponseAgent(keys, writer_model=model_name, n_responses=2)
+    if agent_name == "NStepCodeAgent":
+        return NStepCodeAgent(keys, writer_model=model_name, n_steps=detail_level or 4)
+    if agent_name == "CodeSolveAgent":
+        return CodeSolveAgent(keys, writer_model=model_name, n_steps=max(2, detail_level or 2))
+    if agent_name == "MLSystemDesignAgent":
+        return MLSystemDesignAgent(keys, writer_model=model_name, n_steps=detail_level or 4)
+    if agent_name == "PromptWorkflowAgent":
+        return PromptWorkflowAgent(keys, model_name=model_name, detail_level=detail_level, timeout=120)
+    if agent_name == "ToCGenerationAgent":
+        return ToCGenerationAgent(
+            llm_name=model_name,
+            keys=keys,
+            run_phase_2=(detail_level or 1) > 2,
+            run_phase_3=(detail_level or 1) > 3,
+            storage_path=os.path.join(PROJECT_ROOT, "users"),
+            render_prefix=""
+        )
+    if agent_name == "BookCreatorAgent":
+        return BookCreatorAgent(
+            llm_name=model_name,
+            keys=keys,
+            depth=detail_level or 1,
+            storage_path=os.path.join(PROJECT_ROOT, "users"),
+            render_prefix=""
+        )
+    if agent_name == "WhatIf":
+        return WhatIfAgent(keys, writer_models=model_name, n_scenarios=3)
+
+    return None
+
+
+def build_agent_prompt_from_history(history: List[Dict], page_context: Optional[Dict]) -> str:
+    """
+    Build a prompt string for agent execution using message history and page context.
+
+    Args:
+        history: LLM-formatted message history (role/content).
+        page_context: Optional page context dict.
+
+    Returns:
+        Combined prompt string.
+    """
+    parts = []
+    if page_context:
+        content = page_context.get("content") or ""
+        if content:
+            parts.append(
+                "Page Context:\n"
+                f"URL: {page_context.get('url', 'N/A')}\n"
+                f"Title: {page_context.get('title', 'N/A')}\n"
+                f"Content:\n{content}"
+            )
+    if history:
+        history_lines = []
+        for msg in history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            history_lines.append(f"{role.title()}: {content}")
+        parts.append("Conversation History:\n" + "\n".join(history_lines))
+    return "\n\n".join(parts).strip()
+
+
+def validate_workflow_steps(steps: Any) -> Optional[str]:
+    """
+    Validate workflow steps payload.
+
+    Args:
+        steps: Steps payload (expected list of {title, prompt}).
+
+    Returns:
+        None if valid, otherwise error message.
+    """
+    if not isinstance(steps, list) or len(steps) == 0:
+        return "Workflow steps must be a non-empty list."
+    for idx, step in enumerate(steps):
+        if not isinstance(step, dict):
+            return f"Step {idx + 1} must be an object."
+        title = (step.get("title") or "").strip()
+        prompt = (step.get("prompt") or "").strip()
+        if not title:
+            return f"Step {idx + 1} title is required."
+        if not prompt:
+            return f"Step {idx + 1} prompt is required."
+    return None
+
+
+def build_workflow_user_query(message: str, page_context: Optional[Dict]) -> str:
+    """
+    Build a user query string for workflow execution.
+
+    Args:
+        message: The user message text.
+        page_context: Optional page context dict.
+
+    Returns:
+        Combined user query string.
+    """
+    parts = [message]
+    if page_context and page_context.get("content"):
+        parts.append(
+            "Page Context:\n"
+            f"URL: {page_context.get('url', 'N/A')}\n"
+            f"Title: {page_context.get('title', 'N/A')}\n"
+            f"Content:\n{page_context.get('content', '')}"
+        )
+    return "\n\n".join([p for p in parts if p]).strip()
+
+
+def format_workflow_chunk(chunk: str, step_titles: List[str]) -> str:
+    """
+    Post-process streamed workflow chunks to replace step headers and remove prompt echoes.
+
+    Args:
+        chunk: Raw chunk string from PromptWorkflowAgent.
+        step_titles: List of step titles by index.
+
+    Returns:
+        Transformed chunk text (may be empty to skip).
+    """
+    if not chunk:
+        return ""
+    if chunk.startswith("Prompt:\n"):
+        return ""
+    match = re.search(r"### Workflow step (\d+)/(\d+)", chunk)
+    if match:
+        idx = int(match.group(1)) - 1
+        title = step_titles[idx] if 0 <= idx < len(step_titles) else f"Step {idx + 1}"
+        chunk = chunk.replace(match.group(0), f"### {title}")
+    return chunk
+
+
+def format_workflow_output(text: str, step_titles: List[str]) -> str:
+    """
+    Format non-streaming workflow output by removing prompt echoes and fixing headers.
+
+    Args:
+        text: Raw output text.
+        step_titles: List of step titles by index.
+
+    Returns:
+        Formatted output.
+    """
+    if not text:
+        return text
+    text = re.sub(r"Prompt:\n.*?\n\n", "", text, flags=re.S)
+    def _replace_header(match):
+        idx = int(match.group(1)) - 1
+        title = step_titles[idx] if 0 <= idx < len(step_titles) else f"Step {idx + 1}"
+        return f"### {title}"
+    text = re.sub(r"### Workflow step (\d+)/\d+", _replace_header, text)
+    return text
 
 # =============================================================================
 # Import Truth Management System / PKB (Read-Only)
@@ -451,7 +812,10 @@ def ext_list_prompts():
     
     try:
         prompts = []
+        allowlist = get_extension_prompt_allowlist()
         for name in prompt_manager.keys():
+            if allowlist and name not in allowlist:
+                continue
             try:
                 metadata = prompt_manager.get_raw(name, as_dict=True)
                 prompts.append({
@@ -485,6 +849,10 @@ def ext_get_prompt(prompt_name):
         return jsonify({'error': 'Prompt library not available'}), 503
     
     try:
+        allowlist = get_extension_prompt_allowlist()
+        if allowlist and prompt_name not in allowlist:
+            return jsonify({'error': f"Prompt '{prompt_name}' not available for extension"}), 404
+
         if prompt_name not in prompt_manager:
             return jsonify({'error': f"Prompt '{prompt_name}' not found"}), 404
         
@@ -511,6 +879,144 @@ def ext_get_prompt(prompt_name):
             
     except Exception as e:
         logger.error(f"Error getting prompt '{prompt_name}': {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# Agent Endpoints (Read-Only)
+# =============================================================================
+
+@app.route('/ext/agents', methods=['GET'])
+@require_ext_auth
+def ext_list_agents():
+    """
+    List available agents for the extension.
+
+    Returns:
+        {"agents": ["AgentName", ...]}
+    """
+    allowlist = get_extension_agent_allowlist()
+    agents = sorted(list(allowlist)) if allowlist else []
+    return jsonify({'agents': agents})
+
+
+# =============================================================================
+# Workflow Endpoints
+# =============================================================================
+
+@app.route('/ext/workflows', methods=['GET'])
+@require_ext_auth
+def ext_list_workflows():
+    """
+    List workflows for the authenticated user.
+
+    Returns:
+        {"workflows": [ ... ]}
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        workflows = db.list_workflows(email)
+        return jsonify({'workflows': workflows})
+    except Exception as e:
+        logger.error(f"Error listing workflows: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/workflows', methods=['POST'])
+@require_ext_auth
+def ext_create_workflow():
+    """
+    Create a new workflow.
+
+    Request body:
+        {"name": "...", "steps": [{"title": "...", "prompt": "..."}, ...]}
+    """
+    try:
+        email = request.ext_user_email
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        steps = data.get('steps')
+
+        if not name:
+            return jsonify({'error': 'Workflow name is required'}), 400
+        steps_error = validate_workflow_steps(steps)
+        if steps_error:
+            return jsonify({'error': steps_error}), 400
+
+        db = get_extension_db()
+        workflow = db.create_workflow(email, name, steps)
+        return jsonify({'workflow': workflow})
+    except Exception as e:
+        logger.error(f"Error creating workflow: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/workflows/<workflow_id>', methods=['GET'])
+@require_ext_auth
+def ext_get_workflow(workflow_id):
+    """
+    Get a workflow by ID.
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        workflow = db.get_workflow(email, workflow_id)
+        if not workflow:
+            return jsonify({'error': 'Workflow not found'}), 404
+        return jsonify({'workflow': workflow})
+    except Exception as e:
+        logger.error(f"Error getting workflow: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/workflows/<workflow_id>', methods=['PUT'])
+@require_ext_auth
+def ext_update_workflow(workflow_id):
+    """
+    Update a workflow.
+
+    Request body:
+        {"name": "...", "steps": [{"title": "...", "prompt": "..."}, ...]}
+    """
+    try:
+        email = request.ext_user_email
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        steps = data.get('steps')
+
+        if not name:
+            return jsonify({'error': 'Workflow name is required'}), 400
+        steps_error = validate_workflow_steps(steps)
+        if steps_error:
+            return jsonify({'error': steps_error}), 400
+
+        db = get_extension_db()
+        success = db.update_workflow(email, workflow_id, name, steps)
+        if not success:
+            return jsonify({'error': 'Workflow not found'}), 404
+        workflow = db.get_workflow(email, workflow_id)
+        return jsonify({'workflow': workflow})
+    except Exception as e:
+        logger.error(f"Error updating workflow: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/ext/workflows/<workflow_id>', methods=['DELETE'])
+@require_ext_auth
+def ext_delete_workflow(workflow_id):
+    """
+    Delete a workflow.
+    """
+    try:
+        email = request.ext_user_email
+        db = get_extension_db()
+        success = db.delete_workflow(email, workflow_id)
+        if not success:
+            return jsonify({'error': 'Workflow not found'}), 404
+        return jsonify({'message': 'Workflow deleted'})
+    except Exception as e:
+        logger.error(f"Error deleting workflow: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -769,13 +1275,18 @@ def ext_create_conversation():
             if deleted_count > 0:
                 logger.info(f"Deleted {deleted_count} temporary conversations for {email}")
         
+        prompt_name = data.get('prompt_name')
+        prompt_error = validate_prompt_name(prompt_name)
+        if prompt_error:
+            return jsonify({'error': prompt_error}), 400
+
         conv = ExtensionConversation.create(
             user_email=email,
             db=db,
             title=data.get('title', 'New Chat'),
             is_temporary=data.get('is_temporary', True),
             model=data.get('model', 'openai/gpt-4o-mini'),
-            prompt_name=data.get('prompt_name'),
+            prompt_name=prompt_name,
             history_length=data.get('history_length', 10)
         )
         
@@ -838,6 +1349,11 @@ def ext_update_conversation(conversation_id):
         if not conv:
             return jsonify({'error': 'Conversation not found'}), 404
         
+        if 'prompt_name' in data:
+            prompt_error = validate_prompt_name(data.get('prompt_name'))
+            if prompt_error:
+                return jsonify({'error': prompt_error}), 400
+
         # Update allowed fields
         success = db.update_conversation(conversation_id, email, **data)
         
@@ -933,7 +1449,11 @@ def ext_chat(conversation_id):
         {
             "message": "User's message",
             "page_context": {"url": "...", "title": "...", "content": "..."},
+            "images": ["data:image/png;base64,..."],
             "model": "openai/gpt-4o-mini",  # Optional override
+            "agent": "InstructionFollowingAgent",  # Optional agent override
+            "detail_level": 1,  # Optional agent detail level
+            "workflow_id": "workflow_id",  # Optional workflow to run
             "stream": true  # Whether to stream response
         }
     
@@ -951,10 +1471,16 @@ def ext_chat(conversation_id):
         data = request.get_json() or {}
         
         message = data.get('message', '').strip()
-        if not message:
+        images = data.get('images') or []
+        if not message and not images:
             return jsonify({'error': 'Message required'}), 400
+        if not message and images:
+            message = '[Image attached]'
         
         page_context = data.get('page_context')
+        workflow_id = data.get('workflow_id')
+        agent_name = data.get('agent')
+        detail_level = data.get('detail_level', 2)
         model_override = data.get('model')
         stream = data.get('stream', False)
         
@@ -965,10 +1491,33 @@ def ext_chat(conversation_id):
         
         # Add user message
         user_msg = conv.add_message('user', message, page_context)
+
+        # Determine model (used for both LLM and agents)
+        model = model_override or conv.model or DEFAULT_MODEL
         
+        # Load workflow if provided
+        workflow_steps = None
+        workflow_titles = []
+        if workflow_id:
+            workflow = db.get_workflow(email, workflow_id)
+            if not workflow:
+                return jsonify({'error': 'Workflow not found'}), 404
+            workflow_steps = workflow.get('steps') or []
+            workflow_titles = [step.get('title', f"Step {i+1}") for i, step in enumerate(workflow_steps)]
+            agent_name = "PromptWorkflowAgent"
+
+        # Validate agent (if provided)
+        agent_error = validate_agent_name(agent_name)
+        if agent_error:
+            return jsonify({'error': agent_error}), 400
+
         # Get system prompt
         system_prompt = None
-        prompt_name = conv.prompt_name or 'base_system'
+        prompt_name = conv.prompt_name or get_default_prompt_name()
+        prompt_error = validate_prompt_name(prompt_name)
+        if prompt_error:
+            logger.warning(f"Invalid prompt '{prompt_name}', falling back to default: {prompt_error}")
+            prompt_name = get_default_prompt_name()
         if prompt_manager and prompt_name in prompt_manager:
             system_prompt = prompt_manager[prompt_name]
         else:
@@ -1090,10 +1639,106 @@ Please use the above page content to answer my questions. Base your response on 
                 messages.append({"role": "assistant", "content": assistant_ack})
         
         messages.extend(conv.get_history_for_llm())
+
+        if images:
+            if not isinstance(images, list):
+                return jsonify({'error': 'images must be a list of data URLs'}), 400
+            if len(images) > 5:
+                return jsonify({'error': 'Max 5 images per message'}), 400
+            image_parts = [
+                {"type": "image_url", "image_url": {"url": img}}
+                for img in images if isinstance(img, str) and img
+            ]
+            if image_parts:
+                messages.append({
+                    "role": "user",
+                    "content": [{"type": "text", "text": "Images attached for the user's latest message."}] + image_parts
+                })
         
-        # Determine model
-        model = model_override or conv.model or DEFAULT_MODEL
-        
+        if agent_name and agent_name != "None":
+            agent = instantiate_extension_agent(agent_name, model, keys, conversation_id, detail_level=detail_level)
+            if not agent:
+                return jsonify({'error': f"Agent '{agent_name}' could not be initialized"}), 500
+            agent_images = images if isinstance(images, list) else None
+            if agent_name == "PromptWorkflowAgent" and workflow_steps:
+                workflow_prompts = [step.get('prompt', '') for step in workflow_steps]
+                agent_prompt = message
+                workflow_user_query = build_workflow_user_query(message, page_context)
+            else:
+                workflow_prompts = None
+                workflow_user_query = None
+                agent_prompt = build_agent_prompt_from_history(conv.get_history_for_llm(), page_context)
+
+            def _iter_agent_chunks(result):
+                if isinstance(result, dict):
+                    text = result.get("answer") or result.get("text") or str(result)
+                    yield text
+                elif inspect.isgenerator(result) or isinstance(result, (types.GeneratorType, collections.abc.Iterator)):
+                    for chunk in result:
+                        if isinstance(chunk, dict):
+                            yield chunk.get("text") or chunk.get("answer") or str(chunk)
+                        else:
+                            yield str(chunk)
+                else:
+                    yield str(result)
+
+            if stream:
+                def generate():
+                    full_response = []
+                    try:
+                        result = agent(
+                            agent_prompt,
+                            images=agent_images,
+                            system=full_system,
+                            temperature=0.3,
+                            stream=True,
+                            workflow_prompts=workflow_prompts,
+                            user_query=workflow_user_query
+                        )
+                        for chunk in _iter_agent_chunks(result):
+                            if agent_name == "PromptWorkflowAgent" and workflow_titles:
+                                chunk = format_workflow_chunk(chunk, workflow_titles)
+                            if not chunk:
+                                continue
+                            if not chunk:
+                                continue
+                            full_response.append(chunk)
+                            yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                        assistant_content = ''.join(full_response)
+                        assistant_msg = conv.add_message('assistant', assistant_content)
+                        yield f"data: {json.dumps({'done': True, 'message_id': assistant_msg['message_id']})}\n\n"
+                    except Exception as e:
+                        logger.error(f"Agent streaming error: {e}")
+                        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+                return Response(
+                    generate(),
+                    mimetype='text/event-stream',
+                    headers={
+                        'Cache-Control': 'no-cache',
+                        'X-Accel-Buffering': 'no'
+                    }
+                )
+            else:
+                result = agent(
+                    agent_prompt,
+                    images=agent_images,
+                    system=full_system,
+                    temperature=0.3,
+                    stream=False,
+                    workflow_prompts=workflow_prompts,
+                    user_query=workflow_user_query
+                )
+                text = ''.join(_iter_agent_chunks(result))
+                if agent_name == "PromptWorkflowAgent" and workflow_titles:
+                    text = format_workflow_output(text, workflow_titles)
+                assistant_msg = conv.add_message('assistant', text)
+                return jsonify({
+                    'response': text,
+                    'message_id': assistant_msg['message_id'],
+                    'user_message_id': user_msg['message_id']
+                })
+
         if stream:
             # Streaming response
             def generate():
@@ -1259,6 +1904,11 @@ def ext_update_settings():
     try:
         email = request.ext_user_email
         data = request.get_json() or {}
+        if 'default_prompt' in data:
+            prompt_error = validate_prompt_name(data.get('default_prompt'))
+            if prompt_error:
+                return jsonify({'error': prompt_error}), 400
+
         db = get_extension_db()
         
         db.update_settings(email, **data)
@@ -1268,6 +1918,124 @@ def ext_update_settings():
         
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# OCR / Vision Endpoints
+# =============================================================================
+
+def _build_ocr_messages(image_data_url: str) -> List[Dict[str, Any]]:
+    """
+    Build LLM messages for OCR extraction from a single image.
+
+    Args:
+        image_data_url: Data URL (base64) for the screenshot.
+
+    Returns:
+        A list of message dicts for the LLM call.
+    """
+    system_prompt = (
+        "You are an expert at OCR and document transcription. "
+        "Extract all readable text from the image, preserve structure, "
+        "and include headings, tables, lists, form labels, and section boundaries. "
+        "If something is unreadable, note it briefly."
+    )
+    user_prompt = (
+        "Perform OCR on this screenshot. Return only the extracted text and its "
+        "document structure (e.g., headings, sections, tables, lists, and form fields), "
+        "keeping the original reading order as best as possible."
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}}
+            ]
+        }
+    ]
+
+
+def _ocr_single_image(index: int, image_data_url: str, model: str, keys: dict) -> Dict[str, Any]:
+    """
+    OCR a single image using a vision-capable LLM.
+
+    Args:
+        index: Image index in the batch.
+        image_data_url: Data URL (base64) for the screenshot.
+        model: Vision-capable model name.
+        keys: LLM API keys/config.
+
+    Returns:
+        Dict with index and extracted text.
+    """
+    messages = _build_ocr_messages(image_data_url)
+    text = call_llm(
+        keys=keys,
+        model_name=model,
+        messages=messages,
+        stream=False
+    )
+    return {"index": index, "text": text or ""}
+
+
+@app.route('/ext/ocr', methods=['POST'])
+@require_ext_auth
+def ext_ocr():
+    """
+    Perform OCR on a list of screenshots using a vision-capable LLM.
+
+    Request body:
+        {
+            "images": ["data:image/png;base64,...", ...],
+            "url": "https://...",
+            "title": "Page title",
+            "model": "openai/gpt-4o"   # optional
+        }
+
+    Returns:
+        {
+            "text": "combined OCR text",
+            "pages": [{ "index": 0, "text": "..." }, ...]
+        }
+    """
+    if not LLM_AVAILABLE:
+        return jsonify({'error': 'LLM service not available'}), 503
+
+    try:
+        data = request.get_json() or {}
+        images = data.get('images') or []
+        model = data.get('model') or OCR_VISION_MODEL
+
+        if not isinstance(images, list) or not images:
+            return jsonify({'error': 'images[] is required'}), 400
+
+        if len(images) > OCR_MAX_IMAGES:
+            return jsonify({'error': f'Max {OCR_MAX_IMAGES} images allowed'}), 400
+
+        keys = keyParser_for_extension()
+
+        pages: List[Dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=min(OCR_MAX_WORKERS, len(images))) as executor:
+            futures = {
+                executor.submit(_ocr_single_image, idx, img, model, keys): idx
+                for idx, img in enumerate(images)
+            }
+            for future in as_completed(futures):
+                pages.append(future.result())
+
+        pages.sort(key=lambda p: p["index"])
+        combined_text = "\n\n--- PAGE ---\n\n".join(p["text"] for p in pages if p.get("text"))
+
+        return jsonify({
+            "text": combined_text,
+            "pages": pages
+        })
+
+    except Exception as e:
+        logger.error(f"OCR error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

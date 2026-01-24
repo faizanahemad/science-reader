@@ -28,6 +28,13 @@
 | Settings | PUT | `/ext/settings` |
 | Utility | GET | `/ext/models` |
 | Utility | GET | `/ext/health` |
+| Utility | POST | `/ext/ocr` |
+| Utility | GET | `/ext/agents` |
+| Workflows | GET | `/ext/workflows` |
+| Workflows | POST | `/ext/workflows` |
+| Workflows | GET | `/ext/workflows/<workflow_id>` |
+| Workflows | PUT | `/ext/workflows/<workflow_id>` |
+| Workflows | DELETE | `/ext/workflows/<workflow_id>` |
 | Custom Scripts | GET | `/ext/scripts` |
 | Custom Scripts | POST | `/ext/scripts` |
 | Custom Scripts | GET | `/ext/scripts/<script_id>` |
@@ -63,12 +70,14 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 
 ## Prompts (Read-Only)
 
+**Extension prompt allowlist:** `/ext/prompts` only returns prompts listed in `EXTENSION_PROMPT_ALLOWLIST` in `extension_server.py`. If the allowlist is empty, all prompts from `prompts.json` are exposed. Requests for non-allowlisted prompts return `404`.
+
 ### GET `/ext/prompts`
-- **Response**: `{ "prompts": [ { "name": string, "description": string, "category": string }, ... ] }`
+- **Response**: `{ "prompts": [ { "name": string, "description": string, "category": string }, ... ] }` (filtered by allowlist)
 
 ### GET `/ext/prompts/<prompt_name>`
 - **Response**: `{ "name": string, "content": string, "raw_content": string, "description": string, "category": string, "tags": [] }`
-- **Errors**: `404` prompt not found, `503` prompt library unavailable
+- **Errors**: `404` prompt not found or not allowlisted, `503` prompt library unavailable
 
 ## Memories / PKB (Read-Only)
 
@@ -118,7 +127,7 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 ## Chat
 
 ### POST `/ext/chat/<conversation_id>`
-- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string }|null, "model": string, "stream": bool }`
+- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string }|null, "images": string[]|null, "model": string, "stream": bool, "agent": string|null, "detail_level": number|null, "workflow_id": string|null }`
 - **Response (non-streaming)**: `{ "response": string, "message_id": string, "user_message_id": string }`
 - **Response (streaming)**: Server-Sent Events with `data: {"chunk": "..."}` and final `data: {"done": true, "message_id": "..."}`.
 - **Errors**: `400` message required, `404` conversation not found, `503` LLM unavailable
@@ -139,6 +148,7 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 ### PUT `/ext/settings`
 - **Request**: partial update allowed (e.g. `{ "default_model": string, "history_length": number }`)
 - **Response**: `{ "settings": object }`
+- **Errors**: `400` if `default_prompt` is not allowlisted or does not exist
 
 ## Utility
 
@@ -148,6 +158,33 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 ### GET `/ext/health`
 - **Auth**: none
 - **Response**: `{ "status": "healthy", "services": { "prompt_lib": bool, "pkb": bool, "llm": bool }, "timestamp": string }`
+
+### POST `/ext/ocr`
+- **Request**: `{ "images": [ "data:image/png;base64,...", ... ], "url": string|null, "title": string|null, "model": string|null }`
+- **Response**: `{ "text": string, "pages": [ { "index": number, "text": string }, ... ] }`
+- **Errors**: `400` images required/too many, `503` LLM unavailable
+
+### GET `/ext/agents`
+- **Response**: `{ "agents": [ string, ... ] }` (filtered by `EXTENSION_AGENT_ALLOWLIST`)
+
+## Workflows
+
+### GET `/ext/workflows`
+- **Response**: `{ "workflows": [ { "workflow_id": string, "name": string, "steps": array, "created_at": string, "updated_at": string }, ... ] }`
+
+### POST `/ext/workflows`
+- **Request**: `{ "name": string, "steps": [ { "title": string, "prompt": string }, ... ] }`
+- **Response**: `{ "workflow": object }`
+
+### GET `/ext/workflows/<workflow_id>`
+- **Response**: `{ "workflow": object }`
+
+### PUT `/ext/workflows/<workflow_id>`
+- **Request**: `{ "name": string, "steps": [ { "title": string, "prompt": string }, ... ] }`
+- **Response**: `{ "workflow": object }`
+
+### DELETE `/ext/workflows/<workflow_id>`
+- **Response**: `{ "message": "Workflow deleted" }`
 
 ## Custom Scripts
 

@@ -502,6 +502,14 @@ POST /ext/chat/quick
     Response: Streaming text/plain
 ```
 
+**System Prompt Resolution + Context Injection (Design):**
+- **Prompt source:** `prompt_name` from conversation settings (UI dropdown) → resolved against an **extension allowlist** in `extension_server.py` (`EXTENSION_PROMPT_ALLOWLIST`).
+- **System prompt use:** The resolved prompt becomes the **system** message at the top of the LLM request.
+- **Additional context injection (order):**
+  1. **System message**: resolved prompt (plus PKB memories appended, if any).
+  2. **Page context**: injected as a **user** message (text or screenshot), followed by a brief **assistant acknowledgment**.
+  3. **Conversation history**: prior messages from the extension conversation storage.
+
 ### 6.4 Extension Messages
 
 ```

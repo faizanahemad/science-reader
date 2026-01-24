@@ -435,9 +435,11 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 - **Login**: `login-form` (form), `email` (input), `password` (input), `login-error` (error display)
 - **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new chat), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
 - **Conversation list**: `conversation-list` (list), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
-- **Settings controls**: `model-select`, `prompt-select`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
+- **Settings controls**: `model-select`, `prompt-select`, `agent-select`, `workflow-select`, `workflow-new`, `workflow-save`, `workflow-delete`, `workflow-name`, `workflow-steps`, `workflow-add-step`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
 - **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
 - **Input**: `attach-page-btn` (attach page), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
+- **Attachments**: drag/drop images into the input area to include them in the next LLM call (`images[]` in `/ext/chat/<id>`).
+- **Workflow UI**: settings panel includes workflow select + inline editor (step title + prompt, add/remove, save/delete).
 - **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `confirm-tab-modal` (confirm)
 
 ---
@@ -560,6 +562,8 @@ const state = {
 - SVG icon with gradient background
 - Click opens sidepanel via `chrome.runtime.sendMessage`
 - Styled in `injectModalStyles()` function
+
+**Canvas Pages (OCR flow):** If `extractPageContent()` flags `needsScreenshot`, the sidepanel requests **full-page scroll screenshots** (with overlap), sends them to `POST /ext/ocr`, and uses the combined OCR text as page context. Results are cached in-memory and cleared on new chat.
 
 ---
 
@@ -939,6 +943,21 @@ When page content is attached, the server injects it as a **separate user messag
 - Content is injected as user message for better LLM grounding
 - LLM acknowledges content before answering
 - Works with all quick actions (summarize, explain, etc.)
+
+### 9.5 System Prompt Resolution + Context Injection
+
+**Prompt list scope:** `/ext/prompts` is filtered by `EXTENSION_PROMPT_ALLOWLIST` in `extension_server.py` (empty list = allow all prompts from `prompts.json`).
+
+**Selection + usage order (compact):**
+1. **Prompt selection:** Sidepanel settings (`prompt-select`) sends `prompt_name` for conversation creation/updates.
+2. **System prompt assembly:** `extension_server.py` resolves `prompt_name` from allowlist + prompt library; PKB memory snippets are appended to the system prompt text.
+3. **Context injection (messages):** system message → page context user message (+ assistant ack) → conversation history → current user message.
+
+### 9.6 Agent Support (Allowlisted)
+
+**Agent list scope:** `/ext/agents` is filtered by `EXTENSION_AGENT_ALLOWLIST` in `extension_server.py` (based on `interface.html` Agent dropdown).
+
+**Usage (backend-ready):** `POST /ext/chat/<conversation_id>` accepts optional `agent` + `detail_level`. If provided and allowlisted, the server instantiates that agent and runs it instead of the default LLM call.
 
 ---
 

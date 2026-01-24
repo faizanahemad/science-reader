@@ -14,6 +14,16 @@ import { Storage } from '../shared/storage.js';
 // Ensure the toolbar icon opens the sidepanel (best-effort; may fail on older Chrome)
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 
+/**
+ * Resolve API base URL from storage, with safe fallback.
+ * @returns {Promise<string>}
+ */
+async function getApiBaseUrl() {
+    const base = await Storage.getApiBaseUrl();
+    const normalized = (base || API_BASE).trim().replace(/\/+$/, '');
+    return normalized || API_BASE;
+}
+
 // ==================== Installation & Context Menu ====================
 
 /**
@@ -150,6 +160,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case MESSAGE_TYPES.CAPTURE_SCREENSHOT:
             handleCaptureScreenshot(sender, sendResponse);
+            return true;
+
+        case MESSAGE_TYPES.CAPTURE_FULLPAGE_SCREENSHOTS:
+            handleCaptureFullPageScreenshots(message, sender, sendResponse);
             return true;
 
         case MESSAGE_TYPES.AUTH_STATE_CHANGED:
@@ -412,6 +426,119 @@ async function handleCaptureScreenshot(sender, sendResponse) {
 }
 
 /**
+ * Ensure extractor content script is present in the tab.
+ * @param {number} tabId - Chrome tab ID.
+ */
+async function ensureExtractorInjected(tabId) {
+    try {
+        await chrome.tabs.sendMessage(tabId, { type: MESSAGE_TYPES.GET_PAGE_METRICS });
+        return;
+    } catch (_) {
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content_scripts/extractor.js']
+        });
+        await new Promise(resolve => setTimeout(resolve, 150));
+    }
+}
+
+/**
+ * Capture full-page screenshots by scrolling the page and grabbing visible frames.
+ * @param {Object} message - Capture options.
+ * @param {Object} sender - Message sender.
+ * @param {Function} sendResponse - Response callback.
+ */
+async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
+    try {
+        const tabId = message.tabId || sender.tab?.id;
+        const overlapRatio = Number.isFinite(message?.overlapRatio) ? message.overlapRatio : 0.1;
+        const delayMs = Number.isFinite(message?.delayMs) ? message.delayMs : 1000;
+
+        let tab;
+        if (tabId) {
+            tab = await chrome.tabs.get(tabId);
+        } else {
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            tab = activeTab;
+        }
+
+        if (!tab?.id) {
+            sendResponse({ error: 'No active tab available for capture' });
+            return;
+        }
+
+        if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://') ||
+            tab.url?.startsWith('about:') || tab.url?.startsWith('edge://')) {
+            sendResponse({ error: 'Cannot capture screenshots on restricted URLs' });
+            return;
+        }
+
+        await ensureExtractorInjected(tab.id);
+
+        const metrics = await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.GET_PAGE_METRICS });
+        const viewportHeight = Math.max(1, metrics.viewportHeight || 1);
+        const scrollHeight = Math.max(viewportHeight, metrics.scrollHeight || viewportHeight);
+        const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
+        const overlapPx = Math.max(0, Math.round(viewportHeight * overlapRatio));
+        const step = Math.max(100, viewportHeight - overlapPx);
+
+        const positions = [];
+        for (let y = 0; y <= maxScrollTop; y += step) {
+            positions.push(y);
+        }
+        if (positions.length === 0 || positions[positions.length - 1] !== maxScrollTop) {
+            positions.push(maxScrollTop);
+        }
+
+        const originalScrollY = metrics.scrollY || 0;
+
+        if (originalScrollY > 0) {
+            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: 0 });
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+
+        const screenshots = [];
+        for (let i = 0; i < positions.length; i += 1) {
+            const y = positions[i];
+            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y });
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            try {
+                const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+                screenshots.push(dataUrl);
+            } catch (e) {
+                const msg = e?.message || String(e);
+                if (msg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+                    // Backoff and retry once
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+                    const retryUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+                    screenshots.push(retryUrl);
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: originalScrollY });
+
+        sendResponse({
+            screenshots,
+            url: tab.url,
+            title: tab.title,
+            meta: {
+                scrollHeight,
+                viewportHeight,
+                step,
+                overlapPx,
+                total: screenshots.length
+            }
+        });
+    } catch (e) {
+        console.error('[AI Assistant] Failed full-page capture:', e);
+        sendResponse({ error: e.message || String(e) });
+    }
+}
+
+/**
  * Broadcast auth state change to all extension pages
  */
 function broadcastAuthState(isAuthenticated) {
@@ -437,8 +564,9 @@ async function handleGetScriptsForUrl(message, sendResponse) {
             return;
         }
 
+        const apiBase = await getApiBaseUrl();
         const url = encodeURIComponent(message.url);
-        const response = await fetch(`${API_BASE}/ext/scripts/for-url?url=${url}`, {
+        const response = await fetch(`${apiBase}/ext/scripts/for-url?url=${url}`, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
@@ -475,8 +603,9 @@ async function handleScriptLlmRequest(message, sendResponse) {
             return;
         }
 
+        const apiBase = await getApiBaseUrl();
         // Create a temporary conversation for the LLM request
-        const createResponse = await fetch(`${API_BASE}/ext/conversations`, {
+        const createResponse = await fetch(`${apiBase}/ext/conversations`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -497,7 +626,7 @@ async function handleScriptLlmRequest(message, sendResponse) {
         const conversationId = convData.conversation.conversation_id;
 
         // Send the chat message
-        const chatResponse = await fetch(`${API_BASE}/ext/chat/${conversationId}`, {
+        const chatResponse = await fetch(`${apiBase}/ext/chat/${conversationId}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,

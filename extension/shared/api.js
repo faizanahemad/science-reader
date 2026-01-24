@@ -19,6 +19,16 @@ export class AuthError extends Error {
 }
 
 /**
+ * Resolve the API base URL from settings.
+ * @returns {Promise<string>}
+ */
+async function getApiBaseUrl() {
+    const base = await Storage.getApiBaseUrl();
+    const normalized = (base || API_BASE).trim().replace(/\/+$/, '');
+    return normalized || API_BASE;
+}
+
+/**
  * Main API object with methods for all endpoints
  */
 export const API = {
@@ -32,19 +42,21 @@ export const API = {
      */
     async call(endpoint, options = {}) {
         const token = await Storage.getToken();
+        const apiBase = await getApiBaseUrl();
+        const { timeoutMs, ...fetchOptions } = options;
         
         const headers = {
             'Content-Type': 'application/json',
             ...(token && { 'Authorization': `Bearer ${token}` }),
-            ...options.headers
+            ...fetchOptions.headers
         };
 
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), TIMEOUTS.API_REQUEST);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs ?? TIMEOUTS.API_REQUEST);
 
         try {
-            const response = await fetch(`${API_BASE}${endpoint}`, {
-                ...options,
+            const response = await fetch(`${apiBase}${endpoint}`, {
+                ...fetchOptions,
                 headers,
                 signal: controller.signal
             });
@@ -82,9 +94,10 @@ export const API = {
      */
     async stream(endpoint, body, { onChunk, onDone, onError }) {
         const token = await Storage.getToken();
+        const apiBase = await getApiBaseUrl();
 
         try {
-            const response = await fetch(`${API_BASE}${endpoint}`, {
+            const response = await fetch(`${apiBase}${endpoint}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -209,6 +222,79 @@ export const API = {
      */
     async getPrompt(name) {
         return this.call(`/ext/prompts/${encodeURIComponent(name)}`);
+    },
+
+    /**
+     * Get available agents for the extension.
+     * @returns {Promise<{agents: Array}>}
+     */
+    async getAgents() {
+        return this.call('/ext/agents');
+    },
+
+    // ==================== Workflow Methods ====================
+
+    /**
+     * List workflows for the current user.
+     * @returns {Promise<{workflows: Array}>}
+     */
+    async getWorkflows() {
+        return this.call('/ext/workflows');
+    },
+
+    /**
+     * Create a new workflow.
+     * @param {Object} data - Workflow payload.
+     * @returns {Promise<{workflow: Object}>}
+     */
+    async createWorkflow(data) {
+        return this.call('/ext/workflows', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    },
+
+    /**
+     * Update an existing workflow.
+     * @param {string} workflowId - Workflow ID.
+     * @param {Object} data - Workflow payload.
+     * @returns {Promise<{workflow: Object}>}
+     */
+    async updateWorkflow(workflowId, data) {
+        return this.call(`/ext/workflows/${encodeURIComponent(workflowId)}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    },
+
+    /**
+     * Delete a workflow.
+     * @param {string} workflowId - Workflow ID.
+     * @returns {Promise<{message: string}>}
+     */
+    async deleteWorkflow(workflowId) {
+        return this.call(`/ext/workflows/${encodeURIComponent(workflowId)}`, {
+            method: 'DELETE'
+        });
+    },
+
+    // ==================== OCR / Vision Methods ====================
+
+    /**
+     * OCR a list of screenshots using a vision-capable model.
+     * @param {string[]} images - Array of data URLs (base64).
+     * @param {Object} meta - Optional metadata like url/title/model.
+     * @returns {Promise<{text: string, pages: Array}>}
+     */
+    async ocrScreenshots(images, meta = {}) {
+        return this.call('/ext/ocr', {
+            method: 'POST',
+            body: JSON.stringify({
+                images,
+                ...meta
+            }),
+            timeoutMs: 120000
+        });
     },
 
     // ==================== Memories Methods ====================

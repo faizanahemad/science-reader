@@ -2166,6 +2166,305 @@ User request / conversation context:
             yield {"text": "</web_answer>", "status": "InterleavedWebSearchAgent"}
 
 
+class PromptWorkflowAgent(Agent):
+    """
+    Workflow-style agent that runs a sequence of prompts over a user query.
+
+    ## Purpose and behavior
+    This agent executes a multi-step prompt workflow where each step produces an output
+    that becomes context for subsequent steps. The workflow is designed to:
+    - stream outputs step-by-step for UI rendering
+    - always include the user query and the most recent prior output
+    - include older steps only if the configured context budget allows
+
+    ## Input modes
+    The agent supports two primary input modes:
+    1) Explicit prompts + user query:
+       - `user_query` is provided
+       - `workflow_prompts` is a list of prompt strings or a single string separated by
+         double newlines ("\n\n")
+    2) Single combined string:
+       - If `workflow_prompts` is not provided and `text` contains double newlines,
+         the first chunk is treated as the user query and remaining chunks are prompts.
+       - If no prompts are found, a default prompt is used.
+
+    ## Step execution and context management
+    For step N:
+    - The LLM receives:
+      - the step prompt
+      - a `<workflow_context>` section that includes:
+        - the user query (trimmed if needed)
+        - the most recent step output (always included)
+        - older steps only if they fit within `max_context_chars`
+    - The step response is streamed immediately as it is generated.
+
+    Context trimming rules:
+    - The total context is bounded by `max_context_chars`.
+    - Each prior step output is individually capped by `max_step_output_chars`.
+    - If the context budget is tight, the user query is trimmed while preserving the
+      most recent output to maintain workflow continuity.
+
+    ## Parameters
+    - keys: API keys container.
+    - model_name: LLM model name for all steps.
+    - max_context_chars: Maximum total chars included in the context window per step.
+    - max_step_output_chars: Maximum chars of any prior step output to include.
+    - include_prompt_history: Whether to include prior prompts in the context.
+
+    ## Outputs
+    - Streams step-by-step responses as dicts with "text" and "status".
+    """
+
+    def __init__(
+        self,
+        keys,
+        model_name,
+        max_context_chars: int = 120_000,
+        max_step_output_chars: int = 24_000,
+        include_prompt_history: bool = True,
+    ):
+        super().__init__(keys)
+        self.model_name = model_name
+        self.max_context_chars = max(5_000, int(max_context_chars))
+        self.max_step_output_chars = max(1_000, int(max_step_output_chars))
+        self.include_prompt_history = include_prompt_history
+
+    def _split_prompts(self, prompt_input):
+        """
+        Split a prompt input into a list of prompts.
+
+        Inputs:
+            prompt_input: list of strings or a single string with double-newline separators.
+
+        Outputs:
+            A list of non-empty prompt strings.
+        """
+        if prompt_input is None:
+            return []
+        if isinstance(prompt_input, list):
+            return [p.strip() for p in prompt_input if str(p).strip()]
+        if isinstance(prompt_input, str):
+            parts = [p.strip() for p in prompt_input.split("\n\n")]
+            return [p for p in parts if p]
+        return []
+
+    def _normalize_inputs(self, text, workflow_prompts, user_query):
+        """
+        Normalize user query and workflow prompts based on provided arguments.
+
+        Inputs:
+            text: the primary call argument (string or list).
+            workflow_prompts: optional list or string of prompts.
+            user_query: optional explicit user query.
+
+        Outputs:
+            (user_query: str, prompts: List[str])
+        """
+        prompts = self._split_prompts(workflow_prompts)
+        resolved_user_query = user_query
+
+        # If user_query not explicitly provided, infer from text.
+        if resolved_user_query is None:
+            if isinstance(text, list):
+                # If text is a list, treat first item as user query if prompts not provided.
+                if not prompts and text:
+                    resolved_user_query = str(text[0]).strip()
+                    prompts = [str(p).strip() for p in text[1:] if str(p).strip()]
+                else:
+                    resolved_user_query = " ".join([str(t).strip() for t in text if str(t).strip()])
+            elif isinstance(text, str):
+                # If prompts not provided and text contains double newlines, split:
+                # first chunk is user query, remaining are prompts.
+                if not prompts and "\n\n" in text:
+                    parts = [p.strip() for p in text.split("\n\n")]
+                    parts = [p for p in parts if p]
+                    if parts:
+                        resolved_user_query = parts[0]
+                        prompts = parts[1:]
+                    else:
+                        resolved_user_query = text.strip()
+                else:
+                    resolved_user_query = text.strip()
+            else:
+                resolved_user_query = str(text).strip() if text is not None else ""
+
+        if resolved_user_query is None:
+            resolved_user_query = ""
+
+        # Fallback: if no prompts were provided, use a single minimal prompt.
+        if not prompts:
+            prompts = ["Answer the user query clearly and completely."]
+
+        return resolved_user_query, prompts
+
+    def _trim_text(self, text: str, max_chars: int) -> str:
+        """
+        Trim text to a max char limit, keeping the tail for recency.
+
+        Inputs:
+            text: raw text
+            max_chars: character limit
+
+        Outputs:
+            Trimmed text (possibly unchanged).
+        """
+        if not text:
+            return ""
+        if max_chars <= 0 or len(text) <= max_chars:
+            return text
+        return "[...truncated...]\n" + text[-max_chars:]
+
+    def _build_step_context(self, user_query, prompts, step_outputs):
+        """
+        Build the context passed to each step.
+
+        Inputs:
+            user_query: original user query
+            prompts: list of prompts used so far
+            step_outputs: list of outputs from prior steps
+
+        Outputs:
+            A context string bounded by self.max_context_chars, always including the
+            user query and the most recent previous step output.
+        """
+        if not user_query:
+            user_query = ""
+        if not step_outputs:
+            return self._trim_text(f"User query:\n{user_query}", self.max_context_chars)
+
+        def build_block(idx, output_limit):
+            prompt_text = prompts[idx] if idx < len(prompts) else ""
+            prompt_trimmed = self._trim_text(prompt_text, self.max_step_output_chars)
+            output_trimmed = self._trim_text(step_outputs[idx], output_limit) if output_limit > 0 else ""
+            if self.include_prompt_history:
+                return f"Step {idx + 1} prompt:\n{prompt_trimmed}\n\nStep {idx + 1} output:\n{output_trimmed}"
+            return f"Step {idx + 1} output:\n{output_trimmed}"
+
+        header = "\n\nPrevious steps:\n"
+        last_idx = len(step_outputs) - 1
+
+        # Reserve space to always include the user query + most recent output.
+        min_output_chars = min(200, self.max_step_output_chars)
+        prompt_label = f"Step {last_idx + 1} prompt:\n" if self.include_prompt_history else ""
+        output_label = f"\n\nStep {last_idx + 1} output:\n" if self.include_prompt_history else f"Step {last_idx + 1} output:\n"
+
+        fixed_len = len("User query:\n") + len(header) + len(prompt_label) + len(output_label) + min_output_chars
+        max_query_chars = max(0, self.max_context_chars - fixed_len)
+        user_query_trimmed = self._trim_text(user_query, max_query_chars)
+        base = f"User query:\n{user_query_trimmed}"
+
+        available = max(0, self.max_context_chars - len(base) - len(header) - len(prompt_label) - len(output_label))
+        if self.include_prompt_history:
+            prompt_budget = min(self.max_step_output_chars, max(0, available - min_output_chars))
+            output_budget = min(self.max_step_output_chars, max(0, available - prompt_budget))
+        else:
+            prompt_budget = 0
+            output_budget = min(self.max_step_output_chars, available)
+
+        # Build the most recent block with guaranteed inclusion.
+        if self.include_prompt_history and prompt_budget < self.max_step_output_chars:
+            prompt_text = prompts[last_idx] if last_idx < len(prompts) else ""
+            prompt_trimmed = self._trim_text(prompt_text, prompt_budget)
+            last_block_prefix = f"Step {last_idx + 1} prompt:\n{prompt_trimmed}\n\nStep {last_idx + 1} output:\n"
+            last_output = self._trim_text(step_outputs[last_idx], output_budget) if output_budget > 0 else ""
+            last_block = last_block_prefix + last_output
+        else:
+            last_block = build_block(last_idx, output_budget)
+
+        history = last_block
+        context = base + header + history
+
+        # Add older steps only if they fit, preferring recency.
+        for idx in range(last_idx - 1, -1, -1):
+            block = build_block(idx, self.max_step_output_chars)
+            candidate_history = block + "\n\n" + history
+            candidate_context = base + header + candidate_history
+            if len(candidate_context) <= self.max_context_chars:
+                history = candidate_history
+                context = candidate_context
+            else:
+                continue
+
+        return context
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+        workflow_prompts=None,
+        user_query=None,
+    ):
+        """
+        Execute a prompt workflow over the user query.
+
+        Supported input shapes:
+            1) Explicit user query + prompts:
+               - user_query: a user question or task string
+               - workflow_prompts: list[str] or a single string separated by "\n\n"
+               - text: may be empty or any placeholder (ignored for parsing in this mode)
+
+            2) Combined string mode:
+               - workflow_prompts is None
+               - text is a string that contains "\n\n"
+               - first chunk => user_query
+               - remaining chunks => workflow_prompts
+
+            3) Fallback single prompt mode:
+               - if prompts cannot be resolved from workflow_prompts or text,
+                 a default prompt is used to answer the query directly.
+
+        Inputs:
+            text:
+                User query or combined query+prompts string (see supported modes).
+            workflow_prompts:
+                List[str] or a single string split by "\n\n". Optional.
+            user_query:
+                Explicit user query. Optional; overrides inference from text.
+            images, temperature, stream, max_tokens, system:
+                Standard LLM call parameters forwarded to CallLLm.
+
+        Outputs:
+            Streams dict chunks with:
+                - "text": partial output for the current step
+                - "status": "PromptWorkflowAgent"
+        """
+        llm = CallLLm(self.keys, model_name=self.model_name)
+        resolved_query, prompts = self._normalize_inputs(text, workflow_prompts, user_query)
+
+        step_outputs = []
+
+        for idx, prompt in enumerate(prompts):
+            step_num = idx + 1
+            context = self._build_step_context(resolved_query, prompts, step_outputs)
+            step_prompt = (
+                f"{prompt}\n\n"
+                f"<workflow_context>\n{context}\n</workflow_context>\n\n"
+                "Write the next step output based on the prompt and context."
+            )
+
+            yield {"text": f"\n\n---\n### Workflow step {step_num}/{len(prompts)}\n\n", "status": "PromptWorkflowAgent"}
+            yield {"text": f"Prompt:\n{prompt}\n\n", "status": "PromptWorkflowAgent"}
+
+            step_output = ""
+            if stream:
+                response_stream = llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+                for chunk in response_stream:
+                    chunk_text = str(chunk)
+                    step_output += chunk_text
+                    yield {"text": chunk_text, "status": "PromptWorkflowAgent"}
+            else:
+                step_output = llm(step_prompt, images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
+                yield {"text": str(step_output), "status": "PromptWorkflowAgent"}
+
+            step_outputs.append(str(step_output))
+            yield {"text": "\n\n", "status": "PromptWorkflowAgent"}
+
+
 class JinaDeepResearchAgent(Agent):
     """Agent that uses Jina's Deep Research API for comprehensive search and analysis"""
     
