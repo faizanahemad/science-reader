@@ -2465,6 +2465,100 @@ class PromptWorkflowAgent(Agent):
             yield {"text": "\n\n", "status": "PromptWorkflowAgent"}
 
 
+class ManagerAssistAgent(PromptWorkflowAgent):
+    """
+    Four-step workflow agent intended for a fixed, manager-assistant style pipeline.
+
+    Purpose:
+        Provide a stable 4-step workflow that you can later customize by editing
+        the prompt list in this class. This agent keeps the workflow structure
+        fixed to four steps and relies on PromptWorkflowAgent for sequencing,
+        context trimming, and streaming.
+
+    How to customize:
+        Replace the placeholder prompts in `default_prompts` with your desired
+        step instructions. Keep exactly four prompts for consistent behavior.
+    """
+
+    default_prompts = [
+        "TODO: Define step 1 prompt for ManagerAssistAgent.",
+        "TODO: Define step 2 prompt for ManagerAssistAgent.",
+        "TODO: Define step 3 prompt for ManagerAssistAgent.",
+        "TODO: Define step 4 prompt for ManagerAssistAgent.",
+    ]
+
+    def __init__(
+        self,
+        keys,
+        model_name,
+        prompts=None,
+        max_context_chars: int = 120_000,
+        max_step_output_chars: int = 24_000,
+        include_prompt_history: bool = True,
+    ):
+        """
+        Args:
+            keys: API keys container.
+            model_name: LLM model name for all steps.
+            prompts: Optional list of exactly 4 prompt strings. If not provided,
+                `default_prompts` is used.
+            max_context_chars: Maximum total chars included in the context window per step.
+            max_step_output_chars: Maximum chars of any prior step output to include.
+            include_prompt_history: Whether to include prior prompts in the context.
+        """
+        if prompts is None:
+            prompts = list(self.default_prompts)
+        if not isinstance(prompts, list) or len(prompts) != 4:
+            raise ValueError("ManagerAssistAgent requires exactly 4 prompts.")
+
+        self.prompts = prompts
+        super().__init__(
+            keys=keys,
+            model_name=model_name,
+            max_context_chars=max_context_chars,
+            max_step_output_chars=max_step_output_chars,
+            include_prompt_history=include_prompt_history,
+        )
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+        user_query=None,
+        workflow_prompts=None,
+    ):
+        """
+        Run the 4-step manager-assistant workflow.
+
+        Inputs:
+            text: User query or combined query+prompts string. If user_query is
+                provided, it takes precedence.
+            user_query: Explicit user query (optional).
+            workflow_prompts: Optional override prompts. If provided, must be a
+                list of exactly 4 strings; otherwise, this agent's prompts are used.
+        """
+        effective_prompts = workflow_prompts if workflow_prompts is not None else self.prompts
+        if not isinstance(effective_prompts, list) or len(effective_prompts) != 4:
+            raise ValueError("ManagerAssistAgent requires exactly 4 prompts.")
+
+        return super().__call__(
+            text=text,
+            images=images,
+            temperature=temperature,
+            stream=stream,
+            max_tokens=max_tokens,
+            system=system,
+            web_search=web_search,
+            workflow_prompts=effective_prompts,
+            user_query=user_query,
+        )
+
+
 class JinaDeepResearchAgent(Agent):
     """Agent that uses Jina's Deep Research API for comprehensive search and analysis"""
     

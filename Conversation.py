@@ -14,7 +14,7 @@ from prompts import tts_friendly_format_instructions, improve_code_prompt, impro
 from filelock import FileLock
 
 from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent, InstructionFollowingAgent, PromptWorkflowAgent
+from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent, InstructionFollowingAgent, PromptWorkflowAgent, ManagerAssistAgent
 from agents.tts_and_podcast_agent import CodeTTSAgent, StreamingCodeTTSAgent, CodePodcastAgent, StreamingCodePodcastAgent
 from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, normalize_mermaid_text, \
     PersistentPythonEnvironment, PersistentPythonEnvironment_v2
@@ -2939,6 +2939,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 max_context_chars=kwargs.get("max_context_chars", 60_000),
                 max_step_output_chars=kwargs.get("max_step_output_chars", 12_000),
                 include_prompt_history=kwargs.get("include_prompt_history", True),
+            )
+        if field == "ManagerAssistAgent":
+            agent = ManagerAssistAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
             )
         if field == "LiteratureReview":
             agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)

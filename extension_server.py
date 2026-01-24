@@ -226,6 +226,7 @@ EXTENSION_AGENT_ALLOWLIST = [
     "WebSearch",
     "MultiSourceSearch",
     "PromptWorkflowAgent",
+    "ManagerAssistAgent",
 ]
 
 
@@ -302,6 +303,7 @@ def instantiate_extension_agent(
         InterviewSimulatorAgent,
         InterviewSimulatorAgentV2,
         PromptWorkflowAgent,
+        ManagerAssistAgent,
     )
     from agents.search_and_information_agents import (
         JinaSearchAgent,
@@ -349,7 +351,9 @@ def instantiate_extension_agent(
     if agent_name == "MLSystemDesignAgent":
         return MLSystemDesignAgent(keys, writer_model=model_name, n_steps=detail_level or 4)
     if agent_name == "PromptWorkflowAgent":
-        return PromptWorkflowAgent(keys, model_name=model_name, detail_level=detail_level, timeout=120)
+        return PromptWorkflowAgent(keys, model_name=model_name)
+    if agent_name == "ManagerAssistAgent":
+        return ManagerAssistAgent(keys, model_name=model_name)
     if agent_name == "ToCGenerationAgent":
         return ToCGenerationAgent(
             llm_name=model_name,
