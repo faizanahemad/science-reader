@@ -4,7 +4,7 @@ from typing import Union, List
 import uuid
 from common import OPENAI_CHEAP_LLM, collapsible_wrapper
 from prompts import tts_friendly_format_instructions
-
+from textwrap import dedent
 
 import os
 import tempfile
@@ -2215,6 +2215,19 @@ class PromptWorkflowAgent(Agent):
     - Streams step-by-step responses as dicts with "text" and "status".
     """
 
+    clarification_policy_prompt = (
+        "If you require additional information that is absolutely necessary to proceed, "
+        "output a clarification request in the following XML format and do not continue "
+        "with the workflow steps:\n"
+        "```xml\n"
+        "<clarifications_needed>\n"
+        "  <question>Question 1</question>\n"
+        "  <question>Question 2</question>\n"
+        "</clarifications_needed>\n"
+        "```\n\n"
+        "Only include this XML block if clarification is required."
+    )
+
     def __init__(
         self,
         keys,
@@ -2387,6 +2400,35 @@ class PromptWorkflowAgent(Agent):
 
         return context
 
+    def _compose_system_prompt(self, system: str) -> str:
+        """
+        Compose the system prompt for workflow steps.
+
+        Inputs:
+            system: Optional external system prompt.
+
+        Outputs:
+            System prompt with clarification policy appended.
+        """
+        base = system.strip() if isinstance(system, str) and system.strip() else ""
+        if base:
+            return base + "\n\n" + self.clarification_policy_prompt
+        return self.clarification_policy_prompt
+
+    def _contains_clarification_request(self, text: str) -> bool:
+        """
+        Detect if the step output contains a clarification request XML block.
+
+        Inputs:
+            text: Step output text to scan.
+
+        Outputs:
+            True if a clarification block is present, else False.
+        """
+        if not text:
+            return False
+        return bool(re.search(r"<clarifications_needed>.*?</clarifications_needed>", text, re.DOTALL | re.IGNORECASE))
+
     def __call__(
         self,
         text,
@@ -2435,6 +2477,7 @@ class PromptWorkflowAgent(Agent):
         """
         llm = CallLLm(self.keys, model_name=self.model_name)
         resolved_query, prompts = self._normalize_inputs(text, workflow_prompts, user_query)
+        system_prompt = self._compose_system_prompt(system)
 
         step_outputs = []
 
@@ -2452,17 +2495,21 @@ class PromptWorkflowAgent(Agent):
 
             step_output = ""
             if stream:
-                response_stream = llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+                response_stream = llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system_prompt)
                 for chunk in response_stream:
                     chunk_text = str(chunk)
                     step_output += chunk_text
                     yield {"text": chunk_text, "status": "PromptWorkflowAgent"}
             else:
-                step_output = llm(step_prompt, images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system)
+                step_output = llm(step_prompt, images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system_prompt)
                 yield {"text": str(step_output), "status": "PromptWorkflowAgent"}
 
             step_outputs.append(str(step_output))
             yield {"text": "\n\n", "status": "PromptWorkflowAgent"}
+
+            if self._contains_clarification_request(step_output):
+                # Stop the workflow if clarifications are requested.
+                break
 
 
 class ManagerAssistAgent(PromptWorkflowAgent):
@@ -2479,12 +2526,148 @@ class ManagerAssistAgent(PromptWorkflowAgent):
         Replace the placeholder prompts in `default_prompts` with your desired
         step instructions. Keep exactly four prompts for consistent behavior.
     """
-
+    from textwrap import dedent
     default_prompts = [
-        "TODO: Define step 1 prompt for ManagerAssistAgent.",
-        "TODO: Define step 2 prompt for ManagerAssistAgent.",
-        "TODO: Define step 3 prompt for ManagerAssistAgent.",
-        "TODO: Define step 4 prompt for ManagerAssistAgent.",
+        dedent("""
+        You are my management copilot at Amazon. Your job: protect delivery, reduce my manager's workload, and keep HR/legal risk low.  
+
+            CONTEXT (I will try to provide you the context, in case you need more information, you can ask me for more information):  
+            - Situation: <describe the situation in 5–10 lines>  
+            - My intent/outcome: <what I want to achieve>  
+            - Audience: <team / individual / US PM / leadership / manager>  (if not provided, assume it is a team)
+            - Medium: <1:1 / email / doc / slack / meeting> (if not provided, assume it is a 1:1)
+            - Timezone constraints: <India team, US stakeholders; overlap windows if relevant> (if not provided, assume it is India team)
+            - Sensitivities: <leave/WFH/hours/performance/conflict/compensation/health/etc> (if not provided, assume it affects all)
+            - Deadline/urgency: <when does this matter?> (if not provided, assume it is not urgent)
+            - Prior decisions/history: <links or summary> (if not provided, assume it is not history)
+            
+            TASK:  
+            1) Identify the REAL problem (not the symptom) and my success criteria.  
+            2) Classify this into one or more categories:  
+            A) Policy-adjacent (WFH/leave/hours/attendance)   
+            B) Performance/feedback  
+            C) Delivery/commitments/dependencies  
+            D) Stakeholder conflict / escalation  
+            E) People health/attrition risk  
+            F) Compliance/security  
+            3) Give a "Risk & Alignment Score":  
+            - HR/Policy risk: Low/Med/High  
+            - Reputation risk (for me): Low/Med/High  
+            - Delivery risk: Low/Med/High  
+            - "Needs pre-wire with Chitta?" Yes/No + why  
+            - "Needs HR consultation?" Yes/No + why  
+            4) List the top 5 failure modes (how this could blow up).  
+            5) Provide the top 3 safest strategies using these principles:  
+            - Outcomes over inputs  
+            - Norms, not laws  
+            - Pre-wire, then send  
+            - Receipts, not riddles  
+            - Reduce my manager's cognitive load (Chitta rule)  
+            OUTPUT FORMAT:  
+            - One paragraph summary of what you think and how I should proceed.  
+            - A table: Category | Risk | Why | Pre-wire? | What not to say/do  
+            - Bullet list: failure modes  
+            - Bullet list: recommended strategy options (with pros/cons)  
+
+        """),
+        dedent("""
+        Use the Step 1 output below to design a minimal mechanism that achieves the outcome without sounding like policy.  
+  
+            
+            
+            TASK:  
+            1) Convert my goal into “mechanisms” (repeatable systems), not mandates:  
+            - Ownership/DRI  
+            - Milestone/traffic light tracking (🟢🟡🔴)  
+            - Escalation triggers (e.g., blocked > 48h)  
+            - Coverage/backup (bus factor)  
+            - Async-first updates + defined overlap window  
+            2) Define exactly what “good behavior” looks like using outcome language:  
+            - What deliverable, by when, quality bar, and how we’ll know  
+            3) Identify all phrases that create “policy vibes” and replace them:  
+            - banned words list: “required”, “must”, “allowed only if”, “normal working hours”, “irrespective of holidays”, “you are expected to be online”, etc.  
+            4) Create a “Pre-wire packet” for Chitta if needed:  
+            - 5-bullet forward-ready summary (wins/risks/asks)  
+            - the decision I recommend  
+            - what I need from him (approval/awareness/escalation)  
+            
+            OUTPUT FORMAT:  
+            - One paragraph summary of what you think and how I should proceed.
+            - A table: Goal | Mechanism | Owner | Cadence | Artifact (doc/link) | Why this is HR-safe  
+            - A “language sanitization” list: Replace X → With Y  
+            - If pre-wire needed: a 5-bullet message I can send Chitta that he can forward unedited  
+        """),
+        
+        dedent("""
+        You are my final reviewer. Your job is to stop me from doing something stupid in writing, creating HR risk, or increasing my manager's work.  
+  
+            
+            
+            CHECKLISTS:  
+            A) HR/Policy Safety Gate (flag any issues):  
+            - Does it read like policy or permissioning?  
+            - Does it imply attendance/hours monitoring?  
+            - Does it request private medical/personal details?  
+            - Does it create inconsistent treatment risk?  
+            - Does it imply working while on leave?  
+            
+            B) CYA Gate (auditability without over-documenting):  
+            - Are owner/date/decision/rationale captured?  
+            - Is the ask measurable and time-bound?  
+            - Are risks and tradeoffs documented neutrally?  
+            - Is there a clean escalation path?  
+            
+            C) "Don't increase Manager's work" Gate:  
+            - Can he forward this unedited?  
+            - Is the ask to him explicit and minimal?  
+            - Does it avoid creating cleanup work later?  
+            - Are dependencies and next steps already structured?  
+            
+            D) Team Trust / Attrition Gate [Psychological safety]:  
+            - Does it sound respectful and autonomy-preserving?  
+            - Are expectations clear without sounding punitive?  
+            - Is fairness visible?  
+            
+            TASK:  
+            1) Provide a redline-style critique: what to remove, soften, or add.  
+            2) Provide the final revised version (ready to send).  
+            3) Tell me exactly what to log (decision record / recap note) and where.  
+            4) If this should NOT be sent and needs a conversation instead, say so bluntly and explain why.  
+            
+            OUTPUT FORMAT:  
+            - Issues list (High/Med/Low severity)  
+            - Revised final text  
+            - "What to log" bullets (max 6 bullets)  
+            - "Stop / Go" decision  
+            - One paragraph summary of what you think and how I should proceed.
+        """),
+        dedent("""
+        Now produce the actual communication or plan. Use Step 2 and 3 design and keep it short, crisp, and forward-ready.  
+            No policy tone. No moralizing. No threats. Focus on coordination, outcomes, and clarity.  
+            
+            INPUTS (I will try to provide you the inputs, in case you need more information, you can ask me for more information):  
+            - Medium: <email / doc section / slack / 1:1 plan / meeting agenda>  
+            - Audience: <who exactly>  
+            - Desired outcome: <one sentence>  
+          
+            REQUIREMENTS (must follow):  
+            1) Outcome > input language.  
+            2) For India↔US work: include dual-timezone deadlines if any.  
+            3) Include "what we need" + "by when" + "who owns it" + "how to escalate".  
+            4) Include a "why" line (coordination/continuity/customer impact), not "because I said so."  
+            5) If it's a 1:1 plan:  
+            - include: opening, discovery questions, alignment, next steps, recap note template.  
+            6) If it's an email/doc:  
+            - include a subject/title  
+            - include a short bullets structure  
+            - include optional section: "If you foresee a slip, flag early with options."  
+            
+            OUTPUT FORMAT:  
+            - Draft asset (ready to send/use)  
+            - A 30-second verbal version (in case I say it live)  
+            - A 3-bullet "what could be misunderstood" warning list  
+
+        """),
     ]
 
     def __init__(
