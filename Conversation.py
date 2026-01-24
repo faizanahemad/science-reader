@@ -4203,9 +4203,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
         code_session = None
-        stream_check_interval_chars = int(checkboxes.get("stream_check_interval_chars", 100))
+        stream_check_interval_chars = int(checkboxes.get("stream_check_interval_chars", 200))
         if stream_check_interval_chars <= 0:
-            stream_check_interval_chars = 100
+            stream_check_interval_chars = 200
         chars_since_last_check = 0
 
         def _process_stream_artifacts(txt, force_flush=False):
