@@ -452,8 +452,8 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 - **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new chat), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
 - **Conversation list**: `conversation-list` (list), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
 - **Settings controls**: `model-select`, `prompt-select`, `agent-select`, `workflow-select`, `workflow-new`, `workflow-save`, `workflow-delete`, `workflow-name`, `workflow-steps`, `workflow-add-step`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
-- **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
-- **Input**: `attach-page-btn` (attach page), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
+- **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `page-context-badge` (source count), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
+- **Input**: `attach-page-btn` (attach page), `refresh-page-btn` (refresh/replace), `append-page-btn` (append/merge), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
 - **Attachments**: drag/drop images into the input area to include them in the next LLM call (`images[]` in `/ext/chat/<id>`).
 - **Workflow UI**: settings panel includes workflow select + inline editor (step title + prompt, add/remove, save/delete).
 - **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `confirm-tab-modal` (confirm)
@@ -478,12 +478,12 @@ const state = {
     conversations: [],            // All conversations list
     messages: [],                 // Current conversation messages
     isStreaming: false,           // Currently receiving response
-    pageContext: null,            // Attached page content (single or combined multi-tab)
+    pageContext: null,            // Attached page content (single, appended, or multi-tab)
     multiTabContexts: [],         // Array of {tabId, url, title, content} for multi-tab
     selectedTabIds: [],           // Tab IDs currently selected in modal
     settings: {                   // User settings
         model: 'google/gemini-2.5-flash',
-        promptName: 'Short',
+        promptName: 'preamble_short',
         historyLength: 10,
         autoIncludePage: true     // Auto-include page content (default: true)
     },
@@ -502,7 +502,7 @@ const state = {
 - **Messages**: `renderMessages(): ()→void` (render all); `renderMessage(msg): (object)→string` (render one); `addCopyButtons(): ()→void` (copy buttons for code blocks); `scrollToBottom(): ()→void` (scroll)
 - **Input**: `handleInputChange(): ()→void` (resize + button state); `handleInputKeydown(e): (Event)→void` (Enter send, Shift+Enter newline); `updateSendButton(): ()→void` (enable/disable)
 - **Send/Streaming**: `sendMessage(): async ()→void` (send w/ streaming); `stopStreaming(): ()→void` (cancel); `updateConversationInList(preview): (string)→void` (update preview/title)
-- **Page Context**: `attachPageContent(): async ()→void` (attach current page); `removePageContext(): ()→void` (detach)
+- **Page Context**: `attachPageContent(): async ()→void` (attach); `refreshPageContent(): async ()→void` (replace); `appendPageContent(): async ()→void` (merge); `removePageContext(): ()→void` (detach); `setPageContextBadge(text): ()→void` (source count); `updatePageContextButtons(): ()→void` (enable/disable/active state)
 - **Multi-Tab**: `showTabModal(): async ()→void` (open selector); `handleTabSelection(): async ()→void` (extract + combine); `truncateUrl(url): (string)→string` (shorten for display); `updateTabSelectionCount(): ()→void` (confirm label); `updateMultiTabIndicator(): ()→void` (tooltip)
 - **Quick Suggestions**: `handleQuickSuggestion(action): async (string)→void` (handle suggestion buttons)
 - **Runtime**: `handleRuntimeMessage(msg, sender, respond): (object, object, function)→void` (incoming messages)
@@ -518,7 +518,7 @@ const state = {
 - `modelSelect: change → update settings + save`; `promptSelect: change → update settings + save`; `historyLengthSlider: input → update settings + save`; `autoIncludePageCheckbox: change → update settings + save`
 - `messageInput: input → handleInputChange`; `messageInput: keydown → handleInputKeydown`
 - `sendBtn: click → sendMessage`; `stopBtn: click → stopStreaming`
-- `attachPageBtn: click → attachPageContent`; `removePageContextBtn: click → removePageContext`
+- `attachPageBtn: click → attachPageContent`; `refreshPageBtn: click → refreshPageContent`; `appendPageBtn: click → appendPageContent`; `removePageContextBtn: click → removePageContext`
 - `multiTabBtn: click → showTabModal`; `voiceBtn: click → placeholder alert`
 - `suggestionBtns: click → handleQuickSuggestion`; `conversationList: click → handleConversationClick`
 - `closeTabModalBtn: click → hide modal`; `cancelTabModalBtn: click → hide modal`; `confirmTabModalBtn: click → handleTabSelection`
@@ -985,7 +985,11 @@ When page content is attached, the server injects it as a **separate user messag
 
 ### 10.2 Page Extraction Flow
 
-**Compact flow:** User clicks “Include Page” → Sidepanel `attachPageContent()` → `chrome.runtime.sendMessage({ type: EXTRACT_PAGE })` → Service worker `handleExtractPage()` → `chrome.tabs.sendMessage(tabId,{ type: EXTRACT_PAGE })` → content script `extractPageContent()` → returns `{ title, url, content, meta, length }` → Sidepanel sets `state.pageContext` → shows page context bar.
+**Compact flow (attach):** User clicks “Include Page” → Sidepanel `attachPageContent()` → `chrome.runtime.sendMessage({ type: EXTRACT_PAGE })` → Service worker `handleExtractPage()` → `chrome.tabs.sendMessage(tabId,{ type: EXTRACT_PAGE })` → content script `extractPageContent()` → returns `{ title, url, content, meta, length }` → Sidepanel sets `state.pageContext` → shows page context bar.
+
+**Compact flow (refresh):** User clicks “Refresh” → Sidepanel `refreshPageContent()` → same extraction path as above → **replaces** `state.pageContext` (mergeType `refreshed`) → badge cleared.
+
+**Compact flow (append):** User clicks “Append” → Sidepanel `appendPageContent()` → same extraction path as above → **merges** into `state.pageContext.sources[]` (mergeType `appended`) → content concatenated with separators → badge shows source count.
 
 ### 10.3 Context Menu Quick Action Flow
 

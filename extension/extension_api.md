@@ -129,7 +129,7 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 ## Chat
 
 ### POST `/ext/chat/<conversation_id>`
-- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string }|null, "images": string[]|null, "model": string, "stream": bool, "agent": string|null, "detail_level": number|null, "workflow_id": string|null }`
+- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string, "isMultiTab"?: bool, "tabCount"?: number, "sources"?: array, "mergeType"?: "single"|"refreshed"|"appended", "lastRefreshed"?: number }|null, "images": string[]|null, "model": string, "stream": bool, "agent": string|null, "detail_level": number|null, "workflow_id": string|null }`
 - **Response (non-streaming)**: `{ "response": string, "message_id": string, "user_message_id": string }`
 - **Response (streaming)**: Server-Sent Events with `data: {"chunk": "..."}` and final `data: {"done": true, "message_id": "..."}`.
 - **Errors**: `400` message required, `404` conversation not found, `503` LLM unavailable

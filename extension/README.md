@@ -91,7 +91,7 @@ extension/
 - **Chat Interface**: Full-height sidepanel with message display
 - **Conversations**: Create, list, delete conversations
 - **Settings**: Model, prompt, history length, auto-include page
-- **Page Integration**: Extract page content and include in messages
+- **Page Integration**: Extract page content, refresh/append context for SPAs, and include in messages
 - **Context Menu**: Right-click actions (explain, summarize, etc)
 - **Quick Actions**: Summarize page, ask about selection
 - **Markdown**: Rendered responses with syntax highlighting

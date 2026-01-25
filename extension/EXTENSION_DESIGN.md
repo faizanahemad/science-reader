@@ -88,7 +88,7 @@ The extension uses a **full-height sidepanel** on the right side of Chrome, acti
 │                                                       │  │                     │   │
 │                                                       │  │                     │   │
 │                                                       │  ├─────────────────────┤   │
-│                                                       │  │ [📎][🎤] Input [➤] │   │
+│                                                       │  │ [📎][🔄][➕][🎤] Input [➤] │   │
 │                                                       │  └─────────────────────┘   │
 │                                               ┌───┐   │                             │
 │                                               │ ⚡ │◄──┼── Floating Toggle Button   │
@@ -349,6 +349,8 @@ User Action (Extension)
 | Feature | Description | Priority |
 |---------|-------------|----------|
 | **Read Current Page** | Extract text content from active tab | P0 |
+| **Refresh Page Context** | Re-extract current page and replace existing context | P0 |
+| **Append Page Context** | Append current page content to existing context (SPA flows) | P0 |
 | **Read Multiple Tabs** | Extract content from selected tabs | P0 |
 | **Screenshot Capture** | Capture visible viewport as image | P1 |
 | **Selection Context** | Use selected text as query context | P0 |
@@ -643,6 +645,8 @@ PUT /ext/settings
 |----|-------------|---------------------|
 | FR-PAGE-01 | Extension can read current page content | Text extracted accurately |
 | FR-PAGE-02 | User can include page content in message | Page content attached to message |
+| FR-PAGE-02a | User can refresh page context | Existing context replaced with latest extraction |
+| FR-PAGE-02b | User can append page context | Existing context merged with new extraction |
 | FR-PAGE-03 | User can capture viewport screenshot | Screenshot captured and attached |
 | FR-PAGE-04 | User can select text to include | Selected text used as context |
 | FR-PAGE-05 | User can read multiple tabs | Tab selector, content from multiple tabs |

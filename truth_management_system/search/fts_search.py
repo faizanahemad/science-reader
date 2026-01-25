@@ -20,6 +20,7 @@ from ..constants import ClaimStatus
 
 logger = logging.getLogger(__name__)
 FTS_SANITIZER_VERSION = "2026-01-02a"
+FTS_RESERVED_KEYWORDS = {"AND", "OR", "NOT", "NEAR"}
 
 # Import time_logger for guaranteed visibility
 try:
@@ -126,6 +127,33 @@ class FTSSearchStrategy(SearchStrategy):
             # SQLite will raise "no such column: opus". This can happen if upstream code
             # passes raw FTS syntax or if the sanitizer is bypassed in a deployment.
             msg = str(e)
+            if "syntax error" in msg.lower():
+                try:
+                    strict_fts_query = self._sanitize_query_strict(query)
+                    time_logger.error(
+                        "[FTS] Syntax error in FTS query. "
+                        f"orig='{query[:160]}', sanitized='{fts_query[:160]}', "
+                        f"strict_sanitized='{strict_fts_query[:160]}', "
+                        f"sanitizer_version={FTS_SANITIZER_VERSION}",
+                        exc_info=True
+                    )
+                    if strict_fts_query and strict_fts_query != fts_query:
+                        rows = _run_fts(strict_fts_query)
+                        results = []
+                        for row in rows:
+                            claim = Claim.from_row(row)
+                            results.append(
+                                SearchResult.from_claim(
+                                    claim=claim,
+                                    score=row["score"],
+                                    source=self.name(),
+                                    metadata={"fts_query": strict_fts_query, "retry": True, "strict": True},
+                                )
+                            )
+                        return results
+                except Exception:
+                    # Fall through to returning []
+                    pass
             # We also see this error with hyphenated tokens like 'claude-opus*' which
             # the FTS5 parser can interpret in a way that triggers a bogus column lookup
             # for the suffix token ('opus').
@@ -199,13 +227,45 @@ class FTSSearchStrategy(SearchStrategy):
         
         if len(words) == 1:
             # Single word: use prefix matching
+            if words[0].upper() in FTS_RESERVED_KEYWORDS:
+                return f'"{words[0]}"'
             return f"{words[0]}*"
         
         # Multiple words: combine with OR for broader matching
         # Also add the full phrase for exact matching boost
         terms = [f'"{sanitized}"']  # Exact phrase
-        terms.extend([f"{w}*" for w in words])  # Prefix match each word
+        for w in words:
+            if w.upper() in FTS_RESERVED_KEYWORDS:
+                terms.append(f'"{w}"')
+            else:
+                terms.append(f"{w}*")
         
+        return " OR ".join(terms)
+
+    def _sanitize_query_strict(self, query: str) -> str:
+        """
+        Build a conservative FTS5 query that avoids operator keywords.
+        
+        This is used as a fallback when the standard sanitizer still triggers
+        FTS5 syntax errors (e.g., due to reserved operators like OR).
+        
+        Args:
+            query: Raw query string.
+            
+        Returns:
+            Conservative FTS5 query string, or empty string if nothing usable.
+        """
+        sanitized = re.sub(r"[^\w\s]", " ", query)
+        sanitized = ' '.join(sanitized.split())
+        if not sanitized:
+            return ""
+        words = [w for w in sanitized.split() if w.upper() not in FTS_RESERVED_KEYWORDS]
+        if not words:
+            return ""
+        if len(words) == 1:
+            return f"{words[0]}*"
+        terms = [f'"{" ".join(words)}"']
+        terms.extend([f"{w}*" for w in words])
         return " OR ".join(terms)
     
     def search_exact_phrase(
