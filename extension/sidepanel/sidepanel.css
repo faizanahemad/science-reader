@@ -298,6 +298,11 @@ body {
     color: var(--accent);
 }
 
+.action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 /* ==================== Main View Layout ==================== */
 #main-view {
     display: flex;
@@ -862,6 +867,16 @@ input[type="range"]::-webkit-slider-thumb {
     gap: 8px;
     color: var(--accent);
     font-size: 13px;
+}
+
+.page-context-badge {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 2px 6px;
+    line-height: 1;
 }
 
 /* ==================== Chat Container ==================== */

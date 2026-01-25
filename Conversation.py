@@ -3138,16 +3138,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         
         # Start PKB context retrieval in parallel (if PKB is available)
         pkb_context_future = None
+        pkb_k = None
         time_logger.info(f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}")
         time_logger.info(f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
         if PKB_AVAILABLE and user_email:
             time_logger.info(f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}")
+            pkb_k = 10
             pkb_context_future = get_async_future(
                 self._get_pkb_context,
                 user_email,
                 query["messageText"],
                 self.running_summary,
-                k=10,
+                k=pkb_k,
                 attached_claim_ids=attached_claim_ids,
                 conversation_id=self.conversation_id,
                 conversation_pinned_claim_ids=conversation_pinned_claim_ids,
@@ -3515,6 +3517,50 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 time_logger.info("[PKB-REPLY] pkb_context_future is None (PKB fetch was not started)")
             
+            def _format_pkb_audit_details(context_text, k_value):
+                """Build a structured PKB audit summary as a bullet list."""
+                lines = [line.strip() for line in (context_text or "").splitlines() if line.strip().startswith("- ")]
+                source_counts = {
+                    "referenced": 0,
+                    "attached": 0,
+                    "pinned": 0,
+                    "conv_pinned": 0,
+                    "auto": 0
+                }
+                for line in lines:
+                    if "[REFERENCED]" in line:
+                        source_counts["referenced"] += 1
+                    if "[ATTACHED]" in line:
+                        source_counts["attached"] += 1
+                    if "[PINNED]" in line and "[CONV-PINNED]" not in line:
+                        source_counts["pinned"] += 1
+                    if "[CONV-PINNED]" in line:
+                        source_counts["conv_pinned"] += 1
+                    if "[AUTO]" in line:
+                        source_counts["auto"] += 1
+
+                detail_lines = [
+                    f"- PKB available: {PKB_AVAILABLE}",
+                    f"- User email present: {bool(user_email)}",
+                    f"- Requested k: {k_value}",
+                    f"- Attached claim ids: {len(attached_claim_ids)}",
+                    f"- Conversation pinned claim ids: {len(conversation_pinned_claim_ids)}",
+                    f"- Referenced claim ids: {len(referenced_claim_ids)}",
+                    f"- Retrieved claims: {len(lines)}",
+                    "- Source counts:",
+                    f"  - referenced: {source_counts['referenced']}",
+                    f"  - attached: {source_counts['attached']}",
+                    f"  - pinned: {source_counts['pinned']}",
+                    f"  - conv_pinned: {source_counts['conv_pinned']}",
+                    f"  - auto: {source_counts['auto']}",
+                ]
+                if lines:
+                    detail_lines.append("- Retrieved claims:")
+                    detail_lines.extend(lines)
+                else:
+                    detail_lines.append("- Retrieved claims: none")
+                return "\n".join(detail_lines)
+            
             # Build user info prompt with both legacy data and PKB context
             pkb_section = ""
             if pkb_context:
@@ -3529,6 +3575,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 time_logger.info("[PKB-REPLY] pkb_context is empty, pkb_section will be empty")
                 yield {"text": '', "status": "PKB context: No memories found for this query"}
+            
+            pkb_audit_details = _format_pkb_audit_details(pkb_context, k_value=pkb_k if pkb_k is not None else "n/a")
+            pkb_audit_wrapper = collapsible_wrapper(
+                pkb_audit_details,
+                header="PKB Retrieval Details",
+                show_initially=False,
+                add_close_button=True
+            )
+            for chunk in pkb_audit_wrapper:
+                yield {"text": chunk, "status": "PKB retrieval details"}
             
             user_info_text = dedent(f"""
             Few details about the user and how they want us to respond to them:

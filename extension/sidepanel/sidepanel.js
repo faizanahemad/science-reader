@@ -124,10 +124,13 @@ const streamingIndicator = document.getElementById('streaming-indicator');
 // Page Context
 const pageContextBar = document.getElementById('page-context-bar');
 const pageContextTitle = document.getElementById('page-context-title');
+const pageContextBadge = document.getElementById('page-context-badge');
 const removePageContextBtn = document.getElementById('remove-page-context');
 
 // Input
 const attachPageBtn = document.getElementById('attach-page-btn');
+const refreshPageBtn = document.getElementById('refresh-page-btn');
+const appendPageBtn = document.getElementById('append-page-btn');
 const attachScreenshotBtn = document.getElementById('attach-screenshot-btn');
 const attachScrollshotBtn = document.getElementById('attach-scrollshot-btn');
 const multiTabBtn = document.getElementById('multi-tab-btn');
@@ -369,6 +372,8 @@ function setupEventListeners() {
     
     // Page context
     attachPageBtn.addEventListener('click', attachPageContent);
+    refreshPageBtn?.addEventListener('click', refreshPageContent);
+    appendPageBtn?.addEventListener('click', appendPageContent);
     attachScreenshotBtn?.addEventListener('click', attachScreenshotFromPage);
     attachScrollshotBtn?.addEventListener('click', attachScrollingScreenshotFromPage);
     removePageContextBtn.addEventListener('click', removePageContext);
@@ -1068,6 +1073,37 @@ function updateSendButton() {
     sendBtn.disabled = (!hasText && !hasImages) || state.isStreaming;
 }
 
+/**
+ * Update the page context badge text and visibility.
+ * @param {string} text - Badge text to display. Empty string hides the badge.
+ */
+function setPageContextBadge(text) {
+    if (!pageContextBadge) return;
+    if (text) {
+        pageContextBadge.textContent = text;
+        pageContextBadge.classList.remove('hidden');
+    } else {
+        pageContextBadge.textContent = '';
+        pageContextBadge.classList.add('hidden');
+    }
+}
+
+/**
+ * Update page context button states based on current UI state.
+ */
+function updatePageContextButtons() {
+    const hasContext = !!state.pageContext;
+    const isStreaming = state.isStreaming;
+
+    if (refreshPageBtn) refreshPageBtn.disabled = !hasContext || isStreaming;
+    if (appendPageBtn) appendPageBtn.disabled = !hasContext || isStreaming;
+
+    attachPageBtn.classList.toggle('active', hasContext);
+    refreshPageBtn?.classList.toggle('active', hasContext && state.pageContext?.mergeType === 'refreshed');
+    appendPageBtn?.classList.toggle('active', hasContext && state.pageContext?.mergeType === 'appended');
+    multiTabBtn.classList.toggle('active', hasContext && state.pageContext?.isMultiTab);
+}
+
 // ==================== Send Message ====================
 
 async function sendMessage() {
@@ -1099,11 +1135,22 @@ async function sendMessage() {
             if (response && !response.error) {
                 const context = await buildPageContextFromResponse(response, { showAlerts: false });
                 if (context) {
-                    state.pageContext = context;
+                    state.pageContext = {
+                        ...context,
+                        sources: [{
+                            url: context.url,
+                            title: context.title,
+                            content: context.content,
+                            timestamp: Date.now()
+                        }],
+                        mergeType: 'single',
+                        lastRefreshed: Date.now()
+                    };
                     const prefix = context.isOcr ? '🧾 ' : context.isScreenshot ? '📷 ' : '';
                     pageContextTitle.textContent = `${prefix}${state.pageContext.title || 'Page content'}`;
                     pageContextBar.classList.remove('hidden');
-                    attachPageBtn.classList.add('active');
+                    setPageContextBadge('');
+                    updatePageContextButtons();
                 }
             }
         } catch (e) {
@@ -1142,6 +1189,7 @@ async function sendMessage() {
     state.isStreaming = true;
     streamingIndicator.classList.remove('hidden');
     stopBtnContainer.classList.remove('hidden');
+    updatePageContextButtons();
     
     // Create assistant message placeholder
     const assistantMessage = {
@@ -1242,6 +1290,7 @@ async function sendMessage() {
         state.abortController = null;
         streamingIndicator.classList.add('hidden');
         stopBtnContainer.classList.add('hidden');
+        updatePageContextButtons();
     }
 }
 
@@ -1252,6 +1301,7 @@ function stopStreaming() {
     state.isStreaming = false;
     streamingIndicator.classList.add('hidden');
     stopBtnContainer.classList.add('hidden');
+    updatePageContextButtons();
 }
 
 // ==================== Script Creation Mode ====================
@@ -1299,6 +1349,7 @@ async function handleScriptGeneration(description) {
     // Start streaming-like UI feedback
     state.isStreaming = true;
     streamingIndicator.classList.remove('hidden');
+    updatePageContextButtons();
     
     // Create assistant message placeholder
     const assistantMessage = {
@@ -1371,6 +1422,7 @@ async function handleScriptGeneration(description) {
         state.isStreaming = false;
         streamingIndicator.classList.add('hidden');
         stopBtnContainer.classList.add('hidden');
+        updatePageContextButtons();
     }
 }
 
@@ -1676,16 +1728,28 @@ async function attachScreenshotFromPage() {
             alert('Could not capture a screenshot.');
             return;
         }
-        state.pageContext = {
+        const context = {
             url: tabInfo?.url,
             title: tabInfo?.title,
             content: 'Screenshot attached for analysis.',
             screenshot: screenshotResponse.screenshot,
             isScreenshot: true
         };
+        state.pageContext = {
+            ...context,
+            sources: [{
+                url: context.url,
+                title: context.title,
+                content: context.content,
+                timestamp: Date.now()
+            }],
+            mergeType: 'single',
+            lastRefreshed: Date.now()
+        };
         pageContextTitle.textContent = `📷 ${tabInfo?.title || 'Screenshot attached'}`;
         pageContextBar.classList.remove('hidden');
-        attachPageBtn.classList.add('active');
+        setPageContextBadge('');
+        updatePageContextButtons();
     } catch (e) {
         console.error('[Sidepanel] Manual screenshot failed:', e);
         alert('Failed to capture screenshot.');
@@ -1711,10 +1775,21 @@ async function attachScrollingScreenshotFromPage() {
             alert('Could not capture scrolling screenshot or OCR text.');
             return;
         }
-        state.pageContext = ocrContext;
+        state.pageContext = {
+            ...ocrContext,
+            sources: [{
+                url: ocrContext.url,
+                title: ocrContext.title,
+                content: ocrContext.content,
+                timestamp: Date.now()
+            }],
+            mergeType: 'single',
+            lastRefreshed: Date.now()
+        };
         pageContextTitle.textContent = `🧾 ${tabInfo?.title || 'OCR attached'}`;
         pageContextBar.classList.remove('hidden');
-        attachPageBtn.classList.add('active');
+        setPageContextBadge('');
+        updatePageContextButtons();
     } catch (e) {
         console.error('[Sidepanel] Scrolling screenshot failed:', e);
         pageContextTitle.textContent = '🧾 Scrolling screenshot failed';
@@ -1881,10 +1956,22 @@ async function attachPageContent() {
                 return;
             }
 
-            state.pageContext = context;
+            state.pageContext = {
+                ...context,
+                sources: [{
+                    url: context.url,
+                    title: context.title,
+                    content: context.content,
+                    timestamp: Date.now()
+                }],
+                mergeType: 'single',
+                lastRefreshed: Date.now()
+            };
             const prefix = context.isOcr ? '🧾 ' : context.isScreenshot ? '📷 ' : '';
             pageContextTitle.textContent = `${prefix}${response.title || 'Page content attached'}`;
             pageContextBar.classList.remove('hidden');
+            setPageContextBadge('');
+            updatePageContextButtons();
         } else {
             alert('Could not extract page content');
             attachPageBtn.classList.remove('active');
@@ -1896,6 +1983,119 @@ async function attachPageContent() {
     }
 }
 
+/**
+ * Refresh page content by replacing the existing context with the latest extraction.
+ */
+async function refreshPageContent() {
+    if (state.isStreaming) return;
+
+    try {
+        pageContextTitle.textContent = '🔄 Refreshing...';
+        pageContextBar.classList.remove('hidden');
+
+        const response = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE });
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Could not extract page content');
+        }
+
+        const context = await buildPageContextFromResponse(response, { showAlerts: true });
+        if (!context) return;
+
+        state.pageContext = {
+            ...context,
+            sources: [{
+                url: context.url,
+                title: context.title,
+                content: context.content,
+                timestamp: Date.now()
+            }],
+            mergeType: 'refreshed',
+            lastRefreshed: Date.now()
+        };
+        state.multiTabContexts = [];
+        state.selectedTabIds = [];
+
+        const prefix = context.isOcr ? '🧾 ' : context.isScreenshot ? '📷 ' : '🔄 ';
+        pageContextTitle.textContent = `${prefix}${context.title || 'Content refreshed'}`;
+        pageContextBar.classList.remove('hidden');
+        setPageContextBadge('');
+        updateMultiTabIndicator();
+        updatePageContextButtons();
+    } catch (error) {
+        console.error('[Sidepanel] Refresh page content failed:', error);
+        alert('Failed to refresh page content');
+        updatePageContextButtons();
+    }
+}
+
+/**
+ * Append page content by merging the latest extraction into existing context.
+ */
+async function appendPageContent() {
+    if (state.isStreaming || !state.pageContext) return;
+
+    try {
+        pageContextTitle.textContent = '➕ Appending...';
+        pageContextBar.classList.remove('hidden');
+
+        const response = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE });
+        if (!response || response.error) {
+            throw new Error(response?.error || 'Could not extract page content');
+        }
+
+        const newContext = await buildPageContextFromResponse(response, { showAlerts: true });
+        if (!newContext) return;
+
+        if (!state.pageContext.sources) {
+            state.pageContext.sources = [{
+                url: state.pageContext.url,
+                title: state.pageContext.title,
+                content: state.pageContext.content,
+                timestamp: state.pageContext.lastRefreshed || Date.now()
+            }];
+        }
+
+        const existingUrls = state.pageContext.sources.map((source) => source.url);
+        if (existingUrls.includes(newContext.url)) {
+            const proceed = confirm('This page is already included. Add it again?');
+            if (!proceed) {
+                updatePageContextButtons();
+                return;
+            }
+        }
+
+        state.pageContext.sources.push({
+            url: newContext.url,
+            title: newContext.title,
+            content: newContext.content,
+            timestamp: Date.now()
+        });
+
+        const combinedContent = state.pageContext.sources.map((source, index) => (
+            `## Source ${index + 1}: ${source.title}\nURL: ${source.url}\n\n${source.content}`
+        )).join('\n\n---\n\n');
+
+        state.pageContext = {
+            ...state.pageContext,
+            url: 'Multiple sources',
+            title: `${state.pageContext.sources.length} sources`,
+            content: combinedContent,
+            mergeType: 'appended',
+            tabCount: state.pageContext.sources.length,
+            lastRefreshed: Date.now()
+        };
+
+        pageContextTitle.textContent = `➕ ${state.pageContext.sources.length} sources attached`;
+        setPageContextBadge(`${state.pageContext.sources.length} sources`);
+        pageContextBar.classList.remove('hidden');
+        updatePageContextButtons();
+    } catch (error) {
+        console.error('[Sidepanel] Append page content failed:', error);
+        alert('Failed to append page content');
+        updatePageContextButtons();
+    }
+}
+
 function removePageContext() {
     state.pageContext = null;
     state.multiTabContexts = [];
@@ -1903,7 +2103,9 @@ function removePageContext() {
     pageContextBar.classList.add('hidden');
     attachPageBtn.classList.remove('active');
     multiTabBtn.classList.remove('active');
+    setPageContextBadge('');
     updateMultiTabIndicator();
+    updatePageContextButtons();
 }
 
 // ==================== Multi-Tab ====================
@@ -2020,6 +2222,8 @@ async function handleTabSelection() {
         state.multiTabContexts = [];
         multiTabBtn.classList.remove('active');
         updateMultiTabIndicator();
+        setPageContextBadge('');
+        updatePageContextButtons();
         return;
     }
     
@@ -2113,6 +2317,8 @@ async function handleTabSelection() {
         pageContextTitle.textContent = `📑 ${contexts.length} tab${contexts.length > 1 ? 's' : ''} attached`;
         pageContextBar.classList.remove('hidden');
         attachPageBtn.classList.add('active');
+        setPageContextBadge(`${contexts.length} tabs`);
+        updatePageContextButtons();
     }
 }
 
