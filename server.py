@@ -116,6 +116,7 @@ def load_conversation(conversation_id: str) -> Conversation:
     conversation.clear_lockfile("memory")
     conversation.clear_lockfile("messages")
     conversation.clear_lockfile("uploaded_documents_list")
+    conversation.clear_lockfile("artefacts")
     return conversation
 
 

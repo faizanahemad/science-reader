@@ -40,6 +40,7 @@ def register_blueprints(app: Flask) -> None:
     from .pkb import pkb_bp
     from .prompts import prompts_bp
     from .code_runner import code_runner_bp
+    from .artefacts import artefacts_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(static_bp)
@@ -53,5 +54,6 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(pkb_bp)
     app.register_blueprint(prompts_bp)
     app.register_blueprint(code_runner_bp)
+    app.register_blueprint(artefacts_bp)
 
 

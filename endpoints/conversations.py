@@ -52,33 +52,52 @@ conversations_bp = Blueprint("conversations", __name__)
 logger = logging.getLogger(__name__)
 _ALPHABET = string.ascii_letters + string.digits
 
-@conversations_bp.route("/list_messages_by_conversation/<conversation_id>", methods=["GET"])
+
+@conversations_bp.route(
+    "/list_messages_by_conversation/<conversation_id>", methods=["GET"]
+)
 @limiter.limit("1000 per minute")
 @login_required
 def list_messages_by_conversation(conversation_id: str):
     keys = keyParser(session)
     email, _name, _loggedin = get_session_identity()
-    _last_n_messages = request.args.get("last_n_messages", 10)  # preserved; unused (legacy)
+    _last_n_messages = request.args.get(
+        "last_n_messages", 10
+    )  # preserved; unused (legacy)
 
-    if not checkConversationExists(email, conversation_id, users_dir=get_state().users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+    if not checkConversationExists(
+        email, conversation_id, users_dir=get_state().users_dir
+    ):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(get_state(), conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        get_state(), conversation_id=conversation_id, keys=keys
+    )
     messages = conversation.get_message_list()
     return jsonify(messages)
 
 
-@conversations_bp.route("/list_messages_by_conversation_shareable/<conversation_id>", methods=["GET"])
+@conversations_bp.route(
+    "/list_messages_by_conversation_shareable/<conversation_id>", methods=["GET"]
+)
 @limiter.limit("100 per minute")
 def list_messages_by_conversation_shareable(conversation_id: str):
     keys = keyParser(session)
     _email, _name, _loggedin = get_session_identity()
 
-    conversation_ids = [c[1] for c in getAllCoversations(users_dir=get_state().users_dir)]
+    conversation_ids = [
+        c[1] for c in getAllCoversations(users_dir=get_state().users_dir)
+    ]
     if conversation_id not in conversation_ids:
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation: Conversation = get_conversation_with_keys(get_state(), conversation_id=conversation_id, keys=keys)
+    conversation: Conversation = get_conversation_with_keys(
+        get_state(), conversation_id=conversation_id, keys=keys
+    )
 
     docs: List[DocIndex] = conversation.get_uploaded_documents(readonly=True)
     docs = [d.get_short_info() for d in docs]
@@ -94,15 +113,27 @@ def get_conversation_history(conversation_id: str):
 
     try:
         user_email = session.get("email")
-        if not checkConversationExists(user_email, conversation_id, users_dir=get_state().users_dir):
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+        if not checkConversationExists(
+            user_email, conversation_id, users_dir=get_state().users_dir
+        ):
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         # Use cached conversation + lock-clearing behavior already embedded in the cache loader.
         conversation: Conversation = get_state().conversation_cache[conversation_id]
         query = request.args.get("query", "")
         history_text = conversation.get_conversation_history(query)
 
-        return jsonify({"conversation_id": conversation_id, "history": history_text, "timestamp": time.time()})
+        return jsonify(
+            {
+                "conversation_id": conversation_id,
+                "history": history_text,
+                "timestamp": time.time(),
+            }
+        )
     except Exception as e:
         return json_error(str(e), status=500, code="internal_error")
 
@@ -120,12 +151,18 @@ def get_conversation_details(conversation_id: str):
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     data = conversation.get_metadata()
 
-    workspace_info = getWorkspaceForConversation(users_dir=state.users_dir, conversation_id=conversation_id)
+    workspace_info = getWorkspaceForConversation(
+        users_dir=state.users_dir, conversation_id=conversation_id
+    )
     if not workspace_info:
         workspace_info = {"workspace_id": None}
 
@@ -133,7 +170,9 @@ def get_conversation_details(conversation_id: str):
     return jsonify(data)
 
 
-@conversations_bp.route("/make_conversation_stateless/<conversation_id>", methods=["DELETE"])
+@conversations_bp.route(
+    "/make_conversation_stateless/<conversation_id>", methods=["DELETE"]
+)
 @limiter.limit("25 per minute")
 @login_required
 def make_conversation_stateless(conversation_id: str):
@@ -142,14 +181,20 @@ def make_conversation_stateless(conversation_id: str):
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     conversation.make_stateless()
     return jsonify({"message": f"Conversation {conversation_id} stateless now."})
 
 
-@conversations_bp.route("/make_conversation_stateful/<conversation_id>", methods=["PUT"])
+@conversations_bp.route(
+    "/make_conversation_stateful/<conversation_id>", methods=["PUT"]
+)
 @limiter.limit("25 per minute")
 @login_required
 def make_conversation_stateful(conversation_id: str):
@@ -158,27 +203,40 @@ def make_conversation_stateful(conversation_id: str):
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     conversation.make_stateful()
     return jsonify({"message": f"Conversation {conversation_id} deleted"})
 
 
-@conversations_bp.route("/edit_message_from_conversation/<conversation_id>/<message_id>/<index>", methods=["POST"])
+@conversations_bp.route(
+    "/edit_message_from_conversation/<conversation_id>/<message_id>/<index>",
+    methods=["POST"],
+)
 @limiter.limit("30 per minute")
 @login_required
 def edit_message_from_conversation(conversation_id: str, message_id: str, index: str):
     email, _name, _loggedin = get_session_identity()
     keys = keyParser(session)
 
-    message_text = request.json.get("text") if request.is_json and request.json else None
+    message_text = (
+        request.json.get("text") if request.is_json and request.json else None
+    )
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     conversation.edit_message(message_id, index, message_text)
     return jsonify({"message": f"Message {message_id} deleted"})
 
@@ -199,14 +257,20 @@ def move_messages_up_or_down(conversation_id: str):
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     conversation.move_messages_up_or_down(message_ids, direction)
     return jsonify({"message": f"Messages {message_ids} moved {direction}"})
 
 
-@conversations_bp.route("/get_next_question_suggestions/<conversation_id>", methods=["GET"])
+@conversations_bp.route(
+    "/get_next_question_suggestions/<conversation_id>", methods=["GET"]
+)
 @limiter.limit("30 per minute")
 @login_required
 def get_next_question_suggestions(conversation_id: str):
@@ -215,27 +279,42 @@ def get_next_question_suggestions(conversation_id: str):
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     suggestions = conversation.get_next_question_suggestions()
     return jsonify({"suggestions": suggestions})
 
 
-@conversations_bp.route("/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>", methods=["POST"])
+@conversations_bp.route(
+    "/show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>",
+    methods=["POST"],
+)
 @limiter.limit("30 per minute")
 @login_required
-def show_hide_message_from_conversation(conversation_id: str, message_id: str, index: str):
+def show_hide_message_from_conversation(
+    conversation_id: str, message_id: str, index: str
+):
     email, _name, _loggedin = get_session_identity()
     keys = keyParser(session)
 
-    show_hide = request.json.get("show_hide") if request.is_json and request.json else None
+    show_hide = (
+        request.json.get("show_hide") if request.is_json and request.json else None
+    )
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     conversation.show_hide_message(message_id, index, show_hide)
     return jsonify({"message": f"Message {message_id} state changed to {show_hide}"})
 
@@ -254,14 +333,20 @@ def clone_conversation(conversation_id: str):
 
     # Preserve legacy behavior: require the conversation to already be in the cache.
     if conversation_id not in state.conversation_cache:
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation: Conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation: Conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
 
     new_conversation: Conversation = conversation.clone_conversation()
     new_conversation.save_local()
 
-    workspace_info = getWorkspaceForConversation(users_dir=state.users_dir, conversation_id=conversation_id)
+    workspace_info = getWorkspaceForConversation(
+        users_dir=state.users_dir, conversation_id=conversation_id
+    )
     workspace_id = workspace_info.get("workspace_id") if workspace_info else None
 
     addConversation(
@@ -274,7 +359,12 @@ def clone_conversation(conversation_id: str):
 
     state.conversation_cache[new_conversation.conversation_id] = new_conversation
 
-    return jsonify({"message": f"Conversation {conversation_id} cloned", "conversation_id": new_conversation.conversation_id})
+    return jsonify(
+        {
+            "message": f"Conversation {conversation_id} cloned",
+            "conversation_id": new_conversation.conversation_id,
+        }
+    )
 
 
 @conversations_bp.route("/delete_conversation/<conversation_id>", methods=["DELETE"])
@@ -286,9 +376,13 @@ def delete_conversation(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
 
     del state.conversation_cache[conversation_id]
     conversation.delete_conversation()
@@ -298,7 +392,10 @@ def delete_conversation(conversation_id: str):
     return jsonify({"message": f"Conversation {conversation_id} deleted"})
 
 
-@conversations_bp.route("/delete_message_from_conversation/<conversation_id>/<message_id>/<index>", methods=["DELETE"])
+@conversations_bp.route(
+    "/delete_message_from_conversation/<conversation_id>/<message_id>/<index>",
+    methods=["DELETE"],
+)
 @limiter.limit("300 per minute")
 @login_required
 def delete_message_from_conversation(conversation_id: str, message_id: str, index: str):
@@ -307,15 +404,27 @@ def delete_message_from_conversation(conversation_id: str, message_id: str, inde
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     try:
         conversation.delete_message(message_id, index)
+        try:
+            conversation.delete_artefact_message_link(str(message_id))
+        except Exception:
+            logger.exception(
+                f"Failed to delete artefact link for conversation_id={conversation_id}, message_id={message_id}"
+            )
     except ValueError:
         return json_error("Invalid index", status=400, code="invalid_index")
     except json.JSONDecodeError:
-        logger.exception(f"Conversation JSON storage is corrupted for conversation_id={conversation_id}")
+        logger.exception(
+            f"Conversation JSON storage is corrupted for conversation_id={conversation_id}"
+        )
         return json_error(
             "Conversation storage is corrupted (invalid JSON). "
             "This can happen if the server was interrupted mid-write. "
@@ -328,10 +437,14 @@ def delete_message_from_conversation(conversation_id: str, message_id: str, inde
         logger.exception(
             f"Failed to delete message for conversation_id={conversation_id}, message_id={message_id}, index={index}: {e}"
         )
-        return json_error("Failed to delete message", status=500, code="delete_message_failed")
+        return json_error(
+            "Failed to delete message", status=500, code="delete_message_failed"
+        )
 
     # Some clients send "undefined" for message_id; include index for clarity.
-    return jsonify({"message": f"Message deleted", "message_id": message_id, "index": index})
+    return jsonify(
+        {"message": f"Message deleted", "message_id": message_id, "index": index}
+    )
 
 
 @conversations_bp.route("/delete_last_message/<conversation_id>", methods=["DELETE"])
@@ -344,13 +457,19 @@ def delete_last_message(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation: Conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation: Conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     try:
         conversation.delete_last_turn()
     except json.JSONDecodeError:
-        logger.exception(f"Conversation JSON storage is corrupted for conversation_id={conversation_id}")
+        logger.exception(
+            f"Conversation JSON storage is corrupted for conversation_id={conversation_id}"
+        )
         return json_error(
             "Conversation storage is corrupted (invalid JSON). "
             "This can happen if the server was interrupted mid-write. "
@@ -359,8 +478,14 @@ def delete_last_message(conversation_id: str):
             code="conversation_storage_corrupt",
         )
     except Exception as e:
-        logger.exception(f"Failed to delete last turn for conversation_id={conversation_id}: {e}")
-        return json_error("Failed to delete last message", status=500, code="delete_last_message_failed")
+        logger.exception(
+            f"Failed to delete last turn for conversation_id={conversation_id}: {e}"
+        )
+        return json_error(
+            "Failed to delete last message",
+            status=500,
+            code="delete_last_message_failed",
+        )
     return jsonify({"message": f"Message {message_id} deleted"})
 
 
@@ -373,9 +498,13 @@ def set_memory_pad(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     memory_pad = request.json.get("text") if request.is_json and request.json else None
     conversation.set_memory_pad(memory_pad)
     return jsonify({"message": "Memory pad set"})
@@ -390,15 +519,20 @@ def fetch_memory_pad(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
     memory_pad = conversation.memory_pad
     return jsonify({"text": memory_pad})
 
 
 @conversations_bp.route(
-    f"/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>", methods=["GET"]
+    f"/get_conversation_output_docs/{COMMON_SALT_STRING}/<conversation_id>/<document_file_name>",
+    methods=["GET"],
 )
 @limiter.limit("25 per minute")
 def get_conversation_output_docs(conversation_id: str, document_file_name: str):
@@ -440,10 +574,17 @@ def cancel_response(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    cancellation_requests[conversation_id] = {"cancelled": True, "timestamp": time.time()}
-    logger.info(f"Cancellation requested for conversation {conversation_id} by user {email}")
+    cancellation_requests[conversation_id] = {
+        "cancelled": True,
+        "timestamp": time.time(),
+    }
+    logger.info(
+        f"Cancellation requested for conversation {conversation_id} by user {email}"
+    )
     return jsonify({"message": "Cancellation requested successfully"}), 200
 
 
@@ -463,7 +604,9 @@ def cleanup_cancellations():
     for conv_id in to_remove:
         del cancellation_requests[conv_id]
 
-    return jsonify({"message": f"Cleaned up {len(to_remove)} old cancellation requests"}), 200
+    return jsonify(
+        {"message": f"Cleaned up {len(to_remove)} old cancellation requests"}
+    ), 200
 
 
 @conversations_bp.route("/cancel_coding_hint/<conversation_id>", methods=["POST"])
@@ -478,10 +621,17 @@ def cancel_coding_hint(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    coding_hint_cancellation_requests[conversation_id] = {"cancelled": True, "timestamp": time.time()}
-    logger.info(f"Coding hint cancellation requested for conversation {conversation_id} by user {email}")
+    coding_hint_cancellation_requests[conversation_id] = {
+        "cancelled": True,
+        "timestamp": time.time(),
+    }
+    logger.info(
+        f"Coding hint cancellation requested for conversation {conversation_id} by user {email}"
+    )
     return jsonify({"message": "Coding hint cancellation requested successfully"}), 200
 
 
@@ -497,11 +647,20 @@ def cancel_coding_solution(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    coding_solution_cancellation_requests[conversation_id] = {"cancelled": True, "timestamp": time.time()}
-    logger.info(f"Coding solution cancellation requested for conversation {conversation_id} by user {email}")
-    return jsonify({"message": "Coding solution cancellation requested successfully"}), 200
+    coding_solution_cancellation_requests[conversation_id] = {
+        "cancelled": True,
+        "timestamp": time.time(),
+    }
+    logger.info(
+        f"Coding solution cancellation requested for conversation {conversation_id} by user {email}"
+    )
+    return jsonify(
+        {"message": "Coding solution cancellation requested successfully"}
+    ), 200
 
 
 @conversations_bp.route("/get_coding_hint/<conversation_id>", methods=["POST"])
@@ -515,17 +674,25 @@ def get_coding_hint_endpoint(conversation_id: str):
 
     try:
         user_email = session.get("email")
-        if not checkConversationExists(user_email, conversation_id, users_dir=state.users_dir):
+        if not checkConversationExists(
+            user_email, conversation_id, users_dir=state.users_dir
+        ):
             logger.warning(
                 f"User {user_email} attempted to access conversation {conversation_id} without permission"
             )
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         data = request.get_json() or {}
         current_code = data.get("current_code", "")
         context_text = data.get("context", "")
 
-        conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+        conversation = get_conversation_with_keys(
+            state, conversation_id=conversation_id, keys=keys
+        )
         conversation_history = conversation.get_conversation_history()
 
         from base import get_coding_hint
@@ -621,17 +788,25 @@ def get_full_solution_endpoint(conversation_id: str):
 
     try:
         user_email = session.get("email")
-        if not checkConversationExists(user_email, conversation_id, users_dir=state.users_dir):
+        if not checkConversationExists(
+            user_email, conversation_id, users_dir=state.users_dir
+        ):
             logger.warning(
                 f"User {user_email} attempted to access conversation {conversation_id} without permission"
             )
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         data = request.get_json() or {}
         current_code = data.get("current_code", "")
         context_text = data.get("context", "")
 
-        conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+        conversation = get_conversation_with_keys(
+            state, conversation_id=conversation_id, keys=keys
+        )
         conversation_history = conversation.get_conversation_history()
 
         from base import get_full_solution_code
@@ -695,7 +870,9 @@ def get_full_solution_endpoint(conversation_id: str):
                 )
 
             except Exception as e:
-                logger.error(f"Error in solution streaming for {conversation_id}: {str(e)}")
+                logger.error(
+                    f"Error in solution streaming for {conversation_id}: {str(e)}"
+                )
                 yield (
                     json.dumps(
                         {
@@ -728,11 +905,20 @@ def cancel_doubt_clearing(conversation_id: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    doubt_cancellation_requests[conversation_id] = {"cancelled": True, "timestamp": time.time()}
-    logger.info(f"Doubt clearing cancellation requested for conversation {conversation_id} by user {email}")
-    return jsonify({"message": "Doubt clearing cancellation requested successfully"}), 200
+    doubt_cancellation_requests[conversation_id] = {
+        "cancelled": True,
+        "timestamp": time.time(),
+    }
+    logger.info(
+        f"Doubt clearing cancellation requested for conversation {conversation_id} by user {email}"
+    )
+    return jsonify(
+        {"message": "Doubt clearing cancellation requested successfully"}
+    ), 200
 
 
 @conversations_bp.route("/set_flag/<conversation_id>/<flag>", methods=["POST"])
@@ -743,11 +929,15 @@ def set_flag(conversation_id: str, flag: str):
     state = get_state()
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
     conversation = state.conversation_cache[conversation_id]
     if conversation is None:
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
     valid_colors = [
         "red",
@@ -772,12 +962,18 @@ def set_flag(conversation_id: str, flag: str):
         conversation.flag = None
         return jsonify({"message": "Flag cleared successfully"}), 200
 
-    assert flag is not None and len(flag.strip()) > 0 and flag.strip().lower() in valid_colors
+    assert (
+        flag is not None
+        and len(flag.strip()) > 0
+        and flag.strip().lower() in valid_colors
+    )
     conversation.flag = flag.strip().lower()
     return jsonify({"message": "Flag set successfully"}), 200
 
 
-def _create_conversation_simple(domain: str, workspace_id: str | None = None) -> Conversation:
+def _create_conversation_simple(
+    domain: str, workspace_id: str | None = None
+) -> Conversation:
     """
     Create and persist a new conversation, then return the Conversation object.
 
@@ -790,7 +986,9 @@ def _create_conversation_simple(domain: str, workspace_id: str | None = None) ->
     from base import get_embedding_model
 
     state = get_state()
-    conversation_id = email + "_" + "".join(secrets.choice(_ALPHABET) for _ in range(36))
+    conversation_id = (
+        email + "_" + "".join(secrets.choice(_ALPHABET) for _ in range(36))
+    )
     conversation = Conversation(
         email,
         openai_embed=get_embedding_model(keys),
@@ -799,7 +997,13 @@ def _create_conversation_simple(domain: str, workspace_id: str | None = None) ->
         domain=domain,
     )
     conversation = attach_keys(conversation, keys)
-    addConversation(email, conversation.conversation_id, workspace_id, domain, users_dir=state.users_dir)
+    addConversation(
+        email,
+        conversation.conversation_id,
+        workspace_id,
+        domain,
+        users_dir=state.users_dir,
+    )
     conversation.save_local()
     return conversation
 
@@ -814,68 +1018,107 @@ def list_conversation_by_user(domain: str):
     keys = keyParser(session)
 
     state = get_state()
-    _last_n_conversations = request.args.get("last_n_conversations", 10)  # preserved; unused (legacy)
+    _last_n_conversations = request.args.get(
+        "last_n_conversations", 10
+    )  # preserved; unused (legacy)
 
     conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
     conversation_ids = [c[1] for c in conv_db]
-    conversations = [state.conversation_cache[conversation_id] for conversation_id in conversation_ids]
+    conversations = [
+        state.conversation_cache[conversation_id]
+        for conversation_id in conversation_ids
+    ]
     conversation_id_to_workspace_id = {
-        c[1]: {"workspace_id": c[4], "workspace_name": c[5]} for c in conv_db if c[4] is not None
+        c[1]: {"workspace_id": c[4], "workspace_name": c[5]}
+        for c in conv_db
+        if c[4] is not None
     }
 
-    stateless_conversations = [c for c in conversations if c is not None and c.stateless]
+    stateless_conversations = [
+        c for c in conversations if c is not None and c.stateless
+    ]
     stateless_conversation_ids = [c.conversation_id for c in stateless_conversations]
     for conversation in stateless_conversations:
-        removeUserFromConversation(email, conversation.conversation_id, users_dir=state.users_dir)
+        removeUserFromConversation(
+            email, conversation.conversation_id, users_dir=state.users_dir
+        )
         del state.conversation_cache[conversation.conversation_id]
-        deleteConversationForUser(email, conversation.conversation_id, users_dir=state.users_dir)
+        deleteConversationForUser(
+            email, conversation.conversation_id, users_dir=state.users_dir
+        )
         conversation.delete_conversation()
 
     none_conversation_ids: list[str] = []
     for conversation_id, conversation in zip(conversation_ids, conversations):
         if conversation is None:
-            removeUserFromConversation(email, conversation_id, users_dir=state.users_dir)
+            removeUserFromConversation(
+                email, conversation_id, users_dir=state.users_dir
+            )
             del state.conversation_cache[conversation_id]
             deleteConversationForUser(email, conversation_id, users_dir=state.users_dir)
             none_conversation_ids.append(conversation_id)
 
     cleanup_deleted_conversations(
-        none_conversation_ids + stateless_conversation_ids, users_dir=state.users_dir, logger=logger
+        none_conversation_ids + stateless_conversation_ids,
+        users_dir=state.users_dir,
+        logger=logger,
     )
 
     conversations = [c for c in conversations if c is not None and c.domain == domain]
     conversations = [set_keys_on_docs(c, keys) for c in conversations]
     data = [[c.get_metadata(), c] for c in conversations]
     for metadata, conversation in data:
-        assert (
-            conversation.conversation_id in conversation_id_to_workspace_id
-        ), f"Conversation {conversation.conversation_id} not found in conversation_id_to_workspace_id"
-        metadata["workspace_id"] = conversation_id_to_workspace_id[conversation.conversation_id]["workspace_id"]
-        metadata["workspace_name"] = conversation_id_to_workspace_id[conversation.conversation_id]["workspace_name"]
+        assert conversation.conversation_id in conversation_id_to_workspace_id, (
+            f"Conversation {conversation.conversation_id} not found in conversation_id_to_workspace_id"
+        )
+        metadata["workspace_id"] = conversation_id_to_workspace_id[
+            conversation.conversation_id
+        ]["workspace_id"]
+        metadata["workspace_name"] = conversation_id_to_workspace_id[
+            conversation.conversation_id
+        ]["workspace_name"]
         metadata["domain"] = conversation.domain
 
     sorted_data_reverse = sorted(data, key=lambda x: x[0]["last_updated"], reverse=True)
 
-    if len(sorted_data_reverse) > 0 and len(sorted_data_reverse[0][0]["summary_till_now"].strip()) > 0:
-        sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: len(x[0]["summary_till_now"].strip()))
-        if sorted_data_reverse[0][0]["summary_till_now"].strip() == "" and len(sorted_data_reverse[0][1].get_message_list()) == 0:
+    if (
+        len(sorted_data_reverse) > 0
+        and len(sorted_data_reverse[0][0]["summary_till_now"].strip()) > 0
+    ):
+        sorted_data_reverse = sorted(
+            sorted_data_reverse, key=lambda x: len(x[0]["summary_till_now"].strip())
+        )
+        if (
+            sorted_data_reverse[0][0]["summary_till_now"].strip() == ""
+            and len(sorted_data_reverse[0][1].get_message_list()) == 0
+        ):
             new_conversation = sorted_data_reverse[0][1]
             sorted_data_reverse = sorted_data_reverse[1:]
-            sorted_data_reverse = sorted(sorted_data_reverse, key=lambda x: x[0]["last_updated"], reverse=True)
+            sorted_data_reverse = sorted(
+                sorted_data_reverse, key=lambda x: x[0]["last_updated"], reverse=True
+            )
         else:
             new_conversation = _create_conversation_simple(domain)
-        sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
+        sorted_data_reverse.insert(
+            0, [new_conversation.get_metadata(), new_conversation]
+        )
 
     if len(sorted_data_reverse) == 0:
         new_conversation = _create_conversation_simple(domain)
-        sorted_data_reverse.insert(0, [new_conversation.get_metadata(), new_conversation])
+        sorted_data_reverse.insert(
+            0, [new_conversation.get_metadata(), new_conversation]
+        )
 
     sorted_metadata_reverse = [sd[0] for sd in sorted_data_reverse]
     return jsonify(sorted_metadata_reverse)
 
 
-@conversations_bp.route("/create_conversation/<domain>/", defaults={"workspace_id": None}, methods=["POST"])
-@conversations_bp.route("/create_conversation/<domain>/<workspace_id>", methods=["POST"])
+@conversations_bp.route(
+    "/create_conversation/<domain>/", defaults={"workspace_id": None}, methods=["POST"]
+)
+@conversations_bp.route(
+    "/create_conversation/<domain>/<workspace_id>", methods=["POST"]
+)
 @limiter.limit("500 per minute")
 @login_required
 def create_conversation(domain: str, workspace_id: str | None = None):
@@ -884,7 +1127,9 @@ def create_conversation(domain: str, workspace_id: str | None = None):
 
     conversation = _create_conversation_simple(domain, workspace_id)
     data = conversation.get_metadata()
-    data["workspace"] = getWorkspaceForConversation(users_dir=state.users_dir, conversation_id=conversation.conversation_id)
+    data["workspace"] = getWorkspaceForConversation(
+        users_dir=state.users_dir, conversation_id=conversation.conversation_id
+    )
     return jsonify(data)
 
 
@@ -892,9 +1137,13 @@ def create_conversation(domain: str, workspace_id: str | None = None):
 @limiter.limit("100 per minute")
 def shared_chat(conversation_id: str):
     state = get_state()
-    conversation_ids = [c[1] for c in getConversationById(conversation_id, users_dir=state.users_dir)]
+    conversation_ids = [
+        c[1] for c in getConversationById(conversation_id, users_dir=state.users_dir)
+    ]
     if conversation_id not in conversation_ids:
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
     conversation: Conversation = state.conversation_cache[conversation_id]
     data = conversation.get_metadata()
@@ -922,12 +1171,18 @@ def send_message(conversation_id: str):
     email, _name, _loggedin = get_session_identity()
     state = get_state()
 
-    user_details = getUserFromUserDetailsTable(email, users_dir=state.users_dir, logger=logger)
+    user_details = getUserFromUserDetailsTable(
+        email, users_dir=state.users_dir, logger=logger
+    )
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
-    conversation: Conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation: Conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
 
     query = request.json
 
@@ -959,8 +1214,12 @@ def send_message(conversation_id: str):
                     if isinstance(parsed, dict):
                         if not captured_response_message_id:
                             mids = parsed.get("message_ids") or {}
-                            if isinstance(mids, dict) and isinstance(mids.get("response_message_id"), str):
-                                captured_response_message_id = mids["response_message_id"]
+                            if isinstance(mids, dict) and isinstance(
+                                mids.get("response_message_id"), str
+                            ):
+                                captured_response_message_id = mids[
+                                    "response_message_id"
+                                ]
 
                         status = str(parsed.get("status", "") or "").lower()
                         if "saving answer" in status:
@@ -979,9 +1238,15 @@ def send_message(conversation_id: str):
         conversation.clear_cancellation()
         # Post-stream background work (must never block streaming / user experience)
         try:
-            persist_or_not = bool(query.get("checkboxes", {}).get("persist_or_not", True))
+            persist_or_not = bool(
+                query.get("checkboxes", {}).get("persist_or_not", True)
+            )
             if persist_or_not:
-                captured_answer_text = "".join(captured_answer_parts).strip() if captured_answer_parts else ""
+                captured_answer_text = (
+                    "".join(captured_answer_parts).strip()
+                    if captured_answer_parts
+                    else ""
+                )
                 get_async_future(
                     _create_auto_takeaways_doubt_for_last_assistant_message,
                     message=query["messageText"],
@@ -993,7 +1258,9 @@ def send_message(conversation_id: str):
                     answer_text=captured_answer_text,
                 )
         except Exception as e:
-            logger.error(f"[send_message] Failed to schedule auto-takeaways: {e}", exc_info=True)
+            logger.error(
+                f"[send_message] Failed to schedule auto-takeaways: {e}", exc_info=True
+            )
 
     _future = get_async_future(generate_response)
 
@@ -1050,7 +1317,9 @@ def _normalize_clarifications_payload(raw: dict) -> dict:
     - questions: list[{id, prompt, options: list[{id, label}]}] (0..3 questions; 2..5 options each)
     """
     needs = bool(raw.get("needs_clarification", False))
-    questions_in = raw.get("questions", []) if isinstance(raw.get("questions", []), list) else []
+    questions_in = (
+        raw.get("questions", []) if isinstance(raw.get("questions", []), list) else []
+    )
 
     questions_out: list[dict] = []
     for qi, q in enumerate(questions_in[:3], start=1):
@@ -1077,7 +1346,9 @@ def _normalize_clarifications_payload(raw: dict) -> dict:
         if len(options_out) < 2:
             continue
 
-        questions_out.append({"id": f"q{qi}", "prompt": prompt.strip(), "options": options_out})
+        questions_out.append(
+            {"id": f"q{qi}", "prompt": prompt.strip(), "options": options_out}
+        )
 
     if not questions_out:
         needs = False
@@ -1124,11 +1395,15 @@ def clarify_intent(conversation_id: str):
         return json_error("messageText is required", status=400, code="invalid_request")
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-        return json_error("Conversation not found", status=404, code="conversation_not_found")
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
 
     # We include light context (summary + last turn) so the model can avoid asking
     # clarifications that are already obvious from the chat.
-    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
 
     try:
         from call_llm import CallLLm
@@ -1136,7 +1411,11 @@ def clarify_intent(conversation_id: str):
 
         # Context signals (bounded): summary + last turn.
         try:
-            conversation_summary = conversation.running_summary if hasattr(conversation, "running_summary") else ""
+            conversation_summary = (
+                conversation.running_summary
+                if hasattr(conversation, "running_summary")
+                else ""
+            )
         except Exception:
             conversation_summary = ""
         conversation_summary = (conversation_summary or "").strip()
@@ -1154,9 +1433,17 @@ def clarify_intent(conversation_id: str):
         last_assistant_text = ""
         try:
             for msg in reversed(messages):
-                if isinstance(msg, dict) and not last_assistant_text and msg.get("sender") == "model":
+                if (
+                    isinstance(msg, dict)
+                    and not last_assistant_text
+                    and msg.get("sender") == "model"
+                ):
                     last_assistant_text = str(msg.get("text", "") or "")
-                elif isinstance(msg, dict) and not last_user_text and msg.get("sender") == "user":
+                elif (
+                    isinstance(msg, dict)
+                    and not last_user_text
+                    and msg.get("sender") == "user"
+                ):
                     last_user_text = str(msg.get("text", "") or "")
                 if last_user_text and last_assistant_text:
                     break
@@ -1164,8 +1451,14 @@ def clarify_intent(conversation_id: str):
             last_user_text = ""
             last_assistant_text = ""
 
-        last_user_text = " ".join(last_user_text.split())[:18_000] if last_user_text else "(none)"
-        last_assistant_text = " ".join(last_assistant_text.split())[:22_000] if last_assistant_text else "(none)"
+        last_user_text = (
+            " ".join(last_user_text.split())[:18_000] if last_user_text else "(none)"
+        )
+        last_assistant_text = (
+            " ".join(last_assistant_text.split())[:22_000]
+            if last_assistant_text
+            else "(none)"
+        )
 
         prompt = f"""
 You are an intent-clarification assistant. Given a user's draft message and brief conversation context, decide if clarifications are needed.
@@ -1249,7 +1542,12 @@ def _create_auto_takeaways_doubt_for_last_assistant_message(
         # Fast path: if the caller already captured the `response_message_id` and the final
         # assistant answer text from the stream, we can create the doubt immediately (no waiting
         # for async persistence).
-        if not (isinstance(message_id, str) and message_id.strip() and isinstance(answer_text, str) and answer_text.strip()):
+        if not (
+            isinstance(message_id, str)
+            and message_id.strip()
+            and isinstance(answer_text, str)
+            and answer_text.strip()
+        ):
             # Fallback: Persist is async inside Conversation.reply(); wait for the persisted message to exist.
             #
             # Why we may need to wait:
@@ -1274,7 +1572,11 @@ def _create_auto_takeaways_doubt_for_last_assistant_message(
                         last_assistant = msg
                         break
 
-                if last_assistant and last_assistant.get("message_id") and last_assistant.get("text"):
+                if (
+                    last_assistant
+                    and last_assistant.get("message_id")
+                    and last_assistant.get("text")
+                ):
                     message_id = last_assistant.get("message_id")
                     answer_text = last_assistant.get("text")
                     break
@@ -1306,7 +1608,11 @@ def _create_auto_takeaways_doubt_for_last_assistant_message(
 
         answer_trimmed = " ".join(str(answer_text).split())
         answer_trimmed = answer_trimmed[:50_000]
-        conversation_summary = conversation.running_summary if hasattr(conversation, "running_summary") else ""
+        conversation_summary = (
+            conversation.running_summary
+            if hasattr(conversation, "running_summary")
+            else ""
+        )
 
         takeaways_prompt = f"""
 Rewrite the following assistant answer into a short, crisp quick-reference.
@@ -1332,7 +1638,12 @@ Assistant answer:
 \"\"\"{answer_trimmed}\"\"\"
 """.strip()
 
-        llm = CallLLm(conversation.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
+        llm = CallLLm(
+            conversation.get_api_keys(),
+            model_name=VERY_CHEAP_LLM[0],
+            use_gpt4=False,
+            use_16k=False,
+        )
         takeaways = llm(
             takeaways_prompt,
             images=[],
@@ -1356,5 +1667,6 @@ Assistant answer:
             logger=logger,
         )
     except Exception as e:
-        logger.error(f"[auto_takeaways] Error generating/persisting: {e}", exc_info=True)
-
+        logger.error(
+            f"[auto_takeaways] Error generating/persisting: {e}", exc_info=True
+        )

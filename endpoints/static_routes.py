@@ -243,6 +243,16 @@ def interface():
     return send_from_directory("interface", "interface.html", max_age=0)
 
 
+# PWA assets that must be publicly accessible (browsers fetch these without cookies).
+# These contain no sensitive data and are required for PWA installability checks.
+PWA_PUBLIC_PATHS = {
+    "manifest.json",
+    "icons/app-icon.svg",
+    "icons/maskable-icon.svg",
+}
+PWA_CACHE_MAX_AGE_SECONDS = 60 * 60 * 24  # 24h to reduce repeated browser fetches.
+
+
 @static_bp.route("/interface/<path:path>", strict_slashes=False)
 @limiter.limit("1000 per minute")
 def interface_combined_route(path: str):
@@ -251,7 +261,19 @@ def interface_combined_route(path: str):
 
     This preserves the bespoke logic previously implemented in
     `server.py:interface_combined`.
+    
+    Note: PWA manifest and icons are served without authentication because:
+    1. Browsers fetch manifests without credentials for installability checks
+    2. Service workers need these during initial install before session exists
+    3. These files contain no sensitive user data
     """
+    # Serve PWA assets (manifest.json and icons) without authentication.
+    # Required for browser PWA installability checks which don't include cookies.
+    if path in PWA_PUBLIC_PATHS:
+        try:
+            return send_from_directory("interface", path, max_age=PWA_CACHE_MAX_AGE_SECONDS)
+        except FileNotFoundError:
+            pass  # Fall through to normal handling
 
     state = get_state()
     email, _name, loggedin = get_session_identity()

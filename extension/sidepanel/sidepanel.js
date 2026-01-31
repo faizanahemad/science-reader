@@ -980,6 +980,13 @@ function renderMessage(msg) {
     } else {
         content = escapeHtml(content).replace(/\n/g, '<br>');
     }
+
+    const images = Array.isArray(msg.images) ? msg.images : [];
+    const imagesHtml = images.length > 0
+        ? `<div class="message-images">${images.map((src) => `
+            <img class="message-image" src="${src}" alt="Attached image">
+        `).join('')}</div>`
+        : '';
     
     return `
         <div class="message ${msg.role}" data-id="${msg.message_id}">
@@ -988,7 +995,7 @@ function renderMessage(msg) {
                 <span>${roleName}</span>
                 <span class="message-time">${formatTime(msg.created_at)}</span>
             </div>
-            <div class="message-content">${content}</div>
+            <div class="message-content">${content}${imagesHtml}</div>
         </div>
     `;
 }
@@ -1108,7 +1115,8 @@ function updatePageContextButtons() {
 
 async function sendMessage() {
     const text = messageInput.value.trim();
-    const hasImages = state.pendingImages.length > 0;
+    const imagesToSend = state.pendingImages.map((img) => img.dataUrl);
+    const hasImages = imagesToSend.length > 0;
     if ((!text && !hasImages) || state.isStreaming) return;
     
     // Check for script creation intent
@@ -1169,7 +1177,8 @@ async function sendMessage() {
         message_id: 'temp-user-' + Date.now(),
         role: 'user',
         content: text || '[Image attached]',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        images: imagesToSend
     };
     state.messages.push(userMessage);
     
@@ -1244,7 +1253,7 @@ async function sendMessage() {
                 model: state.settings.model,
                 agent: agentToUse,
                 workflow_id: workflowId || null,
-                images: state.pendingImages.map((img) => img.dataUrl)
+                images: imagesToSend
             },
             {
                 onChunk: (chunk) => {

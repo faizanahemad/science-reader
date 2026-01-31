@@ -421,7 +421,10 @@ export const API = {
             screenshot: data.pageContext.screenshot,
             isScreenshot: data.pageContext.isScreenshot,
             isMultiTab: data.pageContext.isMultiTab,
-            tabCount: data.pageContext.tabCount
+            tabCount: data.pageContext.tabCount,
+            sources: data.pageContext.sources,
+            mergeType: data.pageContext.mergeType,
+            lastRefreshed: data.pageContext.lastRefreshed
         } : null;
         
         return this.call(`/ext/chat/${conversationId}`, {
@@ -430,6 +433,10 @@ export const API = {
                 message: data.message,
                 page_context: pageContext,
                 model: data.model,
+                agent: data.agent,
+                detail_level: data.detail_level,
+                workflow_id: data.workflow_id,
+                images: data.images,
                 stream: false
             })
         });
@@ -451,13 +458,20 @@ export const API = {
             screenshot: data.pageContext.screenshot,
             isScreenshot: data.pageContext.isScreenshot,
             isMultiTab: data.pageContext.isMultiTab,
-            tabCount: data.pageContext.tabCount
+            tabCount: data.pageContext.tabCount,
+            sources: data.pageContext.sources,
+            mergeType: data.pageContext.mergeType,
+            lastRefreshed: data.pageContext.lastRefreshed
         } : null;
         
         return this.stream(`/ext/chat/${conversationId}`, {
             message: data.message,
             page_context: pageContext,
-            model: data.model
+            model: data.model,
+            agent: data.agent,
+            detail_level: data.detail_level,
+            workflow_id: data.workflow_id,
+            images: data.images
         }, callbacks);
     },
 

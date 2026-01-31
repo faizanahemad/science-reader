@@ -1,6 +1,12 @@
 # Documentation
 
-This folder contains a curated, organized copy of the repo's most useful documentation and planning artifacts.
+This folder is the primary index for repo documentation. Use it to quickly find
+implementation context, API docs, runbooks, and planning artifacts.
+
+If you are new to the codebase, start with:
+- `product/behavior/chat_app_capabilities.md` for a system overview
+- `features/conversation_flow/` for the chat message pipeline (UI -> server -> UI)
+- `api/internal/` for internal endpoints and payloads
 
 ## Planning
 - `planning/plans/`: latest Cursor plan docs (older versions removed from `.cursor/plans`)
@@ -13,6 +19,8 @@ This folder contains a curated, organized copy of the repo's most useful documen
 ## Features
 - `features/extension/`: Chrome extension design + implementation docs
 - `features/pwa/`: PWA/service-worker notes
+- `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)
+- `features/conversation_flow/`: chat message send + streaming render pipeline
 - `features/truth_management_system/`: TMS requirements + API + implementation
 - `features/web_search/`: web search implementation notes
 - `features/audio_slide_agent/`: audio/slide agent docs
@@ -20,6 +28,7 @@ This folder contains a curated, organized copy of the repo's most useful documen
 
 ## APIs
 - `api/internal/`: internal API docs and route summaries
+- `api/internal/artefacts.md`: artefacts CRUD + LLM edit endpoints
 - `api/external/`: external API docs
 
 ## Data

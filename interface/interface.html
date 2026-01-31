@@ -1015,6 +1015,127 @@
       </div>  
     </div>  
 
+    <!-- Artefacts Modal -->
+    <div class="modal fade" id="artefacts-modal" tabindex="-1" aria-hidden="true">
+      <style>
+        .artefact-diff-view {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+        .artefact-diff-line {
+          white-space: pre;
+        }
+        .artefact-diff-header {
+          color: #6c757d;
+        }
+        .artefact-diff-hunk {
+          background: rgba(13, 110, 253, 0.08);
+          color: #0d6efd;
+          font-weight: 600;
+        }
+        .artefact-diff-add {
+          background: rgba(25, 135, 84, 0.12);
+          color: #198754;
+        }
+        .artefact-diff-del {
+          background: rgba(220, 53, 69, 0.12);
+          color: #dc3545;
+        }
+        .artefact-diff-toggle {
+          cursor: pointer;
+          margin-right: 8px;
+        }
+      </style>
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header d-flex justify-content-between align-items-center">
+            <h5 class="modal-title">Artefacts</h5>
+            <div class="d-flex align-items-center">
+              <select id="artefact-file-type" class="form-control form-control-sm mr-2" style="width: auto;">
+                <option value="md">Markdown (.md)</option>
+                <option value="txt">Text (.txt)</option>
+                <option value="py">Python (.py)</option>
+                <option value="js">JavaScript (.js)</option>
+                <option value="json">JSON (.json)</option>
+                <option value="html">HTML (.html)</option>
+                <option value="css">CSS (.css)</option>
+              </select>
+              <button type="button" id="artefact-copy-btn" class="btn btn-sm btn-outline-secondary mr-2">Copy</button>
+              <button type="button" id="artefact-download-btn" class="btn btn-sm btn-outline-secondary mr-2">Download</button>
+              <button type="button" id="artefact-delete-btn" class="btn btn-sm btn-outline-danger mr-2">Delete</button>
+              <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <div class="d-flex h-100">
+              <div class="border-right" style="width: 280px; overflow-y: auto;">
+                <div class="p-2">
+                  <button id="artefact-create-btn" class="btn btn-sm btn-primary btn-block">New Artefact</button>
+                  <div id="artefacts-list" class="list-group mt-2"></div>
+                </div>
+              </div>
+              <div class="flex-grow-1 d-flex flex-column">
+                <ul class="nav nav-tabs px-3 pt-2" id="artefacts-tabs" role="tablist">
+                  <li class="nav-item">
+                    <a class="nav-link active" id="artefact-code-tab" data-toggle="tab" href="#artefact-code-pane" role="tab">Code</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" id="artefact-preview-tab" data-toggle="tab" href="#artefact-preview-pane" role="tab">Preview</a>
+                  </li>
+                  <li class="nav-item">
+                    <a class="nav-link" id="artefact-diff-tab" data-toggle="tab" href="#artefact-diff-pane" role="tab">Diff</a>
+                  </li>
+                </ul>
+                <div class="tab-content flex-grow-1" id="artefacts-tab-content" style="height: 100%; overflow: hidden;">
+                  <div class="tab-pane fade show active h-100" id="artefact-code-pane" role="tabpanel">
+                    <textarea id="artefact-editor-textarea" class="form-control h-100" rows="10" style="border: none; border-radius: 0; resize: none;"></textarea>
+                  </div>
+                  <div class="tab-pane fade h-100" id="artefact-preview-pane" role="tabpanel">
+                    <div id="artefact-preview" class="h-100 p-3" style="overflow-y: auto;"></div>
+                  </div>
+                  <div class="tab-pane fade h-100" id="artefact-diff-pane" role="tabpanel" style="height: 100%; overflow: auto;">
+                    <div id="artefact-diff" class="artefact-diff-view p-3" style="margin: 0; height: 100%; overflow: auto;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer d-flex align-items-start">
+            <div class="flex-grow-1 mr-2">
+              <textarea id="artefact-instruction" class="form-control" rows="2" placeholder="Describe the changes you want the AI to make..."></textarea>
+              <div class="d-flex align-items-center mt-2">
+                <div class="form-check mr-3">
+                  <input class="form-check-input" type="checkbox" id="artefact-include-summary">
+                  <label class="form-check-label" for="artefact-include-summary">Include summary</label>
+                </div>
+                <div class="form-check mr-3">
+                  <input class="form-check-input" type="checkbox" id="artefact-include-messages">
+                  <label class="form-check-label" for="artefact-include-messages">Include recent messages</label>
+                </div>
+                <div class="form-check mr-3">
+                  <input class="form-check-input" type="checkbox" id="artefact-include-memory">
+                  <label class="form-check-label" for="artefact-include-memory">Include memory pad</label>
+                </div>
+                <div class="form-inline">
+                  <label class="mr-1 text-muted small" for="artefact-history-count">History</label>
+                  <input id="artefact-history-count" type="number" class="form-control form-control-sm" style="width: 70px;" value="10" min="0" max="50">
+                </div>
+              </div>
+            </div>
+            <div class="d-flex">
+              <button type="button" id="artefact-save-btn" class="btn btn-outline-primary mr-2">Save</button>
+              <button type="button" id="artefact-propose-btn" class="btn btn-primary mr-2">Propose edits</button>
+              <button type="button" id="artefact-apply-btn" class="btn btn-success mr-2" disabled>Apply</button>
+              <button type="button" id="artefact-discard-btn" class="btn btn-outline-secondary">Discard</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Copied to clipboard -->
     <div class="modal fade" id="clipboard-modal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog">
@@ -1239,6 +1360,7 @@
             <li class="context-menu-item"><a href="#" data-action="ask-doubt-ctx"><i class="bi bi-question-circle-fill"></i> Ask a Doubt [with Ctx]</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-temp"><i class="bi bi-chat-dots"></i> Ask Temporarily</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-temp-ctx"><i class="bi bi-chat-dots-fill"></i> Ask Temporarily [with Ctx]</a></li>
+            <li class="context-menu-item"><a href="#" data-action="artefacts"><i class="bi bi-files"></i> Artefacts</a></li>
             <li class="divider"></li>
             <!-- Browser actions -->
             <li class="context-menu-item selection-required"><a href="#" data-action="search-google"><i class="bi bi-google"></i> Search Google</a></li>
@@ -1848,6 +1970,11 @@
                                         </button>
                                     </div>
                                     <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-artefacts-modal-open-button">
+                                            <i class="bi bi-files"></i> Artefacts
+                                        </button>
+                                    </div>
+                                    <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
                                             <i class="bi bi-code-slash"></i> Code Editor  
                                         </button>  
@@ -1981,21 +2108,24 @@ greet("World");</code></pre>
         #memory-pad-modal.modal,
         #user-details-modal.modal,
         #user-preferences-modal.modal,
-        #code-editor-modal.modal {
+        #code-editor-modal.modal,
+        #artefacts-modal.modal {
             z-index: 1065 !important;
         }
         
         #memory-pad-modal .modal-backdrop,
         #user-details-modal .modal-backdrop,
         #user-preferences-modal .modal-backdrop,
-        #code-editor-modal .modal-backdrop {
+        #code-editor-modal .modal-backdrop,
+        #artefacts-modal .modal-backdrop {
             z-index: 1064 !important;
         }
 
         #memory-pad-modal .modal-dialog,
         #user-details-modal .modal-dialog,
         #user-preferences-modal .modal-dialog,
-        #code-editor-modal .modal-dialog {
+        #code-editor-modal .modal-dialog,
+        #artefacts-modal .modal-dialog {
             z-index: 1066 !important;
             position: relative;
         }
@@ -2003,9 +2133,27 @@ greet("World");</code></pre>
         #memory-pad-modal .modal-content,
         #user-details-modal .modal-content,
         #user-preferences-modal .modal-content,
-        #code-editor-modal .modal-content {
+        #code-editor-modal .modal-content,
+        #artefacts-modal .modal-content {
             z-index: 1067 !important;
             position: relative;
+        }
+
+        #artefacts-modal .modal-dialog {
+            max-width: 100%;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+        }
+
+        #artefacts-modal .modal-content {
+            height: 100%;
+            border-radius: 0;
+        }
+
+        #artefacts-modal .modal-body {
+            padding: 0;
+            height: calc(100vh - 120px);
         }
         
         /* LLM Context Menu Styles */
@@ -2433,6 +2581,7 @@ greet("World");</code></pre>
     <script src="interface/context-menu-manager.js"></script>
     <script src="interface/prompt-manager.js"></script>
     <script src="interface/pkb-manager.js"></script>
+    <script src="interface/artefacts-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
     <link rel="stylesheet" href="interface/workspace-styles.css">

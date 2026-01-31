@@ -807,7 +807,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -817,7 +817,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -833,7 +833,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1922,6 +1922,9 @@ var ChatManager = {
                             <i class="bi bi-arrow-down mr-2"></i>Move Down
                         </a>
                         <div class="dropdown-divider"></div>
+                        <a class="dropdown-item open-artefacts-button" href="#" message-index="${index}" message-id="${message.message_id}">
+                            <i class="bi bi-files mr-2"></i>Artefacts
+                        </a>
                         <a class="dropdown-item delete-message-button text-danger" href="#" message-index="${index}" message-id="${message.message_id}">
                             <i class="bi bi-trash-fill mr-2"></i>Delete Message
                         </a>
@@ -2053,7 +2056,7 @@ var ChatManager = {
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2063,7 +2066,7 @@ var ChatManager = {
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2079,7 +2082,7 @@ var ChatManager = {
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-                if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2152,6 +2155,16 @@ var ChatManager = {
             event.stopPropagation();
             var messageId = $(this).attr('message-id');
             DoubtManager.askNewDoubt(conversationId, messageId);
+        });
+
+        $(".open-artefacts-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof ArtefactsManager !== 'undefined') {
+                ArtefactsManager.openModal(conversationId);
+            } else {
+                showToast('Artefacts manager not loaded', 'error');
+            }
         });
         
         // Initialize Bootstrap 4.6 dropdowns

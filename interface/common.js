@@ -1038,6 +1038,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         let shortPodcastItem = $('<a class="dropdown-item" href="#"><i class="bi bi-broadcast mr-2"></i>Short Podcast</a>');
         let podcastItem = $('<a class="dropdown-item" href="#"><i class="bi bi-broadcast-pin mr-2"></i>Full Podcast</a>');
         let editItem = $('<a class="dropdown-item" href="#"><i class="bi bi-pencil mr-2"></i>Edit Message</a>');
+        let editAsArtefactItem = $('<a class="dropdown-item" href="#"><i class="bi bi-files mr-2"></i>Edit as Artefact</a>');
         
         // Add click handlers
         shortTtsItem.click(function(e) {
@@ -1064,6 +1065,31 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             e.preventDefault();
             editBtn.click();
         });
+
+        editAsArtefactItem.click(function(e) {
+            e.preventDefault();
+            if (disable_voting) {
+                showToast('Edit as Artefact is only available for assistant messages', 'warning');
+                return;
+            }
+            const messageId = cardElem.find('.card-header').last().attr('message-id');
+            const messageIndex = cardElem.find('.card-header').last().attr('message-index');
+            if (!messageId || messageId === 'undefined') {
+                showToast('Message is still loading. Try again once the response finishes.', 'warning');
+                return;
+            }
+            if (typeof ArtefactsManager === 'undefined' || !ArtefactsManager.openModalForMessage) {
+                showToast('Artefacts manager is not available', 'error');
+                return;
+            }
+            ArtefactsManager.openModalForMessage(
+                ConversationManager.activeConversationId,
+                messageId,
+                messageIndex,
+                cardElem,
+                text
+            );
+        });
         
         // Add items to dropdown
         voteDropdown.append(shortTtsItem, ttsItem);
@@ -1073,7 +1099,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             voteDropdown.append(shortPodcastItem, podcastItem);
         }
         
-        voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem);
+        voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem, editAsArtefactItem);
         
     } else {
         // Fallback to old vote box if dropdown not found

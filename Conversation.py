@@ -1,23 +1,79 @@
 import secrets
 import inspect
 import types
-import collections.abc  
+import collections.abc
 import shutil
 import os
+import hashlib
 import uuid
 from textwrap import dedent
 
 import yaml
-from agents.search_and_information_agents import JinaSearchAgent, JinaDeepResearchAgent, InterleavedWebSearchAgent
+from agents.search_and_information_agents import (
+    JinaSearchAgent,
+    JinaDeepResearchAgent,
+    InterleavedWebSearchAgent,
+)
 from call_llm import MockCallLLm
-from prompts import tts_friendly_format_instructions, improve_code_prompt, improve_code_prompt_interviews, short_coding_interview_prompt, more_related_questions_prompt, relationship_prompt, dating_maverick_prompt, tldr_summary_prompt_system, manager_assist_agent_prompt, manager_assist_agent_short_prompt, manager_to_manager_framework_prompt
+from prompts import (
+    tts_friendly_format_instructions,
+    improve_code_prompt,
+    improve_code_prompt_interviews,
+    short_coding_interview_prompt,
+    more_related_questions_prompt,
+    relationship_prompt,
+    dating_maverick_prompt,
+    tldr_summary_prompt_system,
+    manager_assist_agent_prompt,
+    manager_assist_agent_short_prompt,
+    manager_to_manager_framework_prompt,
+)
 from filelock import FileLock
 
-from agents import LiteratureReviewAgent, NResponseAgent, ReflectionAgent, StreamingTTSAgent, TTSAgent, WebSearchWithAgent, BroadSearchAgent, PerplexitySearchAgent, WhatIfAgent, InterviewSimulatorAgent, InterviewSimulatorAgentV2
-from agents import PodcastAgent, StreamingPodcastAgent, BookCreatorAgent, ToCGenerationAgent, NStepCodeAgent, MLSystemDesignAgent, MultiSourceSearchAgent, CodeSolveAgent, JinaDeepResearchAgent, InstructionFollowingAgent, PromptWorkflowAgent, ManagerAssistAgent
-from agents.tts_and_podcast_agent import CodeTTSAgent, StreamingCodeTTSAgent, CodePodcastAgent, StreamingCodePodcastAgent
-from code_runner import code_runner_with_retry, extract_all_mermaid, extract_code, extract_drawio, extract_last_mermaid, extract_mermaid, normalize_mermaid_text, \
-    PersistentPythonEnvironment, PersistentPythonEnvironment_v2
+from agents import (
+    LiteratureReviewAgent,
+    NResponseAgent,
+    ReflectionAgent,
+    StreamingTTSAgent,
+    TTSAgent,
+    WebSearchWithAgent,
+    BroadSearchAgent,
+    PerplexitySearchAgent,
+    WhatIfAgent,
+    InterviewSimulatorAgent,
+    InterviewSimulatorAgentV2,
+)
+from agents import (
+    PodcastAgent,
+    StreamingPodcastAgent,
+    BookCreatorAgent,
+    ToCGenerationAgent,
+    NStepCodeAgent,
+    MLSystemDesignAgent,
+    MultiSourceSearchAgent,
+    CodeSolveAgent,
+    JinaDeepResearchAgent,
+    InstructionFollowingAgent,
+    PromptWorkflowAgent,
+    ManagerAssistAgent,
+)
+from agents.tts_and_podcast_agent import (
+    CodeTTSAgent,
+    StreamingCodeTTSAgent,
+    CodePodcastAgent,
+    StreamingCodePodcastAgent,
+)
+from code_runner import (
+    code_runner_with_retry,
+    extract_all_mermaid,
+    extract_code,
+    extract_drawio,
+    extract_last_mermaid,
+    extract_mermaid,
+    normalize_mermaid_text,
+    PersistentPythonEnvironment,
+    PersistentPythonEnvironment_v2,
+)
 
 from prompts import *
 
@@ -26,21 +82,30 @@ from pathlib import Path
 from base import *
 
 
-pd.options.display.float_format = '{:,.2f}'.format
-pd.set_option('max_colwidth', 800)
-pd.set_option('display.max_columns', 100)
+pd.options.display.float_format = "{:,.2f}".format
+pd.set_option("max_colwidth", 800)
+pd.set_option("display.max_columns", 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.ERROR, logging.INFO, logging.ERROR, logging.INFO
+)
 import time
 import traceback
-from DocIndex import DocIndex, DocFAISS, create_immediate_document_index, create_index_faiss, ImageDocIndex
-
+from DocIndex import (
+    DocIndex,
+    DocFAISS,
+    create_immediate_document_index,
+    create_index_faiss,
+    ImageDocIndex,
+)
 
 
 import string
 import tiktoken
 import json
+
 alphabet = string.ascii_letters + string.digits
 
 # =============================================================================
@@ -48,8 +113,12 @@ alphabet = string.ascii_letters + string.digits
 # =============================================================================
 try:
     from truth_management_system import (
-        PKBConfig, get_database, StructuredAPI, SearchFilters
+        PKBConfig,
+        get_database,
+        StructuredAPI,
+        SearchFilters,
     )
+
     PKB_AVAILABLE = True
 except ImportError:
     PKB_AVAILABLE = False
@@ -58,42 +127,57 @@ except ImportError:
 _pkb_db_instance = None
 _pkb_config_instance = None
 
+
 def get_pkb_database():
     """Get or initialize the shared PKB database instance.
-    
+
     Uses the same database path as server.py: <project>/storage/users/pkb.sqlite
     This ensures both the UI (server.py) and conversation flow use the same database.
     """
     global _pkb_db_instance, _pkb_config_instance
-    
+
     if not PKB_AVAILABLE:
         return None, None
-    
+
     if _pkb_db_instance is None:
         try:
             # Use the same path as server.py: storage/users/pkb.sqlite
             # server.py uses: os.path.join(os.getcwd(), "storage", "users") for users_dir
             # The PKB database is at users_dir/pkb.sqlite
-            pkb_db_path = os.path.join(os.path.dirname(__file__), "storage", "users", "pkb.sqlite")
-            
+            pkb_db_path = os.path.join(
+                os.path.dirname(__file__), "storage", "users", "pkb.sqlite"
+            )
+
             # Ensure the directory exists
             os.makedirs(os.path.dirname(pkb_db_path), exist_ok=True)
-            
+
             _pkb_config_instance = PKBConfig(db_path=pkb_db_path)
             _pkb_db_instance = get_database(_pkb_config_instance)
-            time_logger.info(f"[PKB] Initialized PKB database for Conversation at {pkb_db_path}")
+            time_logger.info(
+                f"[PKB] Initialized PKB database for Conversation at {pkb_db_path}"
+            )
         except Exception as e:
             logger.error(f"Failed to initialize PKB database: {e}")
             return None, None
-    
+
     return _pkb_db_instance, _pkb_config_instance
 
 
 class Conversation:
     # Lock key types used for field-specific locking
-    LOCK_KEYS = ("", "all", "message_operations", "memory", "messages", "uploaded_documents_list")
-    
-    def __init__(self, user_id, openai_embed, storage, conversation_id, domain=None) -> None:
+    LOCK_KEYS = (
+        "",
+        "all",
+        "message_operations",
+        "memory",
+        "messages",
+        "uploaded_documents_list",
+        "artefacts",
+    )
+
+    def __init__(
+        self, user_id, openai_embed, storage, conversation_id, domain=None
+    ) -> None:
         self.conversation_id = conversation_id
         self.user_id = user_id
         self._next_question_suggestions = list()
@@ -101,19 +185,26 @@ class Conversation:
         self._storage = folder
         os.makedirs(folder, exist_ok=True)
         self._stateless = False
-        memory = {  "title": 'Start the Conversation',
-                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "running_summary":[], # List of strings, each string is a running summary of chat till now.
-                    "title_force_set": False,
-                }
-        messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
+        memory = {
+            "title": "Start the Conversation",
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "running_summary": [],  # List of strings, each string is a running summary of chat till now.
+            "title_force_set": False,
+        }
+        messages = list()  # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
         self.set_field("memory", memory)
         self.set_messages_field(messages)
-        self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
+        self.set_field(
+            "uploaded_documents_list", list()
+        )  # just a List[str] of doc index ids
+        self.set_field("artefacts", list())  # list of artefact metadata dicts
+        self.set_field(
+            "artefact_message_links", dict()
+        )  # message_id -> {artefact_id, message_index}
         self._domain = domain
 
         self._flag = None
-        
+
         # Initialize persistent context data for reward system
         self._context_data = {
             "current_score": 0,
@@ -123,9 +214,9 @@ class Conversation:
             "total_penalties": 0,
             "session_start_time": time.time(),
             "last_reward_timestamp": None,
-            "reward_history": []
+            "reward_history": [],
         }
-        
+
         self.save_local()
 
     @property
@@ -134,7 +225,7 @@ class Conversation:
             return self._flag
         else:
             return None
-    
+
     @flag.setter
     def flag(self, value: str):
         if hasattr(self, "_flag"):
@@ -142,32 +233,30 @@ class Conversation:
         else:
             setattr(self, "_flag", value)
         self.save_local()
-    
-
 
     def _get_pkb_context(
-        self, 
-        user_email: str, 
-        query: str, 
-        conversation_summary: str = "", 
+        self,
+        user_email: str,
+        query: str,
+        conversation_summary: str = "",
         k: int = 10,
         attached_claim_ids: list = None,
         conversation_id: str = None,
         conversation_pinned_claim_ids: list = None,
-        referenced_claim_ids: list = None
+        referenced_claim_ids: list = None,
     ) -> str:
         """
         Retrieve relevant claims from PKB for the current query.
-        
+
         This method retrieves PKB context from multiple sources with priority:
         1. Referenced claims (from @memory:id in message) - highest priority
         2. Attached claims (from "Use in next message" UI selection) - high priority
-        3. Globally pinned claims (meta_json.pinned = true) - medium-high priority  
+        3. Globally pinned claims (meta_json.pinned = true) - medium-high priority
         4. Conversation-pinned claims - medium priority
         5. Auto-retrieved via hybrid search - normal priority
-        
+
         The method deduplicates claims and formats them with source indicators.
-        
+
         Args:
             user_email: Email of the user to retrieve claims for.
             query: The user's current query.
@@ -177,37 +266,47 @@ class Conversation:
             conversation_id: Optional conversation ID for conversation-level pinning.
             conversation_pinned_claim_ids: Optional list of claim IDs pinned to this conversation.
             referenced_claim_ids: Optional list of claim IDs from @memory:id references in message.
-            
+
         Returns:
             Formatted string of relevant claims, or empty string if none found.
         """
-        time_logger.info(f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}, summary_len={len(conversation_summary.split()) if conversation_summary else 0}")
-        time_logger.info(f"[PKB] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
-        
+        time_logger.info(
+            f"[PKB] _get_pkb_context called: user_email={user_email}, query_len={len(query) if query else 0}, k={k}, summary_len={len(conversation_summary.split()) if conversation_summary else 0}"
+        )
+        time_logger.info(
+            f"[PKB] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}"
+        )
+
         if not PKB_AVAILABLE:
             time_logger.info("[PKB] PKB_AVAILABLE is False, returning empty")
             return ""
-        
+
         attached_claim_ids = attached_claim_ids or []
         conversation_pinned_claim_ids = conversation_pinned_claim_ids or []
         referenced_claim_ids = referenced_claim_ids or []
-        
+
         try:
             db, config = get_pkb_database()
             if db is None:
-                time_logger.info("[PKB] get_pkb_database() returned None, returning empty")
+                time_logger.info(
+                    "[PKB] get_pkb_database() returned None, returning empty"
+                )
                 return ""
-            
-            time_logger.info(f"[PKB] Got database, creating StructuredAPI for user: {user_email}")
+
+            time_logger.info(
+                f"[PKB] Got database, creating StructuredAPI for user: {user_email}"
+            )
             # Get API for this user
             api = StructuredAPI(db, self.get_api_keys(), config, user_email=user_email)
-            
+
             all_claims = []  # List of (source, claim) tuples
             seen_ids = set()
-            
+
             # 1. Referenced claims (from @memory:id in message) - highest priority
             if referenced_claim_ids:
-                time_logger.info(f"[PKB] Fetching {len(referenced_claim_ids)} referenced claims")
+                time_logger.info(
+                    f"[PKB] Fetching {len(referenced_claim_ids)} referenced claims"
+                )
                 result = api.get_claims_by_ids(referenced_claim_ids)
                 if result.success and result.data:
                     for claim in result.data:
@@ -216,11 +315,15 @@ class Conversation:
                             seen_ids.add(claim.claim_id)
                     time_logger.info(f"[PKB] Got {len(result.data)} referenced claims")
                 else:
-                    time_logger.info(f"[PKB] Referenced claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
-            
+                    time_logger.info(
+                        f"[PKB] Referenced claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}"
+                    )
+
             # 2. Attached claims (explicitly selected by user) - high priority
             if attached_claim_ids:
-                time_logger.info(f"[PKB] Fetching {len(attached_claim_ids)} attached claims")
+                time_logger.info(
+                    f"[PKB] Fetching {len(attached_claim_ids)} attached claims"
+                )
                 result = api.get_claims_by_ids(attached_claim_ids)
                 if result.success and result.data:
                     for claim in result.data:
@@ -229,8 +332,10 @@ class Conversation:
                             seen_ids.add(claim.claim_id)
                     time_logger.info(f"[PKB] Got {len(result.data)} attached claims")
                 else:
-                    time_logger.info(f"[PKB] Attached claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
-            
+                    time_logger.info(
+                        f"[PKB] Attached claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}"
+                    )
+
             # 3. Globally pinned claims - medium-high priority
             time_logger.info("[PKB] Fetching globally pinned claims")
             pinned_result = api.get_pinned_claims(limit=20)
@@ -241,25 +346,39 @@ class Conversation:
                         seen_ids.add(claim.claim_id)
                 time_logger.info(f"[PKB] Got {len(pinned_result.data)} pinned claims")
             else:
-                time_logger.info(f"[PKB] Pinned claims fetch failed or empty: success={pinned_result.success}, data_len={len(pinned_result.data) if pinned_result.data else 0}")
-            
+                time_logger.info(
+                    f"[PKB] Pinned claims fetch failed or empty: success={pinned_result.success}, data_len={len(pinned_result.data) if pinned_result.data else 0}"
+                )
+
             # 4. Conversation-pinned claims - medium priority
             if conversation_pinned_claim_ids:
-                time_logger.info(f"[PKB] Fetching {len(conversation_pinned_claim_ids)} conversation-pinned claims")
+                time_logger.info(
+                    f"[PKB] Fetching {len(conversation_pinned_claim_ids)} conversation-pinned claims"
+                )
                 result = api.get_claims_by_ids(conversation_pinned_claim_ids)
                 if result.success and result.data:
                     for claim in result.data:
                         if claim and claim.claim_id not in seen_ids:
                             all_claims.append(("conv_pinned", claim))
                             seen_ids.add(claim.claim_id)
-                    time_logger.info(f"[PKB] Got {len(result.data)} conversation-pinned claims")
+                    time_logger.info(
+                        f"[PKB] Got {len(result.data)} conversation-pinned claims"
+                    )
                 else:
-                    time_logger.info(f"[PKB] Conv-pinned claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}")
-            
+                    time_logger.info(
+                        f"[PKB] Conv-pinned claims fetch failed or empty: success={result.success}, data_len={len(result.data) if result.data else 0}"
+                    )
+
             # 5. Auto-retrieved via hybrid search - fill remaining slots
-            deliberate_count = len(referenced_claim_ids) + len(attached_claim_ids) + len(conversation_pinned_claim_ids)
+            deliberate_count = (
+                len(referenced_claim_ids)
+                + len(attached_claim_ids)
+                + len(conversation_pinned_claim_ids)
+            )
             remaining_slots = max(1, k - len(all_claims))
-            time_logger.info(f"[PKB] Auto-search: remaining_slots={remaining_slots}, deliberate_count={deliberate_count}")
+            time_logger.info(
+                f"[PKB] Auto-search: remaining_slots={remaining_slots}, deliberate_count={deliberate_count}"
+            )
             if remaining_slots > 0:
                 # Build an "enhanced" query with conversation context.
                 #
@@ -278,16 +397,29 @@ class Conversation:
                     if len(summary) > max_summary_chars:
                         # Prefer the tail: it tends to include the most recent topic.
                         summary = summary[-max_summary_chars:]
-                        time_logger.info(f"[PKB] Truncated conversation_summary for PKB search to last {max_summary_chars} chars")
+                        time_logger.info(
+                            f"[PKB] Truncated conversation_summary for PKB search to last {max_summary_chars} chars"
+                        )
                     # Normalize dashes/colons to reduce FTS5 parser surprises in some environments.
-                    summary = summary.replace("—", " ").replace("–", " ").replace("-", " ").replace(":", " ")
+                    summary = (
+                        summary.replace("—", " ")
+                        .replace("–", " ")
+                        .replace("-", " ")
+                        .replace(":", " ")
+                    )
                     enhanced_query = f"{summary}\n\nCurrent query: {query}"
-                
-                time_logger.info(f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'")
-                result = api.search(enhanced_query, strategy='hybrid', k=remaining_slots + 5)  # Get extra for dedup
-                
-                time_logger.info(f"[PKB] Search result: success={result.success}, data_type={type(result.data)}, data_len={len(result.data) if result.data else 0}")
-                
+
+                time_logger.info(
+                    f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'"
+                )
+                result = api.search(
+                    enhanced_query, strategy="hybrid", k=remaining_slots + 5
+                )  # Get extra for dedup
+
+                time_logger.info(
+                    f"[PKB] Search result: success={result.success}, data_type={type(result.data)}, data_len={len(result.data) if result.data else 0}"
+                )
+
                 if result.success and result.data:
                     search_added = 0
                     for search_result in result.data:
@@ -296,24 +428,37 @@ class Conversation:
                             all_claims.append(("auto", claim))
                             seen_ids.add(claim.claim_id)
                             search_added += 1
-                            if len(all_claims) >= k + deliberate_count:  # Allow deliberate claims extra
+                            if (
+                                len(all_claims) >= k + deliberate_count
+                            ):  # Allow deliberate claims extra
                                 break
-                    time_logger.info(f"[PKB] Hybrid search returned {len(result.data)} results, added {search_added} unique claims")
+                    time_logger.info(
+                        f"[PKB] Hybrid search returned {len(result.data)} results, added {search_added} unique claims"
+                    )
                 elif result.success and not result.data:
                     # Check if there are ANY claims in the database for this user
                     from truth_management_system.models import ClaimStatus
-                    all_user_claims = api.claims.list(filters={'status': ClaimStatus.ACTIVE.value}, limit=10)
-                    time_logger.info(f"[PKB] Search returned 0 results. Total active claims for user: {len(all_user_claims)}")
+
+                    all_user_claims = api.claims.list(
+                        filters={"status": ClaimStatus.ACTIVE.value}, limit=10
+                    )
+                    time_logger.info(
+                        f"[PKB] Search returned 0 results. Total active claims for user: {len(all_user_claims)}"
+                    )
                     if all_user_claims:
-                        time_logger.info(f"[PKB] Sample claims: {[c.statement[:50] for c in all_user_claims[:3]]}")
+                        time_logger.info(
+                            f"[PKB] Sample claims: {[c.statement[:50] for c in all_user_claims[:3]]}"
+                        )
                 else:
-                    time_logger.info(f"[PKB] Hybrid search failed: success={result.success}, errors={result.errors if hasattr(result, 'errors') else 'N/A'}")
-            
+                    time_logger.info(
+                        f"[PKB] Hybrid search failed: success={result.success}, errors={result.errors if hasattr(result, 'errors') else 'N/A'}"
+                    )
+
             time_logger.info(f"[PKB] Total claims collected: {len(all_claims)}")
             if not all_claims:
                 time_logger.info("[PKB] No claims found, returning empty string")
                 return ""
-            
+
             # Format claims with source indicators
             context_lines = []
             for source, claim in all_claims:
@@ -327,22 +472,35 @@ class Conversation:
                     source_prefix = "[PINNED] "
                 elif source == "conv_pinned":
                     source_prefix = "[CONV-PINNED] "
-                context_lines.append(f"- {source_prefix}{claim_type_prefix} {claim.statement}")
-            
+                context_lines.append(
+                    f"- {source_prefix}{claim_type_prefix} {claim.statement}"
+                )
+
             formatted_context = "\n".join(context_lines)
-            time_logger.info(f"[PKB] Returning formatted context with {len(context_lines)} claims, total_chars={len(formatted_context)}")
-            time_logger.info(f"[PKB] Context preview: {formatted_context[:500]}..." if len(formatted_context) > 500 else f"[PKB] Context: {formatted_context}")
+            time_logger.info(
+                f"[PKB] Returning formatted context with {len(context_lines)} claims, total_chars={len(formatted_context)}"
+            )
+            time_logger.info(
+                f"[PKB] Context preview: {formatted_context[:500]}..."
+                if len(formatted_context) > 500
+                else f"[PKB] Context: {formatted_context}"
+            )
             return formatted_context
-            
+
         except Exception as e:
             time_logger.info(f"[PKB] Error retrieving PKB context: {e}", exc_info=True)
             return ""
-    
+
     def set_memory_if_None(self):
         if self.get_field("memory") is None:
-            self.set_field("memory", {"title": 'Start the Conversation',
-                                      "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                      "running_summary": []})
+            self.set_field(
+                "memory",
+                {
+                    "title": "Start the Conversation",
+                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "running_summary": [],
+                },
+            )
 
     @property
     def next_question_suggestions(self):
@@ -357,12 +515,12 @@ class Conversation:
         else:
             setattr(self, "_next_question_suggestions", value)
         self.save_local()
-    
+
     @property
     def memory_pad(self):
         if hasattr(self, "_memory_pad"):
             return self._memory_pad
-        return ''
+        return ""
 
     @memory_pad.setter
     def memory_pad(self, value):
@@ -375,7 +533,9 @@ class Conversation:
     def set_memory_pad(self, value):
         self.memory_pad = value
 
-    def add_to_memory_pad_from_response(self, queryText, responseText, previous_messages, conversation_summary):
+    def add_to_memory_pad_from_response(
+        self, queryText, responseText, previous_messages, conversation_summary
+    ):
         # We will only add facts from the query and response text, nothing else. To determine facts we use an LLM.
         prompt = f"""You are an information extractor. You are given a user query and a system response from a conversation. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.
 
@@ -405,18 +565,31 @@ Important Guidelines:
 
 Write new information below in bullet points below:
 """
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False) # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
-        new_memory = llm(prompt, temperature=0.2, stream=False, system="You are an information extractor. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.")
-        new_memory = re.sub(r'\n+', '\n', new_memory)
-        self.memory_pad += ("\n" + new_memory)
+        llm = CallLLm(
+            self.get_api_keys(),
+            model_name=CHEAP_LONG_CONTEXT_LLM[0],
+            use_gpt4=False,
+            use_16k=False,
+        )  # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
+        new_memory = llm(
+            prompt,
+            temperature=0.2,
+            stream=False,
+            system="You are an information extractor. You will extract important facts, numbers, metrics from the user query and chat assistant response. You will write in a compact manner using bullet points.",
+        )
+        new_memory = re.sub(r"\n+", "\n", new_memory)
+        self.memory_pad += "\n" + new_memory
         # remove double \n
         memory_parts = self.memory_pad.split("\n")
 
         while len(self.memory_pad.split()) > 12000 or len(memory_parts) > 128:
             # split memory pad into 8 equal parts using \n separator and then merging them back
 
-            part_size = len(memory_parts)//8
-            memory_parts = [memory_parts[i: part_size * (i//part_size + 1)] for i in range(0, len(memory_parts), part_size)]
+            part_size = len(memory_parts) // 8
+            memory_parts = [
+                memory_parts[i : part_size * (i // part_size + 1)]
+                for i in range(0, len(memory_parts), part_size)
+            ]
             memory_parts = ["\n".join(mp) for mp in memory_parts]
             shorten_prompt = """You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points.
 The information is as follows:
@@ -439,21 +612,68 @@ Compact list of bullet points:
             system = """You are an information merger and compaction agent who takes multiple sources of information and merges them into a single compact list of bullet points. You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points. You will remove any redundant information and merge any similar information. You will write compactly and in a brief manner while capturing the information."""
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 4):
-                llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+                llm = CallLLm(
+                    self.get_api_keys(),
+                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    use_gpt4=False,
+                    use_16k=False,
+                )
                 if i + 3 < len(memory_parts):
-                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], memory_parts[i+2], memory_parts[i+3]), temperature=0.2, stream=False, system=system))
+                    memory_parts_futures.append(
+                        get_async_future(
+                            llm,
+                            shorten_prompt.format(
+                                memory_parts[i],
+                                memory_parts[i + 1],
+                                memory_parts[i + 2],
+                                memory_parts[i + 3],
+                            ),
+                            temperature=0.2,
+                            stream=False,
+                            system=system,
+                        )
+                    )
                 elif i + 2 < len(memory_parts):
-                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], memory_parts[i+2], ""), temperature=0.2, stream=False, system=system))
+                    memory_parts_futures.append(
+                        get_async_future(
+                            llm,
+                            shorten_prompt.format(
+                                memory_parts[i],
+                                memory_parts[i + 1],
+                                memory_parts[i + 2],
+                                "",
+                            ),
+                            temperature=0.2,
+                            stream=False,
+                            system=system,
+                        )
+                    )
                 elif i + 1 < len(memory_parts):
-                    memory_parts_futures.append(get_async_future(llm, shorten_prompt.format(memory_parts[i], memory_parts[i+1], "", ""), temperature=0.2, stream=False, system=system))
+                    memory_parts_futures.append(
+                        get_async_future(
+                            llm,
+                            shorten_prompt.format(
+                                memory_parts[i], memory_parts[i + 1], "", ""
+                            ),
+                            temperature=0.2,
+                            stream=False,
+                            system=system,
+                        )
+                    )
                 else:
-                    memory_parts_futures.append(wrap_in_future("\n".join(memory_parts[i:])))
+                    memory_parts_futures.append(
+                        wrap_in_future("\n".join(memory_parts[i:]))
+                    )
 
-            memory_parts = [sleep_and_get_future_result(mp) for mp in memory_parts_futures]
+            memory_parts = [
+                sleep_and_get_future_result(mp) for mp in memory_parts_futures
+            ]
             memory_pad = "\n".join(memory_parts)
-            memory_pad = re.sub(r'\n+', '\n', memory_pad)
+            memory_pad = re.sub(r"\n+", "\n", memory_pad)
             self.memory_pad = memory_pad
-        time_logger.info(f"[Conversation] [add_to_memory_pad_from_response] Memory pad updated with new memory , with length = {len(self.memory_pad.split())}")
+        time_logger.info(
+            f"[Conversation] [add_to_memory_pad_from_response] Memory pad updated with new memory , with length = {len(self.memory_pad.split())}"
+        )
         return self.memory_pad
 
     @property
@@ -484,7 +704,7 @@ Compact list of bullet points:
             "total_penalties": 0,
             "session_start_time": time.time(),
             "last_reward_timestamp": None,
-            "reward_history": []
+            "reward_history": [],
         }
         return self._context_data
 
@@ -522,9 +742,19 @@ Compact list of bullet points:
 
     def make_stateful(self):
         self.stateless = False
+
     @property
     def store_separate(self):
-        return ["indices", "raw_documents", "raw_documents_index", "memory", "messages", "uploaded_documents_list"]
+        return [
+            "indices",
+            "raw_documents",
+            "raw_documents_index",
+            "memory",
+            "messages",
+            "uploaded_documents_list",
+            "artefacts",
+            "artefact_message_links",
+        ]
 
     @property
     def running_summary(self):
@@ -552,6 +782,346 @@ Compact list of bullet points:
         return storage
 
     @property
+    def artefacts_path(self):
+        """
+        Return the per-conversation artefacts directory, ensuring it exists.
+
+        Returns
+        -------
+        str
+            Absolute path to the artefacts folder for this conversation.
+        """
+        storage = os.path.join(self._storage, "artefacts")
+        os.makedirs(storage, exist_ok=True)
+        return storage
+
+    def _ensure_artefacts_dir(self) -> str:
+        """
+        Ensure artefacts directory exists and return its path.
+
+        Returns
+        -------
+        str
+            Absolute path to the artefacts folder for this conversation.
+        """
+        return self.artefacts_path
+
+    def _normalize_artefact_type(self, file_type: str) -> str:
+        """
+        Normalize a file type/extension string (no leading dot).
+
+        Parameters
+        ----------
+        file_type : str
+            File type/extension (e.g., "md", ".py").
+
+        Returns
+        -------
+        str
+            Normalized extension without leading dot.
+        """
+        ext = (file_type or "").strip().lower()
+        return ext[1:] if ext.startswith(".") else ext
+
+    def _safe_artefact_name(self, name: str) -> str:
+        """
+        Sanitize an artefact name for filesystem use.
+
+        Parameters
+        ----------
+        name : str
+            User-supplied name.
+
+        Returns
+        -------
+        str
+            Safe filename base (no extension).
+        """
+        base = (name or "").strip().replace(" ", "_")
+        base = "".join(ch for ch in base if ch.isalnum() or ch in ("_", "-", "."))
+        return base if base else "artefact"
+
+    def _build_artefact_filename(
+        self, name: str, file_type: str, artefact_id: str
+    ) -> str:
+        """
+        Build a safe artefact filename with ID suffix and extension.
+
+        Parameters
+        ----------
+        name : str
+            User-supplied display name.
+        file_type : str
+            File type/extension (with or without dot).
+        artefact_id : str
+            Unique artefact id.
+
+        Returns
+        -------
+        str
+            Filename such as "my_file-abc123.md".
+        """
+        safe_name = self._safe_artefact_name(name)
+        ext = self._normalize_artefact_type(file_type)
+        if ext:
+            return f"{safe_name}-{artefact_id}.{ext}"
+        return f"{safe_name}-{artefact_id}"
+
+    def _get_artefact_entry(self, artefact_id: str) -> tuple[int, dict]:
+        """
+        Look up artefact metadata by id.
+
+        Parameters
+        ----------
+        artefact_id : str
+            Artefact id to locate.
+
+        Returns
+        -------
+        tuple[int, dict]
+            (index, metadata) tuple.
+        """
+        artefacts = self.get_field("artefacts") or []
+        for idx, entry in enumerate(artefacts):
+            if entry.get("id") == artefact_id:
+                return idx, entry
+        raise GenericShortException(f"Artefact not found: {artefact_id}")
+
+    def list_artefacts(self) -> list:
+        """
+        List artefact metadata for this conversation.
+
+        Returns
+        -------
+        list
+            List of artefact metadata dicts.
+        """
+        return self.get_field("artefacts") or []
+
+    def get_artefact_message_links(self) -> dict:
+        """
+        Return artefact-message link map for this conversation.
+
+        Returns
+        -------
+        dict
+            Mapping of message_id -> {artefact_id, message_index}.
+        """
+        links = self.get_field("artefact_message_links")
+        if isinstance(links, dict):
+            return links
+        return {}
+
+    def set_artefact_message_link(
+        self, message_id: str, artefact_id: str, message_index: str | None = None
+    ) -> dict:
+        """
+        Link an artefact to a message for persistent cross-ingress edits.
+
+        Parameters
+        ----------
+        message_id : str
+            Message identifier to link.
+        artefact_id : str
+            Artefact identifier.
+        message_index : str | None, optional
+            Optional message index for UI convenience.
+
+        Returns
+        -------
+        dict
+            Updated link map.
+        """
+        if not message_id or not artefact_id:
+            raise GenericShortException("message_id and artefact_id are required")
+        links = self.get_artefact_message_links()
+        entry = {"artefact_id": artefact_id}
+        if message_index is not None:
+            entry["message_index"] = message_index
+        links[str(message_id)] = entry
+        self.set_field("artefact_message_links", links, overwrite=True)
+        return links
+
+    def delete_artefact_message_link(self, message_id: str) -> dict:
+        """
+        Remove a message -> artefact link if it exists.
+
+        Parameters
+        ----------
+        message_id : str
+            Message identifier to unlink.
+
+        Returns
+        -------
+        dict
+            Updated link map.
+        """
+        links = self.get_artefact_message_links()
+        if message_id in links:
+            del links[message_id]
+            self.set_field("artefact_message_links", links, overwrite=True)
+        return links
+
+    def get_artefact(self, artefact_id: str) -> dict:
+        """
+        Fetch artefact metadata and content.
+
+        Parameters
+        ----------
+        artefact_id : str
+            Artefact id to read.
+
+        Returns
+        -------
+        dict
+            Metadata with an added "content" field.
+        """
+        _idx, entry = self._get_artefact_entry(artefact_id)
+        file_path = os.path.join(self.artefacts_path, entry.get("file_name", ""))
+        if not os.path.exists(file_path):
+            raise GenericShortException(
+                f"Artefact file missing: {entry.get('file_name')}"
+            )
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        result = dict(entry)
+        result["content"] = content
+        return result
+
+    def create_artefact(
+        self, name: str, file_type: str, initial_content: str = ""
+    ) -> dict:
+        """
+        Create a new artefact file and register its metadata.
+
+        Parameters
+        ----------
+        name : str
+            User-facing artefact name.
+        file_type : str
+            File type/extension (e.g., "md", "py").
+        initial_content : str, optional
+            Initial file content, by default "".
+
+        Returns
+        -------
+        dict
+            Newly created artefact metadata + content.
+        """
+        artefacts = self.get_field("artefacts") or []
+        artefact_id = uuid.uuid4().hex
+        file_name = self._build_artefact_filename(name, file_type, artefact_id)
+        self._ensure_artefacts_dir()
+        file_path = os.path.join(self.artefacts_path, file_name)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(initial_content or "")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        size_bytes = len((initial_content or "").encode("utf-8"))
+        metadata = {
+            "id": artefact_id,
+            "name": (name or "").strip() or file_name,
+            "file_type": self._normalize_artefact_type(file_type),
+            "file_name": file_name,
+            "created_at": now,
+            "updated_at": now,
+            "size_bytes": size_bytes,
+        }
+        artefacts.append(metadata)
+        self.set_field("artefacts", artefacts, overwrite=True)
+        result = dict(metadata)
+        result["content"] = initial_content or ""
+        return result
+
+    def update_artefact_content(self, artefact_id: str, content: str) -> dict:
+        """
+        Update artefact file content and metadata.
+
+        Parameters
+        ----------
+        artefact_id : str
+            Artefact id to update.
+        content : str
+            New file content.
+
+        Returns
+        -------
+        dict
+            Updated metadata + content.
+        """
+        idx, entry = self._get_artefact_entry(artefact_id)
+        file_path = os.path.join(self.artefacts_path, entry.get("file_name", ""))
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content or "")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry["updated_at"] = now
+        entry["size_bytes"] = len((content or "").encode("utf-8"))
+        artefacts = self.get_field("artefacts") or []
+        if idx < len(artefacts):
+            artefacts[idx] = entry
+        self.set_field("artefacts", artefacts, overwrite=True)
+        result = dict(entry)
+        result["content"] = content or ""
+        return result
+
+    def delete_artefact(self, artefact_id: str) -> None:
+        """
+        Delete an artefact file and its metadata.
+
+        Parameters
+        ----------
+        artefact_id : str
+            Artefact id to delete.
+        """
+        idx, entry = self._get_artefact_entry(artefact_id)
+        file_path = os.path.join(self.artefacts_path, entry.get("file_name", ""))
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        artefacts = self.get_field("artefacts") or []
+        if idx < len(artefacts):
+            artefacts.pop(idx)
+        self.set_field("artefacts", artefacts, overwrite=True)
+        self._remove_artefact_links_by_artefact_id(artefact_id)
+
+    def _remove_artefact_links_by_artefact_id(self, artefact_id: str) -> None:
+        """
+        Remove any message links pointing at the given artefact id.
+
+        Parameters
+        ----------
+        artefact_id : str
+            Artefact identifier to unlink.
+        """
+        if not artefact_id:
+            return
+        links = self.get_artefact_message_links()
+        if not links:
+            return
+        updated = {
+            k: v for k, v in links.items() if v.get("artefact_id") != artefact_id
+        }
+        if updated != links:
+            self.set_field("artefact_message_links", updated, overwrite=True)
+
+    def resolve_artefact_ref(self, index: int) -> Union[dict, None]:
+        """
+        Map a 1-based #artefact index to metadata entry.
+
+        Parameters
+        ----------
+        index : int
+            1-based artefact index.
+
+        Returns
+        -------
+        dict | None
+            Metadata dict or None if not found.
+        """
+        artefacts = self.get_field("artefacts") or []
+        if 1 <= index <= len(artefacts):
+            return artefacts[index - 1]
+        return None
+
+    @property
     def doc_infos(self) -> str:
         if hasattr(self, "_doc_infos"):
             return self._doc_infos
@@ -574,7 +1144,11 @@ Compact list of bullet points:
         previous_docs = self.get_field("uploaded_documents_list")
         previous_docs = previous_docs if previous_docs is not None else []
         # deduplicate on basis of doc_id
-        previous_docs = [d for i, d in enumerate(previous_docs) if d[0] not in [d[0] for d in previous_docs[:i]]]
+        previous_docs = [
+            d
+            for i, d in enumerate(previous_docs)
+            if d[0] not in [d[0] for d in previous_docs[:i]]
+        ]
         pdf_urls = [d[2] for d in previous_docs]
         if pdf_url in pdf_urls:
             return None
@@ -590,20 +1164,30 @@ Compact list of bullet points:
         all_docs = previous_docs + [(doc_id, doc_storage, pdf_url)]
 
         attached_docs: List[int] = list(range(1, len(current_documents) + 1))
-        attached_docs: List[DocIndex] = [current_documents[d - 1] for d in attached_docs]
+        attached_docs: List[DocIndex] = [
+            current_documents[d - 1] for d in attached_docs
+        ]
         attached_docs.append(doc_index)
-        doc_infos = "\n".join([f"#doc_{i+1}: ({d.title})[{d.doc_source}]" for i, d in enumerate(attached_docs)])
+        doc_infos = "\n".join(
+            [
+                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                for i, d in enumerate(attached_docs)
+            ]
+        )
         self.doc_infos = doc_infos
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 
-    def get_uploaded_documents(self, doc_id=None, readonly=False)->List[DocIndex]:
+    def get_uploaded_documents(self, doc_id=None, readonly=False) -> List[DocIndex]:
         try:
             doc_list = self.get_field("uploaded_documents_list")
         except ValueError as e:
             doc_list = None
             self.set_field("uploaded_documents_list", [])
         if doc_list is not None:
-            docs = [DocIndex.load_local(doc_storage) for doc_id, doc_storage, pdf_url in doc_list]
+            docs = [
+                DocIndex.load_local(doc_storage)
+                for doc_id, doc_storage, pdf_url in doc_list
+            ]
         else:
             docs = []
         if doc_id is not None:
@@ -616,64 +1200,73 @@ Compact list of bullet points:
         return docs
 
     def delete_uploaded_document(self, doc_id):
-        all_docs = [d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id]
+        all_docs = [
+            d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id
+        ]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
         current_documents: List[DocIndex] = self.get_uploaded_documents()
         attached_docs: List[int] = list(range(1, len(current_documents) + 1))
-        attached_docs: List[DocIndex] = [current_documents[d - 1] for d in attached_docs]
-        doc_infos = "\n".join([f"#doc_{i + 1}: ({d.title})[{d.doc_source}]" for i, d in enumerate(attached_docs)])
+        attached_docs: List[DocIndex] = [
+            current_documents[d - 1] for d in attached_docs
+        ]
+        doc_infos = "\n".join(
+            [
+                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                for i, d in enumerate(attached_docs)
+            ]
+        )
         self.doc_infos = doc_infos
-
 
     @staticmethod
     def load_local(folder):
         original_folder = folder
-        folder = os.path.join(folder, os.path.basename(folder)+".index")
+        folder = os.path.join(folder, os.path.basename(folder) + ".index")
         import dill
+
         try:
             with open(folder, "rb") as f:
                 obj = dill.load(f)
                 setattr(obj, "_storage", original_folder)
                 return obj
         except Exception as e:
-            logger.error(
-                f"Error loading from local storage {folder} with error {e}")
+            logger.error(f"Error loading from local storage {folder} with error {e}")
             traceback.print_exc()
             try:
                 shutil.rmtree(original_folder)
             except Exception as e:
-                logger.error(
-                    f"Error deleting local storage {folder} with error {e}")
+                logger.error(f"Error deleting local storage {folder} with error {e}")
             return None
-    
+
     def clone_conversation(self):
         # Create new storage path for clone
-        uuid = ''.join(secrets.choice(alphabet) for i in range(6))
+        uuid = "".join(secrets.choice(alphabet) for i in range(6))
         new_conversation_id = f"{self.conversation_id}_clone_{uuid}"
         # get parent directory of self._storage
         parent_dir = os.path.dirname(self._storage)
         new_storage = os.path.join(parent_dir, new_conversation_id)
         os.makedirs(new_storage, exist_ok=True)
-        
+
         # Create new conversation with correct parameters
         new_conversation = Conversation(
             user_id=self.user_id,
             openai_embed=None,  # Will be set via set_api_keys
             storage=parent_dir,
             conversation_id=new_conversation_id,
-            domain=self.domain
+            domain=self.domain,
         )
-        
+
         # Set API keys
         new_conversation.set_api_keys(self.get_api_keys())
-        
+
         # Properties with getters/setters
         new_conversation.domain = self.domain
         new_conversation.stateless = self.stateless
         new_conversation.doc_infos = self.doc_infos
         new_conversation.running_summary = self.running_summary
-        new_conversation.memory_pad = self.memory_pad if hasattr(self, '_memory_pad') else ''
-        
+        new_conversation.memory_pad = (
+            self.memory_pad if hasattr(self, "_memory_pad") else ""
+        )
+
         # Clone uploaded documents
         uploaded_docs = self.get_field("uploaded_documents_list") or []
         new_docs_path = os.path.join(new_storage, "uploaded_documents")
@@ -682,23 +1275,36 @@ Compact list of bullet points:
             # Copy document files to new storage
             for doc_id, doc_storage, pdf_url in uploaded_docs:
                 if os.path.exists(doc_storage):
-                    new_doc_storage = os.path.join(new_docs_path, os.path.basename(doc_storage))
+                    new_doc_storage = os.path.join(
+                        new_docs_path, os.path.basename(doc_storage)
+                    )
                     shutil.copytree(doc_storage, new_doc_storage, dirs_exist_ok=True)
         new_conversation.set_field("uploaded_documents_list", uploaded_docs)
-        
+
+        # Clone artefacts metadata + files
+        artefacts = self.get_field("artefacts") or []
+        new_artefacts_path = os.path.join(new_storage, "artefacts")
+        if os.path.exists(self.artefacts_path):
+            os.makedirs(new_artefacts_path, exist_ok=True)
+            shutil.copytree(self.artefacts_path, new_artefacts_path, dirs_exist_ok=True)
+        new_conversation.set_field("artefacts", artefacts)
+
         # Clone other fields
         fields_to_clone = [
             "memory",
             "messages",
         ]
-        
+
         for field in fields_to_clone:
             value = self.get_field(field)
             if value is not None:
                 new_conversation.set_field(field, value)
-                    
+
         new_conversation.save_local()
-        logger.info(f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}, Parent directory = {parent_dir}, new location = {new_storage} from old location {self._storage}")
+        logger.info(
+            f"Cloned conversation {self.conversation_id} to {new_conversation.conversation_id}, Parent directory = {parent_dir}, new location = {new_storage} from old location {self._storage}"
+        )
+
         # list contents of new_storage
         def print_tree(path, prefix=""):
             contents = []
@@ -710,34 +1316,41 @@ Compact list of bullet points:
                 else:
                     contents.append(f"{prefix}├── {item}")
             return contents
-            
+
         tree = print_tree(new_storage)
         logger.info(f"Contents of {new_storage}:\n" + "\n".join(tree))
-        logger.info(f"Contents of Old Storage {self._storage}:\n" + "\n".join(print_tree(self._storage)))
+        logger.info(
+            f"Contents of Old Storage {self._storage}:\n"
+            + "\n".join(print_tree(self._storage))
+        )
 
         return new_conversation
-    
-    
+
     def delete_conversation(self):
         try:
             shutil.rmtree(self._storage)
         except Exception as e:
-            logger.error(f"Error deleting conversation {self.conversation_id} with error {e}")
+            logger.error(
+                f"Error deleting conversation {self.conversation_id} with error {e}"
+            )
 
     def save_local(self):
         import dill
+
         doc_id = self.conversation_id
         folder = self._storage
         os.makedirs(folder, exist_ok=True)
         os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
         path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}")
+        lock_location = os.path.join(
+            os.path.join(path.parent.parent, "locks"), f"{doc_id}"
+        )
         filepath = os.path.join(folder, f"{doc_id}.index")
         lock = FileLock(f"{lock_location}.lock")
         if hasattr(self, "api_keys"):
             presave_api_keys = self.api_keys
             self.api_keys = {k: None for k, v in self.api_keys.items()}
-        
+
         with lock.acquire(timeout=600):
             previous_attr = dict()
             for k in self.store_separate:
@@ -750,9 +1363,10 @@ Compact list of bullet points:
                 setattr(self, k, v)
         if hasattr(self, "api_keys"):
             self.api_keys = presave_api_keys
-    
+
     def get_field(self, top_key):
         import dill
+
         doc_id = self.conversation_id
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
@@ -762,7 +1376,9 @@ Compact list of bullet points:
             assert top_key in self.store_separate
         except Exception as e:
             raise GenericShortException(f"Invalid top_key {top_key} provided")
-        logger.debug(f"Get doc data for top_key = {top_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
+        logger.debug(
+            f"Get doc data for top_key = {top_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}"
+        )
         if getattr(self, top_key, None) is not None:
             return getattr(self, top_key, None)
         else:
@@ -784,7 +1400,9 @@ Compact list of bullet points:
                                 obj = json.load(f)
                             # Restore primary JSON from backup to self-heal future reads.
                             try:
-                                self._atomic_write_json(json_filepath, obj, make_backup=False)
+                                self._atomic_write_json(
+                                    json_filepath, obj, make_backup=False
+                                )
                             except Exception:
                                 logger.warning(
                                     f"Failed to restore JSON from backup for conversation_id={doc_id}, "
@@ -805,7 +1423,9 @@ Compact list of bullet points:
                             with open(filepath, "rb") as f:
                                 obj = dill.load(f)
                             try:
-                                self._atomic_write_json(json_filepath, obj, make_backup=True)
+                                self._atomic_write_json(
+                                    json_filepath, obj, make_backup=True
+                                )
                             except Exception:
                                 logger.warning(
                                     f"Failed to rewrite JSON from dill partial for conversation_id={doc_id}, "
@@ -821,14 +1441,18 @@ Compact list of bullet points:
                             )
 
                     # 3) Attempt deterministic salvage (no .bak available, no dill partial).
-                    salvaged = self._attempt_json_salvage(json_filepath, top_key=top_key)
+                    salvaged = self._attempt_json_salvage(
+                        json_filepath, top_key=top_key
+                    )
                     if salvaged is not None:
                         setattr(self, top_key, salvaged)
                         return salvaged
 
                     # 4) Attempt LLM-based repair (disabled only if _LLM_JSON_REPAIR_ENABLED=False).
                     try:
-                        repaired = self._attempt_json_llm_repair(json_filepath, top_key=top_key, error=e)
+                        repaired = self._attempt_json_llm_repair(
+                            json_filepath, top_key=top_key, error=e
+                        )
                     except Exception:
                         repaired = None
                         logger.warning(
@@ -870,16 +1494,19 @@ Compact list of bullet points:
                 return obj
             else:
                 return None
-    
+
     def _get_lock_location(self, key="all"):
         doc_id = self.conversation_id
         folder = self._storage
         path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}_{key}")
+        lock_location = os.path.join(
+            os.path.join(path.parent.parent, "locks"), f"{doc_id}_{key}"
+        )
         return lock_location
 
     def set_field(self, top_key, value, overwrite=False):
         import dill
+
         doc_id = self.conversation_id
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
@@ -888,7 +1515,9 @@ Compact list of bullet points:
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             tk = self.get_field(top_key)
-            assert (type(tk) == type(value) or tk is None) or (isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
+            assert (type(tk) == type(value) or tk is None) or (
+                isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list))
+            )
             if tk is not None:
                 if isinstance(tk, dict) and not overwrite:
                     tk.update(value)
@@ -904,12 +1533,16 @@ Compact list of bullet points:
             else:
                 setattr(self, top_key, value)
             if top_key not in ["indices", "raw_documents_index"]:
-                self._atomic_write_json(json_filepath, getattr(self, top_key, None), make_backup=True)
+                self._atomic_write_json(
+                    json_filepath, getattr(self, top_key, None), make_backup=True
+                )
             else:
                 with open(os.path.join(filepath), "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
 
-    def _atomic_write_json(self, path: str, obj, make_backup: bool = True, make_backup_suffix: str = ".bak"):
+    def _atomic_write_json(
+        self, path: str, obj, make_backup: bool = True, make_backup_suffix: str = ".bak"
+    ):
         """
         Atomically write JSON to `path` to prevent file corruption.
 
@@ -942,9 +1575,12 @@ Compact list of bullet points:
         if make_backup and os.path.exists(path):
             try:
                 import shutil
+
                 shutil.copy2(path, bak_path)
             except Exception:
-                logger.warning(f"Failed to create JSON backup for {path}", exc_info=True)
+                logger.warning(
+                    f"Failed to create JSON backup for {path}", exc_info=True
+                )
 
         os.replace(tmp_path, path)
 
@@ -1201,7 +1837,12 @@ Compact list of bullet points:
                         continue
                     col = _norm_col(col, line_len)
                     normalized_ops.append(
-                        {"op": "line_replace_range", "start_col": col, "end_col": col, "text": op.get("text", "")}
+                        {
+                            "op": "line_replace_range",
+                            "start_col": col,
+                            "end_col": col,
+                            "text": op.get("text", ""),
+                        }
                     )
                 elif op_type == "line_delete_range":
                     sc = op.get("start_col", 0)
@@ -1210,21 +1851,45 @@ Compact list of bullet points:
                         continue
                     sc = _norm_col(sc, line_len)
                     ec = _norm_col(ec, line_len)
-                    normalized_ops.append({"op": "line_replace_range", "start_col": sc, "end_col": ec, "text": ""})
+                    normalized_ops.append(
+                        {
+                            "op": "line_replace_range",
+                            "start_col": sc,
+                            "end_col": ec,
+                            "text": "",
+                        }
+                    )
                 elif op_type == "line_append":
                     normalized_ops.append(
-                        {"op": "line_replace_range", "start_col": line_len, "end_col": line_len, "text": op.get("text", "")}
+                        {
+                            "op": "line_replace_range",
+                            "start_col": line_len,
+                            "end_col": line_len,
+                            "text": op.get("text", ""),
+                        }
                     )
                 elif op_type == "line_prepend":
                     normalized_ops.append(
-                        {"op": "line_replace_range", "start_col": 0, "end_col": 0, "text": op.get("text", "")}
+                        {
+                            "op": "line_replace_range",
+                            "start_col": 0,
+                            "end_col": 0,
+                            "text": op.get("text", ""),
+                        }
                     )
                 elif op_type == "line_truncate_end":
                     n = op.get("remove_last_n", 0)
                     if not isinstance(n, int) or n <= 0:
                         continue
                     sc = max(0, line_len - n)
-                    normalized_ops.append({"op": "line_replace_range", "start_col": sc, "end_col": line_len, "text": ""})
+                    normalized_ops.append(
+                        {
+                            "op": "line_replace_range",
+                            "start_col": sc,
+                            "end_col": line_len,
+                            "text": "",
+                        }
+                    )
                 elif op_type == "line_replace_range":
                     sc = op.get("start_col", 0)
                     ec = op.get("end_col", 0)
@@ -1256,7 +1921,9 @@ Compact list of bullet points:
 
         return lines
 
-    def _attempt_json_llm_repair(self, json_filepath: str, *, top_key: str, error: json.JSONDecodeError):
+    def _attempt_json_llm_repair(
+        self, json_filepath: str, *, top_key: str, error: json.JSONDecodeError
+    ):
         """
         Attempt to repair corrupt JSON using an LLM in a bounded patch loop.
 
@@ -1282,7 +1949,9 @@ Compact list of bullet points:
         try:
             api_keys = self.get_api_keys()
         except Exception:
-            self._llm_repair_log("Skipping LLM repair: could not get API keys", level="warning")
+            self._llm_repair_log(
+                "Skipping LLM repair: could not get API keys", level="warning"
+            )
             return None
 
         try:
@@ -1306,7 +1975,7 @@ Compact list of bullet points:
                 return s
             head = s[: int(limit * 0.7)]
             tail = s[-int(limit * 0.3) :]
-            return f"{head} ...<TRUNCATED {len(s)-len(head)-len(tail)} chars>... {tail}"
+            return f"{head} ...<TRUNCATED {len(s) - len(head) - len(tail)} chars>... {tail}"
 
         excerpt_lines = []
         for i in range(start_line, end_line + 1):
@@ -1391,10 +2060,14 @@ Now return JSON with 'ops' and 'notes'.
         for it in range(1, max_iters + 1):
             self._llm_repair_log(f"Iteration {it}/{max_iters}: requesting patch ops...")
             try:
-                llm_resp = llm(prompt, system=system_prompt, stream=False, temperature=0.0)
+                llm_resp = llm(
+                    prompt, system=system_prompt, stream=False, temperature=0.0
+                )
                 llm_text = self._coerce_llm_response_to_text(llm_resp).strip()
             except Exception as e:
-                self._llm_repair_log(f"Iteration {it}: LLM call failed: {repr(e)}", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: LLM call failed: {repr(e)}", level="warning"
+                )
                 continue
 
             # Parse JSON response
@@ -1410,17 +2083,26 @@ Now return JSON with 'ops' and 'notes'.
                     level="warning",
                 )
                 # Tighten prompt slightly on next iteration by adding last output
-                prompt = prompt + "\n\nYour last output was invalid JSON. Output ONLY valid JSON per schema.\nLAST_OUTPUT:\n" + llm_text[:4000]
+                prompt = (
+                    prompt
+                    + "\n\nYour last output was invalid JSON. Output ONLY valid JSON per schema.\nLAST_OUTPUT:\n"
+                    + llm_text[:4000]
+                )
                 continue
 
-            self._llm_repair_log(f"Iteration {it}: received {len(ops)} ops. notes={notes!r}")
+            self._llm_repair_log(
+                f"Iteration {it}: received {len(ops)} ops. notes={notes!r}"
+            )
             if len(ops) == 0:
                 prompt = prompt + "\n\nNo ops were provided. Provide at least 1 op.\n"
                 continue
 
             if len(ops) > int(getattr(self, "_LLM_JSON_REPAIR_MAX_OPS", 16)):
                 ops = ops[: int(getattr(self, "_LLM_JSON_REPAIR_MAX_OPS", 16))]
-                self._llm_repair_log(f"Iteration {it}: truncated ops to {len(ops)} due to max ops limit", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: truncated ops to {len(ops)} due to max ops limit",
+                    level="warning",
+                )
 
             # Apply ops in-memory
             try:
@@ -1428,7 +2110,9 @@ Now return JSON with 'ops' and 'notes'.
                 patched_lines = self._apply_llm_json_patch_ops(lines, ops)
                 patched_text = "\n".join(patched_lines)
             except Exception as e:
-                self._llm_repair_log(f"Iteration {it}: failed applying ops: {repr(e)}", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: failed applying ops: {repr(e)}", level="warning"
+                )
                 continue
 
             # Validate JSON
@@ -1440,31 +2124,47 @@ Now return JSON with 'ops' and 'notes'.
                     level="warning",
                 )
                 # Update prompt with new error and allow iterative fixes.
-                prompt = prompt + "\n\nAFTER_PATCH_JSON_STILL_INVALID:\n" + repr(e) + "\n"
+                prompt = (
+                    prompt + "\n\nAFTER_PATCH_JSON_STILL_INVALID:\n" + repr(e) + "\n"
+                )
                 current_text = patched_text
                 continue
             except Exception as e:
-                self._llm_repair_log(f"Iteration {it}: unexpected validation failure: {repr(e)}", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: unexpected validation failure: {repr(e)}",
+                    level="warning",
+                )
                 current_text = patched_text
                 continue
 
             # Sanity: for known keys enforce type
             if top_key == "messages" and not isinstance(obj, list):
-                self._llm_repair_log(f"Iteration {it}: JSON valid but not a list for messages; got {type(obj)}", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: JSON valid but not a list for messages; got {type(obj)}",
+                    level="warning",
+                )
                 current_text = patched_text
                 continue
             if top_key == "memory" and not isinstance(obj, dict):
-                self._llm_repair_log(f"Iteration {it}: JSON valid but not a dict for memory; got {type(obj)}", level="warning")
+                self._llm_repair_log(
+                    f"Iteration {it}: JSON valid but not a dict for memory; got {type(obj)}",
+                    level="warning",
+                )
                 current_text = patched_text
                 continue
 
             # Success: quarantine original and write normalized JSON
-            self._llm_repair_log(f"Iteration {it}: SUCCESS. Quarantining corrupt file and writing repaired JSON.")
+            self._llm_repair_log(
+                f"Iteration {it}: SUCCESS. Quarantining corrupt file and writing repaired JSON."
+            )
             self._quarantine_corrupt_file(json_filepath)
             try:
                 self._atomic_write_json(json_filepath, obj, make_backup=False)
             except Exception as e:
-                self._llm_repair_log(f"Iteration {it}: failed writing repaired JSON: {repr(e)}", level="error")
+                self._llm_repair_log(
+                    f"Iteration {it}: failed writing repaired JSON: {repr(e)}",
+                    level="error",
+                )
                 return None
             return obj
 
@@ -1474,16 +2174,20 @@ Now return JSON with 'ops' and 'notes'.
     def set_messages_field(self, messages, overwrite=False):
         self.set_field("messages", messages, overwrite=overwrite)
 
-
     @timer
-    def retrieve_prior_context(self, query, past_message_ids=[], required_message_lookback=18):
+    def retrieve_prior_context(
+        self, query, past_message_ids=[], required_message_lookback=18
+    ):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
         token_limit_very_short = 10_000
         token_limit_short = 20_000
         token_limit_long = 48_000
         token_limit_very_long = 64_000
-        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
+        futures = [
+            get_async_future(self.get_field, "memory"),
+            get_async_future(self.get_field, "messages"),
+        ]
         memory, messages = [sleep_and_get_future_result(f) for f in futures]
         message_lookback = 2
         previous_messages_text = ""
@@ -1491,11 +2195,25 @@ Now return JSON with 'ops' and 'notes'.
             messages = [m for m in messages if m["message_id"] in past_message_ids]
             required_message_lookback = 16
         word_count = 0
-        previous_messages_very_short = previous_messages_short = previous_messages_long = previous_messages_very_long = ''
-        while word_count < token_limit_very_long and message_lookback <= required_message_lookback and required_message_lookback > 0:
+        previous_messages_very_short = previous_messages_short = (
+            previous_messages_long
+        ) = previous_messages_very_long = ""
+        while (
+            word_count < token_limit_very_long
+            and message_lookback <= required_message_lookback
+            and required_message_lookback > 0
+        ):
             previous_messages = messages[-message_lookback:]
-            previous_messages = [{"sender": m["sender"], "text": extract_user_answer(m["text"])} for m in previous_messages]
-            previous_messages_text = '\n\n'.join([f"<{m['sender']}>\n{m['text']}\n</{m['sender']}>" for m in previous_messages])
+            previous_messages = [
+                {"sender": m["sender"], "text": extract_user_answer(m["text"])}
+                for m in previous_messages
+            ]
+            previous_messages_text = "\n\n".join(
+                [
+                    f"<{m['sender']}>\n{m['text']}\n</{m['sender']}>"
+                    for m in previous_messages
+                ]
+            )
             word_count = get_gpt4_word_count(previous_messages_text)
             if word_count < token_limit_very_short:
                 previous_messages_very_short = previous_messages_text
@@ -1513,110 +2231,139 @@ Now return JSON with 'ops' and 'notes'.
         #     running_summary = [older_extensive_summary] + running_summary
 
         # We return a dict
-        previous_messages_short = "<messages>\n" + previous_messages_short + "\n</messages>"
-        previous_messages_long = "<messages>\n" + previous_messages_long + "\n</messages>"
-        previous_messages_very_long = "<messages>\n" + previous_messages_very_long + "\n</messages>"
-        previous_messages_very_short = "<messages>\n" + previous_messages_very_short + "\n</messages>"
-        results = dict(previous_messages=previous_messages_short,
-                       previous_messages_long=previous_messages_long,
-                       previous_messages_very_long=previous_messages_very_long,
-                       previous_messages_very_short=previous_messages_very_short,
-                       summary=running_summary)
+        previous_messages_short = (
+            "<messages>\n" + previous_messages_short + "\n</messages>"
+        )
+        previous_messages_long = (
+            "<messages>\n" + previous_messages_long + "\n</messages>"
+        )
+        previous_messages_very_long = (
+            "<messages>\n" + previous_messages_very_long + "\n</messages>"
+        )
+        previous_messages_very_short = (
+            "<messages>\n" + previous_messages_very_short + "\n</messages>"
+        )
+        results = dict(
+            previous_messages=previous_messages_short,
+            previous_messages_long=previous_messages_long,
+            previous_messages_very_long=previous_messages_very_long,
+            previous_messages_very_short=previous_messages_very_short,
+            summary=running_summary,
+        )
         # lets log the length of each of the above in a single log statement
         time_spend = time.time() - st
-        logger.info(f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}")
+        logger.info(
+            f"Length of previous_messages_short = {get_gpt4_word_count(previous_messages_short)}, previous_messages_long = {get_gpt4_word_count(previous_messages_long)}, previous_messages_very_long = {get_gpt4_word_count(previous_messages_very_long)}"
+        )
         time_logger.info(f"Time taken to retrieve prior context = {time_spend} seconds")
         return results
 
     @timer
-    def retrieve_prior_context_llm_based(self, query, past_message_ids=[], required_message_lookback=30):
+    def retrieve_prior_context_llm_based(
+        self, query, past_message_ids=[], required_message_lookback=30
+    ):
         """
         Retrieves prior context from conversation messages using LLM-based extraction.
-        
+
         For each window of 3 messages, an LLM extracts relevant facts, details, and information
         that can help answer the user query. The extraction is done in parallel across all windows.
-        
+
         Args:
             query: The current user query that needs context for answering.
             past_message_ids: Optional list of specific message IDs to consider. If provided,
                              only these messages will be used for context extraction.
             required_message_lookback: Maximum number of messages to look back (default 30).
-        
+
         Returns:
             dict: A dictionary containing:
                 - extracted_context: Concatenated bullet points of extracted facts from all windows.
                 - summary: The running summary of the conversation.
                 - window_count: Number of message windows processed.
                 - message_count: Total number of messages processed.
-        
+
         The objective is to retrieve information useful for answering the query, not to answer
         the query itself. Each window extraction runs in parallel for efficiency.
         """
         st = time.time()
-        time_logger.info(f"Starting retrieve_prior_context_llm_based, time = {time.time() - st:.2f}s")
+        time_logger.info(
+            f"Starting retrieve_prior_context_llm_based, time = {time.time() - st:.2f}s"
+        )
         running_summary = self.running_summary
-        
+
         # Get messages asynchronously
-        futures = [get_async_future(self.get_field, "memory"), get_async_future(self.get_field, "messages")]
+        futures = [
+            get_async_future(self.get_field, "memory"),
+            get_async_future(self.get_field, "messages"),
+        ]
         memory, messages = [sleep_and_get_future_result(f) for f in futures]
         time_logger.info(f"Got memory and messages, time = {time.time() - st:.2f}s")
         # Handle empty messages
         if not messages or len(messages) == 0:
-            time_logger.info(f"No messages found for context extraction, time = {time.time() - st:.2f}s")
+            time_logger.info(
+                f"No messages found for context extraction, time = {time.time() - st:.2f}s"
+            )
             return dict(
                 extracted_context="",
                 summary=running_summary,
                 window_count=0,
-                message_count=0
+                message_count=0,
             )
-        
+
         # Filter messages by past_message_ids if provided
         if past_message_ids and len(past_message_ids) > 0:
             messages = [m for m in messages if m["message_id"] in past_message_ids]
             required_message_lookback = min(required_message_lookback, 16)
-        
+
         # Limit to required_message_lookback most recent messages
-        messages = messages[-required_message_lookback:] if len(messages) > required_message_lookback else messages
-        
+        messages = (
+            messages[-required_message_lookback:]
+            if len(messages) > required_message_lookback
+            else messages
+        )
+
         # Handle case with very few messages
         if len(messages) == 0:
-            time_logger.info(f"No messages after filtering for context extraction, time = {time.time() - st:.2f}s")
+            time_logger.info(
+                f"No messages after filtering for context extraction, time = {time.time() - st:.2f}s"
+            )
             return dict(
                 extracted_context="",
                 summary=running_summary,
                 window_count=0,
-                message_count=0
+                message_count=0,
             )
-        
+
         # Create non-overlapping windows of 3 messages (stride=3, window=3)
         # Create non-overlapping windows with variable sizes
         # Recent messages (end of array) use smaller windows (3)
         # Older messages (beginning of array) use larger windows (5, then 4)
         message_windows = []
         i = 0
-        
+
         temp_messages = messages.copy()
         messages = messages[:-2]
         while i < len(messages):
             # Determine window size and stride based on position from the end
             remaining_messages = len(messages) - i
-            
+
             if remaining_messages <= 6:  # Last 6 messages: use window_size=3, stride=3
                 window_size = 3
                 stride = 3
-            elif remaining_messages <= 16:  # Next 16 messages: use window_size=5, stride=5
+            elif (
+                remaining_messages <= 16
+            ):  # Next 16 messages: use window_size=5, stride=5
                 window_size = 5
                 stride = 5
             else:  # Earlier messages: use window_size=5, stride=5
                 window_size = 6
                 stride = 6
-            
-            window = messages[i:i + window_size]
+
+            window = messages[i : i + window_size]
             if len(window) > 0:  # Include even partial windows at the end
                 message_windows.append(window)
-            
+
             i += stride
-        
+
         # If the last window has only one message, merge it with the previous window
         if len(message_windows) > 1 and len(message_windows[-1]) == 1:
             # Merge the last single message into the previous window
@@ -1625,10 +2372,10 @@ Now return JSON with 'ops' and 'notes'.
             message_windows.pop()
 
         messages = temp_messages
-        
+
         # Prompt template for extracting relevant context from a message window
         time_logger.info(f"Creating extraction prompt template")
-        
+
         system = dedent(f"""
         You are an assistant that extracts relevant information from conversation messages to help answer a user query.
         You will write in compact bullet points.
@@ -1668,78 +2415,136 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
 
 ## Extracted Information (bullet points):
 """
-        
+
         # Create async futures for each window
-        time_logger.info(f"Creating async futures for {len(message_windows)} message windows")
+        time_logger.info(
+            f"Creating async futures for {len(message_windows)} message windows"
+        )
         extraction_futures = []
         for window_idx, window in enumerate(message_windows):
             # Format messages in this window
-            messages_text = '\n\n'.join([
-                f"<{m['sender']}>\n{extract_user_answer(m['text'])}\n</{m['sender']}>" 
-                for m in window
-            ])
-            
+            messages_text = "\n\n".join(
+                [
+                    f"<{m['sender']}>\n{extract_user_answer(m['text'])}\n</{m['sender']}>"
+                    for m in window
+                ]
+            )
+
             # Create the prompt for this window
             prompt = extraction_prompt_template.format(
                 query=query,
-                summary=running_summary if running_summary else "(No summary available)",
-                messages_text=messages_text
+                summary=running_summary
+                if running_summary
+                else "(No summary available)",
+                messages_text=messages_text,
             )
-            
+
             # Fire async LLM call
-            llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0],  use_gpt4=False, use_16k=False)
-            future = get_async_future(llm, prompt, temperature=0.2, system=system,stream=False)
-            time_logger.info(f"Prompt length = {get_gpt4_word_count(prompt)} tokens and dtype = {type(prompt)}, model_name = {llm.model_name}, system type = {type(system)}")
+            llm = CallLLm(
+                self.get_api_keys(),
+                model_name=VERY_CHEAP_LLM[0],
+                use_gpt4=False,
+                use_16k=False,
+            )
+            future = get_async_future(
+                llm, prompt, temperature=0.2, system=system, stream=False
+            )
+            time_logger.info(
+                f"Prompt length = {get_gpt4_word_count(prompt)} tokens and dtype = {type(prompt)}, model_name = {llm.model_name}, system type = {type(system)}"
+            )
             extraction_futures.append((window_idx, future))
-        
+
         # Collect results in order
-        time_logger.info(f"Collecting results in order for {len(extraction_futures)} async futures")
+        time_logger.info(
+            f"Collecting results in order for {len(extraction_futures)} async futures"
+        )
         extraction_results = []
         success_and_failed_windows = []
         for window_idx, future in extraction_futures:
             try:
-                time_logger.info(f"Waiting for result from window {window_idx + 1} of {len(message_windows)}")
+                time_logger.info(
+                    f"Waiting for result from window {window_idx + 1} of {len(message_windows)}"
+                )
                 result = sleep_and_get_future_result(future, timeout=120)
-                time_logger.info(f"Result from window {window_idx + 1} of {len(message_windows)} obtained")
-                if result and result.strip() and "No relevant information" not in result:
+                time_logger.info(
+                    f"Result from window {window_idx + 1} of {len(message_windows)} obtained"
+                )
+                if (
+                    result
+                    and result.strip()
+                    and "No relevant information" not in result
+                ):
                     extraction_results.append((window_idx, result.strip()))
-                    time_logger.info(f"Extracted context from window {window_idx + 1} of {len(message_windows)}, with len = {len(result.strip().split())} tokens and dtype = {type(result.strip())}")
-                    success_and_failed_windows.append((window_idx, True, {"model_name": llm.model_name, "prompt": str(type(prompt)), "system": str(type(system))}))
+                    time_logger.info(
+                        f"Extracted context from window {window_idx + 1} of {len(message_windows)}, with len = {len(result.strip().split())} tokens and dtype = {type(result.strip())}"
+                    )
+                    success_and_failed_windows.append(
+                        (
+                            window_idx,
+                            True,
+                            {
+                                "model_name": llm.model_name,
+                                "prompt": str(type(prompt)),
+                                "system": str(type(system)),
+                            },
+                        )
+                    )
             except Exception as e:
-                error_logger.error(f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}")
-                time_logger.info(f"Error extracting context from window {window_idx + 1} of {len(message_windows)}, with error = {e}")
-                
-                success_and_failed_windows.append((window_idx, False, {"model_name": llm.model_name, "prompt": str(type(prompt)), "system": str(type(system))}))
+                error_logger.error(
+                    f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}"
+                )
+                time_logger.info(
+                    f"Error extracting context from window {window_idx + 1} of {len(message_windows)}, with error = {e}"
+                )
+
+                success_and_failed_windows.append(
+                    (
+                        window_idx,
+                        False,
+                        {
+                            "model_name": llm.model_name,
+                            "prompt": str(type(prompt)),
+                            "system": str(type(system)),
+                        },
+                    )
+                )
                 continue
-        
-        
-        time_logger.info(f"Time taken to extract context = {time.time() - st:.2f} seconds")
-        time_logger.info(f"Success and failed windows = {json.dumps(success_and_failed_windows, indent=4)}")
+
+        time_logger.info(
+            f"Time taken to extract context = {time.time() - st:.2f} seconds"
+        )
+        time_logger.info(
+            f"Success and failed windows = {json.dumps(success_and_failed_windows, indent=4)}"
+        )
         # Sort by window index to maintain chronological order
         extraction_results.sort(key=lambda x: x[0])
-        
+
         # Concatenate all extracted information
-        time_logger.info(f"Concatenating {len(extraction_results)} extracted information")
+        time_logger.info(
+            f"Concatenating {len(extraction_results)} extracted information"
+        )
         if extraction_results:
             # Add window markers for clarity
             extracted_parts = []
             for window_idx, result in extraction_results:
                 # Clean up the result - remove excessive newlines
-                result = re.sub(r'\n{3,}', '\n\n', result)
-                extracted_parts.append(f"### Context from messages {window_idx * stride + 1}-{min((window_idx + 1) * stride, len(messages))}:\n{result}")
-            
+                result = re.sub(r"\n{3,}", "\n\n", result)
+                extracted_parts.append(
+                    f"### Context from messages {window_idx * stride + 1}-{min((window_idx + 1) * stride, len(messages))}:\n{result}"
+                )
+
             extracted_context = "\n\n".join(extracted_parts)
         else:
             extracted_context = ""
-        
+
         # Build the result dictionary
         results = dict(
             extracted_context=extracted_context,
             summary=running_summary,
             window_count=len(message_windows),
-            message_count=len(messages)
+            message_count=len(messages),
         )
-        
+
         # Log timing and statistics
         time_spent = time.time() - st
         logger.info(
@@ -1747,39 +2552,48 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             f"{len(extraction_results)} yielded results, "
             f"extracted_context length = {get_gpt4_word_count(extracted_context)} tokens"
         )
-        time_logger.info(f"Time taken for LLM-based context retrieval = {time_spent:.2f} seconds")
-        
+        time_logger.info(
+            f"Time taken for LLM-based context retrieval = {time_spent:.2f} seconds"
+        )
+
         return results
 
     def get_conversation_history(self, query=""):
         """Generate a comprehensive conversation history combining summary and recent messages"""
         try:
             # Get prior context and running summary
-            context_data = self.retrieve_prior_context(query, required_message_lookback=20)
+            context_data = self.retrieve_prior_context(
+                query, required_message_lookback=20
+            )
             running_summary = self.running_summary
-            
+
             # Build comprehensive conversation history
             history_text = ""
-            
+
             # Add conversation summary if available
             if running_summary and len(running_summary) > 0:
                 if isinstance(running_summary, list):
                     summary_text = "\n".join(running_summary)
                 else:
                     summary_text = str(running_summary)
-                
+
                 history_text += "# Conversation Summary\n\n"
                 history_text += summary_text + "\n\n"
-            
+
             # Add recent messages
             previous_messages_long = context_data.get("previous_messages_long", "")
-            if previous_messages_long and previous_messages_long.strip() != "<messages>\n\n</messages>":
+            if (
+                previous_messages_long
+                and previous_messages_long.strip() != "<messages>\n\n</messages>"
+            ):
                 history_text += "# Recent Messages\n\n"
                 # Clean up the messages format for better readability
-                clean_messages = previous_messages_long.replace("<messages>\n", "").replace("\n</messages>", "")
+                clean_messages = previous_messages_long.replace(
+                    "<messages>\n", ""
+                ).replace("\n</messages>", "")
                 if clean_messages.strip():
                     history_text += clean_messages + "\n\n"
-            
+
             # Add metadata
             messages = self.get_field("messages")
             if messages:
@@ -1787,34 +2601,51 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                 history_text += f"- **Total Messages:** {len(messages)}\n"
                 history_text += f"- **Conversation ID:** {self.conversation_id}\n"
                 history_text += f"- **Domain:** {self.domain}\n"
-                
+
                 # Add last message timestamp if available
                 if messages:
                     last_message = messages[-1]
                     if "timestamp" in last_message:
-                        history_text += f"- **Last Updated:** {last_message['timestamp']}\n"
-            
+                        history_text += (
+                            f"- **Last Updated:** {last_message['timestamp']}\n"
+                        )
+
             # If no content, provide a default message
             if not history_text.strip():
                 history_text = "# Conversation History\n\nThis conversation is just getting started. No previous messages or summary available yet."
-            
+
             return history_text
-            
+
         except Exception as e:
             logger.error(f"Error generating conversation history: {str(e)}")
             return f"# Conversation History\n\nUnable to retrieve conversation history due to an error: {str(e)}"
 
-
     def get_message_ids(self, query, response):
-        user_message_id = str(mmh3.hash(self.conversation_id + self.user_id + query["messageText"] if isinstance(query, dict) else query, signed=False))
-        response_message_id = str(mmh3.hash(self.conversation_id + self.user_id + response["messageText"] if isinstance(response, dict) else response, signed=False))
-        return dict(user_message_id=user_message_id, response_message_id=response_message_id)
+        user_message_id = str(
+            mmh3.hash(
+                self.conversation_id + self.user_id + query["messageText"]
+                if isinstance(query, dict)
+                else query,
+                signed=False,
+            )
+        )
+        response_message_id = str(
+            mmh3.hash(
+                self.conversation_id + self.user_id + response["messageText"]
+                if isinstance(response, dict)
+                else response,
+                signed=False,
+            )
+        )
+        return dict(
+            user_message_id=user_message_id, response_message_id=response_message_id
+        )
 
     def show_hide_message(self, message_id, index, show_hide):
         # Add lock acquisition at the beginning
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
-        
+
         with lock.acquire(timeout=600):
             messages = self.get_field("messages")
             for i, m in enumerate(messages):
@@ -1823,9 +2654,10 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                     break
             self.set_messages_field(messages, overwrite=True)
             self.save_local()
-    
-    
-    def create_next_question_suggestions(self, query, response, previous_messages_text, previous_summary):
+
+    def create_next_question_suggestions(
+        self, query, response, previous_messages_text, previous_summary
+    ):
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
 The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
@@ -1843,13 +2675,31 @@ Your response will be in below xml style format:
 Give 4 suggestions.
 """
 
-        next_question_suggestions_prompt = prompts.next_question_suggestions_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=True)
-        next_question_suggestions = llm(next_question_suggestions_prompt, system=system, temperature=0.2, stream=False)
+        next_question_suggestions_prompt = (
+            prompts.next_question_suggestions_prompt.format(
+                query=query,
+                response=extract_user_answer(response),
+                previous_messages_text=previous_messages_text,
+                summary=previous_summary,
+            )
+        )
+        llm = CallLLm(
+            self.get_api_keys(),
+            model_name=CHEAP_LONG_CONTEXT_LLM[0],
+            use_gpt4=False,
+            use_16k=True,
+        )
+        next_question_suggestions = llm(
+            next_question_suggestions_prompt,
+            system=system,
+            temperature=0.2,
+            stream=False,
+        )
         # Parse the next_question_suggestions to extract individual suggestions
         import re
+
         suggestions = []
-        suggestion_pattern = r'<suggestion>(.*?)</suggestion>'
+        suggestion_pattern = r"<suggestion>(.*?)</suggestion>"
         matches = re.findall(suggestion_pattern, next_question_suggestions)
         if matches:
             suggestions = matches
@@ -1871,10 +2721,7 @@ Give 4 suggestions.
     def check_all_lockfiles(self):
         lock_status = {key: self.check_lockfile(key) for key in self.LOCK_KEYS}
         any_lock_acquired = any(lock_status.values())
-        return {
-            "any_lock_acquired": any_lock_acquired,
-            "lock_status": lock_status
-        }
+        return {"any_lock_acquired": any_lock_acquired, "lock_status": lock_status}
 
     def force_clear_all_locks(self):
         """Force delete all lock files for this conversation.
@@ -1887,7 +2734,11 @@ Give 4 suggestions.
             if os.path.exists(lock_path):
                 try:
                     os.remove(lock_path)
-                    cleared.append(f"{self.conversation_id}_{key}.lock" if key else f"{self.conversation_id}_.lock")
+                    cleared.append(
+                        f"{self.conversation_id}_{key}.lock"
+                        if key
+                        else f"{self.conversation_id}_.lock"
+                    )
                 except Exception as e:
                     print(f"Error clearing lock {lock_path}: {e}")
         return {"cleared": cleared, "count": len(cleared)}
@@ -1897,9 +2748,10 @@ Give 4 suggestions.
         Returns list of stale lock file info.
         """
         import time
+
         stale_locks = []
         current_time = time.time()
-        
+
         for key in self.LOCK_KEYS:
             lock_location = self._get_lock_location(key)
             lock_path = f"{lock_location}.lock"
@@ -1907,12 +2759,14 @@ Give 4 suggestions.
                 try:
                     file_age = current_time - os.path.getmtime(lock_path)
                     if file_age > age_threshold:
-                        stale_locks.append({
-                            "key": key if key else "(main)",
-                            "file": os.path.basename(lock_path),
-                            "age_seconds": int(file_age),
-                            "path": lock_path
-                        })
+                        stale_locks.append(
+                            {
+                                "key": key if key else "(main)",
+                                "file": os.path.basename(lock_path),
+                                "age_seconds": int(file_age),
+                                "path": lock_path,
+                            }
+                        )
                 except Exception as e:
                     print(f"Error checking lock age {lock_path}: {e}")
         return stale_locks
@@ -1923,18 +2777,28 @@ Give 4 suggestions.
         """
         lock_status = self.check_all_lockfiles()
         stale_locks = self.get_stale_locks(stale_threshold)
-        
+
         return {
             "conversation_id": self.conversation_id,
             "locks_status": lock_status["lock_status"],
             "any_locked": lock_status["any_lock_acquired"],
             "stale_locks": [s["file"] for s in stale_locks],
             "stale_locks_detail": stale_locks,
-            "can_cleanup": len(stale_locks) > 0 or lock_status["any_lock_acquired"]
+            "can_cleanup": len(stale_locks) > 0 or lock_status["any_lock_acquired"],
         }
-    
+
     @timer
-    def persist_current_turn(self, query, response, config, previous_messages_text, previous_summary, new_docs, persist_or_not=True, past_message_ids=None):
+    def persist_current_turn(
+        self,
+        query,
+        response,
+        config,
+        previous_messages_text,
+        previous_summary,
+        new_docs,
+        persist_or_not=True,
+        past_message_ids=None,
+    ):
         self.clear_cancellation()
         if not persist_or_not:
             return
@@ -1945,9 +2809,21 @@ Give 4 suggestions.
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
 
-        prompt = prompts.persist_current_turn_prompt.format(query=query, response=extract_user_answer(response), previous_messages_text=previous_messages_text, previous_summary=previous_summary)
-        llm = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True)
-        answer_tldr = extract_user_answer(response, tag="answer_tldr", return_empty_string_if_not_found=True)
+        prompt = prompts.persist_current_turn_prompt.format(
+            query=query,
+            response=extract_user_answer(response),
+            previous_messages_text=previous_messages_text,
+            previous_summary=previous_summary,
+        )
+        llm = CallLLm(
+            self.get_api_keys(),
+            model_name=VERY_CHEAP_LLM[0],
+            use_gpt4=False,
+            use_16k=True,
+        )
+        answer_tldr = extract_user_answer(
+            response, tag="answer_tldr", return_empty_string_if_not_found=True
+        )
         prompt = get_first_last_parts(prompt, 28000, 16_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -1958,31 +2834,66 @@ Your response will be in below xml style format:
 <summary> {{Conversation Summary with salient, important and noteworthy aspects and details. Conversation details about the user's query, intent and the direction of the conversation. We will use this summary to generate the next question/response suggestions and help guide intent detection and other AI assistant actions.}} </summary>
 <title> {{Very short title for the conversation. A title that captures the essence of the conversation and the direction of the conversation.}} </title>
 """
-        summary = get_async_future(llm, prompt, system=system, temperature=0.2, stream=False)
-        next_question_suggestions = get_async_future(self.create_next_question_suggestions, query, response, previous_messages_text, previous_summary)
+        summary = get_async_future(
+            llm, prompt, system=system, temperature=0.2, stream=False
+        )
+        next_question_suggestions = get_async_future(
+            self.create_next_question_suggestions,
+            query,
+            response,
+            previous_messages_text,
+            previous_summary,
+        )
 
-        
         with lock.acquire(timeout=600):
             memory = get_async_future(self.get_field, "memory")
-            memory_pad = get_async_future(self.add_to_memory_pad_from_response, query, response, previous_messages_text, previous_summary)
+            memory_pad = get_async_future(
+                self.add_to_memory_pad_from_response,
+                query,
+                response,
+                previous_messages_text,
+                previous_summary,
+            )
             message_ids = self.get_message_ids(query, response)
             preserved_messages = [
-                {"message_id": message_ids["user_message_id"], "text": query, "show_hide": "show",
-                "sender": "user", "user_id": self.user_id, "conversation_id": self.conversation_id},
-                {"message_id": message_ids["response_message_id"], "text": response, 
-                "show_hide": "show", "sender": "model", "user_id": self.user_id, "conversation_id": self.conversation_id, "config": config, "answer_tldr": answer_tldr}]
-            
-            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
+                {
+                    "message_id": message_ids["user_message_id"],
+                    "text": query,
+                    "show_hide": "show",
+                    "sender": "user",
+                    "user_id": self.user_id,
+                    "conversation_id": self.conversation_id,
+                },
+                {
+                    "message_id": message_ids["response_message_id"],
+                    "text": response,
+                    "show_hide": "show",
+                    "sender": "model",
+                    "user_id": self.user_id,
+                    "conversation_id": self.conversation_id,
+                    "config": config,
+                    "answer_tldr": answer_tldr,
+                },
+            ]
+
+            if (
+                past_message_ids
+                and len(past_message_ids) > 0
+                and config["render_close_to_source"]
+            ):
                 messages = get_async_future(self.get_field, "messages")
             else:
                 msg_set = get_async_future(self.set_messages_field, preserved_messages)
 
-            
             memory = memory.result()
             if memory is None:
                 memory = dict(running_summary=[])
 
-            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
+            if (
+                past_message_ids
+                and len(past_message_ids) > 0
+                and config["render_close_to_source"]
+            ):
                 messages = messages.result()
                 # Find index of last message in past_message_ids
                 last_msg_idx = -1
@@ -1990,39 +2901,49 @@ Your response will be in below xml style format:
                     if msg["message_id"] == past_message_ids[-1]:
                         last_msg_idx = i
                         break
-                        
+
                 # Split messages into before and after groups
-                messages_before = messages[:last_msg_idx+1] 
-                messages_after = messages[last_msg_idx+1:]
-                
+                messages_before = messages[: last_msg_idx + 1]
+                messages_after = messages[last_msg_idx + 1 :]
+
                 # Insert new messages between the groups
                 messages = messages_before + preserved_messages + messages_after
-                
+
                 # Update messages in storage
-                msg_set = get_async_future(self.set_messages_field, messages, overwrite=True)
-                
+                msg_set = get_async_future(
+                    self.set_messages_field, messages, overwrite=True
+                )
 
             memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             summary = sleep_and_get_future_result(summary)
-            next_question_suggestions = sleep_and_get_future_result(next_question_suggestions)
-            
+            next_question_suggestions = sleep_and_get_future_result(
+                next_question_suggestions
+            )
+
             self.set_next_question_suggestions(next_question_suggestions)
 
             try:
-
-                actual_summary = summary.split('</summary>')[0].split('<summary>')[-1]
-                title = summary.split('</title>')[0].split('<title>')[-1]
+                actual_summary = summary.split("</summary>")[0].split("<summary>")[-1]
+                title = summary.split("</title>")[0].split("<title>")[-1]
             except Exception as e:
                 actual_summary = summary
                 title = "Title parsing failed"
-                logger.error(f"[Conversation] [persist_current_turn] Title parsing failed: {e}")
-            
+                logger.error(
+                    f"[Conversation] [persist_current_turn] Title parsing failed: {e}"
+                )
+
             memory["title_force_set"] = False or memory.get("title_force_set", False)
-            if not memory["title_force_set"] and (past_message_ids is None or len(past_message_ids) == 0):
+            if not memory["title_force_set"] and (
+                past_message_ids is None or len(past_message_ids) == 0
+            ):
                 memory["title"] = title
 
-            if past_message_ids and len(past_message_ids) > 0 and config["render_close_to_source"]:
-                summary_index = (last_msg_idx+1)//2
+            if (
+                past_message_ids
+                and len(past_message_ids) > 0
+                and config["render_close_to_source"]
+            ):
+                summary_index = (last_msg_idx + 1) // 2
                 # list.insert() increases the length of the list by 1
                 # If index > len(list), insert() will append the item at the end (equivalent to index=len(list))
                 # So we should ensure summary_index is within bounds
@@ -2036,7 +2957,9 @@ Your response will be in below xml style format:
             self.save_local()
             msg_set.result()
             memory_pad.result()
-            time_logger.info(f"[Conversation] [persist_current_turn] Summary length = {len(actual_summary.split())}, Title length = {len(title.split())}")
+            time_logger.info(
+                f"[Conversation] [persist_current_turn] Summary length = {len(actual_summary.split())}, Title length = {len(title.split())}"
+            )
 
     def set_title(self, title):
         memory = self.get_field("memory")
@@ -2044,21 +2967,21 @@ Your response will be in below xml style format:
         self.set_field("memory", memory)
         memory["title_force_set"] = True
         self.save_local()
-    
+
     def detect_coding_interview_content(self, text):
         """
         Detect if the text contains LeetCode-style or interview coding questions.
-        
+
         Uses an LLM to analyze the text and determine if it's discussing:
         1. LeetCode/interview-style coding problems
         2. Algorithm/data structure interview questions
         3. Coding challenge solutions
-        
+
         Returns a structured response indicating the content type.
-        
+
         Args:
             text (str): The text to analyze
-            
+
         Returns:
             dict: {
                 "is_coding_interview": bool,
@@ -2070,7 +2993,7 @@ Your response will be in below xml style format:
         try:
             # Import CallLLm here to avoid circular imports
             from call_llm import CallLLm
-            
+
             # System prompt for detection
             detection_system_prompt = """You are an expert at identifying coding interview and LeetCode-style content.
 Your task is to analyze text and determine if it contains or discusses:
@@ -2111,23 +3034,23 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             # Initialize LLM with a fast model
             llm = CallLLm(
                 keys=self.get_api_keys(),
-                model_name="gpt-4o-mini"  # Use a fast, efficient model for detection
+                model_name="gpt-4o-mini",  # Use a fast, efficient model for detection
             )
-            
+
             # Get the detection result
             response = llm(
                 text=detection_prompt,
                 system=detection_system_prompt,
                 temperature=0.3,  # Lower temperature for more consistent detection
-                max_tokens=200
+                max_tokens=200,
             )
-            
+
             # Parse the JSON response
             import json
             import re
-            
+
             # Try to extract JSON from the response
-            json_match = re.search(r'\{[^}]*\}', response, re.DOTALL)
+            json_match = re.search(r"\{[^}]*\}", response, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group())
             else:
@@ -2136,11 +3059,16 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                     "is_coding_interview": False,
                     "confidence": 0.0,
                     "reasoning": "Failed to parse LLM response",
-                    "content_type": "non_code"
+                    "content_type": "non_code",
                 }
-            
+
             # Validate and ensure all required fields are present
-            required_fields = ["is_coding_interview", "confidence", "reasoning", "content_type"]
+            required_fields = [
+                "is_coding_interview",
+                "confidence",
+                "reasoning",
+                "content_type",
+            ]
             for field in required_fields:
                 if field not in result:
                     if field == "is_coding_interview":
@@ -2151,15 +3079,17 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                         result[field] = "Field missing from response"
                     elif field == "content_type":
                         result[field] = "non_code"
-            
+
             # Ensure confidence is a float between 0 and 1
             result["confidence"] = max(0.0, min(1.0, float(result["confidence"])))
-            
-            logger.info(f"Content detection result: is_coding={result['is_coding_interview']}, "
-                       f"type={result['content_type']}, confidence={result['confidence']:.2f}")
-            
+
+            logger.info(
+                f"Content detection result: is_coding={result['is_coding_interview']}, "
+                f"type={result['content_type']}, confidence={result['confidence']:.2f}"
+            )
+
             return result
-            
+
         except Exception as e:
             logger.error(f"Error in detect_coding_interview_content: {e}")
             # Return default non-coding result on error
@@ -2167,20 +3097,22 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                 "is_coding_interview": False,
                 "confidence": 0.0,
                 "reasoning": f"Detection failed: {str(e)}",
-                "content_type": "non_code"
+                "content_type": "non_code",
             }
-        
-    def convert_to_tts(self, text, message_id, message_index, recompute=False, shortTTS=False):
+
+    def convert_to_tts(
+        self, text, message_id, message_index, recompute=False, shortTTS=False
+    ):
         """
         Convert text to speech using TTSAgent, with support for both short and normal TTS versions.
-        
+
         This method:
         1. Creates an audio messages directory if it doesn't exist.
         2. Resolves the message_id if it is missing or invalid by falling back to the last message in the conversation.
         3. Determines the correct filename based on whether shortTTS is True or False:
             - If shortTTS=True, uses "{message_id}_short.mp3"
             - Otherwise, uses "{message_id}.mp3"
-        4. Checks if the mp3 file already exists (and recompute=False). If so, returns its path (cached). 
+        4. Checks if the mp3 file already exists (and recompute=False). If so, returns its path (cached).
         5. Otherwise, initializes the TTSAgent (passing shortTTS as a named parameter) and generates the audio file.
         6. Returns the path to the generated audio file.
 
@@ -2189,99 +3121,140 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             message_id (str|None): Message ID for the text.
             message_index (int): Index of the message.
             recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
-            shortTTS (bool, optional): Whether to generate a shorter TTS variant. 
+            shortTTS (bool, optional): Whether to generate a shorter TTS variant.
                                     Affects naming and agent configuration. Defaults to False.
-        
+
         Returns:
             str: Path to the generated (or cached) audio file, or None if an error occurred.
         """
         # Create audio messages directory
         audio_dir = os.path.join(self._storage, "audio_messages")
         os.makedirs(audio_dir, exist_ok=True)
-        
+
         # If message_id is None or invalid, attempt fallback
         if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
             messages = self.get_field("messages")
             if messages:
                 message_id = messages[-1].get("message_id")
                 text = messages[-1].get("text")
-        
+
         # If still no message_id, log and return
         if not message_id:
             logger.error(f"Could not determine message_id for index {message_index}")
             return None
-        
+
         # Attempt to retrieve matching message text
         messages = self.get_field("messages")
         if messages:
             message = next((m for m in messages if m["message_id"] == message_id), None)
             if message:
                 text = message.get("text", text)
-        
+
         # Use distinct filename depending on shortTTS
         if shortTTS:
             filename = f"{message_id}_short.mp3"
         else:
             filename = f"{message_id}.mp3"
-        
+
         audio_path = os.path.join(audio_dir, filename)
-        
+
         # If audio file already exists and recompute=False, return its path
-        if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
+        if (
+            os.path.exists(audio_path)
+            and not recompute
+            and os.path.getsize(audio_path) > 1024
+        ):
             if audio_path.endswith(".mp3"):
-                logger.info(f"Found existing audio file for message_id={message_id}, shortTTS={shortTTS}")
+                logger.info(
+                    f"Found existing audio file for message_id={message_id}, shortTTS={shortTTS}"
+                )
                 return audio_path
             else:
-                logger.info(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
-                raise Exception(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
-        
+                logger.info(
+                    f"Found existing audio file for message_id={message_id} but it is not an mp3 file"
+                )
+                raise Exception(
+                    f"Found existing audio file for message_id={message_id} but it is not an mp3 file"
+                )
+
         # Attempt to generate TTS
         try:
             # Detect if this is coding interview content
             detection_result = self.detect_coding_interview_content(text)
             is_coding_content = detection_result["is_coding_interview"]
-            
+
             # Select appropriate TTS agent based on content type
             if is_coding_content:
-                logger.info(f"Using CodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                logger.info(
+                    f"Using CodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})"
+                )
                 tts_agent = CodeTTSAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
             else:
-                logger.info(f"Using standard TTSAgent for {detection_result['content_type']} content")
+                logger.info(
+                    f"Using standard TTSAgent for {detection_result['content_type']} content"
+                )
                 tts_agent = TTSAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
-            
+
             # Convert text to audio and get the output path
             output_path = tts_agent(text)
             return output_path
         except Exception as e:
-            logger.error(f"Error converting text to speech for message_id={message_id}, shortTTS={shortTTS}: {e}")
+            logger.error(
+                f"Error converting text to speech for message_id={message_id}, shortTTS={shortTTS}: {e}"
+            )
             return None
 
+    def convert_to_audio_streaming(
+        self,
+        text,
+        message_id,
+        message_index,
+        recompute=False,
+        shortTTS=False,
+        podcastTTS=False,
+    ):
+        if podcastTTS:
+            return self.convert_to_podcast_streaming(
+                text, message_id, message_index, recompute, shortTTS
+            )
+        else:
+            return self.convert_to_tts_streaming(
+                text, message_id, message_index, recompute, shortTTS
+            )
 
-    def convert_to_audio_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False, podcastTTS=False):
+    def convert_to_audio(
+        self,
+        text,
+        message_id,
+        message_index,
+        recompute=False,
+        shortTTS=False,
+        podcastTTS=False,
+    ):
         if podcastTTS:
-            return self.convert_to_podcast_streaming(text, message_id, message_index, recompute, shortTTS)
+            return self.convert_to_podcast(
+                text, message_id, message_index, recompute, shortTTS
+            )
         else:
-            return self.convert_to_tts_streaming(text, message_id, message_index, recompute, shortTTS)
-    
-    def convert_to_audio(self, text, message_id, message_index, recompute=False, shortTTS=False, podcastTTS=False):
-        if podcastTTS:
-            return self.convert_to_podcast(text, message_id, message_index, recompute, shortTTS)
-        else:
-            return self.convert_to_tts(text, message_id, message_index, recompute, shortTTS)
-    
-    def convert_to_tts_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False):
+            return self.convert_to_tts(
+                text, message_id, message_index, recompute, shortTTS
+            )
+
+    def convert_to_tts_streaming(
+        self, text, message_id, message_index, recompute=False, shortTTS=False
+    ):
         """
-        Convert text to speech using StreamingTTSAgent with both streaming and file storage capabilities, 
+        Convert text to speech using StreamingTTSAgent with both streaming and file storage capabilities,
         supporting distinct short/normal TTS versions.
 
         This method:
@@ -2301,7 +3274,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             message_id (str|None): Message ID for the text.
             message_index (int): Index of the message.
             recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
-            shortTTS (bool, optional): Whether to generate a shorter TTS variant. 
+            shortTTS (bool, optional): Whether to generate a shorter TTS variant.
                                     Affects naming and agent configuration. Defaults to False.
 
         Returns:
@@ -2343,39 +3316,53 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
         try:
             # If file exists and recompute=False, stream it from local file
-            if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
+            if (
+                os.path.exists(audio_path)
+                and not recompute
+                and os.path.getsize(audio_path) > 1024
+            ):
                 if audio_path.endswith(".mp3"):
-                    logger.info(f"Streaming existing audio file for message_id={message_id}, shortTTS={shortTTS}")
-                    with open(audio_path, 'rb') as f:
+                    logger.info(
+                        f"Streaming existing audio file for message_id={message_id}, shortTTS={shortTTS}"
+                    )
+                    with open(audio_path, "rb") as f:
                         while chunk := f.read(8192):  # Stream in 8KB chunks
                             yield chunk
                     return
                 else:
-                    logger.info(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
-                    raise Exception(f"Found existing audio file for message_id={message_id} but it is not an mp3 file")
-            
+                    logger.info(
+                        f"Found existing audio file for message_id={message_id} but it is not an mp3 file"
+                    )
+                    raise Exception(
+                        f"Found existing audio file for message_id={message_id} but it is not an mp3 file"
+                    )
+
             # Detect if this is coding interview content
             detection_result = self.detect_coding_interview_content(text)
             is_coding_content = detection_result["is_coding_interview"]
-            
+
             # Select appropriate streaming TTS agent based on content type
             if is_coding_content:
-                logger.info(f"Using StreamingCodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                logger.info(
+                    f"Using StreamingCodeTTSAgent for coding interview content (confidence: {detection_result['confidence']:.2f})"
+                )
                 tts_agent = StreamingCodeTTSAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
             else:
-                logger.info(f"Using standard StreamingTTSAgent for {detection_result['content_type']} content")
+                logger.info(
+                    f"Using standard StreamingTTSAgent for {detection_result['content_type']} content"
+                )
                 tts_agent = StreamingTTSAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
-            
+
             # Stream the chunks to the client while saving to file
             audio_generator = tts_agent(text)
             for chunk in audio_generator:
@@ -2383,18 +3370,29 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
         except Exception as e:
             traceback.print_exc()
-            logger.error(f"Error in streaming TTS conversion for message_id={message_id}, shortTTS={shortTTS}: {e}")
+            logger.error(
+                f"Error in streaming TTS conversion for message_id={message_id}, shortTTS={shortTTS}: {e}"
+            )
+
             # Return empty generator on failure
             def empty_gen():
                 yield
+
             return empty_gen()
-        
-    
-    def convert_to_podcast_streaming(self, text, message_id, message_index, recompute=False, shortTTS=False,
-                                previous_message=None, conversation_summary=None):
+
+    def convert_to_podcast_streaming(
+        self,
+        text,
+        message_id,
+        message_index,
+        recompute=False,
+        shortTTS=False,
+        previous_message=None,
+        conversation_summary=None,
+    ):
         """
         Convert text to podcast-style audio using StreamingPodcastAgent with streaming capabilities.
-        
+
         This method:
         1. Creates an audio messages directory if it doesn't exist
         2. Resolves the message_id if missing or invalid
@@ -2404,7 +3402,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         6. Otherwise, initializes the StreamingPodcastAgent to:
         - Stream audio chunks to the client
         - Save the entire file as it streams for subsequent caching
-        
+
         Args:
             text (str): Current message text to convert to podcast audio
             message_id (str|None): Message ID for the text
@@ -2412,106 +3410,134 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             recompute (bool, optional): If True, forces regeneration of the audio even if it exists. Defaults to False.
             previous_message (str|None, optional): Text of the previous message for context. Defaults to None.
             conversation_summary (str|None, optional): Summary of the conversation for context. Defaults to None.
-        
+
         Returns:
             generator: A generator that yields mp3 data chunks (bytes). An empty generator is returned if an error occurs.
         """
         # Create audio messages directory
         audio_dir = os.path.join(self._storage, "audio_messages")
         os.makedirs(audio_dir, exist_ok=True)
-        
+
         # Resolve message_id if missing
         if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
             messages = self.get_field("messages")
             if messages:
                 message_id = messages[-1].get("message_id")
                 text = messages[-1].get("text")
-        
+
         # If still no message_id, log and return empty generator
         if not message_id:
             logger.error(f"Could not determine message_id for index {message_index}")
             return (b"" for _ in range(0))  # empty generator
-        
+
         # Retrieve relevant message text if available
         messages = self.get_field("messages")
         if messages:
             message = next((m for m in messages if m["message_id"] == message_id), None)
             if message:
                 text = message.get("text", text)
-        
+
         # If previous_message is not provided, try to get it from messages
         if previous_message is None and len(messages) > 1:
-            prev_msg = messages[-2] if message_id == messages[-1].get("message_id") else None
+            prev_msg = (
+                messages[-2] if message_id == messages[-1].get("message_id") else None
+            )
             if prev_msg:
                 previous_message = prev_msg.get("text", "")
-        
+
         # If conversation_summary is not provided, use running_summary
         if conversation_summary is None:
             conversation_summary = self.running_summary
-        
+
         # Format the input text to include context
-        formatted_text = text # self._format_podcast_input(text, previous_message, conversation_summary)
-        
+        formatted_text = text  # self._format_podcast_input(text, previous_message, conversation_summary)
+
         # Use distinct filename for podcast
         if shortTTS:
             filename = f"{message_id}_podcast_short.mp3"
         else:
             filename = f"{message_id}_podcast.mp3"
         audio_path = os.path.join(audio_dir, filename)
-        
+
         try:
             # If file exists and recompute=False, stream it from local file
-            if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
+            if (
+                os.path.exists(audio_path)
+                and not recompute
+                and os.path.getsize(audio_path) > 1024
+            ):
                 if audio_path.endswith(".mp3"):
-                    logger.info(f"Streaming existing podcast audio file for message_id={message_id}")
-                    with open(audio_path, 'rb') as f:
+                    logger.info(
+                        f"Streaming existing podcast audio file for message_id={message_id}"
+                    )
+                    with open(audio_path, "rb") as f:
                         while chunk := f.read(8192):  # Stream in 8KB chunks
                             yield chunk
                     return
                 else:
-                    logger.info(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
-                    raise Exception(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
-            
+                    logger.info(
+                        f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file"
+                    )
+                    raise Exception(
+                        f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file"
+                    )
+
             # Detect if this is coding interview content
             detection_result = self.detect_coding_interview_content(formatted_text)
             is_coding_content = detection_result["is_coding_interview"]
-            
+
             # Select appropriate streaming podcast agent based on content type
             if is_coding_content:
-                logger.info(f"Using StreamingCodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                logger.info(
+                    f"Using StreamingCodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})"
+                )
                 podcast_agent = StreamingCodePodcastAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
             else:
-                logger.info(f"Using standard StreamingPodcastAgent for {detection_result['content_type']} content")
+                logger.info(
+                    f"Using standard StreamingPodcastAgent for {detection_result['content_type']} content"
+                )
                 podcast_agent = StreamingPodcastAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
-            
+
             # Stream the chunks to the client while saving to file
             audio_generator = podcast_agent(formatted_text, stream=True)
             for chunk in audio_generator:
                 yield chunk
-                
+
         except Exception as e:
             traceback.print_exc()
-            logger.error(f"Error in streaming podcast conversion for message_id={message_id}: {e}")
+            logger.error(
+                f"Error in streaming podcast conversion for message_id={message_id}: {e}"
+            )
+
             # Return empty generator on failure
             def empty_gen():
                 yield
+
             return empty_gen()
-    
-    def convert_to_podcast(self, text, message_id, message_index, recompute=False, shortTTS=False,
-                          previous_message=None, conversation_summary=None):
+
+    def convert_to_podcast(
+        self,
+        text,
+        message_id,
+        message_index,
+        recompute=False,
+        shortTTS=False,
+        previous_message=None,
+        conversation_summary=None,
+    ):
         """
         Convert text to podcast-style audio using PodcastAgent (non-streaming version).
-        
+
         This method:
         1. Creates an audio messages directory if it doesn't exist
         2. Resolves the message_id if missing or invalid
@@ -2519,7 +3545,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         4. Uses a distinct filename format: "{message_id}_podcast.mp3"
         5. If the file exists and recompute=False, returns its path (cached)
         6. Otherwise, initializes the PodcastAgent to generate the full audio file
-        
+
         Args:
             text (str): Current message text to convert to podcast audio
             message_id (str|None): Message ID for the text
@@ -2528,134 +3554,149 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             shortTTS (bool, optional): Whether to generate a shorter podcast variant. Defaults to False.
             previous_message (str|None, optional): Text of the previous message for context. Defaults to None.
             conversation_summary (str|None, optional): Summary of the conversation for context. Defaults to None.
-        
+
         Returns:
             str: Path to the generated (or cached) audio file, or None if an error occurred.
         """
         # Create audio messages directory
         audio_dir = os.path.join(self._storage, "audio_messages")
         os.makedirs(audio_dir, exist_ok=True)
-        
+
         # Resolve message_id if missing
         if not message_id or str(message_id) in ["None", "", "nan", "undefined"]:
             messages = self.get_field("messages")
             if messages:
                 message_id = messages[-1].get("message_id")
                 text = messages[-1].get("text")
-        
+
         # If still no message_id, log and return
         if not message_id:
             logger.error(f"Could not determine message_id for index {message_index}")
             return None
-        
+
         # Retrieve relevant message text if available
         messages = self.get_field("messages")
         if messages:
             message = next((m for m in messages if m["message_id"] == message_id), None)
             if message:
                 text = message.get("text", text)
-        
+
         # If previous_message is not provided, try to get it from messages
         if previous_message is None and len(messages) > 1:
-            prev_msg = messages[-2] if message_id == messages[-1].get("message_id") else None
+            prev_msg = (
+                messages[-2] if message_id == messages[-1].get("message_id") else None
+            )
             if prev_msg:
                 previous_message = prev_msg.get("text", "")
-        
+
         # If conversation_summary is not provided, use running_summary
         if conversation_summary is None:
             conversation_summary = self.running_summary
-        
+
         # Format the input text to include context
         formatted_text = text  # self._format_podcast_input(text, previous_message, conversation_summary)
-        
+
         # Use distinct filename for podcast
         if shortTTS:
             filename = f"{message_id}_podcast_short.mp3"
         else:
             filename = f"{message_id}_podcast.mp3"
         audio_path = os.path.join(audio_dir, filename)
-        
+
         # If audio file already exists and recompute=False, return its path
-        if os.path.exists(audio_path) and not recompute and os.path.getsize(audio_path) > 1024:
+        if (
+            os.path.exists(audio_path)
+            and not recompute
+            and os.path.getsize(audio_path) > 1024
+        ):
             if audio_path.endswith(".mp3"):
-                logger.info(f"Found existing podcast audio file for message_id={message_id}, shortTTS={shortTTS}")
+                logger.info(
+                    f"Found existing podcast audio file for message_id={message_id}, shortTTS={shortTTS}"
+                )
                 return audio_path
             else:
-                logger.info(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
-                raise Exception(f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file")
-        
+                logger.info(
+                    f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file"
+                )
+                raise Exception(
+                    f"Found existing podcast audio file for message_id={message_id} but it is not an mp3 file"
+                )
+
         # Attempt to generate podcast
         try:
             # Detect if this is coding interview content
             detection_result = self.detect_coding_interview_content(formatted_text)
             is_coding_content = detection_result["is_coding_interview"]
-            
+
             # Select appropriate podcast agent based on content type
             if is_coding_content:
-                logger.info(f"Using CodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})")
+                logger.info(
+                    f"Using CodePodcastAgent for coding interview content (confidence: {detection_result['confidence']:.2f})"
+                )
                 podcast_agent = CodePodcastAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
             else:
-                logger.info(f"Using standard PodcastAgent for {detection_result['content_type']} content")
+                logger.info(
+                    f"Using standard PodcastAgent for {detection_result['content_type']} content"
+                )
                 podcast_agent = PodcastAgent(
                     keys=self.get_api_keys(),
                     storage_path=audio_path,
                     convert_to_tts_friendly_format=True,
-                    shortTTS=shortTTS
+                    shortTTS=shortTTS,
                 )
-            
+
             # Convert text to podcast audio and get the output path
             output_path = podcast_agent(formatted_text)
             return output_path
-            
-        except Exception as e:
-            logger.error(f"Error converting text to podcast for message_id={message_id}, shortTTS={shortTTS}: {e}")
-            return None
 
-    
+        except Exception as e:
+            logger.error(
+                f"Error converting text to podcast for message_id={message_id}, shortTTS={shortTTS}: {e}"
+            )
+            return None
 
     def move_messages_up_or_down(self, message_ids, direction="up"):
         messages = self.get_field("messages")
         message_ids: List[str] = [str(m) for m in message_ids]
-        messages:List[Dict] = [m for m in messages if m["message_id"] in message_ids]
+        messages: List[Dict] = [m for m in messages if m["message_id"] in message_ids]
         # Get indices of selected messages
         selected_indices = []
         for i, msg in enumerate(self.get_field("messages")):
             if msg["message_id"] in message_ids:
                 selected_indices.append(i)
-        
+
         # Sort indices to maintain relative order
         selected_indices.sort()
-        
+
         # Get all messages
         all_messages = self.get_field("messages")
-        
+
         # Check boundaries
         if direction == "up" and min(selected_indices) > 0:
             # Move messages up
             for idx in selected_indices:
                 msg = all_messages[idx]
-                all_messages[idx] = all_messages[idx-1]
-                all_messages[idx-1] = msg
-                
+                all_messages[idx] = all_messages[idx - 1]
+                all_messages[idx - 1] = msg
+
         elif direction == "down" and max(selected_indices) < len(all_messages) - 1:
             # Move messages down (process in reverse to avoid conflicts)
             for idx in reversed(selected_indices):
                 msg = all_messages[idx]
-                all_messages[idx] = all_messages[idx+1] 
-                all_messages[idx+1] = msg
-                
+                all_messages[idx] = all_messages[idx + 1]
+                all_messages[idx + 1] = msg
+
         # Save changes
         self.set_messages_field(all_messages, overwrite=True)
         self.save_local()
         # we want to move them all up or down, relative to their current position.
         # we want to move them all up or down, relative to their current position.
 
-    
     def delete_message(self, message_id, index):
         """
         Delete a message from the conversation by message_id and/or index.
@@ -2701,7 +3742,11 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         self.save_local()
 
     def edit_message(self, message_id, index, text):
-        get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+        get_async_future(
+            self.set_field,
+            "memory",
+            {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        )
         messages = self.get_field("messages")
         index = int(index)
         for i, m in enumerate(messages):
@@ -2714,28 +3759,28 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
     def __call__(self, query, userData=None):
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query, userData):
-            yield json.dumps(txt)+"\n"
+            yield json.dumps(txt) + "\n"
 
     # Add this method to the Conversation class
     def is_cancelled(self):
         """Check if this conversation has been cancelled"""
         from base import cancellation_requests  # Import here to avoid circular imports
-        
+
         if self.conversation_id in cancellation_requests:
-            return cancellation_requests[self.conversation_id].get('cancelled', False)
+            return cancellation_requests[self.conversation_id].get("cancelled", False)
         return False
 
     def clear_cancellation(self):
         """Clear cancellation flag for this conversation"""
         from base import cancellation_requests
-        
+
         if self.conversation_id in cancellation_requests:
             del cancellation_requests[self.conversation_id]
 
     def get_uploaded_documents_for_query(self, query, replace_reference=True):
         messageText = query["messageText"]
         messageText, code_blocks = extract_code_blocks(messageText)
-        attached_docs = re.findall(r'#doc_\d+', messageText)
+        attached_docs = re.findall(r"#doc_\d+", messageText)
         attached_docs = list(set(attached_docs))
         attached_docs_names = attached_docs
         attached_docs = [int(d.split("_")[-1]) for d in attached_docs]
@@ -2747,23 +3792,47 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         if len(attached_docs) > 0:
             # assert that all elements of attached docs are greater than equal to 1.
             uploaded_documents = self.get_uploaded_documents()
-            filtered_docs_by_actual = [(n, d) for n, d in doc_names_and_docs if len(uploaded_documents) >= d >= 1]
+            filtered_docs_by_actual = [
+                (n, d)
+                for n, d in doc_names_and_docs
+                if len(uploaded_documents) >= d >= 1
+            ]
             if len(filtered_docs_by_actual) > 0:
                 attached_docs_names, attached_docs = zip(*filtered_docs_by_actual)
             else:
                 attached_docs_names, attached_docs = [], []
-            attached_docs: List[DocIndex] = [uploaded_documents[d - 1] for d in attached_docs]
+            attached_docs: List[DocIndex] = [
+                uploaded_documents[d - 1] for d in attached_docs
+            ]
             attached_docs_readable = []
             attached_docs_readable_names = []
             attached_docs_data = []
             attached_docs_data_names = []
             for n, d in zip(attached_docs_names, attached_docs):
-                if (d.is_local and os.path.getsize(d.doc_source) < 100 * 1024) or (d.doc_source.endswith(".pdf") or d.doc_source.endswith(".jpeg") or d.doc_source.endswith(".jpg") or d.doc_source.endswith(".png") or d.doc_source.endswith(".bmp") or d.doc_source.endswith(".svg")) or (d.doc_source.endswith(
-                    ".html")):
+                if (
+                    (d.is_local and os.path.getsize(d.doc_source) < 100 * 1024)
+                    or (
+                        d.doc_source.endswith(".pdf")
+                        or d.doc_source.endswith(".jpeg")
+                        or d.doc_source.endswith(".jpg")
+                        or d.doc_source.endswith(".png")
+                        or d.doc_source.endswith(".bmp")
+                        or d.doc_source.endswith(".svg")
+                    )
+                    or (d.doc_source.endswith(".html"))
+                ):
                     attached_docs_readable.append(d)
                     attached_docs_readable_names.append(n)
-                elif d.is_local and (d.doc_source.endswith(".csv") or d.doc_source.endswith(".parquet") or d.doc_source.endswith(
-                    ".tsv") or d.doc_source.endswith(".xlsx") or d.doc_source.endswith(".xls") or d.doc_source.endswith(".jsonl") or d.doc_source.endswith(".jsonlines") or d.doc_source.endswith(".json")):
+                elif d.is_local and (
+                    d.doc_source.endswith(".csv")
+                    or d.doc_source.endswith(".parquet")
+                    or d.doc_source.endswith(".tsv")
+                    or d.doc_source.endswith(".xlsx")
+                    or d.doc_source.endswith(".xls")
+                    or d.doc_source.endswith(".jsonl")
+                    or d.doc_source.endswith(".jsonlines")
+                    or d.doc_source.endswith(".json")
+                ):
                     attached_docs_data.append(d)
                     attached_docs_data_names.append(n)
                 else:
@@ -2778,11 +3847,86 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                 for i, d in enumerate(attached_docs_names):
                     doc = attached_docs[i]
                     doc_title = doc_infos[i]
-                    messageText = messageText.replace(d, f"{d} (Title of {d} '{doc_title}')\n" + (f"data file: {doc.doc_source}\n" if doc_title in doc_infos_data else ""))
+                    messageText = messageText.replace(
+                        d,
+                        f"{d} (Title of {d} '{doc_title}')\n"
+                        + (
+                            f"data file: {doc.doc_source}\n"
+                            if doc_title in doc_infos_data
+                            else ""
+                        ),
+                    )
         query["messageText"] = restore_code_blocks(messageText, code_blocks)
-        return query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (attached_docs_data, attached_docs_data_names)
+        return (
+            query,
+            attached_docs,
+            attached_docs_names,
+            (attached_docs_readable, attached_docs_readable_names),
+            (attached_docs_data, attached_docs_data_names),
+        )
 
-    
+    def get_artefacts_for_query(
+        self, message_text: str, max_lines: int = 200, max_chars: int = 8000
+    ) -> str:
+        """
+        Build artefact context text for referenced #artefact_N tokens.
+
+        Parameters
+        ----------
+        message_text : str
+            Message text that may contain artefact references.
+        max_lines : int, optional
+            Maximum number of lines per artefact to include, by default 200.
+        max_chars : int, optional
+            Maximum number of characters per artefact to include, by default 8000.
+
+        Returns
+        -------
+        str
+            Formatted context block containing artefact metadata and line-numbered content.
+        """
+        message_text, code_blocks = extract_code_blocks(message_text)
+        refs = re.findall(r"#artefact_\d+", message_text)
+        message_text = restore_code_blocks(message_text, code_blocks)
+        if not refs:
+            return ""
+
+        refs = sorted(set(refs), key=lambda r: int(r.split("_")[-1]))
+        artefacts = self.list_artefacts()
+        blocks = []
+        for ref in refs:
+            try:
+                idx = int(ref.split("_")[-1])
+            except ValueError:
+                continue
+            entry = self.resolve_artefact_ref(idx)
+            if not entry:
+                continue
+            file_path = os.path.join(self.artefacts_path, entry.get("file_name", ""))
+            if not os.path.exists(file_path):
+                continue
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            lines = content.splitlines()
+            limited_lines = lines[:max_lines]
+            numbered = "\n".join(
+                f"{i + 1}: {line}" for i, line in enumerate(limited_lines)
+            )
+            truncated = ""
+            if len(lines) > max_lines:
+                truncated = f"\n... (truncated to {max_lines} lines)"
+            if len(numbered) > max_chars:
+                numbered = numbered[:max_chars] + "\n... (truncated by size)"
+                truncated = ""
+            header = (
+                f"{ref} | name: {entry.get('name')} | type: {entry.get('file_type')} "
+                f"| file: {entry.get('file_name')} | size_bytes: {entry.get('size_bytes')}"
+            )
+            blocks.append(f"{header}\n{numbered}{truncated}")
+        if not blocks:
+            return ""
+        return "Referenced artefacts:\n" + "\n\n".join(blocks)
+
     @property
     def max_time_to_wait_for_web_results(self):
         return MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
@@ -2791,39 +3935,58 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
     def retrieval_based_preambles(self):
         preamble_names = [
             "no format",
-                          "Paper Summary",
-                          # "no ai",
-                          # "md format",
-                          # "better formatting",
-                          # "Easy Copy",
-                          "Short",
-                          # "No Code Exec",
-                          # "Code Exec",
-                          "Is Coding Request",
-                          "Long",
-                          # "CoT",
-                          # "Short references",
-                          "Latex Eqn",
-                          "Explore",
+            "Paper Summary",
+            # "no ai",
+            # "md format",
+            # "better formatting",
+            # "Easy Copy",
+            "Short",
+            # "No Code Exec",
+            # "Code Exec",
+            "Is Coding Request",
+            "Long",
+            # "CoT",
+            # "Short references",
+            "Latex Eqn",
+            "Explore",
             "Comparison",
             "Google GL",
-            
         ]
         return preamble_names
 
-    def get_preamble(self, preamble_options, field, web_search_or_document_read=False, prefix=None, **kwargs):
+    def get_preamble(
+        self,
+        preamble_options,
+        field,
+        web_search_or_document_read=False,
+        prefix=None,
+        **kwargs,
+    ):
         preamble = ""
         plot_prefix = f"plot-{prefix}-"
         from flask import request as flask_request
-        render_prefix=f"{flask_request.url_root.rstrip('/')}/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
+
+        render_prefix = f"{flask_request.url_root.rstrip('/')}/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
         agent = None
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options
-            preamble_options = [p for p in preamble_options if p not in ["md format", "better formatting", "Latex Eqn", "Short references"]]
+            preamble_options = [
+                p
+                for p in preamble_options
+                if p
+                not in [
+                    "md format",
+                    "better formatting",
+                    "Latex Eqn",
+                    "Short references",
+                ]
+            ]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "Diagram" in preamble_options:
-            preamble += diagram_instructions.format(output_directory=self.documents_path, plot_prefix=plot_prefix)
-        
+            preamble += diagram_instructions.format(
+                output_directory=self.documents_path, plot_prefix=plot_prefix
+            )
+
         if "TTS" in preamble_options:
             preamble += f"""We are using a TTS engine to read out to blind users. 
 {tts_friendly_format_instructions}
@@ -2838,19 +4001,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += prompts.google_behavioral_interview_prompt
         if "Coding Interview" in preamble_options:
             preamble += prompts.coding_interview_prompt
-            
 
         if "Paper Summary" in preamble_options:
             preamble += prompts.paper_summary_prompt
         if "ML Design Roleplay" in preamble_options:
             preamble += prompts.ml_system_design_role
-            
+
         if "ML Design Answer" in preamble_options:
             preamble += prompts.ml_system_design_answer
-            
+
         if "ML Design Answer Short" in preamble_options:
             preamble += prompts.ml_system_design_answer_short
-            
+
         if "no ai" in preamble_options:
             preamble += preamble_no_ai
 
@@ -2880,7 +4042,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += dating_maverick_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
-        
+
         if "Creative" in preamble_options:
             preamble += preamble_creative
         if "Argumentative" in preamble_options:
@@ -2891,14 +4053,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += preamble_web_search
         if "Wife Prompt" in preamble_options:
             preamble += wife_prompt
-        
+
         if "Improve Code" in preamble_options:
             preamble += improve_code_prompt
         if "Improve Code Interviews" in preamble_options:
             preamble += improve_code_prompt_interviews
-        
+
         # Handle custom prompts (those prefixed with "custom:")
         from prompts import manager as prompts_manager
+
         for option in preamble_options:
             if option.startswith("custom:"):
                 # Extract the actual prompt name
@@ -2909,35 +4072,83 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         custom_prompt_content = prompts_manager[custom_prompt_name]
                         preamble += f"\n\n{custom_prompt_content}"
                         # Update cache for next time
-                        
-                        logger.info(f"Added custom prompt from manager: {custom_prompt_name}")
+
+                        logger.info(
+                            f"Added custom prompt from manager: {custom_prompt_name}"
+                        )
                     else:
                         logger.warning(f"Custom prompt not found: {custom_prompt_name}")
                 except Exception as e:
-                    logger.error(f"Error loading custom prompt {custom_prompt_name}: {str(e)}")
+                    logger.error(
+                        f"Error loading custom prompt {custom_prompt_name}: {str(e)}"
+                    )
 
         if field == "None":
             pass
         if field == "Prompt_IdeaNovelty":
             pass
-        
+
         model_name = kwargs.get("model_name", EXPENSIVE_LLM[0])
         if field == "Agent_IdeaNovelty":
             pass
         if field == "InstructionFollowingAgent":
-            agent = InstructionFollowingAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
+            agent = InstructionFollowingAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=90,
+            )
         if field == "JinaSearchAgent":
-            agent = JinaSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
+            agent = JinaSearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=120,
+            )
         if field == "InterleavedWebSearchAgent":
-            agent = InterleavedWebSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120, num_queries_per_step=kwargs.get("num_queries_per_step", 3), interleave_steps=kwargs.get("interleave_steps", 3), sources=kwargs.get("sources", ["web", "perplexity", "jina"]), show_intermediate_results=kwargs.get("show_intermediate_results", False), headless=kwargs.get("headless", False))
+            agent = InterleavedWebSearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=120,
+                num_queries_per_step=kwargs.get("num_queries_per_step", 3),
+                interleave_steps=kwargs.get("interleave_steps", 3),
+                sources=kwargs.get("sources", ["web", "perplexity", "jina"]),
+                show_intermediate_results=kwargs.get(
+                    "show_intermediate_results", False
+                ),
+                headless=kwargs.get("headless", False),
+            )
         if field == "JinaDeepResearchAgent":
-            agent = JinaDeepResearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=180, num_queries=kwargs.get("num_queries", 1))
+            agent = JinaDeepResearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=180,
+                num_queries=kwargs.get("num_queries", 1),
+            )
         if field == "PerplexitySearch":
-            agent = PerplexitySearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90)
+            agent = PerplexitySearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=90,
+            )
         if field == "WebSearch":
-            agent = WebSearchWithAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = WebSearchWithAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=90,
+                gscholar=False,
+            )
         if field == "MultiSourceSearch":
-            agent = MultiSourceSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=120)
+            agent = MultiSourceSearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=120,
+            )
         if field == "PromptWorkflowAgent":
             agent = PromptWorkflowAgent(
                 self.get_api_keys(),
@@ -2952,38 +4163,95 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 model_name=model_name if isinstance(model_name, str) else model_name[0],
             )
         if field == "LiteratureReview":
-            agent = LiteratureReviewAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = LiteratureReviewAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=90,
+                gscholar=False,
+            )
         if field == "BroadSearch":
-            agent = BroadSearchAgent(self.get_api_keys(), model_name=model_name if isinstance(model_name, str) else model_name[0], detail_level=kwargs.get("detail_level", 1), timeout=90, gscholar=False)
+            agent = BroadSearchAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=90,
+                gscholar=False,
+            )
         if field == "InterviewSimulator":
             keys = self.get_api_keys()
             detail_level = kwargs.get("detail_level", 1)
             conversation_id = self.conversation_id
             model_name = model_name if isinstance(model_name, str) else model_name[0]
-            agent = InterviewSimulatorAgent(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+            agent = InterviewSimulatorAgent(
+                keys,
+                writer_model=model_name,
+                conversation_id=conversation_id,
+                detail_level=detail_level,
+                timeout=90,
+            )
         if field == "InterviewSimulatorV2":
             keys = self.get_api_keys()
             detail_level = kwargs.get("detail_level", 1)
             conversation_id = self.conversation_id
             model_name = model_name if isinstance(model_name, str) else model_name[0]
-            agent = InterviewSimulatorAgentV2(keys, writer_model=model_name, conversation_id=conversation_id, detail_level=detail_level, timeout=90)
+            agent = InterviewSimulatorAgentV2(
+                keys,
+                writer_model=model_name,
+                conversation_id=conversation_id,
+                detail_level=detail_level,
+                timeout=90,
+            )
 
         if field == "NResponseAgent":
-            agent = NResponseAgent(self.get_api_keys(), writer_model=model_name, n_responses=kwargs.get("n_responses", 2))
+            agent = NResponseAgent(
+                self.get_api_keys(),
+                writer_model=model_name,
+                n_responses=kwargs.get("n_responses", 2),
+            )
         if field == "NStepCodeAgent":
-            agent = NStepCodeAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
+            agent = NStepCodeAgent(
+                self.get_api_keys(),
+                writer_model=model_name,
+                n_steps=kwargs.get("detail_level", 4),
+            )
         if field == "CodeSolveAgent":
-            agent = CodeSolveAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 2))
+            agent = CodeSolveAgent(
+                self.get_api_keys(),
+                writer_model=model_name,
+                n_steps=kwargs.get("detail_level", 2),
+            )
         if field == "MLSystemDesignAgent":
-            agent = MLSystemDesignAgent(self.get_api_keys(), writer_model=model_name, n_steps=kwargs.get("detail_level", 4))
+            agent = MLSystemDesignAgent(
+                self.get_api_keys(),
+                writer_model=model_name,
+                n_steps=kwargs.get("detail_level", 4),
+            )
         if field == "ToCGenerationAgent":
-            agent = ToCGenerationAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), run_phase_2=kwargs.get("detail_level", 1)>2, run_phase_3=kwargs.get("detail_level", 1)>3, storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
-            
+            agent = ToCGenerationAgent(
+                llm_name=model_name if isinstance(model_name, str) else model_name[0],
+                keys=self.get_api_keys(),
+                run_phase_2=kwargs.get("detail_level", 1) > 2,
+                run_phase_3=kwargs.get("detail_level", 1) > 3,
+                storage_path=os.path.join(self.documents_path, f""),
+                render_prefix=render_prefix,
+            )
+
         if field == "BookCreatorAgent":
-            agent = BookCreatorAgent(llm_name=model_name if isinstance(model_name, str) else model_name[0], keys=self.get_api_keys(), depth=kwargs.get("detail_level", 1), storage_path=os.path.join(self.documents_path, f""), render_prefix=render_prefix)
-        
+            agent = BookCreatorAgent(
+                llm_name=model_name if isinstance(model_name, str) else model_name[0],
+                keys=self.get_api_keys(),
+                depth=kwargs.get("detail_level", 1),
+                storage_path=os.path.join(self.documents_path, f""),
+                render_prefix=render_prefix,
+            )
+
         if field == "WhatIf":
-            agent = WhatIfAgent(self.get_api_keys(), writer_models=model_name, n_scenarios=kwargs.get("n_scenarios", 3))
+            agent = WhatIfAgent(
+                self.get_api_keys(),
+                writer_models=model_name,
+                n_scenarios=kwargs.get("n_scenarios", 3),
+            )
         if field == "CodeExecution":
             pass
         if field == "VerifyAndImprove":
@@ -2996,21 +4264,49 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             pass
         if field == "SlideAgent":
             from agents.slide_agent import GenericSlideAgent
-            agent = GenericSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+
+            agent = GenericSlideAgent(
+                self.get_api_keys(),
+                writer_model=model_name
+                if isinstance(model_name, str)
+                else model_name[0],
+                demo_mode=True,
+            )
         if field == "CodingSlideAgent":
             from agents.slide_agent import CodingQuestionSlideAgent
-            agent = CodingQuestionSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+
+            agent = CodingQuestionSlideAgent(
+                self.get_api_keys(),
+                writer_model=model_name
+                if isinstance(model_name, str)
+                else model_name[0],
+                demo_mode=True,
+            )
         # Handle PPT answer mode - override agent selection if ppt_answer is enabled
         ppt_answer = kwargs.get("ppt_answer", False)
         if ppt_answer:
             # Select appropriate slide agent based on preamble options
             if "Short Coding Interview" in preamble_options:
                 from agents.slide_agent import CodingQuestionSlideAgent
-                agent = CodingQuestionSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
+
+                agent = CodingQuestionSlideAgent(
+                    self.get_api_keys(),
+                    writer_model=model_name
+                    if isinstance(model_name, str)
+                    else model_name[0],
+                    demo_mode=True,
+                )
             else:
                 from agents.slide_agent import GenericSlideAgent
-                agent = GenericSlideAgent(self.get_api_keys(), writer_model=model_name if isinstance(model_name, str) else model_name[0], demo_mode=True)
-        
+
+                agent = GenericSlideAgent(
+                    self.get_api_keys(),
+                    writer_model=model_name
+                    if isinstance(model_name, str)
+                    else model_name[0],
+                    demo_mode=True,
+                )
+
         final_preamble = preamble
         if final_preamble.strip() == "":
             final_preamble = None
@@ -3018,28 +4314,39 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             final_preamble = final_preamble.strip()
         return final_preamble, agent
 
-    def agent_level_one_websearch_helper(self, messageText, queries=list(), checkboxes=dict()):
+    def agent_level_one_websearch_helper(
+        self, messageText, queries=list(), checkboxes=dict()
+    ):
         query = dict()
         query["search"] = queries
         query["messageText"] = messageText
-        query["checkboxes"] = {"provide_detailed_answers": "1",
-                               "main_model": "anthropic/claude-3-sonnet:beta",
-                               "persist_or_not": False,
-                               "enable_planner": False,
-                               "perform_web_search": True,
-                               "googleScholar": False,
-                               "use_memory_pad": False,
-                               "tell_me_more": False,
-                               "enable_previous_messages": "-1"}
-        query['links'] = []
+        query["checkboxes"] = {
+            "provide_detailed_answers": "1",
+            "main_model": "anthropic/claude-3-sonnet:beta",
+            "persist_or_not": False,
+            "enable_planner": False,
+            "perform_web_search": True,
+            "googleScholar": False,
+            "use_memory_pad": False,
+            "tell_me_more": False,
+            "enable_previous_messages": "-1",
+        }
+        query["links"] = []
 
         query["checkboxes"].update(checkboxes)
-        answer = ''
+        answer = ""
         for r in self.reply(query):
             answer += r["text"]
         return answer
 
-    def get_coding_rules(self, query, attached_docs_data, attached_docs_data_names, need_diagram=True, code_execution=True):
+    def get_coding_rules(
+        self,
+        query,
+        attached_docs_data,
+        attached_docs_data_names,
+        need_diagram=True,
+        code_execution=True,
+    ):
         message_ids = self.get_message_ids(query, "")
         prefix = message_ids["user_message_id"]
         plot_prefix = f"plot-{prefix}-"
@@ -3048,9 +4355,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         data_explore = ""
         # list data files like csv, tsv, xlsx, parquet in the working directory in data_explore
         for fname in os.listdir(self.documents_path):
-            if fname.endswith(".csv") or fname.endswith(".tsv") or fname.endswith(".xlsx") or fname.endswith(".parquet"):
+            if (
+                fname.endswith(".csv")
+                or fname.endswith(".tsv")
+                or fname.endswith(".xlsx")
+                or fname.endswith(".parquet")
+            ):
                 data_explore += f"Data file: {fname}\n"
-
 
         def get_data_head(doc_source):
             if doc_source.endswith(".csv"):
@@ -3062,8 +4373,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             elif doc_source.endswith(".parquet"):
                 df = pd.read_parquet(doc_source)
             return df.dtypes.to_string(), df.head(5).to_string()
+
         for d, n in zip(attached_docs_data, attached_docs_data_names):
-            if d.doc_source.endswith(".csv") or d.doc_source.endswith(".tsv") or d.doc_source.endswith(".xlsx") or d.doc_source.endswith(".parquet"):
+            if (
+                d.doc_source.endswith(".csv")
+                or d.doc_source.endswith(".tsv")
+                or d.doc_source.endswith(".xlsx")
+                or d.doc_source.endswith(".parquet")
+            ):
                 data_explore += f"Data from 'name:{n}, file: {d.doc_source}':\n"
                 dt = get_data_head(d.doc_source)
                 data_explore += "-" * 50 + "\n"
@@ -3072,39 +4389,63 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # List other files in the working directory as well.
         for fname in os.listdir(self.documents_path):
-            if fname.endswith(".csv") or fname.endswith(".tsv") or fname.endswith(".xlsx") or fname.endswith(".parquet"):
+            if (
+                fname.endswith(".csv")
+                or fname.endswith(".tsv")
+                or fname.endswith(".xlsx")
+                or fname.endswith(".parquet")
+            ):
                 data_explore += f"Data from 'name:{fname}, file: {os.path.join(self.documents_path, fname)}':\n"
                 dt = get_data_head(os.path.join(self.documents_path, fname))
                 data_explore += "-" * 50 + "\n"
                 data_explore += f"{dt[0]}\n{dt[1]}\n\n"
                 data_explore += "-" * 50 + "\n"
 
-        coding_rules = prompts.coding_prompt.format(input_directory=self.documents_path,
-                                                    output_directory=self.documents_path,
-                                                    input_files_preview=data_explore,
-                                                    input_files=str([f"name:{n}, file: `{d.doc_source}`;" for d, n in
-                                                                     zip(attached_docs_data, attached_docs_data_names)]),
-                                                    plot_prefix=plot_prefix, file_prefix=file_prefix, )
-        return coding_rules if code_execution else "", prefix # if need_diagram or code_execution else ""
+        coding_rules = prompts.coding_prompt.format(
+            input_directory=self.documents_path,
+            output_directory=self.documents_path,
+            input_files_preview=data_explore,
+            input_files=str(
+                [
+                    f"name:{n}, file: `{d.doc_source}`;"
+                    for d, n in zip(attached_docs_data, attached_docs_data_names)
+                ]
+            ),
+            plot_prefix=plot_prefix,
+            file_prefix=file_prefix,
+        )
+        return (
+            coding_rules if code_execution else "",
+            prefix,
+        )  # if need_diagram or code_execution else ""
 
-    
     def set_next_question_suggestions(self, suggestions):
         self.next_question_suggestions = suggestions
-    
+
     def get_next_question_suggestions(self):
-        if self.next_question_suggestions is None or len(self.next_question_suggestions) == 0:
+        if (
+            self.next_question_suggestions is None
+            or len(self.next_question_suggestions) == 0
+        ):
             messages = self.get_field("messages")
-            
+
             running_summary = self.running_summary
             if len(messages) >= 4:
-                nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], messages[-4]["text"] + "\n\n" + messages[-3]["text"], running_summary)
+                nqs = self.create_next_question_suggestions(
+                    messages[-2]["text"],
+                    messages[-1]["text"],
+                    messages[-4]["text"] + "\n\n" + messages[-3]["text"],
+                    running_summary,
+                )
             elif len(messages) >= 2:
-                nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], "", running_summary)
+                nqs = self.create_next_question_suggestions(
+                    messages[-2]["text"], messages[-1]["text"], "", running_summary
+                )
             else:
                 nqs = []
             self.set_next_question_suggestions(nqs)
         return self.next_question_suggestions
-    
+
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         self.next_question_suggestions = list()
@@ -3116,33 +4457,60 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             time.sleep(1)
             wait_time += 1
             if wait_time > wait_max:
-                logger.warning(f"Lock is already taken for conversation {self.conversation_id}. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting...")
-                yield {"text": "[WARNING]: Lock is already taken for conversation. Lock name: " + ", ".join([k for k, v in lock_status["lock_status"].items() if v]) + ". Waiting for 10 seconds...", "status": "Waiting for lock to be released..."}
+                logger.warning(
+                    f"Lock is already taken for conversation {self.conversation_id}. Lock name: "
+                    + ", ".join([k for k, v in lock_status["lock_status"].items() if v])
+                    + ". Waiting..."
+                )
+                yield {
+                    "text": "[WARNING]: Lock is already taken for conversation. Lock name: "
+                    + ", ".join([k for k, v in lock_status["lock_status"].items() if v])
+                    + ". Waiting for 10 seconds...",
+                    "status": "Waiting for lock to be released...",
+                }
                 return
-                
+
             lock_status = self.check_all_lockfiles()
         # get_async_future(self.set_field, "memory", {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
-        pattern = r'\[.*?\]\(.*?\)'
+        pattern = r"\[.*?\]\(.*?\)"
         st = time.time()
         time_dict = dict()
-        user_memory = userData.get("user_memory", None) if userData is not None else None
-        user_preferences = userData.get("user_preferences", None) if userData is not None else None
+        user_memory = (
+            userData.get("user_memory", None) if userData is not None else None
+        )
+        user_preferences = (
+            userData.get("user_preferences", None) if userData is not None else None
+        )
         user_email = userData.get("user_email", None) if userData is not None else None
-        
+
         # Extract attached_claim_ids from query (for deliberate memory attachment)
-        attached_claim_ids = query.get("attached_claim_ids", []) if isinstance(query, dict) else []
+        attached_claim_ids = (
+            query.get("attached_claim_ids", []) if isinstance(query, dict) else []
+        )
         # Extract conversation-pinned claim IDs (injected by server from session state)
-        conversation_pinned_claim_ids = query.get("conversation_pinned_claim_ids", []) if isinstance(query, dict) else []
+        conversation_pinned_claim_ids = (
+            query.get("conversation_pinned_claim_ids", [])
+            if isinstance(query, dict)
+            else []
+        )
         # Extract referenced claim IDs (from @memory:id references in message)
-        referenced_claim_ids = query.get("referenced_claim_ids", []) if isinstance(query, dict) else []
-        
+        referenced_claim_ids = (
+            query.get("referenced_claim_ids", []) if isinstance(query, dict) else []
+        )
+
         # Start PKB context retrieval in parallel (if PKB is available)
         pkb_context_future = None
         pkb_k = None
-        time_logger.info(f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}")
-        time_logger.info(f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}")
+        time_logger.info(
+            f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}"
+        )
+        time_logger.info(
+            f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}"
+        )
         if PKB_AVAILABLE and user_email:
-            time_logger.info(f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}")
+            time_logger.info(
+                f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}"
+            )
             pkb_k = 10
             pkb_context_future = get_async_future(
                 self._get_pkb_context,
@@ -3153,78 +4521,129 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 attached_claim_ids=attached_claim_ids,
                 conversation_id=self.conversation_id,
                 conversation_pinned_claim_ids=conversation_pinned_claim_ids,
-                referenced_claim_ids=referenced_claim_ids
+                referenced_claim_ids=referenced_claim_ids,
             )
-            yield {"text": '', "status": f"PKB memory retrieval started for user: {user_email[:20]}..."}
+            yield {
+                "text": "",
+                "status": f"PKB memory retrieval started for user: {user_email[:20]}...",
+            }
         else:
-            time_logger.info(f"[PKB-REPLY] Skipping PKB context: PKB_AVAILABLE={PKB_AVAILABLE}, user_email={'set' if user_email else 'NOT SET'}")
+            time_logger.info(
+                f"[PKB-REPLY] Skipping PKB context: PKB_AVAILABLE={PKB_AVAILABLE}, user_email={'set' if user_email else 'NOT SET'}"
+            )
             if not PKB_AVAILABLE:
-                yield {"text": '', "status": "PKB not available (import failed)"}
+                yield {"text": "", "status": "PKB not available (import failed)"}
             elif not user_email:
-                yield {"text": '', "status": "PKB skipped: No user email provided"}
-        
-        answer = ''
+                yield {"text": "", "status": "PKB skipped: No user email provided"}
+
+        answer = ""
         summary = self.running_summary
         summary_text_init = summary
         summary_text = summary
         checkboxes = query["checkboxes"]
         if "delete_last_turn" in checkboxes and checkboxes["delete_last_turn"]:
             self.delete_last_turn()
-        persist_or_not = checkboxes["persist_or_not"] if "persist_or_not" in checkboxes else True
-        enable_planner = checkboxes["enable_planner"] if "enable_planner" in checkboxes else False
+        persist_or_not = (
+            checkboxes["persist_or_not"] if "persist_or_not" in checkboxes else True
+        )
+        enable_planner = (
+            checkboxes["enable_planner"] if "enable_planner" in checkboxes else False
+        )
         provide_detailed_answers = int(checkboxes["provide_detailed_answers"])
-        past_message_ids = checkboxes["history_message_ids"] if "history_message_ids" in checkboxes else []
-        enablePreviousMessages = str(checkboxes.get('enable_previous_messages', "infinite")).strip()
-        
+        past_message_ids = (
+            checkboxes["history_message_ids"]
+            if "history_message_ids" in checkboxes
+            else []
+        )
+        enablePreviousMessages = str(
+            checkboxes.get("enable_previous_messages", "infinite")
+        ).strip()
+
         # Extract reward level from checkboxes (0 = disabled, -3 to +3 = enabled with sensitivity)
         reward_level = int(checkboxes.get("reward_level", 0))
         if enablePreviousMessages == "infinite":
-            message_lookback = 10 * 2 # 10 messages * 2 (each message is 2 - user and assistant)
+            message_lookback = (
+                10 * 2
+            )  # 10 messages * 2 (each message is 2 - user and assistant)
         else:
             message_lookback = int(enablePreviousMessages) * 2
-        checkboxes["ppt_answer"] = checkboxes["ppt_answer"] if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"]) else False
-        only_slides = checkboxes["only_slides"] if "only_slides" in checkboxes and bool(checkboxes["only_slides"]) else False
-        render_close_to_source = checkboxes["render_close_to_source"] if "render_close_to_source" in checkboxes and bool(checkboxes["render_close_to_source"]) else False
+        checkboxes["ppt_answer"] = (
+            checkboxes["ppt_answer"]
+            if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"])
+            else False
+        )
+        only_slides = (
+            checkboxes["only_slides"]
+            if "only_slides" in checkboxes and bool(checkboxes["only_slides"])
+            else False
+        )
+        render_close_to_source = (
+            checkboxes["render_close_to_source"]
+            if "render_close_to_source" in checkboxes
+            and bool(checkboxes["render_close_to_source"])
+            else False
+        )
         checkboxes["render_close_to_source"] = render_close_to_source
         if checkboxes["ppt_answer"]:
             # permanent_instructions += "User has requested to receive the answer in PowerPoint slide format.\n"
             # reduce message lookback to 2
             message_lookback = 2
 
-        prior_context_future = get_async_future(self.retrieve_prior_context,
-                                                query["messageText"], past_message_ids=past_message_ids,
-                                                required_message_lookback=message_lookback)
+        prior_context_future = get_async_future(
+            self.retrieve_prior_context,
+            query["messageText"],
+            past_message_ids=past_message_ids,
+            required_message_lookback=message_lookback,
+        )
         if message_lookback >= 4:
-            prior_context_llm_based_future = get_async_future(self.retrieve_prior_context_llm_based,
-                                                query["messageText"], past_message_ids=past_message_ids)
+            prior_context_llm_based_future = get_async_future(
+                self.retrieve_prior_context_llm_based,
+                query["messageText"],
+                past_message_ids=past_message_ids,
+            )
         else:
-            prior_context_llm_based_future = wrap_in_future(dict(
-                extracted_context='',
-                summary='',
-                window_count=0,
-                message_count=0
-            ))
-        
+            prior_context_llm_based_future = wrap_in_future(
+                dict(extracted_context="", summary="", window_count=0, message_count=0)
+            )
+
         prior_context = prior_context_future.result()
-        
+
         time_dict["prior_context_time"] = time.time() - st
         previous_messages = prior_context["previous_messages"]
         previous_messages_very_short = prior_context["previous_messages_very_short"]
         previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
-        
+
         # Start reward evaluation async if reward level is non-zero
         reward_future = self._initiate_reward_evaluation(
-            reward_level, query["messageText"], checkboxes, previous_messages_long, summary
+            reward_level,
+            query["messageText"],
+            checkboxes,
+            previous_messages_long,
+            summary,
         )
-        permanent_instructions = ("Follow the below instructions given by the user.\n" + checkboxes[
-            "permanentText"] + "\n") if "permanentText" in checkboxes and len(
-            checkboxes["permanentText"].strip()) > 0 else ""
+        permanent_instructions = (
+            (
+                "Follow the below instructions given by the user.\n"
+                + checkboxes["permanentText"]
+                + "\n"
+            )
+            if "permanentText" in checkboxes
+            and len(checkboxes["permanentText"].strip()) > 0
+            else ""
+        )
 
-        checkboxes["need_diagram"] = checkboxes["draw"] if "draw" in checkboxes and bool(checkboxes["draw"]) else False
-        checkboxes["code_execution"] = checkboxes["execute"] if "execute" in checkboxes and bool(checkboxes["execute"]) else False
-        
+        checkboxes["need_diagram"] = (
+            checkboxes["draw"]
+            if "draw" in checkboxes and bool(checkboxes["draw"])
+            else False
+        )
+        checkboxes["code_execution"] = (
+            checkboxes["execute"]
+            if "execute" in checkboxes and bool(checkboxes["execute"])
+            else False
+        )
 
         if checkboxes["code_execution"]:
             permanent_instructions += "User has requested to execute the code and write executable code which we can run.\n"
@@ -3232,10 +4651,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
 
         google_scholar = checkboxes["googleScholar"]
-        searches = [s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0]
+        searches = [
+            s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0
+        ]
         perform_web_search = checkboxes["perform_web_search"] or len(searches) > 0
-        preambles = checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
-        if provide_detailed_answers >= 3 and "Short reply" not in preambles and "Short" not in preambles:
+        preambles = (
+            checkboxes["preamble_options"] if "preamble_options" in checkboxes else []
+        )
+        if (
+            provide_detailed_answers >= 3
+            and "Short reply" not in preambles
+            and "Short" not in preambles
+        ):
             preambles.append("Long")
         science_sites_count = count_science_urls(query["messageText"])
         if science_sites_count > 0:
@@ -3247,84 +4674,147 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preambles.append("Long")
             preambles.append("Is Coding Request")
 
-        retrieval_preambles = [p for p in preambles if p in self.retrieval_based_preambles]
-        
+        retrieval_preambles = [
+            p for p in preambles if p in self.retrieval_based_preambles
+        ]
+
         if science_sites_count > 1:
             preambles.append("Comparison")
 
-
-        
-        yield {"text": '', "status": "Extracting links from message text ..."}
-        links_in_text = enhanced_robust_url_extractor(query['messageText'])
-        yield {"text": '', "status": "Links extracted from message text ..."}
-        query['links'].extend(links_in_text)
-        if len(links_in_text) > 1 and "\n" not in query['messageText']:
-            yield {"text": "We don't support multiple links on single line.\n", "status": "Reading your provided links."}
-        links = list(set([l.strip() for l in query["links"] if
-                          l is not None and len(l.strip()) > 0]))  # and l.strip() not in raw_documents_index
+        yield {"text": "", "status": "Extracting links from message text ..."}
+        links_in_text = enhanced_robust_url_extractor(query["messageText"])
+        yield {"text": "", "status": "Links extracted from message text ..."}
+        query["links"].extend(links_in_text)
+        if len(links_in_text) > 1 and "\n" not in query["messageText"]:
+            yield {
+                "text": "We don't support multiple links on single line.\n",
+                "status": "Reading your provided links.",
+            }
+        links = list(
+            set(
+                [
+                    l.strip()
+                    for l in query["links"]
+                    if l is not None and len(l.strip()) > 0
+                ]
+            )
+        )  # and l.strip() not in raw_documents_index
         # check if a pattern like #doc_<number> is present in query['messageText']
-        attached_docs = re.findall(r'#doc_\d+', query['messageText'])
-        all_docs_referenced = "#doc_all" in query['messageText'] or "#all_docs" in query['messageText'] or "#all_doc" in query['messageText']
-        
+        attached_docs = re.findall(r"#doc_\d+", query["messageText"])
+        all_docs_referenced = (
+            "#doc_all" in query["messageText"]
+            or "#all_docs" in query["messageText"]
+            or "#all_doc" in query["messageText"]
+        )
+
         # if any of the patterns are present in query['messageText'], then set links to [], don't process links
-        if "<no_links_processing>" in query['messageText'] or "no_links_processing" in query['messageText'] or "no_link_processing" in query['messageText'] or "no_link_parsing" in query['messageText']  or "no_links_parsing" in query['messageText'] or "parse_no_links" in query['messageText'] or "parse_no_link" in query['messageText'] or "avoid_links_processing" in query['messageText'] or "avoid_link_parsing" in query['messageText'] or "avoid_link_processing" in query['messageText']:
+        if (
+            "<no_links_processing>" in query["messageText"]
+            or "no_links_processing" in query["messageText"]
+            or "no_link_processing" in query["messageText"]
+            or "no_link_parsing" in query["messageText"]
+            or "no_links_parsing" in query["messageText"]
+            or "parse_no_links" in query["messageText"]
+            or "parse_no_link" in query["messageText"]
+            or "avoid_links_processing" in query["messageText"]
+            or "avoid_link_parsing" in query["messageText"]
+            or "avoid_link_processing" in query["messageText"]
+        ):
             links = []
 
-        qmt_no_space = query['messageText'].replace(" ", "_")
-        if "<no_links_processing>" in qmt_no_space or "no_links_processing" in qmt_no_space or "no_link_processing" in qmt_no_space or "no_link_parsing" in qmt_no_space  or "no_links_parsing" in qmt_no_space or "parse_no_links" in qmt_no_space or "parse_no_link" in qmt_no_space or "avoid_links_processing" in qmt_no_space or "avoid_link_parsing" in qmt_no_space or "avoid_link_processing" in qmt_no_space:
+        qmt_no_space = query["messageText"].replace(" ", "_")
+        if (
+            "<no_links_processing>" in qmt_no_space
+            or "no_links_processing" in qmt_no_space
+            or "no_link_processing" in qmt_no_space
+            or "no_link_parsing" in qmt_no_space
+            or "no_links_parsing" in qmt_no_space
+            or "parse_no_links" in qmt_no_space
+            or "parse_no_link" in qmt_no_space
+            or "avoid_links_processing" in qmt_no_space
+            or "avoid_link_parsing" in qmt_no_space
+            or "avoid_link_processing" in qmt_no_space
+        ):
             links = []
-            
+
         if "No Links" in preambles:
             links = []
-        
-        pattern = r'(#dense_summary_doc_\d+|#summary_doc_\d+|#summarise_doc_\d+|#summarize_doc_\d+|#dense_summarise_doc_\d+|#dense_summarize_doc_\d+)'
-        attached_docs_for_summary = re.findall(pattern, query['messageText'])
-        attached_docs_for_summary = " ".join(attached_docs_for_summary) if len(attached_docs_for_summary) > 0 else ""
+
+        pattern = r"(#dense_summary_doc_\d+|#summary_doc_\d+|#summarise_doc_\d+|#summarize_doc_\d+|#dense_summarise_doc_\d+|#dense_summarize_doc_\d+)"
+        attached_docs_for_summary = re.findall(pattern, query["messageText"])
+        attached_docs_for_summary = (
+            " ".join(attached_docs_for_summary)
+            if len(attached_docs_for_summary) > 0
+            else ""
+        )
         if len(attached_docs_for_summary) > 0:
-            
-            assert attached_docs_for_summary == query['messageText'].strip(), f"Attached docs for summary should be the only docs in the message text. Our message text is:\n{query['messageText']}\n\nAttached docs are:\n{attached_docs_for_summary}"
-            
+            assert attached_docs_for_summary == query["messageText"].strip(), (
+                f"Attached docs for summary should be the only docs in the message text. Our message text is:\n{query['messageText']}\n\nAttached docs are:\n{attached_docs_for_summary}"
+            )
+
         is_dense = "dense_summary" in attached_docs_for_summary
 
-        if "/title " in query['messageText'] or "/set_title " in query['messageText']:
-            yield {"text": '', "status": "Setting title ..."}
+        if "/title " in query["messageText"] or "/set_title " in query["messageText"]:
+            yield {"text": "", "status": "Setting title ..."}
             title = None
-            
+
             # Try to match /title pattern first
-            title_match = re.search(r'/title (.*)', query['messageText'], re.DOTALL)
+            title_match = re.search(r"/title (.*)", query["messageText"], re.DOTALL)
             if title_match:
                 title = title_match.group(1).strip()
             else:
                 # Try to match /set_title pattern
-                set_title_match = re.search(r'/set_title (.*)', query['messageText'], re.DOTALL)
+                set_title_match = re.search(
+                    r"/set_title (.*)", query["messageText"], re.DOTALL
+                )
                 if set_title_match:
                     title = set_title_match.group(1).strip()
-            
+
             if title:
                 self.set_title(title)
-                yield {"text": f"Title set to {title}", "status": "Title set to {title}"}
-            yield {"text": '', "status": "Title set ..."}
+                yield {
+                    "text": f"Title set to {title}",
+                    "status": "Title set to {title}",
+                }
+            yield {"text": "", "status": "Title set ..."}
             model_name = FILLER_MODEL
             checkboxes["main_model"] = model_name
 
-        
-        if "/temp " in query['messageText'] or "/temporary " in query['messageText']:
-            
-            query['messageText'] = query['messageText'].replace("/temp ", "").replace("/temporary ", "").strip()
+        if "/temp " in query["messageText"] or "/temporary " in query["messageText"]:
+            query["messageText"] = (
+                query["messageText"]
+                .replace("/temp ", "")
+                .replace("/temporary ", "")
+                .strip()
+            )
             persist_or_not = False
-            yield {"text": '', "status": "Temporary mode enabled ..."}
-            
-        yield {"text": '', "status": "Getting attached docs for summary if present ..."}
-        attached_docs_for_summary = attached_docs_for_summary.replace("dense_summary_", "").replace("summary_", "").replace("summarise_", "").replace("summarize_", "").replace("dense_summarise_", "").replace("dense_summarize_", "")
-        yield {"text": '', "status": "Attached docs for summary if present got ..."}
-        attached_docs_for_summary_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText":attached_docs_for_summary})
-        _, attached_docs, doc_names, (_, _), (
-            _, _) = attached_docs_for_summary_future.result()
+            yield {"text": "", "status": "Temporary mode enabled ..."}
+
+        yield {"text": "", "status": "Getting attached docs for summary if present ..."}
+        attached_docs_for_summary = (
+            attached_docs_for_summary.replace("dense_summary_", "")
+            .replace("summary_", "")
+            .replace("summarise_", "")
+            .replace("summarize_", "")
+            .replace("dense_summarise_", "")
+            .replace("dense_summarize_", "")
+        )
+        yield {"text": "", "status": "Attached docs for summary if present got ..."}
+        attached_docs_for_summary_future = get_async_future(
+            self.get_uploaded_documents_for_query,
+            {"messageText": attached_docs_for_summary},
+        )
+        _, attached_docs, doc_names, (_, _), (_, _) = (
+            attached_docs_for_summary_future.result()
+        )
         if len(attached_docs) > 0:
             assert len(attached_docs) == 1, "Only one doc is allowed for summary."
-            yield {"text": '', "status": "Reading your attached documents for summary."}
-            yield {"text":  "<answer>\n", "status": "Generating summary of the document."}
-            
+            yield {"text": "", "status": "Reading your attached documents for summary."}
+            yield {
+                "text": "<answer>\n",
+                "status": "Generating summary of the document.",
+            }
+
             answer += "<answer>\n"
             if is_dense:
                 summary = make_stream(attached_docs[0].get_doc_long_summary_v2(), True)
@@ -3333,199 +4823,368 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             for ans in summary:
                 answer += ans
                 yield {"text": ans, "status": "Generating summary of the document."}
-            
+
             answer += "</answer>\n"
             yield {"text": "</answer>\n", "status": "answering ended ..."}
-            
+
             time_dict["total_time_to_reply"] = time.time() - st
-            
-            
-            yield {"text": '', "status": "saving answer ..."}
-            yield {"text": '', "status": "saving message ..."}
-            get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
+
+            yield {"text": "", "status": "saving answer ..."}
+            yield {"text": "", "status": "saving message ..."}
+            get_async_future(
+                self.persist_current_turn,
+                query["messageText"],
+                answer,
+                dict(**checkboxes),
+                previous_messages_long,
+                summary,
+                {},
+                persist_or_not,
+                past_message_ids,
+            )
             # Process reward evaluation before saving message
             if reward_future is not None:
                 yield {"text": "\n", "status": "reward evaluation complete"}
                 yield from self._process_reward_evaluation(reward_future)
                 yield {"text": "\n", "status": "reward evaluation complete"}
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
-            stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
+            yield {
+                "text": "\n\n",
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
+            stats = collapsible_wrapper(
+                yaml.dump(time_dict, default_flow_style=False),
+                header="Time taken to reply for chatbot",
+                show_initially=False,
+                add_close_button=False,
+            )
             for chunk in stats:
-                yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
-            yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+                yield {
+                    "text": chunk,
+                    "status": "saving answer ...",
+                    "message_ids": message_ids,
+                }
+            yield {
+                "text": "\n\n",
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
             return
-        
-        
+
         # Handle full document text request
-        yield {"text": '', "status": "Getting attached docs for full text if present ..."}
-        attached_docs_for_full = re.findall(r'(#full_doc_\d+|#raw_doc_\d+|#content_doc_\d+)', query['messageText'])
-        attached_docs_for_full = " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
-        yield {"text": '', "status": "Attached docs for full text if present got ..."}
+        yield {
+            "text": "",
+            "status": "Getting attached docs for full text if present ...",
+        }
+        attached_docs_for_full = re.findall(
+            r"(#full_doc_\d+|#raw_doc_\d+|#content_doc_\d+)", query["messageText"]
+        )
+        attached_docs_for_full = (
+            " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
+        )
+        yield {"text": "", "status": "Attached docs for full text if present got ..."}
         if len(attached_docs_for_full) > 0:
-            
-            assert attached_docs_for_full == query['messageText'].strip(), "Attached docs for full text should be the only docs in the message text."
-            
-            attached_docs_for_full = attached_docs_for_full.replace("full_", "").replace("raw_", "").replace("content_", "")
-            attached_docs_for_full_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": attached_docs_for_full})
-            _, attached_docs, doc_names, (_, _), (
-                _, _) = attached_docs_for_full_future.result()
-                
+            assert attached_docs_for_full == query["messageText"].strip(), (
+                "Attached docs for full text should be the only docs in the message text."
+            )
+
+            attached_docs_for_full = (
+                attached_docs_for_full.replace("full_", "")
+                .replace("raw_", "")
+                .replace("content_", "")
+            )
+            attached_docs_for_full_future = get_async_future(
+                self.get_uploaded_documents_for_query,
+                {"messageText": attached_docs_for_full},
+            )
+            _, attached_docs, doc_names, (_, _), (_, _) = (
+                attached_docs_for_full_future.result()
+            )
+
             if len(attached_docs) > 0:
                 assert len(attached_docs) == 1, "Only one doc is allowed for summary."
-                yield {"text": '', "status": "Reading your attached document for full text view."}
-                yield {"text":  "<answer>\n", "status": "Getting full text of the document."}
-                yield {"text": attached_docs[0].get_raw_doc_text(), "status": "Getting full text of the document."}
+                yield {
+                    "text": "",
+                    "status": "Reading your attached document for full text view.",
+                }
+                yield {
+                    "text": "<answer>\n",
+                    "status": "Getting full text of the document.",
+                }
+                yield {
+                    "text": attached_docs[0].get_raw_doc_text(),
+                    "status": "Getting full text of the document.",
+                }
                 answer += "<answer>\n"
                 answer += attached_docs[0].get_raw_doc_text()
                 answer += "</answer>\n"
                 yield {"text": "</answer>\n", "status": "answering ended ..."}
-                
+
                 time_dict["total_time_to_reply"] = time.time() - st
-                
-                
-                yield {"text": '', "status": "saving answer ..."}
-                yield {"text": '', "status": "saving message ..."}
-                get_async_future(self.persist_current_turn, query['messageText'], answer, dict(**checkboxes), previous_messages_long, summary, {}, persist_or_not, past_message_ids)
+
+                yield {"text": "", "status": "saving answer ..."}
+                yield {"text": "", "status": "saving message ..."}
+                get_async_future(
+                    self.persist_current_turn,
+                    query["messageText"],
+                    answer,
+                    dict(**checkboxes),
+                    previous_messages_long,
+                    summary,
+                    {},
+                    persist_or_not,
+                    past_message_ids,
+                )
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 # Process reward evaluation before saving message
                 if reward_future is not None:
                     yield {"text": "\n", "status": "reward evaluation complete"}
                     yield from self._process_reward_evaluation(reward_future)
                     yield {"text": "\n", "status": "reward evaluation complete"}
-                yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
-                stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
+                yield {
+                    "text": "\n\n",
+                    "status": "saving answer ...",
+                    "message_ids": message_ids,
+                }
+                stats = collapsible_wrapper(
+                    yaml.dump(time_dict, default_flow_style=False),
+                    header="Time taken to reply for chatbot",
+                    show_initially=False,
+                    add_close_button=False,
+                )
                 for chunk in stats:
-                    yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
-                yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+                    yield {
+                        "text": chunk,
+                        "status": "saving answer ...",
+                        "message_ids": message_ids,
+                    }
+                yield {
+                    "text": "\n\n",
+                    "status": "saving answer ...",
+                    "message_ids": message_ids,
+                }
                 return
 
-        
-            
-        
-        
-        yield {"text": '', "status": "Getting field and model name ..."}
+        artefact_context = self.get_artefacts_for_query(query["messageText"])
+        if artefact_context:
+            query["messageText"] = (
+                query["messageText"].rstrip() + "\n\n" + artefact_context
+            )
+
+        yield {"text": "", "status": "Getting field and model name ..."}
         field = checkboxes["field"] if "field" in checkboxes else None
         model_name = checkboxes["main_model"] if "main_model" in checkboxes else None
         if isinstance(model_name, (tuple, list)):
             model_name = list(map(model_name_to_canonical_name, model_name))
-            assert FILLER_MODEL not in model_name or len(model_name) == 1, "Filler model name is not allowed if multiple models are provided."
-            yield {"text": '', "status": "Model name includes filler model name ..." if FILLER_MODEL in model_name else "Model name does not include filler model name ..."}
+            assert FILLER_MODEL not in model_name or len(model_name) == 1, (
+                "Filler model name is not allowed if multiple models are provided."
+            )
+            yield {
+                "text": "",
+                "status": "Model name includes filler model name ..."
+                if FILLER_MODEL in model_name
+                else "Model name does not include filler model name ...",
+            }
         else:
             model_name = model_name_to_canonical_name(model_name)
         if isinstance(model_name, (tuple, list)) and len(model_name) == 1:
-            yield {"text": '', "status": "Model name is a tuple or list and has only one model name ..."}
+            yield {
+                "text": "",
+                "status": "Model name is a tuple or list and has only one model name ...",
+            }
             model_name = model_name[0].strip()
 
         if model_name == FILLER_MODEL:
             links = []
-            yield {"text": '', "status": "Links set to [] because model name includes filler model name ..."}
+            yield {
+                "text": "",
+                "status": "Links set to [] because model name includes filler model name ...",
+            }
         if field is not None and field.startswith("Prompt_"):
             field_prompt = field.replace("Prompt_", "")
-            query["messageText"] = self.replace_message_text_with_prompt(query["messageText"], field_prompt)
-        
-        
-        yield {"text": '', "status": "Getting message ids ..."}
+            query["messageText"] = self.replace_message_text_with_prompt(
+                query["messageText"], field_prompt
+            )
+
+        yield {"text": "", "status": "Getting message ids ..."}
         message_ids = self.get_message_ids(query, "")
-        yield {"text": '', "status": "Message ids got ..."}
+        yield {"text": "", "status": "Message ids got ..."}
         prefix = message_ids["user_message_id"]
         plot_prefix = f"plot-{prefix}-"
-        
-        yield {"text": '', "status": "Getting preamble ..."}
-        preamble, agent = self.get_preamble(preambles,
-                                     checkboxes["field"] if "field" in checkboxes else None,
-                                     perform_web_search or google_scholar or len(links) > 0 or len(
-                                         attached_docs) > 0, detail_level=provide_detailed_answers, model_name=model_name, prefix=prefix, ppt_answer=checkboxes["ppt_answer"])
-        yield {"text": '', "status": "Preamble got ..."}
-        previous_context = summary if len(summary.strip()) > 0 and message_lookback >= 0 else ''
-        retrieval_preambles, _ = self.get_preamble(retrieval_preambles, '')
-        previous_context_and_preamble = "<|instruction|>" + str(retrieval_preambles) + "<|/instruction|>" + "\n\n" + "<|previous_context|>\n" + str(previous_context) + "\n<|/previous_context|>\n\n"
-        link_context = previous_context_and_preamble + query['messageText']
-        if len(links) > 0:
-            yield {"text": '', "status": "Reading your provided links."}
-            link_future = get_async_future(read_over_multiple_links, links, [""] * len(links),
-                                           [link_context] * (len(links)), self.get_api_keys(),
-                                           provide_detailed_answers=max(0, int(provide_detailed_answers) - 1) or len(
-                                               links) <= 2)
 
+        yield {"text": "", "status": "Getting preamble ..."}
+        preamble, agent = self.get_preamble(
+            preambles,
+            checkboxes["field"] if "field" in checkboxes else None,
+            perform_web_search
+            or google_scholar
+            or len(links) > 0
+            or len(attached_docs) > 0,
+            detail_level=provide_detailed_answers,
+            model_name=model_name,
+            prefix=prefix,
+            ppt_answer=checkboxes["ppt_answer"],
+        )
+        yield {"text": "", "status": "Preamble got ..."}
+        previous_context = (
+            summary if len(summary.strip()) > 0 and message_lookback >= 0 else ""
+        )
+        retrieval_preambles, _ = self.get_preamble(retrieval_preambles, "")
+        previous_context_and_preamble = (
+            "<|instruction|>"
+            + str(retrieval_preambles)
+            + "<|/instruction|>"
+            + "\n\n"
+            + "<|previous_context|>\n"
+            + str(previous_context)
+            + "\n<|/previous_context|>\n\n"
+        )
+        link_context = previous_context_and_preamble + query["messageText"]
+        if len(links) > 0:
+            yield {"text": "", "status": "Reading your provided links."}
+            link_future = get_async_future(
+                read_over_multiple_links,
+                links,
+                [""] * len(links),
+                [link_context] * (len(links)),
+                self.get_api_keys(),
+                provide_detailed_answers=max(0, int(provide_detailed_answers) - 1)
+                or len(links) <= 2,
+            )
 
         prior_chat_summary_future = None
         if all_docs_referenced:
             all_docs = self.get_uploaded_documents()
-            all_doc_ids = ["#doc_{}".format(idx+1) for idx, d in enumerate(all_docs)]
-            attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, {"messageText": " ".join(all_doc_ids)})
+            all_doc_ids = ["#doc_{}".format(idx + 1) for idx, d in enumerate(all_docs)]
+            attached_docs_future = get_async_future(
+                self.get_uploaded_documents_for_query,
+                {"messageText": " ".join(all_doc_ids)},
+            )
         else:
-            attached_docs_future = get_async_future(self.get_uploaded_documents_for_query, query)
+            attached_docs_future = get_async_future(
+                self.get_uploaded_documents_for_query, query
+            )
 
-        user_query = query['messageText']
+        user_query = query["messageText"]
         use_memory_pad = False
-        if "memory pad" in user_query or "memory_pad" in user_query or ("use_memory_pad" in checkboxes and checkboxes["use_memory_pad"]):
+        if (
+            "memory pad" in user_query
+            or "memory_pad" in user_query
+            or ("use_memory_pad" in checkboxes and checkboxes["use_memory_pad"])
+        ):
             use_memory_pad = True
             checkboxes["use_memory_pad"] = True
         message_config = dict(**checkboxes)
 
         message_config["link_context"] = link_context
 
-        yield {"text": '', "status": "Getting prior chat context ..."}
+        yield {"text": "", "status": "Getting prior chat context ..."}
 
-
-
-        agentic_search = checkboxes["agentic_search"] if "agentic_search" in checkboxes else False
+        agentic_search = (
+            checkboxes["agentic_search"] if "agentic_search" in checkboxes else False
+        )
         message_config["googleScholar"] = google_scholar
         message_config["searches"] = searches
         original_user_query = user_query
 
         message_config["perform_web_search"] = perform_web_search
         perform_web_search = perform_web_search and FILLER_MODEL not in model_name
-        message_config["links"] = query['links']
-        
+        message_config["links"] = query["links"]
+
         unchanged_message_lookback = message_lookback
 
         web_search_tmp_marker_name = None
         perplexity_results_future = None
 
-        yield {"text": '', "status": "Performing web search if asked by user ..."}
+        yield {"text": "", "status": "Performing web search if asked by user ..."}
         if google_scholar or perform_web_search:
-            web_search_tmp_marker_name = self.conversation_id + "_web_search" + str(time.time())
+            web_search_tmp_marker_name = (
+                self.conversation_id + "_web_search" + str(time.time())
+            )
             create_tmp_marker_file(web_search_tmp_marker_name)
             time_dict["web_search_start"] = time.time() - st
-            yield {"text": '', "status": "performing google scholar search" if google_scholar else "performing web search"}
+            yield {
+                "text": "",
+                "status": "performing google scholar search"
+                if google_scholar
+                else "performing web search",
+            }
             message_config["web_search_user_query"] = user_query
-            time_logger.info(f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}")
-            web_results = get_async_future(web_search_queue, user_query, 'helpful ai assistant',
-                                           previous_context,
-                                           self.get_api_keys(), datetime.now().strftime("%Y-%m"), extra_queries=searches, previous_turn_search_results='',
-                                           gscholar=google_scholar, provide_detailed_answers=provide_detailed_answers, web_search_tmp_marker_name=web_search_tmp_marker_name)
-            
-            
-            perplexity_agent = PerplexitySearchAgent(self.get_api_keys(), model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini", detail_level=provide_detailed_answers, timeout=90, num_queries=(10 if provide_detailed_answers >= 3 else 5) if provide_detailed_answers >= 2 else 3)
-            perplexity_results_future = get_async_future(perplexity_agent.get_answer, "User Query:\n" + user_query + "\n\nPrevious Context:\n" + previous_context, system="You are a helpful assistant that can answer questions and provide detailed information.")
-            
+            time_logger.info(
+                f"Time to Start Performing web search with chat query with elapsed time as {(time.time() - st):.2f}"
+            )
+            web_results = get_async_future(
+                web_search_queue,
+                user_query,
+                "helpful ai assistant",
+                previous_context,
+                self.get_api_keys(),
+                datetime.now().strftime("%Y-%m"),
+                extra_queries=searches,
+                previous_turn_search_results="",
+                gscholar=google_scholar,
+                provide_detailed_answers=provide_detailed_answers,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
+
+            perplexity_agent = PerplexitySearchAgent(
+                self.get_api_keys(),
+                model_name="gpt-4o" if provide_detailed_answers >= 3 else "gpt-4o-mini",
+                detail_level=provide_detailed_answers,
+                timeout=90,
+                num_queries=(10 if provide_detailed_answers >= 3 else 5)
+                if provide_detailed_answers >= 2
+                else 3,
+            )
+            perplexity_results_future = get_async_future(
+                perplexity_agent.get_answer,
+                "User Query:\n"
+                + user_query
+                + "\n\nPrevious Context:\n"
+                + previous_context,
+                system="You are a helpful assistant that can answer questions and provide detailed information.",
+            )
+
         if userData is not None:
-            yield {"text": '', "status": "Retrieving PKB memory context ..."}
-            time_logger.info(f"[PKB-REPLY] userData is not None, checking pkb_context_future...")
+            yield {"text": "", "status": "Retrieving PKB memory context ..."}
+            time_logger.info(
+                f"[PKB-REPLY] userData is not None, checking pkb_context_future..."
+            )
             # Get PKB context if available (from async future started earlier)
             pkb_context = ""
             if pkb_context_future is not None:
-                time_logger.info("[PKB-REPLY] pkb_context_future exists, waiting for result...")
+                time_logger.info(
+                    "[PKB-REPLY] pkb_context_future exists, waiting for result..."
+                )
                 try:
                     pkb_context = pkb_context_future.result()
-                    time_logger.info(f"[PKB-REPLY] pkb_context_future.result() returned {len(pkb_context) if pkb_context else 0} chars")
+                    time_logger.info(
+                        f"[PKB-REPLY] pkb_context_future.result() returned {len(pkb_context) if pkb_context else 0} chars"
+                    )
                 except Exception as e:
-                    time_logger.info(f"[PKB-REPLY] Failed to get PKB context: {e}", exc_info=True)
+                    time_logger.info(
+                        f"[PKB-REPLY] Failed to get PKB context: {e}", exc_info=True
+                    )
                     pkb_context = ""
             else:
-                time_logger.info("[PKB-REPLY] pkb_context_future is None (PKB fetch was not started)")
-            
+                time_logger.info(
+                    "[PKB-REPLY] pkb_context_future is None (PKB fetch was not started)"
+                )
+
             def _format_pkb_audit_details(context_text, k_value):
                 """Build a structured PKB audit summary as a bullet list."""
-                lines = [line.strip() for line in (context_text or "").splitlines() if line.strip().startswith("- ")]
+                lines = [
+                    line.strip()
+                    for line in (context_text or "").splitlines()
+                    if line.strip().startswith("- ")
+                ]
                 source_counts = {
                     "referenced": 0,
                     "attached": 0,
                     "pinned": 0,
                     "conv_pinned": 0,
-                    "auto": 0
+                    "auto": 0,
                 }
                 for line in lines:
                     if "[REFERENCED]" in line:
@@ -3560,12 +5219,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 else:
                     detail_lines.append("- Retrieved claims: none")
                 return "\n".join(detail_lines)
-            
+
             # Build user info prompt with both legacy data and PKB context
             pkb_section = ""
             if pkb_context:
-                time_logger.info(f"[PKB-REPLY] Building pkb_section with {len(pkb_context)} chars of context")
-                yield {"text": '', "status": f"PKB context retrieved: {len(pkb_context.split(chr(10)))} memories found"}
+                time_logger.info(
+                    f"[PKB-REPLY] Building pkb_section with {len(pkb_context)} chars of context"
+                )
+                yield {
+                    "text": "",
+                    "status": f"PKB context retrieved: {len(pkb_context.split(chr(10)))} memories found",
+                }
                 pkb_section = f"""
             **Personal Knowledge Base (relevant facts and preferences):**
             ```
@@ -3573,19 +5237,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             ```
             """
             else:
-                time_logger.info("[PKB-REPLY] pkb_context is empty, pkb_section will be empty")
-                yield {"text": '', "status": "PKB context: No memories found for this query"}
-            
-            pkb_audit_details = _format_pkb_audit_details(pkb_context, k_value=pkb_k if pkb_k is not None else "n/a")
+                time_logger.info(
+                    "[PKB-REPLY] pkb_context is empty, pkb_section will be empty"
+                )
+                yield {
+                    "text": "",
+                    "status": "PKB context: No memories found for this query",
+                }
+
+            pkb_audit_details = _format_pkb_audit_details(
+                pkb_context, k_value=pkb_k if pkb_k is not None else "n/a"
+            )
             pkb_audit_wrapper = collapsible_wrapper(
                 pkb_audit_details,
                 header="PKB Retrieval Details",
                 show_initially=False,
-                add_close_button=True
+                add_close_button=True,
             )
             for chunk in pkb_audit_wrapper:
                 yield {"text": chunk, "status": "PKB retrieval details"}
-            
+
             user_info_text = dedent(f"""
             Few details about the user and how they want us to respond to them:
             {pkb_section}
@@ -3606,7 +5277,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
             Previous conversation history:
             ```
-            {prior_context['previous_messages_very_short']}
+            {prior_context["previous_messages_very_short"]}
             ```
 
             The current query is:
@@ -3617,38 +5288,80 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             Now based on the above information, please extract the user's preferences and user memory relevant to the current query and conversation history. Only focus on extracting the user preferences and user memory and only write the extracted user preferences and user memory.
             If there is no user preferences or user memory relevant to the current query and conversation history, then just write "No user preferences or user memory found".
             Write the extracted user preferences and user memory below in bullet points. Write in concise manner.""")
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-            llm2 = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[1], use_gpt4=True, use_16k=True)
-            user_info_text1 = get_async_future(llm, user_info_text, temperature=0.2, stream=False)
-            user_info_text2 = get_async_future(llm2, user_info_text, temperature=0.2, stream=False)
+            llm = CallLLm(
+                self.get_api_keys(),
+                model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                use_gpt4=True,
+                use_16k=True,
+            )
+            llm2 = CallLLm(
+                self.get_api_keys(),
+                model_name=CHEAP_LONG_CONTEXT_LLM[1],
+                use_gpt4=True,
+                use_16k=True,
+            )
+            user_info_text1 = get_async_future(
+                llm, user_info_text, temperature=0.2, stream=False
+            )
+            user_info_text2 = get_async_future(
+                llm2, user_info_text, temperature=0.2, stream=False
+            )
 
         # raw_documents_index = self.get_field("raw_documents_index")
-        link_result_text = ''
+        link_result_text = ""
         full_doc_texts = {}
 
         if all_docs_referenced:
-            _, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
-                attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
+            (
+                _,
+                attached_docs,
+                attached_docs_names,
+                (attached_docs_readable, attached_docs_readable_names),
+                (attached_docs_data, attached_docs_data_names),
+            ) = attached_docs_future.result()
         else:
-            query, attached_docs, attached_docs_names, (attached_docs_readable, attached_docs_readable_names), (
-                attached_docs_data, attached_docs_data_names) = attached_docs_future.result()
-        attached_docs, attached_docs_names = attached_docs_readable, attached_docs_readable_names
+            (
+                query,
+                attached_docs,
+                attached_docs_names,
+                (attached_docs_readable, attached_docs_readable_names),
+                (attached_docs_data, attached_docs_data_names),
+            ) = attached_docs_future.result()
+        attached_docs, attached_docs_names = (
+            attached_docs_readable,
+            attached_docs_readable_names,
+        )
 
-        preamble, _ = self.get_preamble(preambles,
-                                     checkboxes["field"] if "field" in checkboxes else None,
-                                     False, prefix='', ppt_answer=False)
-        yield {"text": '', "status": "Preamble got ..."}
+        preamble, _ = self.get_preamble(
+            preambles,
+            checkboxes["field"] if "field" in checkboxes else None,
+            False,
+            prefix="",
+            ppt_answer=False,
+        )
+        yield {"text": "", "status": "Preamble got ..."}
 
-        yield {"text": '', "status": "Getting coding rules ..."}
-        coding_rules, prefix = self.get_coding_rules(query, attached_docs_data, attached_docs_data_names, need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles, code_execution=checkboxes["code_execution"] or "Code Exec" in preambles)
-        yield {"text": '', "status": "Coding rules got ..."}
+        yield {"text": "", "status": "Getting coding rules ..."}
+        coding_rules, prefix = self.get_coding_rules(
+            query,
+            attached_docs_data,
+            attached_docs_data_names,
+            need_diagram=checkboxes["need_diagram"] or "Code Exec" in preambles,
+            code_execution=checkboxes["code_execution"] or "Code Exec" in preambles,
+        )
+        yield {"text": "", "status": "Coding rules got ..."}
         plot_prefix = f"plot-{prefix}-"
         file_prefix = f"file-{prefix}-"
-        if (provide_detailed_answers == 0) and (len(links) + len(attached_docs) == 1 and len(
-            searches) == 0):
+        if (provide_detailed_answers == 0) and (
+            len(links) + len(attached_docs) == 1 and len(searches) == 0
+        ):
             provide_detailed_answers = 2
-        provide_raw_text = (len(links) + len(attached_docs)) <= 3 and provide_detailed_answers <= 3 and not (
-                    google_scholar or perform_web_search) and unchanged_message_lookback <= 10
+        provide_raw_text = (
+            (len(links) + len(attached_docs)) <= 3
+            and provide_detailed_answers <= 3
+            and not (google_scholar or perform_web_search)
+            and unchanged_message_lookback <= 10
+        )
         if len(attached_docs) > 0:
             message_config["use_attached_docs"] = True
             message_config["attached_docs_names"] = attached_docs_names
@@ -3667,44 +5380,64 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     image_path = image_path.replace(" ", "%20")
                     save_path_for_render = os.path.join(self.documents_path, f)
                     shutil.copyfile(source_file, save_path_for_render)
-                    image_md = f'\n[<img src="{image_path}" width="500"/>]({image_path})\n'
+                    image_md = (
+                        f'\n[<img src="{image_path}" width="500"/>]({image_path})\n'
+                    )
                     # image_md = f"\n![{f}]({image_path}) \n"
-                    yield {"text": image_md, "status": "Reading your attached documents."}
+                    yield {
+                        "text": image_md,
+                        "status": "Reading your attached documents.",
+                    }
                 elif ad.doc_type == "image":
                     image_md = f'\n[<img src="{ad.doc_source}" width="500"/>]({ad.doc_source})\n'
                     # image_md = f"\n![{ad.title}]({ad.doc_source}) \n"
-                    yield {"text": image_md, "status": "Reading your attached documents."}
-            yield {"text": '', "status": "Reading your attached documents."}
-            conversation_docs_future = get_async_future(get_multiple_answers,
-                                                        previous_context_and_preamble + query["messageText"],
-                                                        attached_docs,
-                                                        summary if message_lookback >= 0 else '',
-                                                        max(0, int(provide_detailed_answers)),
-                                                        provide_raw_text=provide_raw_text,
-                                                        dont_join_answers=True)
-        doc_answer = ''
+                    yield {
+                        "text": image_md,
+                        "status": "Reading your attached documents.",
+                    }
+            yield {"text": "", "status": "Reading your attached documents."}
+            conversation_docs_future = get_async_future(
+                get_multiple_answers,
+                previous_context_and_preamble + query["messageText"],
+                attached_docs,
+                summary if message_lookback >= 0 else "",
+                max(0, int(provide_detailed_answers)),
+                provide_raw_text=provide_raw_text,
+                dont_join_answers=True,
+            )
+        doc_answer = ""
 
-        web_text = ''
-        yield {"text": '', "status": "Getting web text if asked by user ..."}
-
-
+        web_text = ""
+        yield {"text": "", "status": "Getting web text if asked by user ..."}
 
         if len(links) > 0:
             link_read_st = time.time()
-            link_result_text = "We could not read the links you provided. Please try again later."
+            link_result_text = (
+                "We could not read the links you provided. Please try again later."
+            )
             all_docs_info = []
-            while True and ((time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 6):
-                if (time.time() - link_read_st) > (self.max_time_to_wait_for_web_results * 2):
-                    yield {"text": '', "status": "Link reading taking long time ... "}
+            while True and (
+                (time.time() - link_read_st) < self.max_time_to_wait_for_web_results * 6
+            ):
+                if (time.time() - link_read_st) > (
+                    self.max_time_to_wait_for_web_results * 2
+                ):
+                    yield {"text": "", "status": "Link reading taking long time ... "}
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
                     break
                 time.sleep(0.5)
 
             read_links = parse_mardown_link_text(link_result_text)
-            read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if
-                               len(link.strip()) > 0 and len(title.strip()) > 0 and extract_url_from_mardown(
-                                   link) in links])
+            read_links = list(
+                [
+                    [link.strip(), link_len]
+                    for link, title, link_len in read_links
+                    if len(link.strip()) > 0
+                    and len(title.strip()) > 0
+                    and extract_url_from_mardown(link) in links
+                ]
+            )
             # if any link is an image then we display it.
             for link, link_len in read_links:
                 if is_image_link(link):
@@ -3713,11 +5446,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     yield {"text": image_md, "status": "Reading your provided links."}
 
             if len(all_docs_info) > 0:
-                read_links = "\n**We read the below links:**\n" + "\n".join([f"{i+1}. {wta} : <{link_len} words>" for i, (wta, link_len) in enumerate(read_links)]) + "\n\n"
-                yield {"text": read_links, "status": "Finished reading your provided links."}
+                read_links = (
+                    "\n**We read the below links:**\n"
+                    + "\n".join(
+                        [
+                            f"{i + 1}. {wta} : <{link_len} words>"
+                            for i, (wta, link_len) in enumerate(read_links)
+                        ]
+                    )
+                    + "\n\n"
+                )
+                yield {
+                    "text": read_links,
+                    "status": "Finished reading your provided links.",
+                }
             else:
                 read_links = "\nWe could not read any of the links you provided. Please try again later. Timeout at 30s.\n"
-                yield {"text": read_links, "status": "Finished reading your provided links."}
+                yield {
+                    "text": read_links,
+                    "status": "Finished reading your provided links.",
+                }
             yield {"text": "\n", "status": "Finished reading your provided links."}
 
             time_logger.info(f"Time taken to read links: {time.time() - st}")
@@ -3725,45 +5473,71 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             logger.debug(f"Link result text:\n```\n{link_result_text}\n```")
         qu_dst = time.time()
 
-        conversation_docs_answer = ''
+        conversation_docs_answer = ""
         if len(attached_docs) > 0:
-            while True and (time.time() - qu_dst < (self.max_time_to_wait_for_web_results * ((provide_detailed_answers)*5))):
+            while True and (
+                time.time() - qu_dst
+                < (
+                    self.max_time_to_wait_for_web_results
+                    * ((provide_detailed_answers) * 5)
+                )
+            ):
                 if conversation_docs_future.done():
-                    conversation_docs_answer = conversation_docs_future.result()[1].result()["text"]
-                    conversation_docs_answer = "\n\n".join([f"For '{ad}' information is given below.\n{cd}" for cd, ad in zip(conversation_docs_answer, attached_docs_names)])
+                    conversation_docs_answer = conversation_docs_future.result()[
+                        1
+                    ].result()["text"]
+                    conversation_docs_answer = "\n\n".join(
+                        [
+                            f"For '{ad}' information is given below.\n{cd}"
+                            for cd, ad in zip(
+                                conversation_docs_answer, attached_docs_names
+                            )
+                        ]
+                    )
                     break
                 time.sleep(0.5)
             if len(conversation_docs_answer) > 0:
-                yield {"text": '', "status": "document reading completed"}
+                yield {"text": "", "status": "document reading completed"}
             else:
-                yield {"text": 'document reading failed', "status": "document reading failed"}
+                yield {
+                    "text": "document reading failed",
+                    "status": "document reading failed",
+                }
                 time.sleep(3.0)
 
-        yield {"text": '', "status": "Prior context extraction started ..."}
+        yield {"text": "", "status": "Prior context extraction started ..."}
         prior_context = prior_context_future.result()
-        yield {"text": '', "status": "Prior context extraction done ..."}
+        yield {"text": "", "status": "Prior context extraction done ..."}
         previous_messages = prior_context["previous_messages"]
         previous_messages_short = previous_messages
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
-        yield {"text": '', "status": "Prior context got ..."}
+        yield {"text": "", "status": "Prior context got ..."}
         prior_context_llm_based = prior_context_llm_based_future.result()
         prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
-        yield {"text": '', "status": "Prior context LLM based extraction done with len = " + str(len(prior_context_llm_based_context.split())) + " tokens ..."}
+        yield {
+            "text": "",
+            "status": "Prior context LLM based extraction done with len = "
+            + str(len(prior_context_llm_based_context.split()))
+            + " tokens ...",
+        }
         new_line = "\n"
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
-            if len(search_results['queries']) > 0:
+            if len(search_results["queries"]) > 0:
                 atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
                 yield {"text": atext, "status": "displaying web search queries ... "}
                 answer += atext
-                queries = two_column_list(search_results['queries'])
-                message_config["web_search_queries"] = search_results['queries']
-                answer += (queries + "</div>\n")
-                yield {"text": queries + "</div>\n", "status": "displaying web search queries ... "}
+                queries = two_column_list(search_results["queries"])
+                message_config["web_search_queries"] = search_results["queries"]
+                answer += queries + "</div>\n"
+                yield {
+                    "text": queries + "</div>\n",
+                    "status": "displaying web search queries ... ",
+                }
 
             cut_off = 0
-            if len(search_results['search_results']) > 0:
+            if len(search_results["search_results"]) > 0:
                 if provide_detailed_answers == 1:
                     cut_off = 6
                 elif provide_detailed_answers == 2:
@@ -3774,67 +5548,105 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     cut_off = 20
                 else:
                     cut_off = 6
-                query_results_part1 = search_results['search_results']
-                seen_query_results = query_results_part1[:max(10, cut_off)]
-                unseen_query_results = query_results_part1[max(10, cut_off):]
-                atext = "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>" + "\n"
+                query_results_part1 = search_results["search_results"]
+                seen_query_results = query_results_part1[: max(10, cut_off)]
+                unseen_query_results = query_results_part1[max(10, cut_off) :]
+                atext = (
+                    "\n**Search Results:** <div data-toggle='collapse' href='#searchResults' role='button'></div> <div class='collapse' id='searchResults'>"
+                    + "\n"
+                )
                 answer += atext
-                yield {"text":atext, "status": "displaying web search results ... "}
-                query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
+                yield {"text": atext, "status": "displaying web search results ... "}
+                query_results = [
+                    f"<a href='{qr['link']}'>{qr['title']}</a>"
+                    for qr in seen_query_results
+                ]
                 query_results = two_column_list(query_results)
-                answer += (query_results + "</div>\n")
-                yield {"text": query_results + "</div>\n", "status": "Reading web search results ... "}
+                answer += query_results + "</div>\n"
+                yield {
+                    "text": query_results + "</div>\n",
+                    "status": "Reading web search results ... ",
+                }
 
             result_queue = web_results.result()[1]
             web_text_accumulator = []
             qu_st = time.time()
             qu_mt = time.time()
-            time_logger.info(f"Time to reach web search links accumulation code: {(qu_st - st):.2f}")
+            time_logger.info(
+                f"Time to reach web search links accumulation code: {(qu_st - st):.2f}"
+            )
             time_dict["get_web_search_links"] = qu_st - st
 
             re_search = None
 
-            def get_first_few_result_summary(start = 0, end=4):
+            def get_first_few_result_summary(start=0, end=4):
                 st = time.time()
                 while len(web_text_accumulator) < end:
                     time.sleep(0.5)
                 if not exists_tmp_marker_file(web_search_tmp_marker_name):
                     return ""
                 full_web_string = ""
-                for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator[start:]):
-                    llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and \
-                                                                   sleep_and_get_future_exception(llm_future_dict) is None else ""
+                for i, (wta, link, llm_future_dict) in enumerate(
+                    web_text_accumulator[start:]
+                ):
+                    llm_text = (
+                        sleep_and_get_future_result(llm_future_dict)
+                        if llm_future_dict.done()
+                        and sleep_and_get_future_exception(llm_future_dict) is None
+                        else ""
+                    )
                     web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
                     full_web_string = full_web_string + web_string + "\n\n"
                     if get_gpt4_word_count(full_web_string) > 24000:
                         break
-                prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                               summary_text=summary_text,
-                                                               previous_messages=previous_messages_short,
-                                                               permanent_instructions='Include references inline in wikipedia markdown format. Answer shortly, concisely and briefly while covering all given references.',
-                                                               doc_answer='', web_text="\n"+full_web_string,
-                                                               link_result_text='',
-                                                               conversation_docs_answer='')
-                answer_summary = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_16k=True,
-                                         use_gpt4=True)(prompt, temperature=0.3, stream=False)
+                prompt = prompts.chat_slow_reply_prompt.format(
+                    query=query["messageText"],
+                    summary_text=summary_text,
+                    previous_messages=previous_messages_short,
+                    permanent_instructions="Include references inline in wikipedia markdown format. Answer shortly, concisely and briefly while covering all given references.",
+                    doc_answer="",
+                    web_text="\n" + full_web_string,
+                    link_result_text="",
+                    conversation_docs_answer="",
+                )
+                answer_summary = CallLLm(
+                    self.get_api_keys(),
+                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    use_16k=True,
+                    use_gpt4=True,
+                )(prompt, temperature=0.3, stream=False)
                 # web_text_accumulator.append((answer_summary, f"[Generated Answer from {start + 1} to {end + 1}](No Link)", answer_summary))
                 et = time.time()
                 time_logger.info(
-                    f"Time taken to get web result four summary = {et - st:.2f} , with summary len = {len(answer_summary.split())}")
+                    f"Time taken to get web result four summary = {et - st:.2f} , with summary len = {len(answer_summary.split())}"
+                )
                 return answer_summary
 
             first_four_summary = wrap_in_future("")
             second_four_summary = wrap_in_future("")
             if provide_detailed_answers >= 1:
-                first_four_summary = get_async_future(get_first_few_result_summary, 0, 4)
+                first_four_summary = get_async_future(
+                    get_first_few_result_summary, 0, 4
+                )
             if provide_detailed_answers >= 2:
-                second_four_summary = get_async_future(get_first_few_result_summary, 4, 8)
+                second_four_summary = get_async_future(
+                    get_first_few_result_summary, 4, 8
+                )
             third_four_summary = wrap_in_future("")
             if provide_detailed_answers >= 3:
-                third_four_summary = get_async_future(get_first_few_result_summary, 8, 12)
+                third_four_summary = get_async_future(
+                    get_first_few_result_summary, 8, 12
+                )
             while True:
                 qu_wait = time.time()
-                break_condition = len(web_text_accumulator) >= cut_off or ((qu_wait - qu_st) > max(self.max_time_to_wait_for_web_results * 2, self.max_time_to_wait_for_web_results * provide_detailed_answers))
+                break_condition = len(web_text_accumulator) >= cut_off or (
+                    (qu_wait - qu_st)
+                    > max(
+                        self.max_time_to_wait_for_web_results * 2,
+                        self.max_time_to_wait_for_web_results
+                        * provide_detailed_answers,
+                    )
+                )
                 if break_condition and result_queue.empty():
                     break
                 one_web_result = None
@@ -3849,13 +5661,31 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if one_web_result == TERMINATION_SIGNAL:
                     break
 
-                if one_web_result["text"] is not None and one_web_result["text"].strip()!="" and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-                    web_text_accumulator.append((one_web_result["text"], f'[{one_web_result["title"]}]({one_web_result["link"]})', one_web_result["llm_result_future"]))
-                    yield {"text": '', "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... "}
-                    time_logger.info(f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+                if (
+                    one_web_result["text"] is not None
+                    and one_web_result["text"].strip() != ""
+                    and len(one_web_result["text"].strip().split())
+                    > LEN_CUTOFF_WEB_TEXT
+                ):
+                    web_text_accumulator.append(
+                        (
+                            one_web_result["text"],
+                            f"[{one_web_result['title']}]({one_web_result['link']})",
+                            one_web_result["llm_result_future"],
+                        )
+                    )
+                    yield {
+                        "text": "",
+                        "status": f"Reading <a href='{one_web_result['link']}'>{one_web_result['link']}</a> ... ",
+                    }
+                    time_logger.info(
+                        f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}"
+                    )
                 time.sleep(0.5)
 
-            time_logger.info(f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}")
+            time_logger.info(
+                f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}"
+            )
             # Sort the array in reverse order based on the word count
             try:
                 if re_search is not None:
@@ -3864,33 +5694,86 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             yield re_search_yield
                             answer += re_search_yield["text"]
             except Exception as e:
-                error_logger.error(f"Error in re_search_if_needed: {e}, stack: {traceback.format_exc()}")
+                error_logger.error(
+                    f"Error in re_search_if_needed: {e}, stack: {traceback.format_exc()}"
+                )
 
-            web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-            web_text_accumulator = list(filter(lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(), web_text_accumulator))
+            web_text_accumulator = sorted(
+                web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True
+            )
+            web_text_accumulator = list(
+                filter(
+                    lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT
+                    and "No relevant information found." not in x[0].lower(),
+                    web_text_accumulator,
+                )
+            )
 
             remove_tmp_marker_file(web_search_tmp_marker_name)
             logger.info(
-                f"Time taken to get web search results with sorting: {(time.time() - qu_st):.2f} with result len = {len(web_text_accumulator)}")
+                f"Time taken to get web search results with sorting: {(time.time() - qu_st):.2f} with result len = {len(web_text_accumulator)}"
+            )
             full_web_string = ""
-            web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-            web_text_accumulator = list(filter(
-                lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[
-                    0].lower(), web_text_accumulator))
+            web_text_accumulator = sorted(
+                web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True
+            )
+            web_text_accumulator = list(
+                filter(
+                    lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT
+                    and "No relevant information found." not in x[0].lower(),
+                    web_text_accumulator,
+                )
+            )
             tt = time.time()
-            while time.time() - tt < 5 and any([not wta.done() for wta in [first_four_summary, second_four_summary]]):
+            while time.time() - tt < 5 and any(
+                [not wta.done() for wta in [first_four_summary, second_four_summary]]
+            ):
                 time.sleep(0.5)
-            if first_four_summary.done() and first_four_summary.exception() is None and first_four_summary.result().strip()!="":
-                web_text_accumulator.append((first_four_summary.result(), f"[Generated Answer from {1} to {4}](No Link)", first_four_summary))
-
-            if second_four_summary.done() and second_four_summary.exception() is None and second_four_summary.result().strip()!="":
-                web_text_accumulator.append((second_four_summary.result(), f"[Generated Answer from {5} to {8}](No Link)", second_four_summary))
-            if third_four_summary.done() and third_four_summary.exception() is None and third_four_summary.result().strip()!="":
+            if (
+                first_four_summary.done()
+                and first_four_summary.exception() is None
+                and first_four_summary.result().strip() != ""
+            ):
                 web_text_accumulator.append(
-                    (third_four_summary.result(), f"[Generated Answer from {9} to {12}](No Link)", third_four_summary))
+                    (
+                        first_four_summary.result(),
+                        f"[Generated Answer from {1} to {4}](No Link)",
+                        first_four_summary,
+                    )
+                )
+
+            if (
+                second_four_summary.done()
+                and second_four_summary.exception() is None
+                and second_four_summary.result().strip() != ""
+            ):
+                web_text_accumulator.append(
+                    (
+                        second_four_summary.result(),
+                        f"[Generated Answer from {5} to {8}](No Link)",
+                        second_four_summary,
+                    )
+                )
+            if (
+                third_four_summary.done()
+                and third_four_summary.exception() is None
+                and third_four_summary.result().strip() != ""
+            ):
+                web_text_accumulator.append(
+                    (
+                        third_four_summary.result(),
+                        f"[Generated Answer from {9} to {12}](No Link)",
+                        third_four_summary,
+                    )
+                )
 
             for i, (wta, link, llm_future_dict) in enumerate(web_text_accumulator):
-                llm_text = sleep_and_get_future_result(llm_future_dict) if llm_future_dict.done() and sleep_and_get_future_exception(llm_future_dict) is None else ""
+                llm_text = (
+                    sleep_and_get_future_result(llm_future_dict)
+                    if llm_future_dict.done()
+                    and sleep_and_get_future_exception(llm_future_dict) is None
+                    else ""
+                )
                 web_string = f"{i + 1}.\n{link}\n{wta}\n{llm_text}"
                 full_web_string = full_web_string + web_string + "\n\n"
                 if get_gpt4_word_count(full_web_string) > 36000:
@@ -3900,7 +5783,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # read_links = re.findall(pattern, web_text)
 
             # Make an array of links that are read with lengths.
-            read_links = [[link.strip(), len(text.strip().split()), llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text] for text, link, llm_future_dict in web_text_accumulator]
+            read_links = [
+                [
+                    link.strip(),
+                    len(text.strip().split()),
+                    llm_future_dict.result()
+                    if llm_future_dict.done() and llm_future_dict.exception() is None
+                    else text,
+                ]
+                for text, link, llm_future_dict in web_text_accumulator
+            ]
 
             # read_links = parse_mardown_link_text(web_text)
             # read_links = list([[link.strip(), link_len] for link, title, link_len in read_links if len(link.strip())>0 and len(title.strip())>0 and any(extract_url_from_mardown(link) in seen_link for seen_link in web_results_seen_links)])
@@ -3910,8 +5802,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 message_config["web_search_links_read"] = read_links
             if len(read_links) > 0:
-                atext = "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>" + "\n"
-                read_links = atext + "\n\n".join([f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(128 if 'No Link' not in wta else 1024)])}" for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
+                atext = (
+                    "\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2' role='button'></div> <div class='collapse' id='readLinksStage2'>"
+                    + "\n"
+                )
+                read_links = (
+                    atext
+                    + "\n\n".join(
+                        [
+                            f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[: (128 if 'No Link' not in wta else 1024)])}"
+                            for i, (wta, link_len, text) in enumerate(read_links)
+                        ]
+                    )
+                    + "</div>\n\n"
+                )
                 yield {"text": read_links, "status": "web search completed"}
                 answer += read_links
             else:
@@ -3920,112 +5824,271 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 answer += read_links
             yield {"text": "\n", "status": "Finished reading your provided links."}
             web_text = read_links + "\n" + web_text
-            time_logger.info(f"Time to get web search results with sorting: {(time.time() - st):.2f}")
+            time_logger.info(
+                f"Time to get web search results with sorting: {(time.time() - st):.2f}"
+            )
             time_dict["web_search_all_results"] = time.time() - st
-            if (len(read_links) <= 1 and len(web_text.split()) < 200) and len(links)==0 and len(attached_docs) == 0:
-                yield {"text": '', "status": "saving answer ..."}
+            if (
+                (len(read_links) <= 1 and len(web_text.split()) < 200)
+                and len(links) == 0
+                and len(attached_docs) == 0
+            ):
+                yield {"text": "", "status": "saving answer ..."}
                 remove_tmp_marker_file(web_search_tmp_marker_name)
                 message_ids = self.get_message_ids(query["messageText"], answer)
-                yield {"text": 'WEB_SEARCH_FAILED', "status": "saving answer ...", "message_ids": message_ids}
-                answer += 'WEB_SEARCH_FAILED'
+                yield {
+                    "text": "WEB_SEARCH_FAILED",
+                    "status": "saving answer ...",
+                    "message_ids": message_ids,
+                }
+                answer += "WEB_SEARCH_FAILED"
                 # Process reward evaluation before saving message
                 if reward_future is not None:
                     yield {"text": "\n", "status": "reward evaluation complete"}
                     yield from self._process_reward_evaluation(reward_future)
                     yield {"text": "\n", "status": "reward evaluation complete"}
-                get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
+                get_async_future(
+                    self.persist_current_turn,
+                    query["messageText"],
+                    answer,
+                    message_config,
+                    previous_messages_long,
+                    summary,
+                    full_doc_texts,
+                    persist_or_not,
+                    past_message_ids,
+                )
                 return
 
         yield {"text": "", "status": "Web search finally done ... "}
         # TODO: if number of docs to read is <= 1 then just retrieve and read here, else use DocIndex itself to read and retrieve.
         remove_tmp_marker_file(web_search_tmp_marker_name)
-        if (len(links)==1 and len(attached_docs) == 0 and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
-            text = link_result_text.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
+        if (
+            len(links) == 1
+            and len(attached_docs) == 0
+            and not (google_scholar or perform_web_search)
+            and provide_detailed_answers <= 2
+            and unchanged_message_lookback <= -1
+        ):
+            text = (
+                link_result_text.split("Raw article text:")[0]
+                .replace(
+                    "Relevant additional information from other documents with url links, titles and useful context are mentioned below:",
+                    "",
+                )
+                .replace("'''", "")
+                .replace('"""', "")
+                .strip()
+            )
             yield {"text": text, "status": "answering in progress"}
             answer += text
-            yield {"text": '', "status": "saving answer ..."}
+            yield {"text": "", "status": "saving answer ..."}
             # Process reward evaluation before saving message
             if reward_future is not None:
                 yield {"text": "\n", "status": "reward evaluation complete"}
                 yield from self._process_reward_evaluation(reward_future)
                 yield {"text": "\n", "status": "reward evaluation complete"}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
+            get_async_future(
+                self.persist_current_turn,
+                query["messageText"],
+                answer,
+                message_config,
+                previous_messages_long,
+                summary,
+                full_doc_texts,
+                persist_or_not,
+                past_message_ids,
+            )
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
+            yield {
+                "text": "",
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
             return
 
-
-
-        if (len(links)==0 and (len(attached_docs) == 1 and not any([isinstance(d, ImageDocIndex) for d in attached_docs])) and not (google_scholar or perform_web_search) and provide_detailed_answers <= 2 and unchanged_message_lookback<=-1):
-            text = conversation_docs_answer.split("Raw article text:")[0].replace("Relevant additional information from other documents with url links, titles and useful context are mentioned below:", "").replace("'''", "").replace('"""','').strip()
-            text = "\n".join(text.replace("The documents that were read are as follows:", "").split("\n")[2:])
+        if (
+            len(links) == 0
+            and (
+                len(attached_docs) == 1
+                and not any([isinstance(d, ImageDocIndex) for d in attached_docs])
+            )
+            and not (google_scholar or perform_web_search)
+            and provide_detailed_answers <= 2
+            and unchanged_message_lookback <= -1
+        ):
+            text = (
+                conversation_docs_answer.split("Raw article text:")[0]
+                .replace(
+                    "Relevant additional information from other documents with url links, titles and useful context are mentioned below:",
+                    "",
+                )
+                .replace("'''", "")
+                .replace('"""', "")
+                .strip()
+            )
+            text = "\n".join(
+                text.replace("The documents that were read are as follows:", "").split(
+                    "\n"
+                )[2:]
+            )
             yield {"text": text, "status": "answering in progress"}
             answer += text
-            yield {"text": '', "status": "saving answer ..."}
+            yield {"text": "", "status": "saving answer ..."}
             # Process reward evaluation before saving message
             if reward_future is not None:
                 yield {"text": "\n", "status": "reward evaluation complete"}
                 yield from self._process_reward_evaluation(reward_future)
                 yield {"text": "\n", "status": "reward evaluation complete"}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
+            get_async_future(
+                self.persist_current_turn,
+                query["messageText"],
+                answer,
+                message_config,
+                previous_messages_long,
+                summary,
+                full_doc_texts,
+                persist_or_not,
+                past_message_ids,
+            )
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": '', "status": "saving answer ...", "message_ids": message_ids}
+            yield {
+                "text": "",
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
             return
 
-        if (len(web_text.split()) < 200 and (google_scholar or perform_web_search)) and len(links) == 0 and len(attached_docs) == 0:
-            yield {"text": '', "status": "saving answer ..."}
-            answer += '!ERROR WEB SEARCH FAILED\n'
+        if (
+            (len(web_text.split()) < 200 and (google_scholar or perform_web_search))
+            and len(links) == 0
+            and len(attached_docs) == 0
+        ):
+            yield {"text": "", "status": "saving answer ..."}
+            answer += "!ERROR WEB SEARCH FAILED\n"
             # Process reward evaluation before saving message
             if reward_future is not None:
                 yield {"text": "\n", "status": "reward evaluation complete"}
                 yield from self._process_reward_evaluation(reward_future)
                 yield {"text": "\n", "status": "reward evaluation complete"}
-            get_async_future(self.persist_current_turn, query["messageText"], answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
+            get_async_future(
+                self.persist_current_turn,
+                query["messageText"],
+                answer,
+                message_config,
+                previous_messages_long,
+                summary,
+                full_doc_texts,
+                persist_or_not,
+                past_message_ids,
+            )
             message_ids = self.get_message_ids(query["messageText"], answer)
-            yield {"text": '!ERROR WEB SEARCH FAILED\n', "status": "saving answer ...", "message_ids": message_ids}
+            yield {
+                "text": "!ERROR WEB SEARCH FAILED\n",
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
             return
-        yield {"text": '', "status": "getting previous context"}
+        yield {"text": "", "status": "getting previous context"}
         summary_text = summary_text_init
-        time_logger.info(f"Time to wait from start time to wait = {(time.time() - st):.2f}")
+        time_logger.info(
+            f"Time to wait from start time to wait = {(time.time() - st):.2f}"
+        )
 
-
-
-        yield {"text": '', "status": "Preparing prompt context ..."}
-        yield {"text": '', "status": "Preparing partial answer / expert answer context ..."}
-
-        
-
-        
+        yield {"text": "", "status": "Preparing prompt context ..."}
+        yield {
+            "text": "",
+            "status": "Preparing partial answer / expert answer context ...",
+        }
 
         if google_scholar or perform_web_search:
-            web_text = web_text + (("\n\n" + first_four_summary.result()) if first_four_summary.done() and first_four_summary.exception() is None else '')
-            web_text = web_text + (("\n\n" + second_four_summary.result()) if second_four_summary.done() and second_four_summary.exception() is None else '')
-            web_text = web_text + (("\n\n" + third_four_summary.result()) if third_four_summary.done() and third_four_summary.exception() is None else '')
+            web_text = web_text + (
+                ("\n\n" + first_four_summary.result())
+                if first_four_summary.done() and first_four_summary.exception() is None
+                else ""
+            )
+            web_text = web_text + (
+                ("\n\n" + second_four_summary.result())
+                if second_four_summary.done()
+                and second_four_summary.exception() is None
+                else ""
+            )
+            web_text = web_text + (
+                ("\n\n" + third_four_summary.result())
+                if third_four_summary.done() and third_four_summary.exception() is None
+                else ""
+            )
             if perplexity_results_future is not None:
                 random_identifier = str(uuid.uuid4())
                 try:
                     perplexity_results = perplexity_results_future.result()
                 except Exception as e:
                     traceback.print_exc()
-                    perplexity_results = {"text": f"We had an exception in perplexity search. Please try again later. {traceback.format_exc()}"}
+                    perplexity_results = {
+                        "text": f"We had an exception in perplexity search. Please try again later. {traceback.format_exc()}"
+                    }
                 perplexity_text = "\n" + perplexity_results + "\n"
-                perplexity_text = f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + perplexity_text + "</div>\n\n"
+                perplexity_text = (
+                    f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
+                    + perplexity_text
+                    + "</div>\n\n"
+                )
                 yield {"text": perplexity_text, "status": "Perplexity search completed"}
                 web_text = web_text + perplexity_text
-        probable_prompt_length = get_probable_prompt_length(query["messageText"], web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, '')
-        logger.info(f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}")
+        probable_prompt_length = get_probable_prompt_length(
+            query["messageText"],
+            web_text,
+            doc_answer,
+            link_result_text,
+            summary_text,
+            previous_messages,
+            conversation_docs_answer,
+            "",
+        )
+        logger.info(
+            f"previous_messages long: {(len(previous_messages_long.split()))}, previous_messages_very_long: {(len(previous_messages_very_long.split()))}, previous_messages: {len(previous_messages.split())}, previous_messages short: {len(previous_messages_short.split())}"
+        )
         yield {"text": f"", "status": "starting answer generation"}
         time_dict["previous_messages_long"] = len(previous_messages_long.split())
-        time_dict["previous_messages_very_long"] = len(previous_messages_very_long.split())
+        time_dict["previous_messages_very_long"] = len(
+            previous_messages_very_long.split()
+        )
         time_dict["previous_messages"] = len(previous_messages.split())
         time_dict["previous_messages_short"] = len(previous_messages_short.split())
-        if probable_prompt_length < 90000 and (model_name is None  or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
+        if probable_prompt_length < 90000 and (
+            model_name is None
+            or "gpt-4o" in model_name
+            or "gpt-4-turbo" in model_name
+            or "sonnet" in model_name
+            or "opus" in model_name
+            or "claude" in model_name
+            or "o1" in model_name
+            or "gemini" in model_name
+        ):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
-        elif probable_prompt_length < 48000 and (model_name is None or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
+        elif probable_prompt_length < 48000 and (
+            model_name is None
+            or "gpt-4o" in model_name
+            or "gpt-4-turbo" in model_name
+            or "sonnet" in model_name
+            or "opus" in model_name
+            or "claude" in model_name
+            or "o1" in model_name
+            or "gemini" in model_name
+        ):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
-        elif probable_prompt_length < 28000 and (model_name is None or "gpt-4o" in model_name or "gpt-4-turbo" in model_name or "sonnet" in model_name or "opus" in model_name or "claude" in model_name or "o1" in model_name or "gemini" in model_name):
+        elif probable_prompt_length < 28000 and (
+            model_name is None
+            or "gpt-4o" in model_name
+            or "gpt-4-turbo" in model_name
+            or "sonnet" in model_name
+            or "opus" in model_name
+            or "claude" in model_name
+            or "o1" in model_name
+            or "gemini" in model_name
+        ):
             previous_messages = previous_messages_very_long
             truncate_text = truncate_text_for_gpt4_96k
         else:
@@ -4034,53 +6097,119 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         user_info_text = ""
         if userData is not None:
-            time_logger.info("[PKB-REPLY] Waiting for user_info extraction LLM calls to complete...")
-            yield {"text": '', "status": "Processing user preferences and PKB context ..."}
+            time_logger.info(
+                "[PKB-REPLY] Waiting for user_info extraction LLM calls to complete..."
+            )
+            yield {
+                "text": "",
+                "status": "Processing user preferences and PKB context ...",
+            }
             while user_info_text1.done() is False and user_info_text2.done() is False:
                 time.sleep(0.5)
-            user_info_text = user_info_text1.result() if user_info_text1.done() else user_info_text2.result()
-            time_logger.info(f"[PKB-REPLY] user_info_text from LLM: {len(user_info_text) if user_info_text else 0} chars")
-            time_logger.info(f"[PKB-REPLY] user_info_text preview: {user_info_text[:500]}..." if len(user_info_text) > 500 else f"[PKB-REPLY] user_info_text: {user_info_text}")
+            user_info_text = (
+                user_info_text1.result()
+                if user_info_text1.done()
+                else user_info_text2.result()
+            )
+            time_logger.info(
+                f"[PKB-REPLY] user_info_text from LLM: {len(user_info_text) if user_info_text else 0} chars"
+            )
+            time_logger.info(
+                f"[PKB-REPLY] user_info_text preview: {user_info_text[:500]}..."
+                if len(user_info_text) > 500
+                else f"[PKB-REPLY] user_info_text: {user_info_text}"
+            )
             user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n\n"
         else:
-            time_logger.info("[PKB-REPLY] userData is None, user_info_text will be empty")
+            time_logger.info(
+                "[PKB-REPLY] userData is None, user_info_text will be empty"
+            )
 
-        memory_pad = f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n" if use_memory_pad else ""
+        memory_pad = (
+            f"\nPrevious factual data and details from this conversation:\n{self.memory_pad}\n"
+            if use_memory_pad
+            else ""
+        )
 
-        link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text(
-            link_result_text, web_text, doc_answer, summary_text, previous_messages + "\n\n" + prior_context_llm_based_context,
-            query["messageText"], conversation_docs_answer)
-        web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer = format_llm_inputs(
-            web_text, doc_answer, link_result_text, summary_text, previous_messages + "\n\n" + prior_context_llm_based_context,
-            conversation_docs_answer)
+        (
+            link_result_text,
+            web_text,
+            doc_answer,
+            summary_text,
+            previous_messages,
+            conversation_docs_answer,
+        ) = truncate_text(
+            link_result_text,
+            web_text,
+            doc_answer,
+            summary_text,
+            previous_messages + "\n\n" + prior_context_llm_based_context,
+            query["messageText"],
+            conversation_docs_answer,
+        )
+        (
+            web_text,
+            doc_answer,
+            link_result_text,
+            summary_text,
+            previous_messages,
+            conversation_docs_answer,
+        ) = format_llm_inputs(
+            web_text,
+            doc_answer,
+            link_result_text,
+            summary_text,
+            previous_messages + "\n\n" + prior_context_llm_based_context,
+            conversation_docs_answer,
+        )
         time_logger.info(
-            f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}")
-        yield {"text": '', "status": "Preparing prompt ..."}
-        
+            f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}"
+        )
+        yield {"text": "", "status": "Preparing prompt ..."}
+
         # Log what's going into permanent_instructions
-        time_logger.info(f"[PKB-REPLY] Building prompt. permanent_instructions len={len(permanent_instructions)}, memory_pad len={len(memory_pad)}, coding_rules len={len(coding_rules)}, user_info_text len={len(user_info_text)}")
-        
-        prompt = prompts.chat_slow_reply_prompt.format(query=query["messageText"],
-                                                       summary_text=summary_text,
-                                                       previous_messages=previous_messages if agent is None else previous_messages_short,
-                                                       permanent_instructions=permanent_instructions + memory_pad + coding_rules + user_info_text,
-                                                       doc_answer=doc_answer, web_text=web_text,
-                                                       link_result_text=link_result_text,
-                                                       conversation_docs_answer=conversation_docs_answer)
+        time_logger.info(
+            f"[PKB-REPLY] Building prompt. permanent_instructions len={len(permanent_instructions)}, memory_pad len={len(memory_pad)}, coding_rules len={len(coding_rules)}, user_info_text len={len(user_info_text)}"
+        )
+
+        prompt = prompts.chat_slow_reply_prompt.format(
+            query=query["messageText"],
+            summary_text=summary_text,
+            previous_messages=previous_messages
+            if agent is None
+            else previous_messages_short,
+            permanent_instructions=permanent_instructions
+            + memory_pad
+            + coding_rules
+            + user_info_text,
+            doc_answer=doc_answer,
+            web_text=web_text,
+            link_result_text=link_result_text,
+            conversation_docs_answer=conversation_docs_answer,
+        )
         prompt_metrics = {
             "prompt_length": len(enc.encode(prompt)),
             "summary_text_length": len(enc.encode(summary_text)),
-            "previous_messages_length": len(enc.encode(previous_messages if agent is None else previous_messages_short)),
+            "previous_messages_length": len(
+                enc.encode(
+                    previous_messages if agent is None else previous_messages_short
+                )
+            ),
             "doc_answer_length": len(enc.encode(doc_answer)),
             "web_text_length": len(enc.encode(web_text)),
             "link_result_text_length": len(enc.encode(link_result_text)),
-            "conversation_docs_answer_length": len(enc.encode(conversation_docs_answer))
+            "conversation_docs_answer_length": len(
+                enc.encode(conversation_docs_answer)
+            ),
         }
-        time_logger.info(f"Prompt length: {prompt_metrics['prompt_length']}, summary_text length: {prompt_metrics['summary_text_length']}, previous_messages length: {prompt_metrics['previous_messages_length']}, doc_answer length: {prompt_metrics['doc_answer_length']}, web_text length: {prompt_metrics['web_text_length']}, link_result_text length: {prompt_metrics['link_result_text_length']}, conversation_docs_answer length: {prompt_metrics['conversation_docs_answer_length']}")
+        time_logger.info(
+            f"Prompt length: {prompt_metrics['prompt_length']}, summary_text length: {prompt_metrics['summary_text_length']}, previous_messages length: {prompt_metrics['previous_messages_length']}, doc_answer length: {prompt_metrics['doc_answer_length']}, web_text length: {prompt_metrics['web_text_length']}, link_result_text length: {prompt_metrics['link_result_text_length']}, conversation_docs_answer length: {prompt_metrics['conversation_docs_answer_length']}"
+        )
 
         prompt = remove_bad_whitespaces_easy(prompt)
         time_logger.info(
-            f"Time to wait till from start time to wait = {(time.time() - st):.2f}")
+            f"Time to wait till from start time to wait = {(time.time() - st):.2f}"
+        )
         # Lets log all things that went into making the prompt.
         # logger.info(f"query: {query['messageText']}")
         # logger.info(f"summary_text: {summary_text}")
@@ -4096,21 +6225,43 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if self.is_cancelled():
             logger.info(f"Response cancelled for conversation {self.conversation_id}")
             answer += "\n\n**Response was cancelled by user**"
-            yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
-        yield {"text": '', "status": "Preparing images if any attached documents are images ..."}
+            yield {
+                "text": "\n\n**Response was cancelled by user**",
+                "status": "Response cancelled",
+            }
+        yield {
+            "text": "",
+            "status": "Preparing images if any attached documents are images ...",
+        }
         # For image documents, prefer the original image path used for vision LLM calls.
         # `ImageDocIndex.doc_source` may be rewritten to a PDF during initialization.
-        images = [d.llm_image_source for d in attached_docs if isinstance(d, ImageDocIndex)]
-        ensemble = ((checkboxes["ensemble"] if "ensemble" in checkboxes else False) or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)) and agent is None
+        images = [
+            d.llm_image_source for d in attached_docs if isinstance(d, ImageDocIndex)
+        ]
+        ensemble = (
+            (checkboxes["ensemble"] if "ensemble" in checkboxes else False)
+            or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)
+        ) and agent is None
         if isinstance(model_name, (list, tuple)):
             model_name = list(set(model_name))
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
-        is_slide_agent = agent is not None and (isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent))
+
+        is_slide_agent = agent is not None and (
+            isinstance(agent, SlideAgent) or isinstance(agent, CodingQuestionSlideAgent)
+        )
         storyboard_context = None
-        yield {"text": '', "status": f"Starting to prepare slides if {is_slide_agent} ..."}
+        yield {
+            "text": "",
+            "status": f"Starting to prepare slides if {is_slide_agent} ...",
+        }
         if is_slide_agent:
             # For slide agents, get the complete HTML response at once
-            context_llm = CallLLm(self.get_api_keys(), model_name=LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
+            context_llm = CallLLm(
+                self.get_api_keys(),
+                model_name=LONG_CONTEXT_LLM[0],
+                use_gpt4=True,
+                use_16k=True,
+            )
             context_prompt = dedent(f"""
             The conversation history is:
             {previous_messages}
@@ -4132,17 +6283,33 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             Please write the question (and only the necessary context) in a way that is easy to understand and grasp the topic better and gives enough context to the LLM to generate slides.
 
             At the end write what we must make slides about as well.""")
-            context_response_future = get_async_future(context_llm, context_prompt, images=images, system=preamble, temperature=0.3, stream=False)
-            
+            context_response_future = get_async_future(
+                context_llm,
+                context_prompt,
+                images=images,
+                system=preamble,
+                temperature=0.3,
+                stream=False,
+            )
 
-            yield {"text": '', "status": "Preparing Slides ..."}
+            yield {"text": "", "status": "Preparing Slides ..."}
             # slide_html_future = get_async_future(agent, prompt, images=images, system=preamble, temperature=0.3, stream=False)
 
-            storyboard = agent._generate_storyboard("<main-content>\n" + prompt + "\n</main-content>", "8-20")
+            storyboard = agent._generate_storyboard(
+                "<main-content>\n" + prompt + "\n</main-content>", "8-20"
+            )
             storyboard_context = agent._storyboard_to_context(storyboard)
-        yield {"text": '', "status": f" Slides prepared if {is_slide_agent} and storyboard_context is not None ..."}
+        yield {
+            "text": "",
+            "status": f" Slides prepared if {is_slide_agent} and storyboard_context is not None ...",
+        }
         if self.is_cancelled():
-            yield {"text": '', "status": "Response cancelled for conversation " + self.conversation_id + " ..."}
+            yield {
+                "text": "",
+                "status": "Response cancelled for conversation "
+                + self.conversation_id
+                + " ...",
+            }
             main_ans_gen = iter([])  # empty generator of string
         elif model_name == FILLER_MODEL:
             # main_ans_gen = a generator that yields Acked.
@@ -4151,82 +6318,156 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             agent_type = type(agent).__name__
             if isinstance(model_name, (list, tuple)):
                 model_name = list(set(model_name))
-            yield {"text": '', "status": "Agent is not None and not is_slide_agent, agent type is " + agent_type + " ..."}
-            
+            yield {
+                "text": "",
+                "status": "Agent is not None and not is_slide_agent, agent type is "
+                + agent_type
+                + " ...",
+            }
+
             if isinstance(agent, (NResponseAgent, ReflectionAgent)):
                 if hasattr(agent, "n_responses"):
                     agent.n_responses = 5 if provide_detailed_answers >= 3 else 3
                 if hasattr(agent, "model_name"):
                     agent.model_name = model_name
             else:
-                agent.model_name = model_name[0].strip() if isinstance(model_name, (list, tuple)) else model_name.strip()
-            yield {"text": '', "status": "Agent model name set to " + agent.model_name + " ..."}
-                
-                    
+                agent.model_name = (
+                    model_name[0].strip()
+                    if isinstance(model_name, (list, tuple))
+                    else model_name.strip()
+                )
+            yield {
+                "text": "",
+                "status": "Agent model name set to " + agent.model_name + " ...",
+            }
+
             if hasattr(agent, "detail_level"):
                 agent.detail_level = provide_detailed_answers
             if hasattr(agent, "timeout"):
-                agent.timeout = self.max_time_to_wait_for_web_results * max(provide_detailed_answers, 1)
-            
-            
-            
-            main_ans_gen = agent(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                agent.timeout = self.max_time_to_wait_for_web_results * max(
+                    provide_detailed_answers, 1
+                )
+
+            main_ans_gen = agent(
+                prompt, images=images, system=preamble, temperature=0.3, stream=True
+            )
             if isinstance(main_ans_gen, dict):
                 main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
-            elif inspect.isgenerator(main_ans_gen) or isinstance(main_ans_gen, (types.GeneratorType, collections.abc.Iterator)):
+            elif inspect.isgenerator(main_ans_gen) or isinstance(
+                main_ans_gen, (types.GeneratorType, collections.abc.Iterator)
+            ):
                 pass
             elif not isinstance(main_ans_gen, str):
                 main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
             main_ans_gen = buffer_generator_async(main_ans_gen)
-            
+
         else:
             if is_slide_agent and storyboard_context is not None:
-                prompt = prompt + "\n\nUse the below outline to write your answer. \n\n" + storyboard_context + "\n"
+                prompt = (
+                    prompt
+                    + "\n\nUse the below outline to write your answer. \n\n"
+                    + storyboard_context
+                    + "\n"
+                )
 
                 context_response = context_response_future.result()
 
-                slide_html_future = get_async_future(agent, "\n\nUser ask is: \n\n<main-content>\n" + context_response + "\n</main-content>", images=images, system=preamble, temperature=0.3, stream=False, storyboard=storyboard)
+                slide_html_future = get_async_future(
+                    agent,
+                    "\n\nUser ask is: \n\n<main-content>\n"
+                    + context_response
+                    + "\n</main-content>",
+                    images=images,
+                    system=preamble,
+                    temperature=0.3,
+                    stream=False,
+                    storyboard=storyboard,
+                )
             if not only_slides:
-            
                 if ensemble:
                     if isinstance(model_name, (list, tuple)):
                         model_names = model_name
                         improve_model = model_hierarchies(model_names)
                     else:
-                        model_names = (EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1] + [model_name])
+                        model_names = (
+                            EXPENSIVE_LLM[:3] + LONG_CONTEXT_LLM[:1] + [model_name]
+                        )
                         improve_model = model_name
-                    
+
                     # llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
-                    llm = NResponseAgent(self.get_api_keys(), writer_model=model_names, n_responses=2)
+                    llm = NResponseAgent(
+                        self.get_api_keys(), writer_model=model_names, n_responses=2
+                    )
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
-                    main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.9, stream=True)
-                    main_ans_gen = make_stream([main_ans_gen] if isinstance(main_ans_gen, str) else main_ans_gen, do_stream=True)
+                    main_ans_gen = llm(
+                        prompt,
+                        images=images,
+                        system=preamble,
+                        temperature=0.9,
+                        stream=True,
+                    )
+                    main_ans_gen = make_stream(
+                        [main_ans_gen]
+                        if isinstance(main_ans_gen, str)
+                        else main_ans_gen,
+                        do_stream=True,
+                    )
                 else:
-                    model_name = model_name[0] if isinstance(model_name, (list, tuple)) else model_name
+                    model_name = (
+                        model_name[0]
+                        if isinstance(model_name, (list, tuple))
+                        else model_name
+                    )
                     if "Debug LLM" in preambles:
-                        llm = MockCallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
+                        llm = MockCallLLm(
+                            self.get_api_keys(),
+                            model_name=model_name,
+                            use_gpt4=True,
+                            use_16k=True,
+                        )
                     else:
-                        yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + " ..."}
-                        llm = CallLLm(self.get_api_keys(), model_name=model_name, use_gpt4=True, use_16k=True)
-                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + f" done, time from start = {(time.time() - st):.2f} ..."}
+                        yield {
+                            "text": "",
+                            "status": "Calling LLM for answer generation with model name "
+                            + str(model_name)
+                            + " ...",
+                        }
+                        llm = CallLLm(
+                            self.get_api_keys(),
+                            model_name=model_name,
+                            use_gpt4=True,
+                            use_16k=True,
+                        )
+                    yield {
+                        "text": "",
+                        "status": "Calling LLM for answer generation with model name "
+                        + str(model_name)
+                        + f" done, time from start = {(time.time() - st):.2f} ...",
+                    }
                     try:
-                        main_ans_gen = llm(prompt, images=images, system=preamble, temperature=0.3, stream=True)
+                        main_ans_gen = llm(
+                            prompt,
+                            images=images,
+                            system=preamble,
+                            temperature=0.3,
+                            stream=True,
+                        )
                     except Exception as e:
                         traceback.print_exc()
                         raise e
-                    yield {"text": '', "status": "Calling LLM for answer generation with model name " + str(model_name) + f" stream started, time from start =  {(time.time() - st):.2f}   ..."}
+                    yield {
+                        "text": "",
+                        "status": "Calling LLM for answer generation with model name "
+                        + str(model_name)
+                        + f" stream started, time from start =  {(time.time() - st):.2f}   ...",
+                    }
             else:
-                main_ans_gen =  iter([])  # empty generator of string
+                main_ans_gen = iter([])  # empty generator of string
 
-                
-
-                
-
-        yield {"text": '', "status": "Buffering answer generator ..."}
+        yield {"text": "", "status": "Buffering answer generator ..."}
         main_ans_gen = buffer_generator_async(main_ans_gen)
-        
-        yield {"text": '', "status": "Buffering answer generator done ..."}
 
+        yield {"text": "", "status": "Buffering answer generator done ..."}
 
         # Process reward evaluation before saving message
         if reward_future is not None:
@@ -4240,11 +6481,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         conversation_docs_answer length: {len(enc.encode(conversation_docs_answer))},  
         web text length: {len(enc.encode(web_text))}, 
         link result text length: {len(enc.encode(link_result_text))}, 
-        final prompt len: {len(enc.encode(prompt))}""")
+        final prompt len: {len(enc.encode(prompt))}"""
+        )
         prompt_length = len(enc.encode(prompt))
         time_dict["prompt_length"] = prompt_length
         time_dict["web_text_length"] = len(enc.encode(web_text))
-        time_dict["doc_answer_length"] = len(enc.encode(doc_answer + conversation_docs_answer))
+        time_dict["doc_answer_length"] = len(
+            enc.encode(doc_answer + conversation_docs_answer)
+        )
         time_dict["link_result_text_length"] = len(enc.encode(link_result_text))
         time_dict["summary_text_length"] = len(enc.encode(summary_text))
         time_dict["previous_messages_length"] = len(enc.encode(previous_messages))
@@ -4261,28 +6505,48 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         already_executed_mermaid = []
         # TODO: create coding env if coding is needed.
         code_session = None
-        stream_check_interval_chars = int(checkboxes.get("stream_check_interval_chars", 200))
+        stream_check_interval_chars = int(
+            checkboxes.get("stream_check_interval_chars", 200)
+        )
         if stream_check_interval_chars <= 0:
             stream_check_interval_chars = 200
         chars_since_last_check = 0
 
         def _process_stream_artifacts(txt, force_flush=False):
             """Process expensive stream checks (drawio/mermaid/code) with optional flush."""
-            nonlocal answer, code_session, already_executed_code, already_executed_drawio, already_executed_mermaid
+            nonlocal \
+                answer, \
+                code_session, \
+                already_executed_code, \
+                already_executed_drawio, \
+                already_executed_mermaid
             # extract code between <code action="execute"> and </code> tags if present using regex from within answer string
             drawio_code = extract_drawio(answer)
-            if len(drawio_code.strip()) > 0 and drawio_code not in already_executed_drawio:
+            if (
+                len(drawio_code.strip()) > 0
+                and drawio_code not in already_executed_drawio
+            ):
                 already_executed_drawio.append(drawio_code)
-                save_path = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml")
+                save_path = os.path.join(
+                    self.documents_path,
+                    f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml",
+                )
                 with open(save_path, "w") as f:
                     f.write(drawio_code)
                 file_path = f"/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}.xml"
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-url="{file_path}"></div>\n'
                 if "</mxfile>" in drawio_code:
-                    drawio_code = re.findall(r'<mxfile.*?>(.*?)</mxfile>', drawio_code, re.DOTALL)[0]
+                    drawio_code = re.findall(
+                        r"<mxfile.*?>(.*?)</mxfile>", drawio_code, re.DOTALL
+                    )[0]
                 if "</diagram>" in drawio_code:
-                    drawio_code = re.findall(r'<diagram.*?>(.*?)</diagram>', drawio_code, re.DOTALL)[0]
-                save_path_for_render = os.path.join(self.documents_path, f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml")
+                    drawio_code = re.findall(
+                        r"<diagram.*?>(.*?)</diagram>", drawio_code, re.DOTALL
+                    )[0]
+                save_path_for_render = os.path.join(
+                    self.documents_path,
+                    f"drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml",
+                )
                 file_path_for_render = f"/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/drawio-{prefix}-{str(mmh3.hash(drawio_code, signed=False))}-render.xml"
                 with open(save_path_for_render, "w") as f:
                     f.write(drawio_code)
@@ -4292,37 +6556,65 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 # diagram_text = f'\n<div class="drawio-diagram" data-diagram-data="{compress_and_encode_drawio_xml(drawio_code)}"></div>\n'
                 yield {"text": diagram_text, "status": "answering in progress"}
                 answer += diagram_text
-                
+
                 editable_links = f"\n[Edit Link 1](https://www.draw.io/?url=https://assist-chat.site{file_path}) | [Edit Link 2](https://app.diagrams.net/?url=https://assist-chat.site{file_path}) | [Edit Link 3](https://laingsimon.github.io/render-diagram/relay?chrome=0#https://assist-chat.site{file_path})\n"
                 yield {"text": editable_links, "status": "answering in progress"}
                 answer += editable_links
-                
+
                 download_link = f"\n[Download XML File]({file_path})\n"
                 yield {"text": download_link, "status": "answering in progress"}
                 answer += download_link
             mermaid_to_execute = normalize_mermaid_text(extract_last_mermaid(answer))
-            should_emit_mermaid = ("\n" in str(txt) and str(txt).endswith("\n")) or force_flush
-            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid and should_emit_mermaid:
+            should_emit_mermaid = (
+                "\n" in str(txt) and str(txt).endswith("\n")
+            ) or force_flush
+            if (
+                len(mermaid_to_execute.strip()) > 0
+                and mermaid_to_execute not in already_executed_mermaid
+                and should_emit_mermaid
+            ):
                 already_executed_mermaid.append(mermaid_to_execute)
                 yield {"text": "\n\n", "status": "answering in progress"}
                 yield {"text": mermaid_to_execute, "status": "answering in progress"}
                 yield {"text": "\n\n", "status": "answering in progress"}
-                answer += ("\n\n" + mermaid_to_execute + "\n\n")
+                answer += "\n\n" + mermaid_to_execute + "\n\n"
             code_to_execute = extract_code(answer)
-            if len(code_to_execute.strip()) > 0 and code_to_execute not in already_executed_code:
+            if (
+                len(code_to_execute.strip()) > 0
+                and code_to_execute not in already_executed_code
+            ):
                 if code_session is None:
                     code_session = PersistentPythonEnvironment()
                 already_executed_code.append(code_to_execute)
 
-                success, failure_reason, stdout, stderr, code_string = code_runner_with_retry(query["messageText"],
-                                                                                              coding_rules,
-                                                                                              CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0], use_gpt4=True, use_16k=True), CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True),
-                                                                                              code_to_execute, session=code_session)
+                success, failure_reason, stdout, stderr, code_string = (
+                    code_runner_with_retry(
+                        query["messageText"],
+                        coding_rules,
+                        CallLLm(
+                            self.get_api_keys(),
+                            model_name=EXPENSIVE_LLM[0],
+                            use_gpt4=True,
+                            use_16k=True,
+                        ),
+                        CallLLm(
+                            self.get_api_keys(),
+                            model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                            use_gpt4=True,
+                            use_16k=True,
+                        ),
+                        code_to_execute,
+                        session=code_session,
+                    )
+                )
                 if success:
                     successfull_code = code_string
                     if successfull_code != code_to_execute:
                         answer = answer.replace(code_to_execute, successfull_code)
-                        yield {"text": f"\n```python\n{successfull_code}\n```\n", "status": "answering in progress"}
+                        yield {
+                            "text": f"\n```python\n{successfull_code}\n```\n",
+                            "status": "answering in progress",
+                        }
                         already_executed_code.append(successfull_code)
                     if stdout.strip() != "":
                         stdout = "\n" + f"```shell\n{stdout}\n```\n"
@@ -4330,7 +6622,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         answer += stdout
                     # look in self.documents_path directory if any file with start as plot_prefix exists, if yes, then send that file as image in markdown format.
 
-                    files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(plot_prefix)]))
+                    files = list(
+                        set(
+                            [
+                                f
+                                for f in os.listdir(self.documents_path)
+                                if f.startswith(plot_prefix)
+                            ]
+                        )
+                    )
                     for f in files:
                         image_path = f"get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/{f}"
                         # TODO: url_encode_image_path with urllib
@@ -4342,7 +6642,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         yield {"text": "\n", "status": "answering in progress"}
                         answer += "\n"
 
-                    files = list(set([f for f in os.listdir(self.documents_path) if f.startswith(file_prefix)]))
+                    files = list(
+                        set(
+                            [
+                                f
+                                for f in os.listdir(self.documents_path)
+                                if f.startswith(file_prefix)
+                            ]
+                        )
+                    )
                     for f in files:
                         file_path = f"get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}/{f}"
                         download_link = f"[Download {f}]({file_path})"
@@ -4354,19 +6662,42 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     stderr = "\n" + f"```shell\n{stderr}\n{failure_reason}\n```\n"
                     yield {"text": stderr, "status": "answering in progress"}
                     answer += stderr
-        yield {"text": '', "status": "Starting to stream answer ..., prompt length: " + str(prompt_length)}
+
+        yield {
+            "text": "",
+            "status": "Starting to stream answer ..., prompt length: "
+            + str(prompt_length),
+        }
         for dcit in main_ans_gen:
             if self.is_cancelled():
-                logger.info(f"Response cancelled for conversation {self.conversation_id}")
+                logger.info(
+                    f"Response cancelled for conversation {self.conversation_id}"
+                )
                 answer += "\n\n**Response was cancelled by user**"
-                yield {"text": "\n\n**Response was cancelled by user**", "status": "Response cancelled"}
+                yield {
+                    "text": "\n\n**Response was cancelled by user**",
+                    "status": "Response cancelled",
+                }
                 break
             if isinstance(dcit, dict):
                 txt = dcit["text"]
-                status = dcit["status"] + ", words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
+                status = (
+                    dcit["status"]
+                    + ", words streamed so far: "
+                    + str(len(answer.split()))
+                    + " words, prompt length: "
+                    + str(prompt_length)
+                    + f", time from start: {(time.time() - st):.2f}"
+                )
             else:
                 txt = dcit
-                status = "answering in progress, words streamed so far: " + str(len(answer.split())) + " words, prompt length: " + str(prompt_length) + f", time from start: {(time.time() - st):.2f}"
+                status = (
+                    "answering in progress, words streamed so far: "
+                    + str(len(answer.split()))
+                    + " words, prompt length: "
+                    + str(prompt_length)
+                    + f", time from start: {(time.time() - st):.2f}"
+                )
             yield {"text": txt, "status": status}
             answer += str(txt)
             chars_since_last_check += len(str(txt))
@@ -4374,31 +6705,37 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 chars_since_last_check = 0
                 yield from _process_stream_artifacts(txt)
 
-
         if chars_since_last_check > 0:
             yield from _process_stream_artifacts("", force_flush=True)
 
         answer_temp = answer
         while True:
-            mermaid_to_execute = normalize_mermaid_text(extract_last_mermaid(answer_temp))
-            if len(mermaid_to_execute.strip()) > 0 and mermaid_to_execute not in already_executed_mermaid:
+            mermaid_to_execute = normalize_mermaid_text(
+                extract_last_mermaid(answer_temp)
+            )
+            if (
+                len(mermaid_to_execute.strip()) > 0
+                and mermaid_to_execute not in already_executed_mermaid
+            ):
                 already_executed_mermaid.append(mermaid_to_execute)
                 yield {"text": "\n\n", "status": "answering in progress"}
                 yield {"text": mermaid_to_execute, "status": "answering in progress"}
                 yield {"text": "\n\n", "status": "answering in progress"}
-                answer += ("\n\n" + mermaid_to_execute + "\n\n")
+                answer += "\n\n" + mermaid_to_execute + "\n\n"
                 answer_temp = answer_temp.replace(mermaid_to_execute, "")
             else:
                 break
-        
+
         self.clear_cancellation()
 
         if is_slide_agent:
-            # "User's question:\n" + context_response_future.result() + 
-            
+            # "User's question:\n" + context_response_future.result() +
+
             slide_html = slide_html_future.result()
             # Wrap the slide HTML with a special marker for UI detection
-            slide_response = f"\n\n<slide-presentation>\n{slide_html}\n</slide-presentation>\n\n"
+            slide_response = (
+                f"\n\n<slide-presentation>\n{slide_html}\n</slide-presentation>\n\n"
+            )
             yield {"text": slide_response, "status": "answering in progress"}
             answer += slide_response
 
@@ -4406,32 +6743,52 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # Extract the main answer content (between <answer> tags, excluding markup)
         answer_content_for_tldr = answer.replace("<answer>", "").strip()
         answer_word_count = len(answer_content_for_tldr.split())
-        
-        if answer_word_count > 1000 and model_name != FILLER_MODEL and not self.is_cancelled() and agent is None:
-            yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
+
+        if (
+            answer_word_count > 1000
+            and model_name != FILLER_MODEL
+            and not self.is_cancelled()
+            and agent is None
+        ):
+            yield {
+                "text": "\n\n",
+                "status": "Generating TLDR summary for long answer...",
+            }
             answer += "\n\n---\n\n"
             answer += "<answer_tldr>\n"
-            
+
             try:
                 # Format the TLDR prompt with context
                 tldr_prompt_formatted = tldr_summary_prompt.format(
                     query=query["messageText"],
-                    summary=summary_text if len(summary_text.strip()) > 0 else "No previous conversation summary available.",
-                    answer=answer_content_for_tldr
+                    summary=summary_text
+                    if len(summary_text.strip()) > 0
+                    else "No previous conversation summary available.",
+                    answer=answer_content_for_tldr,
                 )
-                
+
                 # Use a fast, cheap model for TLDR generation
-                tldr_llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=True, use_16k=True)
-                tldr_stream = tldr_llm(tldr_prompt_formatted, system=tldr_summary_prompt_system, temperature=0.3, stream=False)
-                
+                tldr_llm = CallLLm(
+                    self.get_api_keys(),
+                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    use_gpt4=True,
+                    use_16k=True,
+                )
+                tldr_stream = tldr_llm(
+                    tldr_prompt_formatted,
+                    system=tldr_summary_prompt_system,
+                    temperature=0.3,
+                    stream=False,
+                )
+
                 # Wrap the TLDR stream in a collapsible wrapper
                 tldr_wrapped = collapsible_wrapper(
-                    tldr_stream, 
-                    header="📝 TLDR Summary (Quick Read)", 
-                    show_initially=False, 
-                    add_close_button=True
+                    tldr_stream,
+                    header="📝 TLDR Summary (Quick Read)",
+                    show_initially=False,
+                    add_close_button=True,
                 )
-                
+
                 # Yield the wrapped TLDR content
                 tldr_wrapped = convert_stream_to_iterable(tldr_wrapped)
                 yield {"text": tldr_wrapped, "status": "Generating TLDR summary..."}
@@ -4440,57 +6797,102 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 answer += "\n\n"
                 time_dict["tldr_generated"] = True
                 time_dict["answer_word_count"] = answer_word_count
-                
+
             except Exception as e:
-                error_logger.error(f"Error generating TLDR summary: {e}, stack: {traceback.format_exc()}")
+                error_logger.error(
+                    f"Error generating TLDR summary: {e}, stack: {traceback.format_exc()}"
+                )
                 # Continue without TLDR if there's an error - don't break the main flow
                 time_dict["tldr_error"] = str(e)
-        
+
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
-        time_logger.info(f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}")
+        time_logger.info(
+            f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}"
+        )
         time_dict["total_time_to_reply"] = time.time() - st
         time_dict["bot_time_to_reply"] = time.time() - et
         time_dict["answer_length"] = len(answer.split())
         answer = answer.replace(prompt, "")
-        yield {"text": '', "status": "saving answer ..."}
+        yield {"text": "", "status": "saving answer ..."}
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
-            yield {"text": '', "status": "Showing all results ... "}
+            yield {"text": "", "status": "Showing all results ... "}
             if search_results["type"] == "end":
                 full_results = search_results["full_results"]
-                atext = "\n**All Search Results:** <div data-toggle='collapse' href='#allSearchResults' role='button'></div> <div class='collapse' id='allSearchResults'>" + "\n"
+                atext = (
+                    "\n**All Search Results:** <div data-toggle='collapse' href='#allSearchResults' role='button'></div> <div class='collapse' id='allSearchResults'>"
+                    + "\n"
+                )
                 answer += atext
                 yield {"text": atext, "status": "displaying web search results ... "}
-                query_results = [f"<a href='{qr['link']}'>{qr['title']} [{qr['count']}]</a>" for qr in full_results]
+                query_results = [
+                    f"<a href='{qr['link']}'>{qr['title']} [{qr['count']}]</a>"
+                    for qr in full_results
+                ]
                 message_config["web_search_links_all"] = full_results
-                message_config["web_search_links_unread"] = sorted([qr for qr in full_results if qr["link"] not in message_config["web_search_links_read"]], key=lambda x: x["count"], reverse=True)
+                message_config["web_search_links_unread"] = sorted(
+                    [
+                        qr
+                        for qr in full_results
+                        if qr["link"] not in message_config["web_search_links_read"]
+                    ],
+                    key=lambda x: x["count"],
+                    reverse=True,
+                )
                 query_results = two_column_list(query_results)
-                answer += (query_results + "</div>")
-                yield {"text": query_results + "</div>", "status": "Showing all results ... "}
-        
-        
-        
-        yield {"text": '', "status": "saving message ..."}
-        get_async_future(self.persist_current_turn, original_user_query, answer, message_config, previous_messages_long, summary, full_doc_texts, persist_or_not, past_message_ids)
-        message_ids = self.get_message_ids(query["messageText"], answer)
-        yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
-        stats = collapsible_wrapper(yaml.dump(time_dict, default_flow_style=False), header="Time taken to reply for chatbot", show_initially=False, add_close_button=False)
-        for chunk in stats:
-            yield {"text": chunk, "status": "saving answer ...", "message_ids": message_ids}
-        yield {"text": "\n\n", "status": "saving answer ...", "message_ids": message_ids}
+                answer += query_results + "</div>"
+                yield {
+                    "text": query_results + "</div>",
+                    "status": "Showing all results ... ",
+                }
 
-    
+        yield {"text": "", "status": "saving message ..."}
+        get_async_future(
+            self.persist_current_turn,
+            original_user_query,
+            answer,
+            message_config,
+            previous_messages_long,
+            summary,
+            full_doc_texts,
+            persist_or_not,
+            past_message_ids,
+        )
+        message_ids = self.get_message_ids(query["messageText"], answer)
+        yield {
+            "text": "\n\n",
+            "status": "saving answer ...",
+            "message_ids": message_ids,
+        }
+        stats = collapsible_wrapper(
+            yaml.dump(time_dict, default_flow_style=False),
+            header="Time taken to reply for chatbot",
+            show_initially=False,
+            add_close_button=False,
+        )
+        for chunk in stats:
+            yield {
+                "text": chunk,
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
+        yield {
+            "text": "\n\n",
+            "status": "saving answer ...",
+            "message_ids": message_ids,
+        }
+
     def detect_previous_message_type(self):
         pass
 
     def get_last_ten_messages(self):
         return self.get_field("messages")[-10:]
-    
+
     def get_message_list(self):
         msg_list = self.get_field("messages")
         return msg_list
-    
+
     def get_metadata(self):
         self.set_memory_if_None()
         memory = self.get_field("memory")
@@ -4499,18 +6901,28 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "title" not in memory:
             memory["title"] = ""
         title = memory["title"]
-        return dict(conversation_id=self.conversation_id, user_id=self.user_id, title=title,
-                    summary_till_now=summary_till_now, domain=self.domain, flag=self.flag,
-                    last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(memory["last_updated"], datetime) else memory["last_updated"])
+        return dict(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            title=title,
+            summary_till_now=summary_till_now,
+            domain=self.domain,
+            flag=self.flag,
+            last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(memory["last_updated"], datetime)
+            else memory["last_updated"],
+        )
 
-    def _initiate_reward_evaluation(self, reward_level, query_text, checkboxes, previous_messages_long, summary):
+    def _initiate_reward_evaluation(
+        self, reward_level, query_text, checkboxes, previous_messages_long, summary
+    ):
         """
         Initiates async reward evaluation if reward level is non-zero.
         Returns future object or None if reward evaluation is not needed.
         """
         if reward_level == 0:
             return None
-        
+
         def sync_reward_evaluation_with_update():
             """
             Inner sync function that calls reward LLM and updates persistent context_data
@@ -4519,12 +6931,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 # Prepare user info from available data
                 user_info = f"User ID: {self.user_id}, Domain: {self.domain}"
                 if checkboxes.get("permanentText"):
-                    user_info += f", Instructions: {checkboxes['permanentText'][:200]}..."
-                
+                    user_info += (
+                        f", Instructions: {checkboxes['permanentText'][:200]}..."
+                    )
+
                 # Get conversation history length
                 messages = self.get_field("messages") or []
                 conversation_length = len(messages)
-                
+
                 # Call reward decision LLM synchronously with persistent context_data
                 reward_decision = get_reward_decision(
                     conversation_history=previous_messages_long,
@@ -4534,16 +6948,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     conversation_length=conversation_length,
                     user_info=user_info,
                     keys=self.get_api_keys(),
-                    context_data=self.context_data  # Use persistent context_data
+                    context_data=self.context_data,  # Use persistent context_data
                 )
-                
+
                 # Update persistent context_data based on reward decision
                 self._update_context_from_reward(reward_decision)
-                
+
                 return reward_decision
-                
+
             except Exception as e:
-                error_logger.error(f"[Reward System] Error in sync reward evaluation: {str(e)}")
+                error_logger.error(
+                    f"[Reward System] Error in sync reward evaluation: {str(e)}"
+                )
                 return {
                     "reward_type": "none",
                     "reward_level": "FAIR",
@@ -4553,14 +6969,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "dialer_setting": reward_level,
                     "judge_personality": "ERROR_STATE",
                     "evaluation_timestamp": time.time(),
-                    "confidence_level": "low"
+                    "confidence_level": "low",
                 }
-        
+
         # Start async reward evaluation using the inner sync function
         reward_future = get_async_future(sync_reward_evaluation_with_update)
-        
+
         return reward_future
-    
+
     def _update_context_from_reward(self, reward_decision):
         """
         Updates persistent context_data based on reward decision
@@ -4568,15 +6984,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         try:
             reward_type = reward_decision.get("reward_type", "none")
             reward_level = reward_decision.get("reward_level", "FAIR")
-            
+
             # Map reward levels to point values
             reward_points = {
-                "EXCELLENT": 10, "VERY_GOOD": 7, "GOOD": 5, "FAIR": 3, "BASIC": 1
+                "EXCELLENT": 10,
+                "VERY_GOOD": 7,
+                "GOOD": 5,
+                "FAIR": 3,
+                "BASIC": 1,
             }
             penalty_points = {
-                "MINOR": -1, "MODERATE": -3, "SIGNIFICANT": -5, "MAJOR": -7, "CRITICAL": -10
+                "MINOR": -1,
+                "MODERATE": -3,
+                "SIGNIFICANT": -5,
+                "MAJOR": -7,
+                "CRITICAL": -10,
             }
-            
+
             # Update score based on reward/penalty
             points = 0
             if reward_type == "reward":
@@ -4585,43 +7009,53 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             elif reward_type == "penalty":
                 points = penalty_points.get(reward_level, -1)
                 self.context_data["total_penalties"] += 1
-            
+
             # Update context data
             updates = {
                 "current_score": self.context_data["current_score"] + points,
                 "last_reward_timestamp": time.time(),
             }
-            
+
             # Add to reward history (keep last 10)
             reward_history_entry = {
                 "timestamp": time.time(),
                 "reward_type": reward_type,
                 "reward_level": reward_level,
                 "points": points,
-                "message": reward_decision.get("reward_message", "")
+                "message": reward_decision.get("reward_message", ""),
             }
-            
+
             self.context_data["reward_history"].append(reward_history_entry)
             if len(self.context_data["reward_history"]) > 10:
-                self.context_data["reward_history"] = self.context_data["reward_history"][-10:]
-            
+                self.context_data["reward_history"] = self.context_data[
+                    "reward_history"
+                ][-10:]
+
             # Add recent achievements (if reward)
             if reward_type == "reward" and reward_level in ["EXCELLENT", "VERY_GOOD"]:
-                achievement = f"{reward_level}: {reward_decision.get('reward_message', '')}"
+                achievement = (
+                    f"{reward_level}: {reward_decision.get('reward_message', '')}"
+                )
                 self.context_data["recent_achievements"].append(achievement)
                 # Keep only last 5 achievements
                 if len(self.context_data["recent_achievements"]) > 5:
-                    self.context_data["recent_achievements"] = self.context_data["recent_achievements"][-5:]
-            
+                    self.context_data["recent_achievements"] = self.context_data[
+                        "recent_achievements"
+                    ][-5:]
+
             # Update context data
             self.update_context_data(updates)
-            
-            time_logger.info(f"[Reward System] Context updated - Score: {self.context_data['current_score']}, "
-                           f"Total Rewards: {self.context_data['total_rewards']}, "
-                           f"Total Penalties: {self.context_data['total_penalties']}")
-            
+
+            time_logger.info(
+                f"[Reward System] Context updated - Score: {self.context_data['current_score']}, "
+                f"Total Rewards: {self.context_data['total_rewards']}, "
+                f"Total Penalties: {self.context_data['total_penalties']}"
+            )
+
         except Exception as e:
-            error_logger.error(f"[Reward System] Error updating context from reward: {str(e)}")
+            error_logger.error(
+                f"[Reward System] Error updating context from reward: {str(e)}"
+            )
 
     def _initiate_doubt_reward_evaluation(self, reward_level, doubt_text, message_id):
         """
@@ -4630,50 +7064,61 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         """
         if reward_level == 0:
             return None
-        
+
         def sync_doubt_reward_evaluation_with_update():
             """
             Inner sync function that calls reward LLM for doubt evaluation and updates persistent context_data
             """
             try:
                 # Get the target message for context
-                target_message, context_messages = self.get_context_around_message(message_id, 
-                                                                                  context_messages_before=2, 
-                                                                                  context_messages_after=1)
-                
+                target_message, context_messages = self.get_context_around_message(
+                    message_id, context_messages_before=2, context_messages_after=1
+                )
+
                 # Build context for doubt evaluation
                 doubt_context = ""
                 if target_message:
                     doubt_context += f"**Target Message Being Asked About:**\n{target_message['text']}\n\n"
-                
+
                 if context_messages:
                     doubt_context += "**Surrounding Context:**\n"
                     for msg in context_messages:
-                        sender_label = "User" if msg["sender"] == "user" else "Assistant"
+                        sender_label = (
+                            "User" if msg["sender"] == "user" else "Assistant"
+                        )
                         is_target = msg["message_id"] == message_id
                         marker = " ← [TARGET]" if is_target else ""
-                        doubt_context += f"{sender_label}{marker}: {msg['text'][:200]}...\n"
-                
+                        doubt_context += (
+                            f"{sender_label}{marker}: {msg['text'][:200]}...\n"
+                        )
+
                 # Prepare user info from available data
                 user_info = f"User ID: {self.user_id}, Domain: {self.domain}"
-                user_info += f"\nDoubt Context: User is asking about message {message_id}"
-                
+                user_info += (
+                    f"\nDoubt Context: User is asking about message {message_id}"
+                )
+
                 # Get conversation history length
                 messages = self.get_field("messages") or []
                 conversation_length = len(messages)
-                
+
                 # Get conversation summary
-                summary = self.running_summary if self.running_summary else "No summary available"
+                summary = (
+                    self.running_summary
+                    if self.running_summary
+                    else "No summary available"
+                )
                 if isinstance(summary, list):
                     summary = "\n".join(summary)
-                
+
                 # Build conversation history for context (last 1000 chars)
                 conversation_history = doubt_context
                 if len(conversation_history) > 1000:
                     conversation_history = conversation_history[-1000:]
-                
+
                 # Call reward decision LLM synchronously with persistent context_data
                 from base import get_reward_decision
+
                 reward_decision = get_reward_decision(
                     conversation_history=conversation_history,
                     current_user_text=doubt_text,
@@ -4682,16 +7127,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     conversation_length=conversation_length,
                     user_info=user_info,
                     keys=self.get_api_keys(),
-                    context_data=self.context_data  # Use persistent context_data
+                    context_data=self.context_data,  # Use persistent context_data
                 )
-                
+
                 # Update persistent context_data based on reward decision
                 self._update_context_from_reward(reward_decision)
-                
+
                 return reward_decision
-                
+
             except Exception as e:
-                error_logger.error(f"[Doubt Reward System] Error in sync doubt reward evaluation: {str(e)}")
+                error_logger.error(
+                    f"[Doubt Reward System] Error in sync doubt reward evaluation: {str(e)}"
+                )
                 return {
                     "reward_type": "none",
                     "reward_level": "FAIR",
@@ -4701,13 +7148,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "dialer_setting": reward_level,
                     "judge_personality": "ERROR_STATE",
                     "evaluation_timestamp": time.time(),
-                    "confidence_level": "low"
+                    "confidence_level": "low",
                 }
-        
+
         # Start async reward evaluation using the inner sync function
         from base import get_async_future
+
         reward_future = get_async_future(sync_doubt_reward_evaluation_with_update)
-        
+
         return reward_future
 
     def _process_reward_evaluation(self, reward_future):
@@ -4717,36 +7165,42 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         """
         if reward_future is None:
             return
-            
+
         try:
             # Get reward decision result (context_data already updated by inner function)
             reward_decision = reward_future.result()
-            
+
             # Convert to gamified output with context info
             gamified_reward = apply_reward_gamification(reward_decision)
-            
+
             # Add current score info to the gamified output
             current_score = self.context_data["current_score"]
             total_rewards = self.context_data["total_rewards"]
             total_penalties = self.context_data["total_penalties"]
-            
+
             score_info = f"\n**Session Progress:** Score: {current_score} | Rewards: {total_rewards} | Penalties: {total_penalties}\n"
             gamified_reward += score_info
-            
+
             # Yield the reward feedback
             yield {"text": gamified_reward, "status": "reward evaluation complete"}
-            
+
             # Log reward decision with context for debugging
-            time_logger.info(f"[Reward System] Applied {reward_decision.get('reward_type', 'none')} "
-                           f"{reward_decision.get('reward_level', 'N/A')} - "
-                           f"{reward_decision.get('judge_personality', 'N/A')} | "
-                           f"Score: {current_score} | Session: R{total_rewards}/P{total_penalties}")
-            
+            time_logger.info(
+                f"[Reward System] Applied {reward_decision.get('reward_type', 'none')} "
+                f"{reward_decision.get('reward_level', 'N/A')} - "
+                f"{reward_decision.get('judge_personality', 'N/A')} | "
+                f"Score: {current_score} | Session: R{total_rewards}/P{total_penalties}"
+            )
+
         except Exception as e:
-            error_logger.error(f"[Reward System] Error processing reward evaluation: {str(e)}")
+            error_logger.error(
+                f"[Reward System] Error processing reward evaluation: {str(e)}"
+            )
             # Yield a neutral message on error
-            yield {"text": "⚙️ **Evaluation Processing** Assessment completed.\n\n", 
-                   "status": "reward evaluation error"}
+            yield {
+                "text": "⚙️ **Evaluation Processing** Assessment completed.\n\n",
+                "status": "reward evaluation error",
+            }
 
     def delete_last_turn(self):
         """
@@ -4768,7 +7222,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         memory = self.get_field("memory") or {}
         if isinstance(memory, dict):
             memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if isinstance(memory.get("running_summary"), list) and len(memory["running_summary"]) > 0:
+            if (
+                isinstance(memory.get("running_summary"), list)
+                and len(memory["running_summary"]) > 0
+            ):
                 memory["running_summary"] = memory["running_summary"][:-1]
                 self.running_summary = "".join(memory["running_summary"][-1:])
             self.set_field("memory", memory, overwrite=True)
@@ -4779,20 +7236,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
 
         if len(messages) > 3:
-            previous_messages_text = messages[-4]["text"] + "\n\n" + messages[-3]["text"]
+            previous_messages_text = (
+                messages[-4]["text"] + "\n\n" + messages[-3]["text"]
+            )
         else:
             previous_messages_text = ""
         if len(messages) >= 2:
-            nqs = self.create_next_question_suggestions(messages[-2]["text"], messages[-1]["text"], previous_messages_text, "".join(memory["running_summary"][-1:]))
+            nqs = self.create_next_question_suggestions(
+                messages[-2]["text"],
+                messages[-1]["text"],
+                previous_messages_text,
+                "".join(memory["running_summary"][-1:]),
+            )
         else:
             nqs = []
         self.set_next_question_suggestions(nqs)
 
-
-    
     def get_api_keys(self):
         logger.debug(
-            f"get api keys for self hash = {hash(self)} and doc_id = {self.conversation_id}")
+            f"get api keys for self hash = {hash(self)} and doc_id = {self.conversation_id}"
+        )
         if hasattr(self, "api_keys"):
             api_keys = deepcopy(self.api_keys)
         else:
@@ -4802,9 +7265,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     def set_api_keys(self, api_keys: dict):
         assert isinstance(api_keys, dict)
         setattr(self, "api_keys", api_keys)
-    
+
     def __copy__(self):
-            # Create a new instance of our class
+        # Create a new instance of our class
         cls = self.__class__
         result = cls.__new__(cls)
         # Copy all attributes from self to result. This is a shallow copy.
@@ -4812,7 +7275,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         for k in self.store_separate:
             if hasattr(result, k):
                 setattr(result, k, None)
-        
+
         if hasattr(result, "api_keys"):
             result.api_keys = deepcopy(self.api_keys)
 
@@ -4829,11 +7292,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         elif field_prompt == "IdeaFleshOut":
             return prompts.idea_flesh_out_prompt.format(research_idea=message)
         elif field_prompt == "IdeaDatasetsAndExperiments":
-            return prompts.idea_datasets_and_experiments_prompt.format(research_idea=message)
+            return prompts.idea_datasets_and_experiments_prompt.format(
+                research_idea=message
+            )
         elif field_prompt == "IdeaAblationsAndResearchQuestions":
-            return prompts.idea_ablations_and_research_questions_prompt.format(research_idea=message)
+            return prompts.idea_ablations_and_research_questions_prompt.format(
+                research_idea=message
+            )
         elif field_prompt == "ResearchPreventRejections":
-            return prompts.research_prevent_rejections_prompt.format(research_idea=message)
+            return prompts.research_prevent_rejections_prompt.format(
+                research_idea=message
+            )
         elif field_prompt == "PaperMethod":
             return prompts.paper_details_map["methodology"]
         else:
@@ -4847,74 +7316,84 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 return message, i
         return None, -1
 
-    def get_context_around_message(self, message_id, context_messages_before=3, context_messages_after=1):
+    def get_context_around_message(
+        self, message_id, context_messages_before=3, context_messages_after=1
+    ):
         """Get context around a specific message including the message itself"""
         messages = self.get_field("messages")
         target_message = None
         target_index = -1
-        
+
         # Find the target message
         for i, message in enumerate(messages):
             if message["message_id"] == message_id:
                 target_message = message
                 target_index = i
                 break
-        
+
         if target_message is None:
             return None, []
-        
+
         # Get context messages
         start_index = max(0, target_index - context_messages_before)
         end_index = min(len(messages), target_index + context_messages_after + 1)
         context_messages = messages[start_index:end_index]
-        
+
         return target_message, context_messages
 
     def is_doubt_clearing_cancelled(self):
         """Check if doubt clearing has been cancelled"""
         from base import doubt_cancellation_requests
+
         if self.conversation_id in doubt_cancellation_requests:
-            return doubt_cancellation_requests[self.conversation_id].get('cancelled', False)
+            return doubt_cancellation_requests[self.conversation_id].get(
+                "cancelled", False
+            )
         return False
 
     def clear_doubt_clearing_cancellation(self):
         """Clear doubt clearing cancellation flag"""
         from base import doubt_cancellation_requests
+
         if self.conversation_id in doubt_cancellation_requests:
             del doubt_cancellation_requests[self.conversation_id]
 
-    def clear_doubt(self, message_id, doubt_text="", doubt_history=None, reward_level=0):
+    def clear_doubt(
+        self, message_id, doubt_text="", doubt_history=None, reward_level=0
+    ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
-        
+
         import traceback
         import time
-        
+
         try:
             # Clear any existing cancellation at the start
             self.clear_doubt_clearing_cancellation()
-            
+
             # Initialize reward evaluation if reward level is non-zero
             reward_future = None
             if reward_level != 0:
-                reward_future = self._initiate_doubt_reward_evaluation(reward_level, doubt_text, message_id)
-            
+                reward_future = self._initiate_doubt_reward_evaluation(
+                    reward_level, doubt_text, message_id
+                )
+
             # Get the target message and surrounding context
-            target_message, context_messages = self.get_context_around_message(message_id, 
-                                                                              context_messages_before=4, 
-                                                                              context_messages_after=2)
-            
+            target_message, context_messages = self.get_context_around_message(
+                message_id, context_messages_before=4, context_messages_after=2
+            )
+
             if target_message is None:
                 yield "Error: Message not found. Please check the message ID and try again."
                 return
-            
+
             # Get conversation summary and history
             conversation_summary = self.running_summary
             # conversation_history = self.get_conversation_history()
-            
+
             # Build the context for doubt clearing
             context_text = ""
-            
+
             # Add conversation summary
             if conversation_summary and len(conversation_summary) > 0:
                 if isinstance(conversation_summary, list):
@@ -4922,26 +7401,30 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 else:
                     summary_text = str(conversation_summary)
                 context_text += f"# Conversation Summary\n\n{summary_text}\n\n"
-            
+
             # Add doubt history if this is a follow-up
             if doubt_history and len(doubt_history) > 0:
                 context_text += "# Previous Doubt History\n\n"
                 context_text += "This is a follow-up question. Here's the previous doubt conversation:\n\n"
                 for i, doubt_record in enumerate(doubt_history):
-                    context_text += f"**Previous Doubt {i+1}:**\n"
+                    context_text += f"**Previous Doubt {i + 1}:**\n"
                     context_text += f"User asked: {doubt_record['doubt_text']}\n"
-                    context_text += f"Assistant answered: {doubt_record['doubt_answer']}\n\n"
+                    context_text += (
+                        f"Assistant answered: {doubt_record['doubt_answer']}\n\n"
+                    )
                 context_text += f"**Current Follow-up Question:** {doubt_text}\n\n"
-            
+
             # Add context messages
             if context_messages:
                 context_text += "# Relevant Context Messages\n\n"
                 for i, msg in enumerate(context_messages):
-                    sender_label = "**User**" if msg["sender"] == "user" else "**Assistant**"
+                    sender_label = (
+                        "**User**" if msg["sender"] == "user" else "**Assistant**"
+                    )
                     is_target = msg["message_id"] == message_id
                     marker = " ← **[TARGET MESSAGE]**" if is_target else ""
                     context_text += f"{sender_label}{marker}:\n{msg['text']}\n\n"
-            
+
             # Build the doubt clearing prompt
             doubt_prompt = f"""You are an AI assistant helping to clear doubts about a specific message in a conversation. 
 
@@ -4969,57 +7452,70 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
-            llm = CallLLm(api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
-            
+            llm = CallLLm(
+                api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False
+            )
+
             # Generate streaming response
             response_stream = llm(
-                doubt_prompt, 
-                images=[], 
-                temperature=0.3, 
-                stream=True, 
+                doubt_prompt,
+                images=[],
+                temperature=0.3,
+                stream=True,
                 max_tokens=2000,
-                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly."
+                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly.",
             )
-            
+
             # Stream the response
             for chunk in response_stream:
                 # Check for cancellation before processing each chunk
                 if self.is_doubt_clearing_cancelled():
-                    logger.info(f"Doubt clearing cancelled for conversation {self.conversation_id}")
+                    logger.info(
+                        f"Doubt clearing cancelled for conversation {self.conversation_id}"
+                    )
                     yield "\n\n**Doubt clearing was cancelled by user**"
                     break
                 if chunk:
                     yield chunk
-            
+
             # Process reward evaluation if it was initiated
             if reward_future is not None:
                 yield "\n\n"
                 for reward_chunk in self._process_reward_evaluation(reward_future):
                     yield reward_chunk.get("text", "")
-            
+
             # Clear cancellation flag after completion
             self.clear_doubt_clearing_cancellation()
-                    
+
         except Exception as e:
             error_msg = f"Error clearing doubt: {str(e)}"
             logger.error(f"Error in clear_doubt for message {message_id}: {error_msg}")
             logger.error(traceback.format_exc())
             yield f"I apologize, but I encountered an error while trying to clear your doubt: {error_msg}"
 
-    def temporary_llm_action(self, action_type, selected_text, user_message="", message_context="", message_id=None, history=None, with_context=False):
+    def temporary_llm_action(
+        self,
+        action_type,
+        selected_text,
+        user_message="",
+        message_context="",
+        message_id=None,
+        history=None,
+        with_context=False,
+    ):
         """
         Execute an ephemeral LLM action without persistence.
-        
+
         This method handles context menu actions like:
         - explain: Explain the selected text clearly
         - critique: Provide critical analysis
         - expand: Expand on the selected text
         - eli5: Explain like I'm 5 with intuition
         - ask_temp: Temporary chat conversation
-        
+
         Unlike clear_doubt, this does NOT save anything to the database.
         The conversation is ephemeral and exists only in memory.
-        
+
         Args:
             action_type: The type of action ('explain', 'critique', 'expand', 'eli5', 'ask_temp')
             selected_text: The text the user selected for the action
@@ -5028,56 +7524,70 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             message_id: Optional message ID for getting context around that message
             history: Optional conversation history for multi-turn ask_temp
             with_context: Whether to include rich conversation context using get_context_around_message
-            
+
         Yields:
             Chunks of the LLM response as they are generated
         """
         from call_llm import CallLLm
         import traceback
-        
+
         try:
             # Get conversation context
             conversation_summary = self.running_summary
-            
+
             # Build context text
             context_text = ""
-            
+
             # If with_context is True and we have a message_id, get rich context
             if with_context and message_id:
                 try:
                     target_message, context_messages = self.get_context_around_message(
-                        message_id, 
-                        context_messages_before=4, 
-                        context_messages_after=2
+                        message_id, context_messages_before=4, context_messages_after=2
                     )
-                    
+
                     if context_messages:
                         context_text += "## Relevant Conversation Context\n\n"
                         for msg in context_messages:
-                            sender_label = "**User**" if msg["sender"] == "user" else "**Assistant**"
+                            sender_label = (
+                                "**User**"
+                                if msg["sender"] == "user"
+                                else "**Assistant**"
+                            )
                             is_target = msg.get("message_id") == message_id
-                            marker = " ← **[SELECTED FROM THIS MESSAGE]**" if is_target else ""
+                            marker = (
+                                " ← **[SELECTED FROM THIS MESSAGE]**"
+                                if is_target
+                                else ""
+                            )
                             # Truncate long messages
-                            msg_text = msg['text']
+                            msg_text = msg["text"]
                             context_text += f"{sender_label}{marker}:\n{msg_text}\n\n"
                         context_text += "---\n\n"
                 except Exception as ctx_err:
-                    logger.warning(f"Could not get context around message {message_id}: {ctx_err}")
-            
+                    logger.warning(
+                        f"Could not get context around message {message_id}: {ctx_err}"
+                    )
+
             if conversation_summary and len(conversation_summary) > 0:
                 if isinstance(conversation_summary, list):
-                    summary_text = "\n".join(conversation_summary[-3:])  # Last 3 summaries
+                    summary_text = "\n".join(
+                        conversation_summary[-3:]
+                    )  # Last 3 summaries
                 else:
                     summary_text = str(conversation_summary)
                 context_text += f"## Conversation Summary\n{summary_text}\n\n"
-            
-            if message_context and len(message_context.strip()) > 0 and not with_context:
+
+            if (
+                message_context
+                and len(message_context.strip()) > 0
+                and not with_context
+            ):
                 # Only add message_context if we didn't already get rich context
                 context_text += f"## Message Context\n```\n{message_context}\n```\n\n"
-            
+
             # Build prompt based on action type
             prompts = {
-                'explain': f"""You are an expert educator. Please explain the following text clearly and thoroughly.
+                "explain": f"""You are an expert educator. Please explain the following text clearly and thoroughly.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -5096,8 +7606,7 @@ Provide a clear, comprehensive explanation that:
 **Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
 
 Your explanation:""",
-
-                'critique': f"""You are a critical analyst with expertise in multiple domains. Please provide a thoughtful critique of the following text.
+                "critique": f"""You are a critical analyst with expertise in multiple domains. Please provide a thoughtful critique of the following text.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -5118,8 +7627,7 @@ Analyze this text by considering:
 **Important:** Don't use LaTeX or math notation. Be constructive in your critique.
 
 Your critique:""",
-
-                'expand': f"""You are a knowledgeable expert. Please expand on the following text with more details, depth, and related information.
+                "expand": f"""You are a knowledgeable expert. Please expand on the following text with more details, depth, and related information.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -5139,8 +7647,7 @@ Provide an expanded version that:
 **Important:** Don't use LaTeX or math notation. Make the expansion thorough but organized.
 
 Your expanded explanation:""",
-
-                'eli5': f"""You are explaining to a curious 5-year-old. Please explain the following text using very simple words, fun analogies, and clear examples.
+                "eli5": f"""You are explaining to a curious 5-year-old. Please explain the following text using very simple words, fun analogies, and clear examples.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -5161,8 +7668,7 @@ Rules for your ELI5 explanation:
 **Important:** Don't use LaTeX or math notation. Keep it simple and fun!
 
 Your simple explanation:""",
-
-                'ask_temp': f"""You are a helpful assistant having a thoughtful conversation. The user has selected some text and wants to discuss it.
+                "ask_temp": f"""You are a helpful assistant having a thoughtful conversation. The user has selected some text and wants to discuss it.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -5180,18 +7686,20 @@ Please respond helpfully, clearly, and conversationally. Address the user's ques
 
 **Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
 
-Your response:"""
+Your response:""",
             }
-            
+
             if user_message:
-                prompt = prompts['ask_temp']
+                prompt = prompts["ask_temp"]
             else:
-                prompt = prompts.get(action_type, prompts['explain'])
-            
+                prompt = prompts.get(action_type, prompts["explain"])
+
             # Initialize LLM
             api_keys = self.get_api_keys()
-            llm = CallLLm(api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
-            
+            llm = CallLLm(
+                api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False
+            )
+
             # Generate streaming response
             response_stream = llm(
                 prompt,
@@ -5199,39 +7707,39 @@ Your response:"""
                 temperature=0.4,
                 stream=True,
                 max_tokens=2000,
-                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation."
+                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation.",
             )
-            
+
             # Stream the response
             for chunk in response_stream:
                 if chunk:
                     yield chunk
-                    
+
         except Exception as e:
             error_msg = f"Error in temporary LLM action: {str(e)}"
             logger.error(f"Error in temporary_llm_action ({action_type}): {error_msg}")
             logger.error(traceback.format_exc())
             yield f"I apologize, but I encountered an error: {error_msg}"
-    
+
     def _format_temp_history(self, history):
         """
         Format conversation history for the temporary chat prompt.
-        
+
         Args:
             history: List of message dicts with 'role' and 'content' keys
-            
+
         Returns:
             Formatted string of conversation history
         """
         if not history:
             return ""
-        
+
         history_text = "## Previous Conversation\n"
         for msg in history[-6:]:  # Last 6 messages
-            role = "User" if msg.get('role') == 'user' else "Assistant"
-            content = msg.get('content', '')[:1000]  # Truncate long messages
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            content = msg.get("content", "")[:1000]  # Truncate long messages
             history_text += f"**{role}:** {content}\n\n"
-        
+
         return history_text
 
 
@@ -5239,14 +7747,17 @@ class TemporaryConversation(Conversation):
     def __init__(self) -> None:
         self.conversation_id = str(uuid.uuid4())
         self.user_id = str(uuid.uuid4())
-        memory = {  "title": 'Start the Conversation',
-                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "running_summary":[], # List of strings, each string is a running summary of chat till now.
-                }
-        messages = list() # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
+        memory = {
+            "title": "Start the Conversation",
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "running_summary": [],  # List of strings, each string is a running summary of chat till now.
+        }
+        messages = list()  # list of message objects of structure like `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"},`
         self.set_field("memory", memory)
         self.set_messages_field(messages)
-        self.set_field("uploaded_documents_list", list()) # just a List[str] of doc index ids
+        self.set_field(
+            "uploaded_documents_list", list()
+        )  # just a List[str] of doc index ids
 
     def add_uploaded_document(self, pdf_url):
         pass
@@ -5266,7 +7777,8 @@ class TemporaryConversation(Conversation):
     def set_field(self, top_key, value, overwrite=False):
         tk = self.get_field(top_key)
         assert (type(tk) == type(value) or tk is None) or (
-                    isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
+            isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list))
+        )
         if tk is not None:
             if isinstance(tk, dict) and not overwrite:
                 tk.update(value)
@@ -5281,28 +7793,85 @@ class TemporaryConversation(Conversation):
             setattr(self, top_key, tk)
         else:
             setattr(self, top_key, value)
-            
+
     def add_to_memory_pad_from_response(self, *args, **kwargs):
         pass
 
 
+def format_llm_inputs(
+    web_text,
+    doc_answer,
+    link_result_text,
+    summary_text,
+    previous_messages,
+    conversation_docs_answer,
+):
+    web_text = (
+        f"""\nRelevant information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
+    Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).\n"""
+        if len(web_text.strip()) > 0
+        else ""
+    )
+    doc_answer = (
+        f"""\nResults from user provided documents are given below. Questions user has asked usually pertain to these documents. Relevant information from user given documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''\n"""
+        if len(doc_answer.strip()) > 0
+        else ""
+    )
+    link_result_text = (
+        f"""\nResults from user provided links are given below. Questions user has asked usually pertain to these links. Relevant information from user given links with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''\n"""
+        if len(link_result_text.strip()) > 0
+        else ""
+    )
+    summary_text = (
+        f"""\nThe summary of the conversation is as follows:\n'''{summary_text}'''\n"""
+        if len(summary_text.strip()) > 0
+        else ""
+    )
+    previous_messages = (
+        f"""\nPrevious chat history between user and assistant:\n'''{previous_messages}'''\n"""
+        if len(previous_messages.strip()) > 0
+        else ""
+    )
+    conversation_docs_answer = (
+        f"""\nThe documents that were read are as follows:\n'''{conversation_docs_answer}'''\n"""
+        if len(conversation_docs_answer) > 0
+        else ""
+    )
+    return (
+        web_text,
+        doc_answer,
+        link_result_text,
+        summary_text,
+        previous_messages,
+        conversation_docs_answer,
+    )
 
-def format_llm_inputs(web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer):
-    web_text = f"""\nRelevant information from other documents with url links, titles and useful document context are mentioned below:\n\n'''{web_text}'''
-    Remember to refer to all the documents provided above in markdown format (like `[title](link) information from document`).\n""" if len(
-        web_text.strip()) > 0 else ""
-    doc_answer = f"""\nResults from user provided documents are given below. Questions user has asked usually pertain to these documents. Relevant information from user given documents with url links, titles and useful context are mentioned below:\n\n'''{doc_answer}'''\n""" if len(
-        doc_answer.strip()) > 0 else ""
-    link_result_text = f"""\nResults from user provided links are given below. Questions user has asked usually pertain to these links. Relevant information from user given links with url links, titles and useful context are mentioned below:\n\n'''{link_result_text}'''\n""" if len(
-        link_result_text.strip()) > 0 else ""
-    summary_text = f"""\nThe summary of the conversation is as follows:\n'''{summary_text}'''\n""" if len(summary_text.strip()) > 0 else ''
-    previous_messages = f"""\nPrevious chat history between user and assistant:\n'''{previous_messages}'''\n""" if len(previous_messages.strip()) > 0 else ''
-    conversation_docs_answer = f"""\nThe documents that were read are as follows:\n'''{conversation_docs_answer}'''\n""" if len(conversation_docs_answer) > 0 else ''
-    return web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer
 
-
-def get_probable_prompt_length(messageText, web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text):
-    text = " ".join([remove_bad_whitespaces_easy(x) for x in [messageText, web_text, doc_answer, link_result_text, summary_text, previous_messages, conversation_docs_answer, partial_answer_text]])
+def get_probable_prompt_length(
+    messageText,
+    web_text,
+    doc_answer,
+    link_result_text,
+    summary_text,
+    previous_messages,
+    conversation_docs_answer,
+    partial_answer_text,
+):
+    text = " ".join(
+        [
+            remove_bad_whitespaces_easy(x)
+            for x in [
+                messageText,
+                web_text,
+                doc_answer,
+                link_result_text,
+                summary_text,
+                previous_messages,
+                conversation_docs_answer,
+                partial_answer_text,
+            ]
+        ]
+    )
     return int(1.25 * len(text.split()))
     # link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer = truncate_text_for_gpt4_96k(
     #     link_result_text, web_text, doc_answer, summary_text, previous_messages,
@@ -5320,17 +7889,37 @@ def get_probable_prompt_length(messageText, web_text, doc_answer, link_result_te
     # return len(enc.encode(prompt))
 
 
+def truncate_text_for_gpt4_96k(
+    link_result_text,
+    web_text,
+    doc_answer,
+    summary_text,
+    previous_messages,
+    user_message,
+    conversation_docs_answer,
+):
+    return truncate_text(
+        link_result_text,
+        web_text,
+        doc_answer,
+        summary_text,
+        previous_messages,
+        user_message,
+        conversation_docs_answer,
+        model="gpt-4-96k",
+    )
 
 
-
-
-
-
-def truncate_text_for_gpt4_96k(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer):
-    return truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4-96k")
-
-
-def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous_messages, user_message, conversation_docs_answer, model="gpt-4"):
+def truncate_text(
+    link_result_text,
+    web_text,
+    doc_answer,
+    summary_text,
+    previous_messages,
+    user_message,
+    conversation_docs_answer,
+    model="gpt-4",
+):
     enc = tiktoken.encoding_for_model(model)
     if model == "gpt-4":
         l1 = 7000
@@ -5361,17 +7950,66 @@ def truncate_text(link_result_text, web_text, doc_answer, summary_text, previous
         l2 = 500
         l4 = 500
 
-    message_space = max(l2, l1 - len(enc.encode(user_message + conversation_docs_answer + link_result_text + doc_answer + web_text + summary_text)) - 1750)
+    message_space = max(
+        l2,
+        l1
+        - len(
+            enc.encode(
+                user_message
+                + conversation_docs_answer
+                + link_result_text
+                + doc_answer
+                + web_text
+                + summary_text
+            )
+        )
+        - 1750,
+    )
     previous_messages = get_first_last_parts(previous_messages, 0, message_space)
-    summary_space = max(l4, l1 - len(enc.encode(user_message + previous_messages + conversation_docs_answer + link_result_text + doc_answer + web_text)) - 1750)
+    summary_space = max(
+        l4,
+        l1
+        - len(
+            enc.encode(
+                user_message
+                + previous_messages
+                + conversation_docs_answer
+                + link_result_text
+                + doc_answer
+                + web_text
+            )
+        )
+        - 1750,
+    )
     summary_text = get_first_last_parts(summary_text, 0, summary_space)
-    ctx_len_allowed = l1 - len(enc.encode(user_message + previous_messages + summary_text))
-    conversation_docs_answer = get_first_last_parts(conversation_docs_answer, 0, ctx_len_allowed)
-    link_result_text = get_first_last_parts(link_result_text, 0, ctx_len_allowed - len(enc.encode(conversation_docs_answer)))
-    doc_answer = get_first_last_parts(doc_answer, 0, ctx_len_allowed - len(enc.encode(link_result_text + conversation_docs_answer)))
-    web_text = get_first_last_parts(web_text, 0, ctx_len_allowed - len(enc.encode(link_result_text + doc_answer + conversation_docs_answer)))
-    return link_result_text, web_text, doc_answer, summary_text, previous_messages, conversation_docs_answer
-
+    ctx_len_allowed = l1 - len(
+        enc.encode(user_message + previous_messages + summary_text)
+    )
+    conversation_docs_answer = get_first_last_parts(
+        conversation_docs_answer, 0, ctx_len_allowed
+    )
+    link_result_text = get_first_last_parts(
+        link_result_text, 0, ctx_len_allowed - len(enc.encode(conversation_docs_answer))
+    )
+    doc_answer = get_first_last_parts(
+        doc_answer,
+        0,
+        ctx_len_allowed - len(enc.encode(link_result_text + conversation_docs_answer)),
+    )
+    web_text = get_first_last_parts(
+        web_text,
+        0,
+        ctx_len_allowed
+        - len(enc.encode(link_result_text + doc_answer + conversation_docs_answer)),
+    )
+    return (
+        link_result_text,
+        web_text,
+        doc_answer,
+        summary_text,
+        previous_messages,
+        conversation_docs_answer,
+    )
 
 
 def model_name_to_canonical_name(model_name):
@@ -5386,11 +8024,19 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-5.2"
     elif model_name == "gpt-5.2":
         model_name = "gpt-5.2"
-    elif model_name == "anthropic/claude-opus-4" or model_name == "anthropic/claude-opus-4.1" or model_name == "Opus 4.1":
+    elif (
+        model_name == "anthropic/claude-opus-4"
+        or model_name == "anthropic/claude-opus-4.1"
+        or model_name == "Opus 4.1"
+    ):
         model_name = "anthropic/claude-opus-4.1"
     elif model_name == "anthropic/claude-opus-4.5" or model_name == "Opus 4.5":
         model_name = "anthropic/claude-opus-4.5"
-    elif model_name == "anthropic/claude-sonnet-4" or model_name == "Claude Sonnet 4" or model_name == "Sonnet 4":
+    elif (
+        model_name == "anthropic/claude-sonnet-4"
+        or model_name == "Claude Sonnet 4"
+        or model_name == "Sonnet 4"
+    ):
         model_name = "anthropic/claude-sonnet-4"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"
@@ -5400,7 +8046,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-4-opus-20250522"
     elif model_name == "anthropic/claude-4-sonnet-20250522":
         model_name = "anthropic/claude-4-sonnet-20250522"
-    elif model_name == "google/gemini-3-pro-preview" or model_name == "Gemini 3 Pro Preview":
+    elif (
+        model_name == "google/gemini-3-pro-preview"
+        or model_name == "Gemini 3 Pro Preview"
+    ):
         model_name = "google/gemini-3-pro-preview"
     elif model_name == "x-ai/grok-3-beta":
         model_name = "x-ai/grok-3-beta"
@@ -5436,7 +8085,7 @@ def model_name_to_canonical_name(model_name):
         model_name = "o3-deep-research"
     elif model_name == "openai/o3":
         model_name = "openai/o3"
-    
+
     elif model_name == "o1-pro":
         model_name = "o1-pro"
     elif model_name == "openai/o1-pro":
@@ -5575,7 +8224,9 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-5"
     elif model_name == "openai/gpt-5-chat":
         model_name = "openai/gpt-5-chat"
-    elif model_name == "deepseek/deepseek-v3.1-terminus" or model_name == "deepseek-v3.1":
+    elif (
+        model_name == "deepseek/deepseek-v3.1-terminus" or model_name == "deepseek-v3.1"
+    ):
         model_name = "deepseek/deepseek-v3.1-terminus"
     elif model_name == "x-ai/grok-4-fast" or model_name == "grok-4-fast":
         model_name = "x-ai/grok-4-fast"
@@ -5583,23 +8234,34 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-5-codex"
     elif model_name == "qwen/qwen3-coder-plus" or model_name == "Qwen3-Coder-Plus":
         model_name = "qwen/qwen3-coder-plus"
-    elif model_name == "meituan/longcat-flash-chat" or model_name == "Longcat Flash Chat":
+    elif (
+        model_name == "meituan/longcat-flash-chat" or model_name == "Longcat Flash Chat"
+    ):
         model_name = "meituan/longcat-flash-chat"
-    
-    elif model_name in CHEAP_LONG_CONTEXT_LLM or model_name in CHEAP_LLM or model_name in LONG_CONTEXT_LLM or model_name in EXPENSIVE_LLM or model_name in VERY_CHEAP_LLM or model_name in UNUSED_EXPENSIVE_LLM:
+
+    elif (
+        model_name in CHEAP_LONG_CONTEXT_LLM
+        or model_name in CHEAP_LLM
+        or model_name in LONG_CONTEXT_LLM
+        or model_name in EXPENSIVE_LLM
+        or model_name in VERY_CHEAP_LLM
+        or model_name in UNUSED_EXPENSIVE_LLM
+    ):
         pass
-    
-        
+
     elif model_name == FILLER_MODEL:
         model_name = FILLER_MODEL
     else:
         raise ValueError(f"Model name {model_name} not found in the list")
     return model_name
+
+
 import re
+
 
 def extract_user_answer(text, tag="answer", return_empty_string_if_not_found=False):
     # Pattern to find <tag>...</tag> segments
-    pattern = rf'<{tag}>(.*?)</{tag}>'
+    pattern = rf"<{tag}>(.*?)</{tag}>"
 
     # Find all occurrences of the pattern
     answers = re.findall(pattern, text, re.DOTALL)
@@ -5607,23 +8269,28 @@ def extract_user_answer(text, tag="answer", return_empty_string_if_not_found=Fal
     # Check if any answers were found within tags
     if answers:
         # Joining all extracted answers (in case there are multiple <tag> segments)
-        return '\n'.join(answers).strip()
+        return "\n".join(answers).strip()
     else:
         # If no tags are found, return the entire text
         if return_empty_string_if_not_found:
             return ""
         else:
             return text.strip()
-    
-    
+
+
 def model_hierarchies(model_names: List[str]):
-    if "anthropic/claude-sonnet-4.5" in model_names or "Sonnet 4.5" in model_names or "anthropic/claude-opus-4.5" in model_names or "Opus 4.5" in model_names:
+    if (
+        "anthropic/claude-sonnet-4.5" in model_names
+        or "Sonnet 4.5" in model_names
+        or "anthropic/claude-opus-4.5" in model_names
+        or "Opus 4.5" in model_names
+    ):
         improve_model = "anthropic/claude-sonnet-4.5"
     elif "gpt-5" in model_names:
         improve_model = "gpt-5"
     elif "openai/gpt-5-chat" in model_names:
         improve_model = "openai/gpt-5-chat"
-    
+
     elif "x-ai/grok-3-beta" in model_names:
         improve_model = "x-ai/grok-3-beta"
     elif "x-ai/grok-3" in model_names:
@@ -5632,15 +8299,23 @@ def model_hierarchies(model_names: List[str]):
         improve_model = "x-ai/grok-4"
     elif "mistralai/devstral-medium" in model_names:
         improve_model = "mistralai/devstral-medium"
-    
+
     elif "openai/chatgpt-4o-latest" in model_names:
         improve_model = "openai/chatgpt-4o-latest"
-    
+
     elif "anthropic/claude-3.7-sonnet" in model_names:
         improve_model = "anthropic/claude-3.7-sonnet"
-    elif "anthropic/claude-opus-4" in model_names or "Opus 4" in model_names or "Claude Opus 4" in model_names:
+    elif (
+        "anthropic/claude-opus-4" in model_names
+        or "Opus 4" in model_names
+        or "Claude Opus 4" in model_names
+    ):
         improve_model = "anthropic/claude-sonnet-4"
-    elif "anthropic/claude-sonnet-4" in model_names or "Claude Sonnet 4" in model_names or "Sonnet 4" in model_names:
+    elif (
+        "anthropic/claude-sonnet-4" in model_names
+        or "Claude Sonnet 4" in model_names
+        or "Sonnet 4" in model_names
+    ):
         improve_model = "anthropic/claude-sonnet-4"
     elif "anthropic/claude-3.5-sonnet:beta" in model_names:
         improve_model = "anthropic/claude-3.5-sonnet:beta"
@@ -5653,7 +8328,7 @@ def model_hierarchies(model_names: List[str]):
 
     elif any(c.startswith("openai") for c in model_names):
         improve_model = "openai/chatgpt-4o-latest"
-    
+
     else:
         improve_model = EXPENSIVE_LLM[0]
     return improve_model

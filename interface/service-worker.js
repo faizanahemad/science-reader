@@ -63,10 +63,8 @@ const PRECACHE_URLS = [
   "/interface/interface/workspace-manager.js",
   "/interface/interface/audio_process.js",
 
-  // PWA artifacts
-  "/interface/manifest.json",
-  "/interface/icons/app-icon.svg",
-  "/interface/icons/maskable-icon.svg",
+  // PWA artifacts are intentionally excluded from precache to avoid
+  // duplicate install-time fetches. Browsers fetch them independently.
 ];
 
 const ASSET_EXTENSIONS = new Set([
@@ -168,7 +166,8 @@ self.addEventListener("install", (event) => {
       await Promise.all(
         PRECACHE_URLS.map(async (url) => {
           try {
-            const req = new Request(url, { cache: "reload" });
+            // Include credentials so session cookies are sent with the request
+            const req = new Request(url, { cache: "reload", credentials: "same-origin" });
             const resp = await fetch(req);
             if (!resp.ok) return;
             // Avoid caching opaque/cross-origin and redirects.

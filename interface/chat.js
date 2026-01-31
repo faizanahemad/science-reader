@@ -294,6 +294,14 @@ function chat_interface_readiness() {
         }
     });
 
+    $('#settings-artefacts-modal-open-button').click(function () {
+        if (typeof ArtefactsManager !== 'undefined') {
+            ArtefactsManager.openModal();
+        } else {
+            showToast('Artefacts manager not loaded', 'error');
+        }
+    });
+
     // Ensure modal close buttons work
     $('#chat-settings-modal .close, #chat-settings-modal [data-dismiss="modal"]').click(function() {
         console.log('Closing chat settings modal');

@@ -990,6 +990,20 @@ input[type="range"]::-webkit-slider-thumb {
     line-height: 1.6;
 }
 
+.message-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.message-image {
+    width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    object-fit: cover;
+}
+
 .message.user .message-content {
     background: var(--user-bg);
     border: 1px solid var(--user-border);

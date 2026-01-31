@@ -379,6 +379,14 @@ const ContextMenuManager = {
                     conversationId: this.currentConversationId
                 }, true); // withContext = true
                 break;
+
+            case 'artefacts':
+                if (typeof ArtefactsManager !== 'undefined' && this.currentConversationId) {
+                    ArtefactsManager.openModal(this.currentConversationId);
+                } else {
+                    this.showToast('Unable to open artefacts', 'warning');
+                }
+                break;
                 
             case 'search-google':
                 // Search Google for selected text
