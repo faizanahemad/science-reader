@@ -52,21 +52,21 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
-OPENROUTER_LLM = ["google/gemini-2.5-flash", "google/gemini-pro-1.5", "openai/gpt-4o", "anthropic/claude-3.7-sonnet:beta",]
+OPENROUTER_LLM = ["google/gemini-2.5-flash"]
             
-VERY_CHEAP_LLM = ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash","openai/gpt-5-mini", "google/gemini-2.5-flash-preview","google/gemini-2.0-flash-001", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemma-3-27b-it", "minimax/minimax-01", "google/gemini-pro-1.5", "gpt-4o-mini", "google/gemini-flash-1.5-8b", "cohere/command-r7b-12-2024"]
-CHEAP_LLM = ["anthropic/claude-haiku-4.5", "gpt-4o", "openai/gpt-5-mini", "minimax/minimax-01", "anthropic/claude-3.5-haiku:beta", "cohere/command-r-08-2024", "openai/gpt-4o-mini", "openai/gpt-4o", "google/gemini-pro-1.5", "amazon/nova-pro-v1", "qwen/qwen-plus"]
-EXPENSIVE_LLM = ["anthropic/claude-sonnet-4.5","openai/gpt-5.1", "openai/gpt-5.2", "anthropic/claude-sonnet-4", "openai/gpt-5-chat", "gpt-5", "mistralai/mistral-large-2512",   "qwen/qwen3-coder-plus", "openai/gpt-5", "openai/gpt-5.1-chat", "gpt-5.1-codex", "google/gemini-3-pro-preview", "anthropic/claude-opus-4.5", "gpt-5.1", "openai/gpt-5.2-pro"]
+VERY_CHEAP_LLM = ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash","openai/gpt-5-mini"]
+CHEAP_LLM = ["anthropic/claude-haiku-4.5", "gpt-4o", "openai/gpt-5-mini",]
+EXPENSIVE_LLM = ["anthropic/claude-sonnet-4.5","openai/gpt-5.1", "openai/gpt-5.2", "openai/gpt-5.2-codex", "mistralai/mistral-large-2512",   "qwen/qwen3-coder-plus", "gpt-5.2-codex", "google/gemini-3-pro-preview", "anthropic/claude-opus-4.5", "openai/gpt-5.2-pro", "x-ai/grok-3", "moonshotai/kimi-k2.5"]
 UNUSED_EXPENSIVE_LLM =  ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
                  "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
                  "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
-                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder-plus", "qwen/qwen3-coder", "openai/gpt-5", "x-ai/grok-3",]
+                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder-plus", "qwen/qwen3-coder", "openai/gpt-5", ]
 
 OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
 
 
-CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "openai/gpt-5-mini", "gpt-4.1-mini", "x-ai/grok-4-fast", "google/gemini-2.0-flash-001", "google/gemini-flash-1.5", "google/gemini-2.0-flash-lite-001", "qwen/qwen-turbo", "minimax/minimax-01", "google/gemini-flash-1.5-8b"]
-LONG_CONTEXT_LLM = ["google/gemini-2.5-pro", "google/gemini-pro-1.5", "google/gemini-2.5-pro-preview", "minimax/minimax-m1"]
+CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "openai/gpt-5-mini", "gpt-4.1-mini", "x-ai/grok-4-fast"]
+LONG_CONTEXT_LLM = ["google/gemini-2.5-pro", "minimax/minimax-m1"]
 
 COMMON_SALT_STRING = "31256greagy89"
 

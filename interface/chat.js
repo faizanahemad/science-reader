@@ -302,10 +302,30 @@ function chat_interface_readiness() {
         }
     });
 
+    $('#settings-model-overrides-modal-open-button').click(function () {
+        if (!ConversationManager.activeConversationId) {
+            showToast('Select a conversation first', 'warning');
+            return;
+        }
+        loadConversationModelOverrides(ConversationManager.activeConversationId);
+    });
+
     // Ensure modal close buttons work
     $('#chat-settings-modal .close, #chat-settings-modal [data-dismiss="modal"]').click(function() {
         console.log('Closing chat settings modal');
         $('#chat-settings-modal').modal('hide');
+    });
+
+    $('#settings-model-overrides-save-button').click(function () {
+        if (!ConversationManager.activeConversationId) {
+            showToast('Select a conversation first', 'warning');
+            return;
+        }
+        saveConversationModelOverrides(ConversationManager.activeConversationId);
+    });
+
+    $('#model-overrides-modal').on('shown.bs.modal', function () {
+        $('#settings-summary-model').trigger('focus');
     });
 
     // Handle escape key
@@ -321,6 +341,11 @@ function chat_interface_readiness() {
         const defaultsForTab = getPersistedSettingsState() || computeDefaultStateForTab(tab);
         window.chatSettingsState = defaultsForTab;
         setModalFromState(defaultsForTab);
+        if (window.chatSettingsState && window.chatSettingsState.model_overrides) {
+            ConversationManager.conversationSettings = {
+                model_overrides: window.chatSettingsState.model_overrides
+            };
+        }
         if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
     });
 
@@ -450,6 +475,7 @@ $(document).ready(function() {
     chat_interface_readiness();
     interface_readiness();
     setupCodeEditor();
+    loadModelCatalog();
     // Load persisted settings state on boot and apply to modal controls (and inline if present)
     initializeSettingsState();
     
@@ -613,7 +639,10 @@ function collectSettingsFromModal() {
         field: $('#settings-field-selector').val() || 'None',
         permanentText: $('#settings-permanentText').val() || '',
         links: $('#settings-linkInput').val() || '',
-        search: $('#settings-searchInput').val() || ''
+        search: $('#settings-searchInput').val() || '',
+        model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
+            ? window.chatSettingsState.model_overrides
+            : undefined
     };
 }
 
@@ -641,6 +670,168 @@ function persistSettingsStateFromModal() {
     } else {
         console.log('Settings persistence disabled, only in-memory state updated');
     }
+}
+
+function loadConversationModelOverrides(conversationId) {
+    loadModelCatalog(function () {
+        populateModelOverrideOptions();
+        $.ajax({
+            url: '/get_conversation_settings/' + conversationId,
+            type: 'GET',
+            success: function (result) {
+                var settings = (result && result.settings) ? result.settings : {};
+                ConversationManager.conversationSettings = settings;
+                var overrides = settings.model_overrides || {};
+                setModelOverrideValue('#settings-summary-model', overrides.summary_model || '', DEFAULT_MODEL_OVERRIDES.summary_model);
+                setModelOverrideValue('#settings-tldr-model', overrides.tldr_model || '', DEFAULT_MODEL_OVERRIDES.tldr_model);
+                setModelOverrideValue('#settings-artefact-propose-model', overrides.artefact_propose_edits_model || '', DEFAULT_MODEL_OVERRIDES.artefact_propose_edits_model);
+                setModelOverrideValue('#settings-doubt-clearing-model', overrides.doubt_clearing_model || '', DEFAULT_MODEL_OVERRIDES.doubt_clearing_model);
+                setModelOverrideValue('#settings-context-action-model', overrides.context_action_model || '', DEFAULT_MODEL_OVERRIDES.context_action_model);
+                setModelOverrideValue('#settings-doc-long-summary-model', overrides.doc_long_summary_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_model);
+                setModelOverrideValue('#settings-doc-long-summary-v2-model', overrides.doc_long_summary_v2_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_v2_model);
+                setModelOverrideValue('#settings-doc-short-answer-model', overrides.doc_short_answer_model || '', DEFAULT_MODEL_OVERRIDES.doc_short_answer_model);
+                $('#model-overrides-modal').modal('show');
+            },
+            error: function (xhr) {
+                console.error('Error loading conversation settings:', xhr.responseText);
+                showToast('Failed to load model overrides', 'error');
+            }
+        });
+    });
+}
+
+function saveConversationModelOverrides(conversationId) {
+    var overrides = {
+        summary_model: getModelOverrideValue('#settings-summary-model'),
+        tldr_model: getModelOverrideValue('#settings-tldr-model'),
+        artefact_propose_edits_model: getModelOverrideValue('#settings-artefact-propose-model'),
+        doubt_clearing_model: getModelOverrideValue('#settings-doubt-clearing-model'),
+        context_action_model: getModelOverrideValue('#settings-context-action-model'),
+        doc_long_summary_model: getModelOverrideValue('#settings-doc-long-summary-model'),
+        doc_long_summary_v2_model: getModelOverrideValue('#settings-doc-long-summary-v2-model'),
+        doc_short_answer_model: getModelOverrideValue('#settings-doc-short-answer-model')
+    };
+    Object.keys(overrides).forEach(function (key) {
+        if (!overrides[key]) {
+            delete overrides[key];
+        }
+    });
+    $.ajax({
+        url: '/set_conversation_settings/' + conversationId,
+        type: 'PUT',
+        contentType: 'application/json',
+        data: JSON.stringify({ model_overrides: overrides }),
+        success: function () {
+            ConversationManager.conversationSettings = { model_overrides: overrides };
+            if (window.chatSettingsState) {
+                window.chatSettingsState.model_overrides = overrides;
+            }
+            showToast('Model overrides saved', 'success');
+            $('#model-overrides-modal').modal('hide');
+        },
+        error: function (xhr) {
+            console.error('Error saving conversation settings:', xhr.responseText);
+            showToast('Failed to save model overrides', 'error');
+        }
+    });
+}
+
+var DEFAULT_MODEL_OVERRIDES = {};
+
+function getModelOverrideValue(selector) {
+    const selected = ($(selector).val() || '').trim();
+    const defaultValue = DEFAULT_MODEL_OVERRIDES[$(selector).attr('id').replace('settings-', '').replace(/-/g, '_')] || '';
+    if (!selected || selected === '__default__') {
+        return '';
+    }
+    return selected === defaultValue ? '' : selected;
+}
+
+function setModelOverrideValue(selector, overrideValue, defaultValue) {
+    if (overrideValue) {
+        $(selector).val(overrideValue);
+        return;
+    }
+    $(selector).val(defaultValue || '__default__');
+}
+
+function populateModelOverrideOptions() {
+    const modelList = window.ModelCatalog && window.ModelCatalog.getAll
+        ? window.ModelCatalog.getAll()
+        : [];
+    const selects = [
+        '#settings-summary-model',
+        '#settings-tldr-model',
+        '#settings-artefact-propose-model',
+        '#settings-doubt-clearing-model',
+        '#settings-context-action-model',
+        '#settings-doc-long-summary-model',
+        '#settings-doc-long-summary-v2-model',
+        '#settings-doc-short-answer-model'
+    ];
+    selects.forEach(function (selector) {
+        const $select = $(selector);
+        if (!$select.length) {
+            return;
+        }
+        const current = $select.val();
+        const key = $select.attr('id')
+            .replace('settings-', '')
+            .replace(/-/g, '_');
+        const defaultValue = DEFAULT_MODEL_OVERRIDES[key] || '';
+        $select.empty();
+        $select.append(new Option('Default (recommended)', '__default__'));
+        if (defaultValue) {
+            $select.append(new Option(defaultValue + ' (default)', defaultValue));
+        }
+        modelList.forEach(function (model) {
+            if (model === defaultValue) {
+                return;
+            }
+            $select.append(new Option(model, model));
+        });
+        if (current) {
+            $select.val(current);
+        }
+    });
+}
+
+function loadModelCatalog(callback) {
+    if (window.ModelCatalog && window.ModelCatalog.ready) {
+        if (callback) {
+            callback();
+        }
+        return;
+    }
+    $.ajax({
+        url: '/model_catalog',
+        type: 'GET',
+        success: function (result) {
+            window.ModelCatalog = {
+                models: (result && result.models) ? result.models : [],
+                defaults: (result && result.defaults) ? result.defaults : {},
+                ready: true,
+                getAll: function () { return this.models || []; }
+            };
+            DEFAULT_MODEL_OVERRIDES = window.ModelCatalog.defaults || {};
+            if (callback) {
+                callback();
+            }
+        },
+        error: function (xhr) {
+            console.error('Error loading model catalog:', xhr.responseText);
+            window.ModelCatalog = {
+                models: [],
+                defaults: {},
+                ready: true,
+                getAll: function () { return this.models || []; }
+            };
+            DEFAULT_MODEL_OVERRIDES = {};
+            if (callback) {
+                callback();
+            }
+        }
+    });
 }
 
 /**
@@ -824,11 +1015,16 @@ function resetSettingsToDefaults() {
     
     // Permanent Instructions
     $('#settings-permanentText').val('');
-    
+
     // Search & Links
     $('#settings-linkInput').val('');
     $('#settings-searchInput').val('');
-    
+
+    // Conversation model overrides (reset for UI state)
+    if (window.chatSettingsState) {
+        delete window.chatSettingsState.model_overrides;
+    }
+
     // Refresh any select pickers if they exist
     if (typeof $.fn.selectpicker !== 'undefined') {
         $('.selectpicker').selectpicker('refresh');
@@ -1011,4 +1207,3 @@ function displayLockStatus(data, conversationId) {
         $('#lock-clear-button').hide();
     }
 }
-

@@ -22,16 +22,19 @@ from langchain_core.vectorstores import VectorStore
 from common import *
 from base import *
 
-pd.options.display.float_format = '{:,.2f}'.format
-pd.set_option('max_colwidth', 800)
-pd.set_option('display.max_columns', 100)
+pd.options.display.float_format = "{:,.2f}".format
+pd.set_option("max_colwidth", 800)
+pd.set_option("display.max_columns", 100)
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.DEBUG, logging.INFO, logging.ERROR, logging.INFO)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.DEBUG, logging.INFO, logging.ERROR, logging.INFO
+)
 import time
 
+
 class DocFAISS(FAISS):
-    
     def merge_from(self, target: FAISS) -> None:
         """Merge another FAISS object with the current one.
 
@@ -45,6 +48,7 @@ class DocFAISS(FAISS):
         """
         from langchain.docstore.base import AddableMixin
         from langchain.schema import Document
+
         if not isinstance(self.docstore, AddableMixin):
             raise ValueError("Cannot merge with this type of docstore")
         # Numerical index for target docs are incremental on existing ones
@@ -55,7 +59,9 @@ class DocFAISS(FAISS):
 
         # Get id and docs from target FAISS object
         full_info = []
-        existing_id = set([target_id for i, target_id in self.index_to_docstore_id.items()])
+        existing_id = set(
+            [target_id for i, target_id in self.index_to_docstore_id.items()]
+        )
         for i, target_id in target.index_to_docstore_id.items():
             if target_id in existing_id:
                 continue
@@ -69,8 +75,10 @@ class DocFAISS(FAISS):
         index_to_id = {index: _id for index, _id, _ in full_info}
         self.index_to_docstore_id.update(index_to_id)
 
+
 def create_index_faiss(chunks, embed_model, doc_id=None):
     from langchain.schema import Document
+
     if doc_id is None:
         doc_id = [""] * len(chunks)
     elif isinstance(doc_id, (str, int)):
@@ -78,9 +86,12 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
     else:
         assert len(doc_id) == len(chunks) and isinstance(doc_id, (list, tuple))
         doc_id = [int(d) for d in doc_id]
-    chunks = [Document(page_content=str(c), metadata={"order": i}) for i, c in enumerate(chunks)]
+    chunks = [
+        Document(page_content=str(c), metadata={"order": i})
+        for i, c in enumerate(chunks)
+    ]
     for ix, chunk in enumerate(chunks):
-        chunk.metadata["next"] = None if ix == len(chunks)-1 else chunks[ix + 1]
+        chunk.metadata["next"] = None if ix == len(chunks) - 1 else chunks[ix + 1]
         chunk.metadata["previous"] = None if ix == 0 else chunks[ix - 1]
         chunk.metadata["doc_id"] = doc_id[ix]
         chunk.metadata["index"] = ix
@@ -92,10 +103,11 @@ def create_index_faiss(chunks, embed_model, doc_id=None):
 # Multi-Facet Document Summarizer
 # =============================================================================
 
+
 class MultiFacetDocSummarizer:
     """
     A comprehensive document summarizer that generates multiple types of summaries/analyses.
-    
+
     This class provides 6 different perspectives on a document:
     1. detailed - Long and detailed summary
     2. facts_stats - Facts, statistics and numbers in bullet points
@@ -103,15 +115,15 @@ class MultiFacetDocSummarizer:
     4. complex_faq - Complex questions and their detailed answers
     5. nitpicks - Issues, shortcomings, and areas for improvement
     6. agentic_qa - Agentic Q&A session with one LLM asking, another answering
-    
+
     All aspects are processed in parallel for efficiency.
-    
+
     Usage:
         summarizer = MultiFacetDocSummarizer(api_keys, model_name="gpt-4", aspects=["detailed", "facts_stats"])
         for chunk in summarizer.summarize(document_text):
             print(chunk)
     """
-    
+
     # Available aspects with their display titles
     ASPECT_TITLES = {
         "detailed": "📚 Detailed Summary",
@@ -122,25 +134,25 @@ class MultiFacetDocSummarizer:
         "agentic_qa": "🤖 Agentic Q&A Session",
         "topic_deep_dive": "🔬 Topic Deep Dive Analysis",
     }
-    
+
     ALL_ASPECTS = list(ASPECT_TITLES.keys())
-    
+
     def __init__(
-        self, 
-        api_keys: dict, 
-        model_name: str = None, 
+        self,
+        api_keys: dict,
+        model_name: str = None,
         aspects: List[str] = None,
         chunk_size: int = 64000,
-        chunk_overlap: int = 500
+        chunk_overlap: int = 500,
     ):
         """
         Initialize the multi-facet document summarizer.
-        
+
         Args:
             api_keys: Dictionary containing API keys for LLM services
             model_name: LLM model to use (default: CHEAP_LONG_CONTEXT_LLM[0])
             aspects: List of aspect IDs to generate (default: all 7 aspects)
-                     Valid options: "detailed", "facts_stats", "key_notes", 
+                     Valid options: "detailed", "facts_stats", "key_notes",
                                    "complex_faq", "nitpicks", "agentic_qa", "topic_deep_dive"
             chunk_size: Maximum tokens per chunk for processing (default: 64000)
             chunk_overlap: Token overlap between chunks (default: 500)
@@ -149,16 +161,18 @@ class MultiFacetDocSummarizer:
         self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        
+
         # Validate and set aspects
         if aspects is None:
             self.aspects = self.ALL_ASPECTS.copy()
         else:
             invalid = set(aspects) - set(self.ALL_ASPECTS)
             if invalid:
-                raise ValueError(f"Invalid aspects: {invalid}. Valid options: {self.ALL_ASPECTS}")
+                raise ValueError(
+                    f"Invalid aspects: {invalid}. Valid options: {self.ALL_ASPECTS}"
+                )
             self.aspects = aspects
-        
+
         # Map aspect IDs to their generator methods
         self._aspect_methods = {
             "detailed": self._generate_detailed,
@@ -169,54 +183,60 @@ class MultiFacetDocSummarizer:
             "agentic_qa": self._generate_agentic_qa,
             "topic_deep_dive": self._generate_topic_deep_dive,
         }
-    
+
     def _get_splitter(self, chunk_size: int = None, chunk_overlap: int = None):
         """Get a configured text splitter instance."""
         from text_splitter import RecursiveChunkTextSplitter
+
         return RecursiveChunkTextSplitter(
-            chunk_size=chunk_size or self.chunk_size, 
-            chunk_overlap=chunk_overlap or self.chunk_overlap
+            chunk_size=chunk_size or self.chunk_size,
+            chunk_overlap=chunk_overlap or self.chunk_overlap,
         )
-    
+
     def _get_llm(self, model_name: str = None):
         """Get a configured LLM instance."""
         return CallLLm(self.api_keys, model_name=model_name or self.model_name)
-    
+
     def _process_chunks_parallel(
-        self, 
-        chunks: List[str], 
-        prompt_template: str, 
-        temperature: float = 0.5
+        self, chunks: List[str], prompt_template: str, temperature: float = 0.5
     ) -> List[str]:
         """
         Process multiple chunks in parallel using the LLM.
-        
+
         Args:
             chunks: List of text chunks to process
             prompt_template: Prompt template with {text} placeholder
             temperature: LLM temperature setting
-            
+
         Returns:
             List of LLM responses for each chunk
         """
         llm = self._get_llm()
-        
+
         if len(chunks) == 1:
-            return [llm(prompt_template.format(text=chunks[0]), temperature=temperature, stream=False)]
-        
+            return [
+                llm(
+                    prompt_template.format(text=chunks[0]),
+                    temperature=temperature,
+                    stream=False,
+                )
+            ]
+
         futures = []
         for chunk in chunks:
             prompt = prompt_template.format(text=chunk)
-            future = get_async_future(llm, prompt, temperature=temperature, stream=False)
+            future = get_async_future(
+                llm, prompt, temperature=temperature, stream=False
+            )
             futures.append(future)
-        
+
         return [sleep_and_get_future_result(f) for f in futures]
-    
+
     def _generate_detailed(self, text: str) -> str:
         """Generate a long and detailed summary of the document."""
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         prompt_template = dedent("""
         You are an expert document analyst. Write a long, detailed, and comprehensive summary of the following document section.
         
@@ -235,13 +255,15 @@ class MultiFacetDocSummarizer:
         ```
         
         Write a detailed and comprehensive summary:
-        """).format(math_instructions='')
-        
-        chunk_summaries = self._process_chunks_parallel(chunks, prompt_template, temperature=0.5)
-        
+        """).format(math_instructions="")
+
+        chunk_summaries = self._process_chunks_parallel(
+            chunks, prompt_template, temperature=0.5
+        )
+
         if len(chunk_summaries) == 1:
             return chunk_summaries[0]
-        
+
         # Combine chunk summaries
         combine_prompt = dedent("""
         You are an expert document analyst. Combine the following section summaries into one cohesive, 
@@ -254,19 +276,16 @@ class MultiFacetDocSummarizer:
         {summaries}
         
         Write the combined comprehensive summary:
-        """).format(
-            math_instructions='', 
-            summaries="\n\n---\n\n".join(chunk_summaries)
-        )
-        
+        """).format(math_instructions="", summaries="\n\n---\n\n".join(chunk_summaries))
+
         llm = self._get_llm()
         return llm(combine_prompt, temperature=0.4, stream=False)
-    
+
     def _generate_facts_stats(self, text: str) -> str:
         """Extract facts, statistics, and numbers in bullet point format."""
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         prompt_template = dedent("""
         You are a meticulous data analyst. Extract ALL facts, statistics, numbers, metrics, and quantitative data from the following text.
         
@@ -292,12 +311,14 @@ class MultiFacetDocSummarizer:
         
         Extract all facts, stats, and numbers in bullet point format:
         """)
-        
-        chunk_results = self._process_chunks_parallel(chunks, prompt_template, temperature=0.3)
-        
+
+        chunk_results = self._process_chunks_parallel(
+            chunks, prompt_template, temperature=0.3
+        )
+
         if len(chunk_results) == 1:
             return chunk_results[0]
-        
+
         # Consolidate
         combine_prompt = dedent("""
         Consolidate the following extracted facts, statistics, and numbers. 
@@ -308,15 +329,15 @@ class MultiFacetDocSummarizer:
         
         Provide the consolidated, deduplicated list organized by category:
         """).format(data="\n\n".join(chunk_results))
-        
+
         llm = self._get_llm(CHEAP_LLM[0])
         return llm(combine_prompt, temperature=0.2, stream=False)
-    
+
     def _generate_key_notes(self, text: str) -> str:
         """Extract key notes, findings, and opinions in concise format."""
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         prompt_template = dedent("""
         You are an expert analyst. Extract all KEY notes, findings, and opinions from the following text.
         
@@ -345,12 +366,14 @@ class MultiFacetDocSummarizer:
         
         Extract key notes, findings, and opinions:
         """)
-        
-        chunk_results = self._process_chunks_parallel(chunks, prompt_template, temperature=0.4)
-        
+
+        chunk_results = self._process_chunks_parallel(
+            chunks, prompt_template, temperature=0.4
+        )
+
         if len(chunk_results) == 1:
             return chunk_results[0]
-        
+
         # Consolidate
         combine_prompt = dedent("""
         Consolidate the following key notes, findings, and opinions from different sections of a document.
@@ -362,15 +385,15 @@ class MultiFacetDocSummarizer:
         
         Provide the consolidated key notes, findings, and opinions:
         """).format(content="\n\n---\n\n".join(chunk_results))
-        
+
         llm = self._get_llm(CHEAP_LLM[0])
         return llm(combine_prompt, temperature=0.3, stream=False)
-    
+
     def _generate_complex_faq(self, text: str) -> str:
         """Generate complex questions and detailed answers as FAQ document."""
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         prompt_template = dedent("""
         You are an expert educator creating challenging exam questions. Based on the following text, 
         generate complex, thought-provoking questions and their detailed answers.
@@ -403,13 +426,15 @@ class MultiFacetDocSummarizer:
         **Answer:** [Detailed answer]
         
         (continue for all questions)
-        """).format(math_instructions='')
-        
-        chunk_faqs = self._process_chunks_parallel(chunks, prompt_template, temperature=0.6)
-        
+        """).format(math_instructions="")
+
+        chunk_faqs = self._process_chunks_parallel(
+            chunks, prompt_template, temperature=0.6
+        )
+
         if len(chunk_faqs) == 1:
             return chunk_faqs[0]
-        
+
         # Combine and curate
         combine_prompt = dedent("""
         You have multiple sets of complex FAQ entries from different sections of a document.
@@ -427,19 +452,16 @@ class MultiFacetDocSummarizer:
         {faqs}
         
         Provide the consolidated Complex FAQ document:
-        """).format(
-            math_instructions='', 
-            faqs="\n\n---\n\n".join(chunk_faqs)
-        )
-        
+        """).format(math_instructions="", faqs="\n\n---\n\n".join(chunk_faqs))
+
         llm = self._get_llm()
         return llm(combine_prompt, temperature=0.5, stream=False)
-    
+
     def _generate_nitpicks(self, text: str) -> str:
         """Identify issues, shortcomings, and areas for improvement."""
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         prompt_template = dedent("""
         You are a critical reviewer and editor. Analyze the following text for issues, shortcomings, and areas of improvement.
         
@@ -480,12 +502,14 @@ class MultiFacetDocSummarizer:
         
         Provide your critical analysis:
         """)
-        
-        chunk_critiques = self._process_chunks_parallel(chunks, prompt_template, temperature=0.5)
-        
+
+        chunk_critiques = self._process_chunks_parallel(
+            chunks, prompt_template, temperature=0.5
+        )
+
         if len(chunk_critiques) == 1:
             return chunk_critiques[0]
-        
+
         # Consolidate
         combine_prompt = dedent("""
         Consolidate the following critical analyses from different sections of a document.
@@ -501,25 +525,25 @@ class MultiFacetDocSummarizer:
         
         Provide the consolidated critical analysis:
         """).format(critiques="\n\n---\n\n".join(chunk_critiques))
-        
+
         llm = self._get_llm(CHEAP_LLM[0])
         return llm(combine_prompt, temperature=0.4, stream=False)
-    
+
     def _generate_agentic_qa(self, text: str) -> str:
         """
         Generate agentic Q&A with one LLM asking questions, another answering.
-        
+
         This method is fully parallelized:
         1. Question generation runs in parallel across all chunks
         2. Answer generation runs in parallel for each chunk's questions
         """
         splitter = self._get_splitter()
         chunks = splitter(text)
-        
+
         # Limit chunks to process (first 8 for questions, use all for context)
         question_chunks = chunks[:8]
         full_text = "\n\n".join(chunks)[:100000]  # Limit context size
-        
+
         # Question generation prompt
         question_prompt = dedent("""
         You are a brilliant, curious intellectual who has just read a fascinating document. 
@@ -542,7 +566,7 @@ class MultiFacetDocSummarizer:
         
         Generate 5-8 stimulating questions (just the questions, numbered):
         """)
-        
+
         # =====================================================================
         # PHASE 1: Generate questions in parallel for all chunks
         # =====================================================================
@@ -550,12 +574,14 @@ class MultiFacetDocSummarizer:
         for chunk in question_chunks:
             llm_questioner = self._get_llm(CHEAP_LLM[0])
             prompt = question_prompt.format(text=chunk)
-            future = get_async_future(llm_questioner, prompt, temperature=0.7, stream=False)
+            future = get_async_future(
+                llm_questioner, prompt, temperature=0.7, stream=False
+            )
             question_futures.append(future)
-        
+
         # Wait for all question generation to complete
         all_questions = [sleep_and_get_future_result(f) for f in question_futures]
-        
+
         # =====================================================================
         # PHASE 2: Answer each chunk's questions in parallel
         # =====================================================================
@@ -590,20 +616,22 @@ class MultiFacetDocSummarizer:
         ---
         
         (continue for all questions)
-        """).format(math_instructions='', text=full_text, questions="{questions}")
-        
+        """).format(math_instructions="", text=full_text, questions="{questions}")
+
         # Launch answer generation in parallel for each question batch
         answer_futures = []
         for questions in all_questions:
             if questions.strip():  # Only process non-empty question batches
                 llm_answerer = self._get_llm()
                 prompt = answer_prompt_template.format(questions=questions)
-                future = get_async_future(llm_answerer, prompt, temperature=0.6, stream=False)
+                future = get_async_future(
+                    llm_answerer, prompt, temperature=0.6, stream=False
+                )
                 answer_futures.append(future)
-        
+
         # Wait for all answer generation to complete
         all_answers = [sleep_and_get_future_result(f) for f in answer_futures]
-        
+
         # =====================================================================
         # Combine all Q&A sessions
         # =====================================================================
@@ -613,32 +641,34 @@ class MultiFacetDocSummarizer:
         *An intellectual dialogue exploring the document through probing questions and expert answers.*
         
         """)
-        
+
         # Combine all answers with section dividers
         combined_dialogue = "\n\n".join(all_answers)
-        
+
         return header + combined_dialogue
-    
+
     def _generate_topic_deep_dive(self, text: str) -> str:
         """
         Generate a deep dive analysis organized by topics and sections.
-        
+
         This is a 2-step parallel process:
         1. Extract topics from up to 8 chunks in parallel (no consolidation LLM call)
         2. For each unique topic, run a single comprehensive LLM call to get
            summary, facts, takeaways, analysis, detailed notes, and implications
-        
+
         Args:
             text: The document text to analyze
-            
+
         Returns:
             Comprehensive topic-by-topic analysis
         """
         splitter = self._get_splitter()
         chunks = splitter(text)
-        full_text = self._get_splitter(chunk_size=500_000, chunk_overlap=1_000)(text)[:1]
+        full_text = self._get_splitter(chunk_size=500_000, chunk_overlap=1_000)(text)[
+            :1
+        ]
         full_text = "\n\n".join(full_text)
-        
+
         # =====================================================================
         # PHASE 1: Extract topics from chunks (parallel, no consolidation LLM)
         # =====================================================================
@@ -669,7 +699,7 @@ class MultiFacetDocSummarizer:
         
         (repeat for each topic, separated by ---)
         """)
-        
+
         # Extract topics from chunks in parallel (up to 8 chunks)
         topic_futures = []
         for chunk in chunks[:8]:
@@ -677,48 +707,72 @@ class MultiFacetDocSummarizer:
             prompt = topic_extraction_prompt.format(text=chunk)
             future = get_async_future(llm, prompt, temperature=0.5, stream=False)
             topic_futures.append(future)
-        
+
         # Wait for topic extraction
         chunk_topics = [sleep_and_get_future_result(f) for f in topic_futures]
-        
+
         # Parse and deduplicate topics locally (no LLM consolidation)
         all_topics = {}  # Use dict to deduplicate by normalized topic name
-        
+
         for chunk_result in chunk_topics:
-            topic_blocks = [t.strip() for t in chunk_result.split("---") if t.strip() and "Topic:" in t]
-            
+            topic_blocks = [
+                t.strip()
+                for t in chunk_result.split("---")
+                if t.strip() and "Topic:" in t
+            ]
+
             for topic_block in topic_blocks:
                 topic_name = "Unknown Topic"
                 keywords = ""
                 description = ""
-                
+
                 if "Topic:" in topic_block:
                     try:
-                        topic_name = topic_block.split("Topic:")[1].split("\n")[0].strip().strip("#").strip()
+                        topic_name = (
+                            topic_block.split("Topic:")[1]
+                            .split("\n")[0]
+                            .strip()
+                            .strip("#")
+                            .strip()
+                        )
                     except:
                         pass
-                
+
                 if "Keywords:" in topic_block:
                     try:
-                        keywords = topic_block.split("Keywords:")[1].split("\n")[0].strip().strip("*").strip()
+                        keywords = (
+                            topic_block.split("Keywords:")[1]
+                            .split("\n")[0]
+                            .strip()
+                            .strip("*")
+                            .strip()
+                        )
                     except:
                         pass
-                
+
                 if "Description:" in topic_block:
                     try:
-                        description = topic_block.split("Description:")[1].split("\n")[0].strip().strip("*").strip()
+                        description = (
+                            topic_block.split("Description:")[1]
+                            .split("\n")[0]
+                            .strip()
+                            .strip("*")
+                            .strip()
+                        )
                     except:
                         pass
-                
+
                 # Normalize topic name for deduplication (lowercase, strip)
                 normalized_name = topic_name.lower().strip()
-                
+
                 if normalized_name and normalized_name != "unknown topic":
                     if normalized_name not in all_topics:
                         all_topics[normalized_name] = {
                             "name": topic_name,
-                            "keywords": set(k.strip() for k in keywords.split(",") if k.strip()),
-                            "description": description
+                            "keywords": set(
+                                k.strip() for k in keywords.split(",") if k.strip()
+                            ),
+                            "description": description,
                         }
                     else:
                         # Merge keywords from duplicate topics
@@ -726,19 +780,21 @@ class MultiFacetDocSummarizer:
                             k.strip() for k in keywords.split(",") if k.strip()
                         )
                         # Keep longer description
-                        if len(description) > len(all_topics[normalized_name]["description"]):
+                        if len(description) > len(
+                            all_topics[normalized_name]["description"]
+                        ):
                             all_topics[normalized_name]["description"] = description
-        
+
         # Convert to list and limit to 8 topics
         unique_topics = [
             {
                 "name": data["name"],
                 "keywords": ", ".join(list(data["keywords"])[:6]),
-                "description": data["description"]
+                "description": data["description"],
             }
             for data in list(all_topics.values())[:8]
         ]
-        
+
         # =====================================================================
         # PHASE 2: Single comprehensive LLM call per topic (parallel)
         # =====================================================================
@@ -779,7 +835,7 @@ class MultiFacetDocSummarizer:
         
         Write your comprehensive analysis below:
         """)
-        
+
         # Launch parallel analysis for each topic
         topic_futures = []
         for topic in unique_topics:
@@ -789,15 +845,13 @@ class MultiFacetDocSummarizer:
                 keywords=topic["keywords"],
                 description=topic["description"],
                 text=full_text,
-                math_instructions=''
+                math_instructions="",
             )
             future = get_async_future(llm, prompt, temperature=0.5, stream=False)
-            topic_futures.append({
-                "name": topic["name"],
-                "keywords": topic["keywords"],
-                "future": future
-            })
-        
+            topic_futures.append(
+                {"name": topic["name"], "keywords": topic["keywords"], "future": future}
+            )
+
         # =====================================================================
         # Collect results and format output
         # =====================================================================
@@ -807,45 +861,47 @@ class MultiFacetDocSummarizer:
         *A comprehensive exploration of key topics and themes in the document.*
         
         """)
-        
+
         # Add table of contents
         toc = "\n## 📑 Topics Covered\n\n"
         for i, topic in enumerate(unique_topics, 1):
             toc += f"{i}. **{topic['name']}** - {topic['keywords']}\n"
         toc += "\n---\n"
-        
+
         result_sections = [header, toc]
-        
+
         for topic_data in topic_futures:
             topic_name = topic_data["name"]
             keywords = topic_data["keywords"]
             future = topic_data["future"]
-            
+
             # Topic header
             topic_header = f"\n\n## 📌 {topic_name}\n\n"
             topic_header += f"**Keywords:** {keywords}\n\n"
             result_sections.append(topic_header)
-            
+
             try:
                 result = sleep_and_get_future_result(future)
                 result_sections.append(result)
             except Exception as e:
-                result_sections.append(f"*Error generating analysis for this topic: {str(e)}*\n")
-            
+                result_sections.append(
+                    f"*Error generating analysis for this topic: {str(e)}*\n"
+                )
+
             result_sections.append("\n\n---\n")
-        
+
         return "".join(result_sections)
-    
+
     def summarize(self, text: str):
         """
         Generate multi-facet summary of the document.
-        
+
         This is the main entry point. It launches all selected aspects in parallel
         and yields results as they complete.
-        
+
         Args:
             text: The document text to summarize
-            
+
         Yields:
             Formatted strings for each section of the summary
         """
@@ -859,23 +915,23 @@ class MultiFacetDocSummarizer:
         
         """)
         yield header
-        
+
         # Launch all aspects in parallel
         futures = {}
         for aspect_id in self.aspects:
             method = self._aspect_methods[aspect_id]
             future = get_async_future(method, text)
             futures[aspect_id] = future
-        
+
         # Yield results in order
         for aspect_id in self.aspects:
             title = self.ASPECT_TITLES[aspect_id]
             future = futures[aspect_id]
-            
+
             # Section header
             section_header = f"\n\n## {title}\n\n"
             yield section_header
-            
+
             try:
                 result = sleep_and_get_future_result(future)
                 yield result
@@ -883,17 +939,17 @@ class MultiFacetDocSummarizer:
                 error_msg = f"*Error generating this section: {str(e)}*\n"
                 yield error_msg
                 logger.error(f"Error in {aspect_id}: {e}")
-            
+
             # Section separator
             yield "\n\n---\n"
-    
+
     def summarize_sync(self, text: str) -> str:
         """
         Generate multi-facet summary synchronously (non-streaming).
-        
+
         Args:
             text: The document text to summarize
-            
+
         Returns:
             Complete summary as a single string
         """
@@ -901,15 +957,34 @@ class MultiFacetDocSummarizer:
 
 
 class DocIndex:
-    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage, keys):
+    def __init__(
+        self,
+        doc_source,
+        doc_filetype,
+        doc_type,
+        doc_text,
+        chunk_size,
+        full_summary,
+        openai_embed,
+        storage,
+        keys,
+    ):
         init_start = time.time()
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
         raw_data = dict(chunks=full_summary["chunks"])
-        raw_index_future = get_async_future(create_index_faiss, raw_data['chunks'], openai_embed, doc_id=self.doc_id, )
+        raw_index_future = get_async_future(
+            create_index_faiss,
+            raw_data["chunks"],
+            openai_embed,
+            doc_id=self.doc_id,
+        )
         raw_data_small = dict(chunks=full_summary["chunks_small"])
-        raw_index_small_future = get_async_future(create_index_faiss, raw_data_small['chunks'], openai_embed, doc_id=self.doc_id, )
-
-
+        raw_index_small_future = get_async_future(
+            create_index_faiss,
+            raw_data_small["chunks"],
+            openai_embed,
+            doc_id=self.doc_id,
+        )
 
         self._visible = False
         self._chunk_size = chunk_size
@@ -918,7 +993,9 @@ class DocIndex:
         self.last_access_time = time.time()
         self.is_local = os.path.exists(doc_source)
         # if parent folder of doc_source is not same as storage, then copy the doc_source to storage
-        if self.is_local and os.path.dirname(os.path.expanduser(doc_source)) != os.path.expanduser(storage):
+        if self.is_local and os.path.dirname(
+            os.path.expanduser(doc_source)
+        ) != os.path.expanduser(storage):
             # shutil.copy(doc_source, storage) # move not copy
             try:
                 shutil.move(doc_source, storage)
@@ -933,61 +1010,119 @@ class DocIndex:
         self.doc_source = doc_source
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
-        self._title = ''
-        self._short_summary = ''
+        self._title = ""
+        self._short_summary = ""
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
-        self.store_separate = ["indices", "raw_data", "review_data", "static_data", "_paper_details"]
+        self.store_separate = [
+            "indices",
+            "raw_data",
+            "review_data",
+            "static_data",
+            "_paper_details",
+        ]
         print(doc_filetype)
-        assert doc_filetype in ["pdf", "html", "word", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg", "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
+        assert doc_filetype in [
+            "pdf",
+            "html",
+            "word",
+            "jpeg",
+            "md",
+            "jpg",
+            "png",
+            "csv",
+            "xls",
+            "xlsx",
+            "jpeg",
+            "bmp",
+            "svg",
+            "parquet",
+        ] and ("http" in doc_source or os.path.exists(doc_source))
 
-        if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
+        if (
+            hasattr(self, "is_local")
+            and self.is_local
+            or "arxiv.org" not in self.doc_source
+        ):
+
             def set_title_summary():
-                chunks = "\n\n".join(raw_data['chunks'][0:8])
-                short_summary = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False)(f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""", )
-                title = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True)(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+                chunks = "\n\n".join(raw_data["chunks"][0:8])
+                short_summary = CallLLm(
+                    keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False
+                )(
+                    f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""",
+                )
+                title = CallLLm(
+                    keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True
+                )(
+                    f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n"""
+                )
                 setattr(self, "_title", title)
                 setattr(self, "_short_summary", short_summary)
+
             set_title_summary_future = get_async_future(set_title_summary)
         else:
             set_title_summary_future = wrap_in_future(None)
-        static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
+        static_data = dict(
+            doc_source=doc_source,
+            doc_filetype=doc_filetype,
+            doc_type=doc_type,
+            doc_text=doc_text,
+        )
         del full_summary["chunks"]
         _paper_details = None
         # self.set_doc_data("static_data", None, static_data)
         # self.set_doc_data("raw_data", None, raw_data)
 
-
-        futures = [get_async_future(self.set_doc_data, "static_data", None, static_data), get_async_future(self.set_doc_data, "raw_data", None, raw_data)]
-        indices = dict(summary_index=create_index_faiss(['EMPTY'], openai_embed, ))
+        futures = [
+            get_async_future(self.set_doc_data, "static_data", None, static_data),
+            get_async_future(self.set_doc_data, "raw_data", None, raw_data),
+        ]
+        indices = dict(
+            summary_index=create_index_faiss(
+                ["EMPTY"],
+                openai_embed,
+            )
+        )
         futures.append(get_async_future(self.set_doc_data, "indices", None, indices))
         for f in futures:
             sleep_and_get_future_result(f, 0.1)
-        time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+        time_logger.info(
+            f"DocIndex init time without raw index: {(time.time() - init_start):.2f}"
+        )
         self.set_api_keys(keys)
         self.long_summary_waiting = time.time()
+
         def set_raw_index_small():
             _ = sleep_and_get_future_result(set_title_summary_future)
             brief_summary = self.title + "\n" + self.short_summary
-            brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+            brief_summary = (
+                ("Summary:\n" + brief_summary + "\n\n")
+                if len(brief_summary.strip()) > 0
+                else ""
+            )
             self._brief_summary = brief_summary
-            
+
             text = self.brief_summary + doc_text
             self._text_len = get_gpt4_word_count(text)
             self._brief_summary_len = get_gpt3_word_count(brief_summary)
             self._raw_index = sleep_and_get_future_result(raw_index_future)
             self._raw_index_small = sleep_and_get_future_result(raw_index_small_future)
+
             def get_summary(stream):
                 return "".join(convert_stream_to_iterable(stream))
+
             f1 = get_async_future(get_summary, self.get_doc_long_summary())
             f2 = get_async_future(get_summary, self.get_doc_long_summary_v2())
             while not f1.done() or not f2.done():
                 time.sleep(1)
             # self._long_summary = "".join(f1.result()) + "".join(f2.result())
-            time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
-        set_raw_index_small()
+            time_logger.info(
+                f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}"
+            )
 
+        set_raw_index_small()
 
     @property
     def brief_summary_len(self):
@@ -1029,19 +1164,26 @@ class DocIndex:
     def visible(self):
         return self._visible if hasattr(self, "_visible") else True
 
-    def get_doc_data(self, top_key, inner_key=None,):
+    def get_doc_data(
+        self,
+        top_key,
+        inner_key=None,
+    ):
         import dill
+
         doc_id = self.doc_id
 
         folder = self._storage
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
-        
+
         try:
             assert top_key in self.store_separate
         except Exception as e:
             raise ValueError(f"Invalid top_key {top_key} provided")
-        logger.debug(f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}")
+        logger.debug(
+            f"Get doc data for top_key = {top_key}, inner_key = {inner_key}, folder = {folder}, filepath = {filepath} exists = {os.path.exists(filepath)}, json filepath = {json_filepath} exists = {os.path.exists(json_filepath)}, already loaded = {getattr(self, top_key, None) is not None}"
+        )
         if getattr(self, top_key, None) is not None:
             if inner_key is not None:
                 return getattr(self, top_key, None).get(inner_key, None)
@@ -1069,26 +1211,35 @@ class DocIndex:
                     return obj
             else:
                 return None
-        
-    
+
     def set_doc_data(self, top_key, inner_key, value, overwrite=False):
         import dill
+
         doc_id = self.doc_id
         folder = self._storage
         print(folder)
         filepath = os.path.join(folder, f"{doc_id}-{top_key}.partial")
         json_filepath = os.path.join(folder, f"{doc_id}-{top_key}.json")
         path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}-{top_key}")
+        lock_location = os.path.join(
+            os.path.join(path.parent.parent, "locks"), f"{doc_id}-{top_key}"
+        )
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
             if inner_key is not None:
                 tk = self.get_doc_data(top_key)
                 if tk is None:
                     setattr(self, top_key, dict())
-                
+
                 inner = self.get_doc_data(top_key, inner_key)
-                assert type(inner) == type(value) or inner is None or (isinstance(inner, (tuple, list)) and isinstance(value, (tuple, list)))
+                assert (
+                    type(inner) == type(value)
+                    or inner is None
+                    or (
+                        isinstance(inner, (tuple, list))
+                        and isinstance(value, (tuple, list))
+                    )
+                )
                 if isinstance(inner, dict) and not overwrite:
                     inner.update(value)
                 elif isinstance(inner, list) and not overwrite:
@@ -1104,7 +1255,9 @@ class DocIndex:
                 tk = self.get_doc_data(top_key, None)
                 if top_key == "review_data" and isinstance(tk, dict):
                     tk = list(tk.values())
-                assert (type(tk) == type(value) or tk is None or value is None) or (isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list)))
+                assert (type(tk) == type(value) or tk is None or value is None) or (
+                    isinstance(tk, (tuple, list)) and isinstance(value, (tuple, list))
+                )
                 if tk is not None and type(tk) == type(value):
                     if isinstance(tk, dict) and not overwrite:
                         tk.update(value)
@@ -1127,36 +1280,94 @@ class DocIndex:
             else:
                 with open(os.path.join(filepath), "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
-            
-    
-    def get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
-        answer = ''
+
+    def get_short_answer(
+        self, query, mode=defaultdict(lambda: False), save_answer=True
+    ):
+        answer = ""
         for ans in self.streaming_get_short_answer(query, mode, save_answer):
             answer += ans
         return answer
-    
+
+    def set_model_overrides(self, overrides: dict) -> None:
+        """
+        Store per-document model overrides.
+
+        Parameters
+        ----------
+        overrides : dict
+            Mapping of override keys to model names.
+        """
+        if isinstance(overrides, dict):
+            self._model_overrides = overrides
+        else:
+            self._model_overrides = {}
+
+    def get_model_override(self, key: str, default: str | None = None) -> str | None:
+        """
+        Resolve a model override for this document.
+
+        Parameters
+        ----------
+        key : str
+            Override key.
+        default : str | None, optional
+            Default model name.
+
+        Returns
+        -------
+        str | None
+            Model name or default.
+        """
+        overrides = getattr(self, "_model_overrides", None)
+        if not isinstance(overrides, dict):
+            return default
+        value = overrides.get(key)
+        return value or default
+
     def get_raw_doc_text(self):
-        return self.brief_summary + "\n\n" + self.get_doc_data("static_data", "doc_text")
-    
+        return (
+            self.brief_summary + "\n\n" + self.get_doc_data("static_data", "doc_text")
+        )
+
     def get_doc_long_summary(self):
         # while hasattr(self, "long_summary_waiting") and time.time() - self.long_summary_waiting < 90 and not hasattr(self, "_long_summary"):
         #     time.sleep(0.1)
-        text = self.brief_summary + "\n---\n" + self.get_doc_data("static_data", "doc_text")
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
+        text = (
+            self.brief_summary
+            + "\n---\n"
+            + self.get_doc_data("static_data", "doc_text")
+        )
+        summary_model = self.get_model_override(
+            "doc_long_summary_model", CHEAP_LONG_CONTEXT_LLM[0]
+        )
+        llm = CallLLm(self.get_api_keys(), model_name=summary_model)
         long_summary = ""
         if hasattr(self, "_long_summary"):
             yield self._long_summary
             return
 
-        elif "arxiv" in self.doc_source or "aclanthology" in self.doc_source or "aclweb" in self.doc_source:
+        elif (
+            "arxiv" in self.doc_source
+            or "aclanthology" in self.doc_source
+            or "aclweb" in self.doc_source
+        ):
             paper_summary = prompts.paper_summary_prompt
-            llm_context = paper_summary + "\n\n<context>\n" + text + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
-            llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
+            llm_context = (
+                paper_summary
+                + "\n\n<context>\n"
+                + text
+                + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
+            )
+            paper_model = self.get_model_override(
+                "doc_long_summary_model", EXPENSIVE_LLM[0]
+            )
+            llm = CallLLm(self.get_api_keys(), model_name=paper_model)
             document_type = "scientific paper"
-            
+
         else:
-            llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
-            
+            llm = CallLLm(self.get_api_keys(), model_name=summary_model)
+
             # Step 1: Identify document type and key aspects
             identify_prompt = dedent("""
             Analyze the following document and:
@@ -1206,33 +1417,68 @@ class DocIndex:
 
             Your response should be in the xml format given above. Write the response below.
             """)
-            
-            
-            identification = llm(identify_prompt.format(text=text[:64_000]), temperature=0.7, stream=False)
-            document_type = identification.split("<document_type>")[1].split("</document_type>")[0].lower().strip()
-            key_aspects = identification.split("<key_aspects>")[1].split("</key_aspects>")[0].lower().strip()
-            key_takeaways = identification.split("<key_takeaways>")[1].split("</key_takeaways>")[0].lower().strip()
-            key_numbers = identification.split("<key_numbers>")[1].split("</key_numbers>")[0].lower().strip()
-            
+
+            identification = llm(
+                identify_prompt.format(text=text[:64_000]),
+                temperature=0.7,
+                stream=False,
+            )
+            document_type = (
+                identification.split("<document_type>")[1]
+                .split("</document_type>")[0]
+                .lower()
+                .strip()
+            )
+            key_aspects = (
+                identification.split("<key_aspects>")[1]
+                .split("</key_aspects>")[0]
+                .lower()
+                .strip()
+            )
+            key_takeaways = (
+                identification.split("<key_takeaways>")[1]
+                .split("</key_takeaways>")[0]
+                .lower()
+                .strip()
+            )
+            key_numbers = (
+                identification.split("<key_numbers>")[1]
+                .split("</key_numbers>")[0]
+                .lower()
+                .strip()
+            )
+
             long_summary += f"\n\n<b> Document Type: {document_type} </b> \n </br>"
             yield f"\n\n<b> Document Type: {document_type} </b> \n </br>"
-            
-            
-            
+
             long_summary += f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
             yield f"\n\n<b> Key Takeaways:</b> \n{key_takeaways} \n \n </br>"
-            
+
             long_summary += f"\n\n<b> Key Numbers:</b> \n{key_numbers} \n \n </br>"
             yield f"\n\n<b> Key Numbers:</b> \n{key_numbers} \n \n </br>"
-            
+
             if document_type == "scientific paper" or document_type == "research paper":
                 detailed_summary_prompt = prompts.paper_summary_prompt
             else:
                 detailed_summary_prompt = ""
             logger.info(f"Document Type: {document_type}, ")
-            if document_type not in ["scientific paper", "technical report", "research paper", "technical paper", "business report", "business proposal", "business plan", "technical documentation", "api documentation", "user manual", "other"]:
-                raise ValueError(f"Invalid document type {document_type} identified. Please try again.")
-            
+            if document_type not in [
+                "scientific paper",
+                "technical report",
+                "research paper",
+                "technical paper",
+                "business report",
+                "business proposal",
+                "business plan",
+                "technical documentation",
+                "api documentation",
+                "user manual",
+                "other",
+            ]:
+                raise ValueError(
+                    f"Invalid document type {document_type} identified. Please try again."
+                )
+
             # Step 2: Generate the comprehensive summary
             summary_prompt = dedent(f"""
             We have read the document and following is the analysis of the document:
@@ -1259,23 +1505,44 @@ class DocIndex:
 
             Write the Comprehensive and In-depth Summary.
             """)
-            llm_context = summary_prompt.format(document_type=document_type, key_aspects=key_aspects, key_takeaways=key_takeaways, detailed_summary_prompt=detailed_summary_prompt, text=text)
-            
-            
+            llm_context = summary_prompt.format(
+                document_type=document_type,
+                key_aspects=key_aspects,
+                key_takeaways=key_takeaways,
+                detailed_summary_prompt=detailed_summary_prompt,
+                text=text,
+            )
+
         ans_generator = llm(llm_context, temperature=0.7, stream=True)
         method_ans_generator = None
-        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"] and False:
-        
-            llm2 = CallLLm(self.get_api_keys(), model_name=CHEAP_LONG_CONTEXT_LLM[0])
+        if (
+            "arxiv" in self.doc_source
+            or document_type
+            in ["scientific paper", "research paper", "technical paper"]
+            and False
+        ):
+            llm2_model = self.get_model_override(
+                "doc_long_summary_model", CHEAP_LONG_CONTEXT_LLM[0]
+            )
+            llm2 = CallLLm(self.get_api_keys(), model_name=llm2_model)
             method_prompt = prompts.paper_details_map["methodology"]
-            method_prompt += "\n\n<context>\n" + text + f"\n</context>\n{math_formatting_instructions}\n\nWrite a detailed and comprehensive explanation of the methodology used in the paper covering the mathematical details as well as the intuition behind the methodology."
+            method_prompt += (
+                "\n\n<context>\n"
+                + text
+                + f"\n</context>\n{math_formatting_instructions}\n\nWrite a detailed and comprehensive explanation of the methodology used in the paper covering the mathematical details as well as the intuition behind the methodology."
+            )
             method_ans_generator = llm2(method_prompt, temperature=0.7, stream=True)
 
         for ans in ans_generator:
             long_summary += ans
             yield ans
-            
-        if "arxiv" in self.doc_source or document_type in ["scientific paper", "research paper", "technical paper"] and method_ans_generator is not None:
+
+        if (
+            "arxiv" in self.doc_source
+            or document_type
+            in ["scientific paper", "research paper", "technical paper"]
+            and method_ans_generator is not None
+        ):
             long_summary += "\n\n ## More Details on their methodology \n"
             yield "\n\n ## More Details on their methodology \n"
             for ans in method_ans_generator:
@@ -1284,66 +1551,80 @@ class DocIndex:
         setattr(self, "_long_summary", long_summary)
         self.save_local()
 
-    def get_doc_long_summary_v2(self, model_name: str = None, aspects: List[str] = None):
+    def get_doc_long_summary_v2(
+        self, model_name: str = None, aspects: List[str] = None
+    ):
         """
         Generate a comprehensive multi-facet summary of the document.
-        
+
         This method creates different types of summaries/analyses based on selected aspects.
         Uses the MultiFacetDocSummarizer class for the actual generation.
-        
+
         Args:
             model_name: LLM model to use (default: CHEAP_LONG_CONTEXT_LLM[0])
             aspects: List of aspect IDs to include (default: all 6 aspects)
-                     Options: "detailed", "facts_stats", "key_notes", "complex_faq", 
+                     Options: "detailed", "facts_stats", "key_notes", "complex_faq",
                               "nitpicks", "agentic_qa"
-        
+
         Yields:
             Formatted strings for each section of the multi-facet summary
         """
         if model_name is None:
-            model_name = CHEAP_LONG_CONTEXT_LLM[0]
+            model_name = self.get_model_override(
+                "doc_long_summary_v2_model", CHEAP_LONG_CONTEXT_LLM[0]
+            )
         if aspects is None:
-            aspects = ["detailed", "facts_stats", "key_notes", "complex_faq", "nitpicks", "agentic_qa"]
+            aspects = [
+                "detailed",
+                "facts_stats",
+                "key_notes",
+                "complex_faq",
+                "nitpicks",
+                "agentic_qa",
+            ]
         # Check if already cached (only for default full summary)
         cache_key = f"_long_summary_v2"
         if hasattr(self, cache_key):
             yield getattr(self, cache_key)
             return
-        
+
         # Get the document text
-        text = self.brief_summary + "\n---\n" + self.get_doc_data("static_data", "doc_text")
-        
+        text = (
+            self.brief_summary
+            + "\n---\n"
+            + self.get_doc_data("static_data", "doc_text")
+        )
+
         # Create summarizer and generate
         summarizer = MultiFacetDocSummarizer(
-            api_keys=self.get_api_keys(),
-            model_name=model_name,
-            aspects=aspects
+            api_keys=self.get_api_keys(), model_name=model_name, aspects=aspects
         )
-        
+
         full_summary = ""
         for chunk in summarizer.summarize(text):
             full_summary += chunk
             yield chunk
-        
+
         # Cache the result
         setattr(self, cache_key, full_summary)
         self.save_local()
-        
-    
+
     def get_chain_of_density_summary(self):
         """Generate a high-density summary using chain-of-density technique adapted to document type."""
-        
+
         if hasattr(self, "_dense_summary"):
             return self._dense_summary
-        
+
         # Get base summary and document analysis
         if hasattr(self, "_long_summary"):
             base_summary = self._long_summary
         else:
             base_summary = make_stream(self.get_doc_long_summary(), False)
-        
-        
-        llm = CallLLm(self.get_api_keys(), model_name=EXPENSIVE_LLM[0])
+
+        density_model = self.get_model_override(
+            "doc_long_summary_model", EXPENSIVE_LLM[0]
+        )
+        llm = CallLLm(self.get_api_keys(), model_name=density_model)
         if "arxiv" in self.doc_source:
             doc_analysis = json.loads("""
                                       {
@@ -1386,36 +1667,50 @@ class DocIndex:
                 "missing_elements": ["list of missing elements from the summary which could be added if present in the document"]
             }}
             """)
-        
+
             json_response = llm(
-                identify_prompt.format(text=base_summary),
-                temperature=0.1,
-                stream=False
+                identify_prompt.format(text=base_summary), temperature=0.1, stream=False
             )
             logger.info(f"Chain of density identify response: \n{json_response}")
             doc_analysis = json.loads(json_response)
-        
+
         # Select appropriate density prompt based on document type
-        if doc_analysis["doc_type"] in ["scientific paper", "research paper", "technical paper"]:
+        if doc_analysis["doc_type"] in [
+            "scientific paper",
+            "research paper",
+            "technical paper",
+        ]:
             density_prompt = prompts.scientific_chain_of_density_prompt
-        elif doc_analysis["doc_type"] in ["business report", "business proposal", "business plan"]:
+        elif doc_analysis["doc_type"] in [
+            "business report",
+            "business proposal",
+            "business plan",
+        ]:
             density_prompt = prompts.business_chain_of_density_prompt
-        elif doc_analysis["doc_type"] in ["technical documentation", "api documentation", "user manual"]:
+        elif doc_analysis["doc_type"] in [
+            "technical documentation",
+            "api documentation",
+            "user manual",
+        ]:
             density_prompt = prompts.technical_chain_of_density_prompt
         else:
             density_prompt = prompts.general_chain_of_density_prompt
-        
+
         text = self.brief_summary + self.get_doc_data("static_data", "doc_text")
         # Initialize with first dense summary
         random_identifier = str(uuid.uuid4())
-        answer = f"\n\n**Summary {0 + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{0}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{0}'>\n" + base_summary + f"\n</div>\n\n"
+        answer = (
+            f"\n\n**Summary {0 + 1} :** <div data-toggle='collapse' href='#summary-{random_identifier}-{0}' role='button'></div> <div class='collapse' id='summary-{random_identifier}-{0}'>\n"
+            + base_summary
+            + f"\n</div>\n\n"
+        )
         yield answer
         preamble = f"\n\n**Final Summary :** <div data-toggle='collapse' href='#final-summary-{random_identifier}' role='button' aria-expanded='true'></div> <div class='collapse show' id='final-summary-{random_identifier}'>\n"
         answer += preamble
         yield preamble
-        
+
         llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
-        
+
         generator = llm(
             density_prompt.format(
                 text=text,
@@ -1426,20 +1721,20 @@ class DocIndex:
                 technical_level=doc_analysis["technical_level"],
                 improvements=", ".join(doc_analysis["improvements"]),
                 missing_elements=", ".join(doc_analysis["missing_elements"]),
-                PaperSummary=prompts.paper_summary_prompt
+                PaperSummary=prompts.paper_summary_prompt,
             ),
             temperature=0.7,
             stream=True,
-            system=prompts.chain_of_density_system_prompt
+            system=prompts.chain_of_density_system_prompt,
         )
         for ans in generator:
             yield ans
             answer += ans
         answer += "\n</div>\n\n"
         yield f"\n</div>\n\n"
-        
+
         all_summaries = [base_summary, answer]
-            
+
         setattr(self, "_dense_summary", all_summaries[-1])
         self.save_local()
         random_identifier = str(uuid.uuid4())
@@ -1449,34 +1744,50 @@ class DocIndex:
         st_time = time.time()
         tex_len = self.text_len
         stream1 = self.get_doc_long_summary()
-        summary_text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        summary_text = (
+            self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        )
         summary_text_len = get_gpt4_word_count(summary_text)
         if tex_len + summary_text_len < token_limit:
             text = summary_text + self.get_doc_data("static_data", "doc_text")
             return text
-        rem_word_len = max(0, token_limit - (self.brief_summary_len + len(summary_text.split())))
+        rem_word_len = max(
+            0, token_limit - (self.brief_summary_len + len(summary_text.split()))
+        )
         if rem_word_len <= 0:
             return summary_text
         rem_tokens = rem_word_len // self.chunk_size
         if self.raw_index_small is None:
             logger.warn(
-                f"[semantic_search_document_small]:: Raw index small is None, returning using semantic_search_document fn.")
+                f"[semantic_search_document_small]:: Raw index small is None, returning using semantic_search_document fn."
+            )
             return self.semantic_search_document(query, token_limit)
-        raw_nodes = self.raw_index_small.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+        raw_nodes = self.raw_index_small.similarity_search(
+            query, k=max(self.result_cutoff, rem_tokens)
+        )
 
-        raw_text = "\n---\n".join([f"Small Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        raw_text = "\n---\n".join(
+            [
+                f"Small Doc fragment {ix + 1}:\n{n.page_content}\n"
+                for ix, n in enumerate(raw_nodes)
+            ]
+        )
         raw_text_len = get_gpt4_word_count(raw_text)
-        logger.info(f"[semantic_search_document_small]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {raw_text_len}")
-        
+        logger.info(
+            f"[semantic_search_document_small]:: Answered by {(time.time() - st_time):4f}s for additional info with additional_info_len = {raw_text_len}"
+        )
+
         return summary_text + "\n---\n" + raw_text
 
-    def semantic_search_document(self, query, token_limit=4096*4):
+    def semantic_search_document(self, query, token_limit=4096 * 4):
         # stacktrace = dump_stack()
         # logger.info(f"[semantic_search_document]:: Stack trace: \n{stacktrace}")
         st_time = time.time()
         tex_len = self.text_len
         stream1 = self.get_doc_long_summary()
-        summary_text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        summary_text = (
+            self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
+        )
         stream2 = self.get_doc_long_summary_v2()
         ls2 = convert_stream_to_iterable(stream2)
         summary_text = summary_text + "\n---\n" + ls2 + "\n---\n"
@@ -1484,25 +1795,39 @@ class DocIndex:
         if tex_len + summary_text_len < token_limit:
             text = summary_text + self.get_doc_data("static_data", "doc_text")
             return text
-        rem_word_len = max(0, token_limit - (self.brief_summary_len + len(summary_text.split())))
+        rem_word_len = max(
+            0, token_limit - (self.brief_summary_len + len(summary_text.split()))
+        )
         if rem_word_len <= 0:
             return summary_text
         rem_tokens = rem_word_len // self.chunk_size
         if self.raw_index is None or tex_len < 8_000:
             text = summary_text + self.get_doc_data("static_data", "doc_text")
-            logger.warn(f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text.")
+            logger.warn(
+                f"[semantic_search_document]:: Raw index is None, returning brief summary and first chunk of text."
+            )
             return chunk_text_words(text, chunk_size=token_limit, chunk_overlap=0)[0]
-        raw_nodes = self.raw_index.similarity_search(query, k=max(self.result_cutoff, rem_tokens))
+        raw_nodes = self.raw_index.similarity_search(
+            query, k=max(self.result_cutoff, rem_tokens)
+        )
 
-        raw_text = "\n---\n".join([f"Doc fragment {ix + 1}:\n{n.page_content}\n" for ix, n in enumerate(raw_nodes)])
+        raw_text = "\n---\n".join(
+            [
+                f"Doc fragment {ix + 1}:\n{n.page_content}\n"
+                for ix, n in enumerate(raw_nodes)
+            ]
+        )
         raw_text_len = get_gpt4_word_count(raw_text)
-        logger.info(f"[semantic_search_document]:: Answered by {(time.time()-st_time):4f}s for additional info with additional_info_len = {raw_text_len}")
-        
+        logger.info(
+            f"[semantic_search_document]:: Answered by {(time.time() - st_time):4f}s for additional info with additional_info_len = {raw_text_len}"
+        )
+
         return summary_text + "\n---\n" + raw_text
 
-    
     @streaming_timer
-    def streaming_get_short_answer(self, query, mode=defaultdict(lambda:False), save_answer=True):
+    def streaming_get_short_answer(
+        self, query, mode=defaultdict(lambda: False), save_answer=True
+    ):
         ent_time = time.time()
         detail_level = 1
         if mode["provide_detailed_answers"]:
@@ -1524,7 +1849,13 @@ class DocIndex:
         text = self.brief_summary + "\n---\n" + convert_stream_to_iterable(stream1)
         stream2 = self.get_doc_long_summary_v2()
         ls2 = convert_stream_to_iterable(stream2)
-        text = text + "\n---\n" + ls2 + "\n---\n" + self.get_doc_data("static_data", "doc_text")
+        text = (
+            text
+            + "\n---\n"
+            + ls2
+            + "\n---\n"
+            + self.get_doc_data("static_data", "doc_text")
+        )
         prompt = dedent(f"""
         Answer the question or query given below using the given context as reference. Ensure the answer contains all the facts and information from the document which is relevant to the question or query.
         If the question or query is not related to the document, then answer "This document does not contain information about that." or "No information can be derived about the user query from this document."
@@ -1535,12 +1866,18 @@ class DocIndex:
         {query}
         <|/Query and Conversation Summary|>
 
-        Write {'detailed and comprehensive ' if detail_level >= 3 else 'direct and concise '}answer.
+        Write {"detailed and comprehensive " if detail_level >= 3 else "direct and concise "}answer.
         """)
-        cr = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
-        answer = get_async_future(cr, prompt, text, self.semantic_search_document, CHEAP_LONG_CONTEXT_LLM[0])
+        cr = ContextualReader(
+            self.get_api_keys(), provide_short_responses=detail_level < 2
+        )
+        short_answer_model = self.get_model_override(
+            "doc_short_answer_model", CHEAP_LONG_CONTEXT_LLM[0]
+        )
+        answer = get_async_future(
+            cr, prompt, text, self.semantic_search_document, short_answer_model
+        )
         if False:
-
             prompt2 = dedent(f"""
             Provide a critical, skeptical analysis of the document's ability to answer the question or query given below. 
             Focus on identifying gaps, inconsistencies, limitations, and areas where the document is insufficient or lacks depth.
@@ -1560,26 +1897,50 @@ class DocIndex:
             7. Then write an answer for the question (with facts and anecdotes from the document) using the document as reference despite the limitations and gaps identified.
             8. Write in short and concise manner.
 
-            Write a {'detailed and comprehensive ' if detail_level >= 3 else ''}critical analysis focusing on limitations and gaps rather than what the document does well.
+            Write a {"detailed and comprehensive " if detail_level >= 3 else ""}critical analysis focusing on limitations and gaps rather than what the document does well.
             """)
-            cr2 = ContextualReader(self.get_api_keys(), provide_short_responses=detail_level < 2)
-            answer_sceptical = get_async_future(cr2, prompt2, text, self.semantic_search_document, VERY_CHEAP_LLM[0])
+            cr2 = ContextualReader(
+                self.get_api_keys(), provide_short_responses=detail_level < 2
+            )
+            sceptical_model = self.get_model_override(
+                "doc_short_answer_model", VERY_CHEAP_LLM[0]
+            )
+            answer_sceptical = get_async_future(
+                cr2, prompt2, text, self.semantic_search_document, sceptical_model
+            )
         else:
-            answer_sceptical = wrap_in_future(("", ''))
-
+            answer_sceptical = wrap_in_future(("", ""))
 
         tex_len = self.text_len
-        answer = sleep_and_get_future_result(answer) if sleep_and_get_future_exception(answer) is None else ""
+        answer = (
+            sleep_and_get_future_result(answer)
+            if sleep_and_get_future_exception(answer) is None
+            else ""
+        )
         answer, _ = answer
-        answer_sceptical = sleep_and_get_future_result(answer_sceptical) if sleep_and_get_future_exception(answer_sceptical) is None else ""
+        answer_sceptical = (
+            sleep_and_get_future_result(answer_sceptical)
+            if sleep_and_get_future_exception(answer_sceptical) is None
+            else ""
+        )
         answer_sceptical, _ = answer_sceptical
         answer_sceptical = remove_bad_whitespaces(answer_sceptical)
         answer = remove_bad_whitespaces(answer)
-        answer = answer + (("\n\n<critical_analysis>\n" + answer_sceptical + "\n</critical_analysis>\n") if len(answer_sceptical.strip()) > 0 else "")
-        len_answer = len(re.findall(r'\S+', answer))
+        answer = answer + (
+            (
+                "\n\n<critical_analysis>\n"
+                + answer_sceptical
+                + "\n</critical_analysis>\n"
+            )
+            if len(answer_sceptical.strip()) > 0
+            else ""
+        )
+        len_answer = len(re.findall(r"\S+", answer))
         for t in answer:
             yield t
-        logger.info(f"[DocIndex] [streaming_get_short_answer] final_result len = {len(answer.split())} words.")
+        logger.info(
+            f"[DocIndex] [streaming_get_short_answer] final_result len = {len(answer.split())} words."
+        )
         yield ""
 
     def get_short_info(self):
@@ -1587,9 +1948,16 @@ class DocIndex:
         if self.is_local:
             # only give filename in source
             # source = os.path.basename(source)
-            source = source.replace(os.path.dirname(__file__)+"/", "")
-        return dict(visible=self.visible, doc_id=self.doc_id, source=source, title=self.title, short_summary=self.short_summary, summary=self.short_summary)
-    
+            source = source.replace(os.path.dirname(__file__) + "/", "")
+        return dict(
+            visible=self.visible,
+            doc_id=self.doc_id,
+            source=source,
+            title=self.title,
+            short_summary=self.short_summary,
+            summary=self.short_summary,
+        )
+
     @property
     def title(self):
         if hasattr(self, "_title") and len(self._title.strip()) > 0:
@@ -1597,13 +1965,12 @@ class DocIndex:
         elif self.doc_type == "image":
             return "image"
         else:
-            title = CallLLm(self.get_api_keys(),model_name=VERY_CHEAP_LLM[0])(f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n""")
+            title = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0])(
+                f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n"""
+            )
             setattr(self, "_title", title)
             self.save_local()
             return title
-
-        
-
 
     @property
     def short_summary(self):
@@ -1612,17 +1979,21 @@ class DocIndex:
         elif self.doc_type == "image":
             return "image"
         else:
-            short_summary = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False)(f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",)
+            short_summary = CallLLm(
+                self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False
+            )(
+                f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",
+            )
             setattr(self, "_short_summary", short_summary)
             self.save_local()
             return short_summary
 
-        
     @staticmethod
     def load_local(folder):
         original_folder = folder
-        folder = os.path.join(folder, os.path.basename(folder)+".index")
+        folder = os.path.join(folder, os.path.basename(folder) + ".index")
         import dill
+
         try:
             with open(folder, "rb") as f:
                 obj = dill.load(f)
@@ -1634,24 +2005,26 @@ class DocIndex:
                 pass
                 # shutil.rmtree(original_folder)
             except Exception as e:
-                logger.error(
-                    f"Error deleting local storage {folder} with error {e}")
+                logger.error(f"Error deleting local storage {folder} with error {e}")
             return None
-    
+
     def save_local(self):
         import dill
+
         doc_id = self.doc_id
         folder = self._storage
         os.makedirs(folder, exist_ok=True)
         os.makedirs(os.path.join(folder, "locks"), exist_ok=True)
         path = Path(folder)
-        lock_location = os.path.join(os.path.join(path.parent.parent, "locks"), f"{doc_id}")
+        lock_location = os.path.join(
+            os.path.join(path.parent.parent, "locks"), f"{doc_id}"
+        )
         filepath = os.path.join(folder, f"{doc_id}.index")
         lock = FileLock(f"{lock_location}.lock")
         if hasattr(self, "api_keys"):
             presave_api_keys = self.api_keys
             self.api_keys = {k: None for k, v in self.api_keys.items()}
-        
+
         with lock.acquire(timeout=600):
             previous_attr = dict()
             for k in self.store_separate:
@@ -1664,35 +2037,47 @@ class DocIndex:
                 setattr(self, k, v)
         if hasattr(self, "api_keys"):
             self.api_keys = presave_api_keys
-    
-
 
     def get_api_keys(self):
-        logger.debug(f"get api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
+        logger.debug(
+            f"get api keys for self hash = {hash(self)} and doc_id = {self.doc_id}"
+        )
         if hasattr(self, "api_keys"):
             api_keys = deepcopy(self.api_keys)
         else:
             raise AttributeError("No attribute named `api_keys`.")
         return api_keys
-    
-    
-    def set_api_keys(self, api_keys:dict):
+
+    def set_api_keys(self, api_keys: dict):
         assert isinstance(api_keys, dict)
-        logger.debug(f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}")
+        logger.debug(
+            f"set api keys for self hash = {hash(self)} and doc_id = {self.doc_id}"
+        )
         indices = self.get_doc_data("indices")
         if indices is not None:
             for k, j in indices.items():
                 if isinstance(j, (FAISS, VectorStore)):
                     j.embedding_function = get_embedding_model(api_keys).embed_query
                     if USE_OPENAI_API:
-                        j.embedding_function.__self__.openai_api_key = api_keys["openAIKey"]
-                        setattr(j.embedding_function.__self__, "openai_api_key", api_keys["openAIKey"])
+                        j.embedding_function.__self__.openai_api_key = api_keys[
+                            "openAIKey"
+                        ]
+                        setattr(
+                            j.embedding_function.__self__,
+                            "openai_api_key",
+                            api_keys["openAIKey"],
+                        )
                     else:
-                        
-                        j.embedding_function.__self__.openai_api_key = api_keys["jinaAIKey"]
-                        setattr(j.embedding_function.__self__, "openai_api_key", api_keys["jinaAIKey"])
+                        j.embedding_function.__self__.openai_api_key = api_keys[
+                            "jinaAIKey"
+                        ]
+                        setattr(
+                            j.embedding_function.__self__,
+                            "openai_api_key",
+                            api_keys["jinaAIKey"],
+                        )
         setattr(self, "api_keys", api_keys)
-    
+
     def __copy__(self):
         # Create a new instance of our class
         cls = self.__class__
@@ -1702,25 +2087,33 @@ class DocIndex:
         for k in self.store_separate:
             if hasattr(result, k):
                 setattr(result, k, None)
-        
+
         if hasattr(result, "api_keys"):
             result.api_keys = deepcopy(self.api_keys)
-        
+
         return result
-    
+
     def copy(self):
         return self.__copy__()
-
 
 
 class ImmediateDocIndex(DocIndex):
     pass
 
 
-
 class ImageDocIndex(DocIndex):
-    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage,
-                 keys):
+    def __init__(
+        self,
+        doc_source,
+        doc_filetype,
+        doc_type,
+        doc_text,
+        chunk_size,
+        full_summary,
+        openai_embed,
+        storage,
+        keys,
+    ):
         init_start = time.time()
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
 
@@ -1731,12 +2124,14 @@ class ImageDocIndex(DocIndex):
         self.last_access_time = time.time()
         self.is_local = os.path.exists(doc_source)
         # if parent folder of doc_source is not same as storage, then copy the doc_source to storage
-        if self.is_local and os.path.dirname(os.path.expanduser(doc_source)) != os.path.expanduser(storage):
+        if self.is_local and os.path.dirname(
+            os.path.expanduser(doc_source)
+        ) != os.path.expanduser(storage):
             # shutil.copy(doc_source, storage) # move not copy
             shutil.move(doc_source, storage)
             doc_source = os.path.join(storage, os.path.basename(doc_source))
             self.doc_source = doc_source
-        
+
         # TODO: Convert image to pdf if it is an image, change the extension to pdf
         self.doc_source = doc_source
         # Keep a stable reference to the original image for vision-capable LLM calls.
@@ -1748,33 +2143,68 @@ class ImageDocIndex(DocIndex):
         #   will end up sending a PDF disguised as an image, which providers reject with
         #   "Could not process image".
         self._llm_image_source = doc_source
-        
-        
+
         self.doc_filetype = doc_filetype
         self.doc_type = doc_type
-        self._title = ''
+        self._title = ""
         self.init_complete = False
-        self._short_summary = ''
+        self._short_summary = ""
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
-        self.store_separate = ["indices", "raw_data", "static_data",
-                               "_paper_details"]
-        assert doc_filetype in ["pdf", "word", "jpeg", "jpg", "png", "csv", "xls", "xlsx", "jpeg", "bmp", "svg",
-                                "parquet"] and ("http" in doc_source or os.path.exists(doc_source))
+        self.store_separate = ["indices", "raw_data", "static_data", "_paper_details"]
+        assert doc_filetype in [
+            "pdf",
+            "word",
+            "jpeg",
+            "jpg",
+            "png",
+            "csv",
+            "xls",
+            "xlsx",
+            "jpeg",
+            "bmp",
+            "svg",
+            "parquet",
+        ] and ("http" in doc_source or os.path.exists(doc_source))
 
         def complete_init_image_doc_index():
             llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LLM[0])
-            llm2 = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LONG_CONTEXT_LLM[0])
-            doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[self.llm_image_source], stream=False)
-            doc_text_f2 = get_async_future(llm2, prompts.deep_caption_prompt, images=[self.llm_image_source], stream=False)
+            llm2 = CallLLm(
+                keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LONG_CONTEXT_LLM[0]
+            )
+            doc_text_f1 = get_async_future(
+                llm,
+                prompts.deep_caption_prompt,
+                images=[self.llm_image_source],
+                stream=False,
+            )
+            doc_text_f2 = get_async_future(
+                llm2,
+                prompts.deep_caption_prompt,
+                images=[self.llm_image_source],
+                stream=False,
+            )
 
             while not doc_text_f1.done() or not doc_text_f2.done():
                 time.sleep(1)
-            ocr_1 = sleep_and_get_future_result(doc_text_f1) if sleep_and_get_future_exception(doc_text_f1) is None else ""
-            ocr_2 = sleep_and_get_future_result(doc_text_f2) if sleep_and_get_future_exception(doc_text_f2) is None else ""
+            ocr_1 = (
+                sleep_and_get_future_result(doc_text_f1)
+                if sleep_and_get_future_exception(doc_text_f1) is None
+                else ""
+            )
+            ocr_2 = (
+                sleep_and_get_future_result(doc_text_f2)
+                if sleep_and_get_future_exception(doc_text_f2) is None
+                else ""
+            )
             if len(ocr_1) > 0 and len(ocr_2) > 0:
-                doc_text = "OCR and analysis from strong model:\n" + ocr_1 + "\nOCR and analysis from weak model:\n" + ocr_2
+                doc_text = (
+                    "OCR and analysis from strong model:\n"
+                    + ocr_1
+                    + "\nOCR and analysis from weak model:\n"
+                    + ocr_2
+                )
             elif len(ocr_1) > 0:
                 doc_text = "OCR and analysis from strong model:\n" + ocr_1
             elif len(ocr_2) > 0:
@@ -1782,33 +2212,58 @@ class ImageDocIndex(DocIndex):
             else:
                 doc_text = "OCR failed."
 
+            if (
+                hasattr(self, "is_local")
+                and self.is_local
+                or "arxiv.org" not in self.doc_source
+            ):
 
-            if hasattr(self, "is_local") and self.is_local or "arxiv.org" not in self.doc_source:
                 def set_title_summary():
-                    title = doc_text.split("</detailed_caption>")[0].split("<detailed_caption>")[-1].strip()
-                    short_summary = doc_text.split("</detailed_insights>")[0].split("<detailed_insights>")[-1].strip()
+                    title = (
+                        doc_text.split("</detailed_caption>")[0]
+                        .split("<detailed_caption>")[-1]
+                        .strip()
+                    )
+                    short_summary = (
+                        doc_text.split("</detailed_insights>")[0]
+                        .split("<detailed_insights>")[-1]
+                        .strip()
+                    )
                     setattr(self, "_title", title)
                     setattr(self, "_short_summary", short_summary)
 
                 set_title_summary_future = get_async_future(set_title_summary)
             else:
                 set_title_summary_future = wrap_in_future(None)
-            static_data = dict(doc_source=doc_source, doc_filetype=doc_filetype, doc_type=doc_type, doc_text=doc_text)
+            static_data = dict(
+                doc_source=doc_source,
+                doc_filetype=doc_filetype,
+                doc_type=doc_type,
+                doc_text=doc_text,
+            )
             del full_summary["chunks"]
 
-            self.set_doc_data( "static_data", None, static_data)
-            time_logger.info(f"DocIndex init time without raw index: {(time.time() - init_start):.2f}")
+            self.set_doc_data("static_data", None, static_data)
+            time_logger.info(
+                f"DocIndex init time without raw index: {(time.time() - init_start):.2f}"
+            )
             self.set_api_keys(keys)
 
             def set_raw_index_small():
                 _ = sleep_and_get_future_result(set_title_summary_future)
                 brief_summary = self.title + "\n" + self.short_summary
-                brief_summary = ("Summary:\n" + brief_summary + "\n\n") if len(brief_summary.strip()) > 0 else ""
+                brief_summary = (
+                    ("Summary:\n" + brief_summary + "\n\n")
+                    if len(brief_summary.strip()) > 0
+                    else ""
+                )
                 self._brief_summary = brief_summary
                 text = self.brief_summary + doc_text
                 self._text_len = get_gpt4_word_count(text)
                 self._brief_summary_len = get_gpt3_word_count(brief_summary)
-                time_logger.info(f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}")
+                time_logger.info(
+                    f"DocIndex init time with raw index and title, summary: {(time.time() - init_start):.2f}"
+                )
 
             set_raw_index_small()
             self.init_complete = True
@@ -1818,10 +2273,11 @@ class ImageDocIndex(DocIndex):
         self.init_future = get_async_future(complete_init_image_doc_index)
         if doc_filetype in ["jpeg", "jpg", "png", "bmp", "svg"]:
             from img2pdf import convert
+
             pdf_path = os.path.splitext(doc_source)[0] + ".pdf"
-            with open(doc_source, 'rb') as f:
+            with open(doc_source, "rb") as f:
                 image_data = f.read()
-            with open(pdf_path, 'wb') as f:
+            with open(pdf_path, "wb") as f:
                 f.write(convert(image_data))
             doc_source = pdf_path
             doc_filetype = "pdf"
@@ -1847,12 +2303,13 @@ class ImageDocIndex(DocIndex):
     def wait_till_init_complete(self):
         while not self.init_complete:
             time.sleep(1)
-        logger.info(f"Waited for init complete for Image doc id = {self.doc_id} with source = {self.doc_source}")
+        logger.info(
+            f"Waited for init complete for Image doc id = {self.doc_id} with source = {self.doc_source}"
+        )
         setattr(self, "init_complete", True)
         return True
 
     def semantic_search_document_small(self, query, token_limit=4096):
-
         return self.semantic_search_document(query, token_limit)
 
     def semantic_search_document(self, query, token_limit=4096):
@@ -1861,22 +2318,40 @@ class ImageDocIndex(DocIndex):
         return text
 
     @streaming_timer
-    def streaming_get_short_answer(self, query, mode=defaultdict(lambda: False), save_answer=False):
+    def streaming_get_short_answer(
+        self, query, mode=defaultdict(lambda: False), save_answer=False
+    ):
         self.wait_till_init_complete()
         doc_text = self.get_doc_data("static_data", "doc_text")
         text = self.brief_summary + doc_text
         if mode["provide_detailed_answers"] >= 3:
-            llm = CallLLm(self.get_api_keys(), use_gpt4=True, model_name=EXPENSIVE_LLM[0])
-            prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(text, query)
-            answer = llm(prompt, images=[self.llm_image_source], temperature=0.7, stream=False)
+            llm = CallLLm(
+                self.get_api_keys(), use_gpt4=True, model_name=EXPENSIVE_LLM[0]
+            )
+            prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(
+                text, query
+            )
+            answer = llm(
+                prompt, images=[self.llm_image_source], temperature=0.7, stream=False
+            )
             yield answer
         else:
             yield text
 
 
 class YouTubeDocIndex(DocIndex):
-    def __init__(self, doc_source, doc_filetype, doc_type, doc_text, chunk_size, full_summary, openai_embed, storage,
-                 keys):
+    def __init__(
+        self,
+        doc_source,
+        doc_filetype,
+        doc_type,
+        doc_text,
+        chunk_size,
+        full_summary,
+        openai_embed,
+        storage,
+        keys,
+    ):
         pass
 
 
@@ -1952,7 +2427,7 @@ def _transcribe_audio_document(audio_path: str, keys: dict) -> Tuple[str, str]:
     return transcription, pdf_output_path
 
 
-def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
+def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
     from langchain_community.document_loaders import UnstructuredMarkdownLoader
     from langchain_community.document_loaders import JSONLoader
     from langchain_community.document_loaders import UnstructuredHTMLLoader
@@ -1962,13 +2437,22 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     from langchain_community.document_loaders import TextLoader
     from langchain_community.document_loaders import YoutubeLoader
     import pandas as pd
+
     is_image = False
     image_futures = None
     chunk_overlap = 128
     pdf_url = pdf_url.strip()
     lower_pdf_url = pdf_url.lower()
     # check if the link is local or remote
-    is_remote = pdf_url.startswith("http") or pdf_url.startswith("ftp") or pdf_url.startswith("s3") or pdf_url.startswith("gs") or pdf_url.startswith("azure") or pdf_url.startswith("https") or pdf_url.startswith("www.")
+    is_remote = (
+        pdf_url.startswith("http")
+        or pdf_url.startswith("ftp")
+        or pdf_url.startswith("s3")
+        or pdf_url.startswith("gs")
+        or pdf_url.startswith("azure")
+        or pdf_url.startswith("https")
+        or pdf_url.startswith("www.")
+    )
     assert is_remote or os.path.exists(pdf_url), f"File {pdf_url} does not exist"
     if is_remote:
         pdf_url = convert_to_pdf_link_if_needed(pdf_url)
@@ -1976,7 +2460,9 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     else:
         is_pdf = lower_pdf_url.endswith(".pdf")
     # based on extension of the pdf_url decide on the loader to use, in case no extension is present then try pdf, word, html, markdown in that order.
-    logger.info(f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}")
+    logger.info(
+        f"Creating immediate doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}"
+    )
     if is_pdf:
         filetype = "pdf"
     elif lower_pdf_url.endswith(".docx"):
@@ -2010,12 +2496,19 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     elif pdf_url.endswith(".docx"):
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
         from converters import convert_doc_to_pdf
+
         convert_doc_to_pdf(pdf_url, pdf_url.replace(".docx", ".pdf"))
         pdf_url = pdf_url.replace(".docx", ".pdf")
-    elif is_remote and ("https://www.youtube.com/watch?v" in pdf_url or "https://www.youtube.com/shorts/" in pdf_url or is_youtube_link(pdf_url)) and False:
-        doc_text = YoutubeLoader.from_youtube_url(
-            pdf_url, add_video_info=False
-        ).load()
+    elif (
+        is_remote
+        and (
+            "https://www.youtube.com/watch?v" in pdf_url
+            or "https://www.youtube.com/shorts/" in pdf_url
+            or is_youtube_link(pdf_url)
+        )
+        and False
+    ):
+        doc_text = YoutubeLoader.from_youtube_url(pdf_url, add_video_info=False).load()
         doc_text = "\n".join([d.page_content for d in doc_text])
 
     elif is_remote and is_youtube_link(pdf_url):
@@ -2023,17 +2516,31 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
         from YouTubeDocIndex import answer_youtube_question
-        result = answer_youtube_question("", pdf_url, keys["ASSEMBLYAI_API_KEY"], keys["OPENROUTER_API_KEY"], temp_folder)
-        doc_text = result["transcript"] + "\n" + result["summary"] + "\n" + result["subtitles"]
-        
-    
-    elif is_remote and not (pdf_url.endswith(".md") or pdf_url.endswith(".json") or pdf_url.endswith(".csv") or pdf_url.endswith(".txt")):
+
+        result = answer_youtube_question(
+            "",
+            pdf_url,
+            keys["ASSEMBLYAI_API_KEY"],
+            keys["OPENROUTER_API_KEY"],
+            temp_folder,
+        )
+        doc_text = (
+            result["transcript"] + "\n" + result["summary"] + "\n" + result["subtitles"]
+        )
+
+    elif is_remote and not (
+        pdf_url.endswith(".md")
+        or pdf_url.endswith(".json")
+        or pdf_url.endswith(".csv")
+        or pdf_url.endswith(".txt")
+    ):
         html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
         # save this html to a file and then use the html loader.
         html_file = os.path.join(folder, "temp.html")
         with open(html_file, "w") as f:
             f.write(html)
         from converters import convert_html_to_pdf
+
         convert_html_to_pdf(html_file, html_file.replace(".html", ".pdf"))
         pdf_url = html_file.replace(".html", ".pdf")
         # delete html file
@@ -2041,19 +2548,23 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         doc_text = UnstructuredHTMLLoader(html_file).load()[0].page_content
     elif pdf_url.endswith(".html"):
         from converters import convert_html_to_pdf
+
         doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
         convert_html_to_pdf(pdf_url, pdf_url.replace(".html", ".pdf"))
         pdf_url = pdf_url.replace(".html", ".pdf")
-        
+
     elif pdf_url.endswith(".md"):
         doc_text = UnstructuredMarkdownLoader(pdf_url).load()[0].page_content
         from converters import convert_markdown_to_pdf
+
         convert_markdown_to_pdf(pdf_url, pdf_url.replace(".md", ".pdf"))
         pdf_url = pdf_url.replace(".md", ".pdf")
-        
+
     elif _is_audio_file(pdf_url):
         if is_remote:
-            raise ValueError("Remote audio URLs are not supported. Please upload the audio file directly.")
+            raise ValueError(
+                "Remote audio URLs are not supported. Please upload the audio file directly."
+            )
         doc_text, pdf_url = _transcribe_audio_document(pdf_url, keys)
         is_pdf = True
     elif pdf_url.endswith(".json"):
@@ -2068,7 +2579,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         df = pd.read_parquet(pdf_url)
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".xlsx") or pdf_url.endswith(".xls"):
-        df = pd.read_excel(pdf_url, engine='openpyxl')
+        df = pd.read_excel(pdf_url, engine="openpyxl")
         doc_text = df.to_markdown()
     elif pdf_url.endswith(".jsonlines") or pdf_url.endswith(".jsonl"):
         df = pd.read_json(pdf_url, lines=True)
@@ -2079,18 +2590,27 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
     elif pdf_url.endswith(".txt"):
         doc_text = TextLoader(pdf_url).load()[0].page_content
         from converters import convert_markdown_to_pdf
+
         convert_markdown_to_pdf(pdf_url, pdf_url.replace(".txt", ".pdf"))
         pdf_url = pdf_url.replace(".txt", ".pdf")
-    elif pdf_url.endswith(".jpg") or pdf_url.endswith(".jpeg") or pdf_url.endswith(".png") or pdf_url.endswith(".bmp") or pdf_url.endswith(".svg"):
-
+    elif (
+        pdf_url.endswith(".jpg")
+        or pdf_url.endswith(".jpeg")
+        or pdf_url.endswith(".png")
+        or pdf_url.endswith(".bmp")
+        or pdf_url.endswith(".svg")
+    ):
         doc_text = ""
         is_image = True
         chunk_overlap = 0
     else:
         raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
-    
-        
-    doc_text = doc_text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+
+    doc_text = (
+        doc_text.replace("<|endoftext|>", "\n")
+        .replace("endoftext", "end_of_text")
+        .replace("<|endoftext|>", "")
+    )
     doc_text_len = len(doc_text.split())
     if doc_text_len < 16000:
         chunk_size = LARGE_CHUNK_LEN // 8
@@ -2098,11 +2618,21 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunk_size = LARGE_CHUNK_LEN // 4
     else:
         chunk_size = LARGE_CHUNK_LEN // 2
-    chunk_overlap = min(chunk_size//2, 128)
-    chunk_size = max(chunk_size, chunk_overlap*2)
+    chunk_overlap = min(chunk_size // 2, 128)
+    chunk_size = max(chunk_size, chunk_overlap * 2)
     if not is_image:
-        chunks = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        chunks_small = get_async_future(chunk_text_words, doc_text, chunk_size=chunk_size//2, chunk_overlap=chunk_overlap)
+        chunks = get_async_future(
+            chunk_text_words,
+            doc_text,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        chunks_small = get_async_future(
+            chunk_text_words,
+            doc_text,
+            chunk_size=chunk_size // 2,
+            chunk_overlap=chunk_overlap,
+        )
         # chunks = get_async_future(ChunkText, doc_text, chunk_size, 64)
         # chunks_small = get_async_future(ChunkText, doc_text, chunk_size//2, 64)
         chunks = sleep_and_get_future_result(chunks)
@@ -2111,21 +2641,49 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
         chunks = []
         chunks_small = []
     nested_dict = {
-        'chunks': chunks,
-        'chunks_small': chunks_small,
-        'image_futures': image_futures,
+        "chunks": chunks,
+        "chunks_small": chunks_small,
+        "image_futures": image_futures,
     }
     openai_embed = get_embedding_model(keys)
     cls = ImmediateDocIndex if not is_image else ImageDocIndex
     try:
-        doc_index: DocIndex = cls(pdf_url,
-                    filetype if filetype in ["pdf", "html", "word", "docx", "jpeg", "md", "jpg", "png", "csv", "xls", "xlsx", "bmp", "svg", "parquet"] else "pdf",
-                    "scientific_article" if not is_image else "image", doc_text, chunk_size, nested_dict, openai_embed, folder, keys)
+        doc_index: DocIndex = cls(
+            pdf_url,
+            filetype
+            if filetype
+            in [
+                "pdf",
+                "html",
+                "word",
+                "docx",
+                "jpeg",
+                "md",
+                "jpg",
+                "png",
+                "csv",
+                "xls",
+                "xlsx",
+                "bmp",
+                "svg",
+                "parquet",
+            ]
+            else "pdf",
+            "scientific_article" if not is_image else "image",
+            doc_text,
+            chunk_size,
+            nested_dict,
+            openai_embed,
+            folder,
+            keys,
+        )
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)
         doc_index.set_api_keys(keys)
+
         def get_doc_ready():
             return doc_index.get_short_info()
+
         _ = get_async_future(get_doc_ready)
         doc_index._visible = True
     except Exception as e:
@@ -2138,7 +2696,7 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
             pass
         logger.error(f"Error creating immediate doc index for {pdf_url}")
         raise e
-    
+
     return doc_index
 
 
@@ -2146,39 +2704,40 @@ def create_immediate_document_index(pdf_url, folder, keys)->DocIndex:
 # Multi-Document Answer Agent
 # =============================================================================
 
+
 class MultiDocAnswerAgent:
     """
     An agent that answers queries using multiple DocIndex documents.
-    
+
     This agent gathers context from multiple documents, reformulates queries for
     better comprehension, and synthesizes answers from all document sources.
     Supports two detail levels for varying depth of response.
-    
+
     Flow:
     1. Reformulate user query based on query, conversation context, and doc summaries
     2. Query each DocIndex in parallel with the reformulated query
     3. Synthesize all answers into a final response
     4. If detail_level=1, do a second pass for additional justification and depth
-    
+
     Usage:
         agent = MultiDocAnswerAgent(docs=[doc1, doc2], model_name="gpt-4", detail_level=1)
         for chunk in agent(query="What is X?", conversation_summary="We discussed Y"):
             print(chunk)
     """
-    
+
     # Token limit for context (using tiktoken gpt-4 encoder)
     MAX_CONTEXT_TOKENS = 150_000
-    
+
     def __init__(
-        self, 
-        docs: List['DocIndex'],
+        self,
+        docs: List["DocIndex"],
         api_keys: dict,
         model_name: str = None,
-        detail_level: int = 0
+        detail_level: int = 0,
     ):
         """
         Initialize the multi-document answer agent.
-        
+
         Args:
             docs: List of DocIndex objects to query
             api_keys: Dictionary containing API keys for LLM services
@@ -2187,63 +2746,68 @@ class MultiDocAnswerAgent:
         """
         if not docs:
             raise ValueError("At least one DocIndex must be provided")
-        
+
         self.docs = docs
         self.api_keys = api_keys
         self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
         self.detail_level = detail_level
-        
+
         # Initialize tiktoken encoder for token counting
         import tiktoken
+
         self.encoder = tiktoken.encoding_for_model("gpt-4")
-    
+
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken."""
         return len(self.encoder.encode(text))
-    
+
     def _get_llm(self, model_name: str = None):
         """Get a configured LLM instance."""
         return CallLLm(self.api_keys, model_name=model_name or self.model_name)
-    
+
     def _get_doc_summaries(self) -> str:
         """Get brief summaries from all documents."""
         summaries = []
         for i, doc in enumerate(self.docs):
-            title = getattr(doc, 'title', f'Document {i+1}')
-            brief = doc.brief_summary if hasattr(doc, 'brief_summary') else ''
-            summaries.append(f"**Document {i+1}: {title}**\n{brief}")
+            title = getattr(doc, "title", f"Document {i + 1}")
+            brief = doc.brief_summary if hasattr(doc, "brief_summary") else ""
+            summaries.append(f"**Document {i + 1}: {title}**\n{brief}")
         return "\n\n".join(summaries)
-    
+
     def _reformulate_query(
-        self, 
-        query: str, 
+        self,
+        query: str,
         conversation_summary: str = None,
-        conversation_history: str = None
+        conversation_history: str = None,
     ) -> str:
         """
         Reformulate the user query to be more detailed and elaborate.
-        
+
         Uses the original query, conversation context, and document summaries
         to create a more comprehensive query for document search.
-        
+
         Args:
             query: Original user query
             conversation_summary: Optional summary of conversation so far
             conversation_history: Optional full conversation history
-            
+
         Returns:
             Reformulated, more detailed query
         """
         doc_summaries = self._get_doc_summaries()
-        
+
         context_parts = []
         if conversation_summary:
             context_parts.append(f"**Conversation Summary:**\n{conversation_summary}")
         if conversation_history:
             context_parts.append(f"**Recent Conversation:**\n{conversation_history}")
-        
-        context_str = "\n\n".join(context_parts) if context_parts else "No prior conversation context."
-        
+
+        context_str = (
+            "\n\n".join(context_parts)
+            if context_parts
+            else "No prior conversation context."
+        )
+
         prompt = dedent(f"""
         You are a query reformulation expert. Your task is to take a user's query and reformulate it 
         into a more detailed, comprehensive question that will help retrieve better information from documents.
@@ -2266,69 +2830,71 @@ class MultiDocAnswerAgent:
         
         **Reformulated Query:**
         """)
-        
+
         llm = self._get_llm(CHEAP_LLM[0])
         reformulated = llm(prompt, temperature=0.3, stream=False)
         return reformulated.strip()
-    
-    def _query_docs_parallel(self, query: str, mode: dict = None) -> List[Tuple[str, str]]:
+
+    def _query_docs_parallel(
+        self, query: str, mode: dict = None
+    ) -> List[Tuple[str, str]]:
         """
         Query all documents in parallel and gather their answers.
-        
+
         Args:
             query: The query to send to each document
             mode: Optional mode dict for get_short_answer
-            
+
         Returns:
             List of (doc_title, answer) tuples
         """
         if mode is None:
             mode = defaultdict(lambda: False)
             mode["provide_detailed_answers"] = 2
-        
+
         # Launch all queries in parallel
         futures = []
         for doc in self.docs:
             future = get_async_future(doc.get_short_answer, query, mode)
             futures.append((doc, future))
-        
+
         # Gather results
         results = []
         for doc, future in futures:
             try:
                 answer = sleep_and_get_future_result(future)
-                title = getattr(doc, 'title', doc.doc_source)
+                title = getattr(doc, "title", doc.doc_source)
                 results.append((title, answer))
             except Exception as e:
-                title = getattr(doc, 'title', doc.doc_source)
+                title = getattr(doc, "title", doc.doc_source)
                 results.append((title, f"Error retrieving answer: {str(e)}"))
                 logger.error(f"Error querying doc {title}: {e}")
-        
+
         return results
-    
+
     def _format_doc_answers(self, doc_answers: List[Tuple[str, str]]) -> str:
         """Format document answers for inclusion in prompts."""
         formatted = []
         for i, (title, answer) in enumerate(doc_answers):
-            formatted.append(f"### Source {i+1}: {title}\n\n{answer}")
+            formatted.append(f"### Source {i + 1}: {title}\n\n{answer}")
         return "\n\n---\n\n".join(formatted)
-    
+
     def _can_include_history(
-        self, 
+        self,
         query: str,
         doc_answers_text: str,
         conversation_summary: str = None,
-        conversation_history: str = None
+        conversation_history: str = None,
     ) -> bool:
         """
         Check if conversation history can be included within token limit.
-        
+
         Args:
             query: Reformulated query
             doc_answers_text: Formatted document answers
             conversation_summary: Conversation summary
             conversation_history: Full conversation history
-            
+
         Returns:
             True if history can be included, False otherwise
         """
@@ -2338,10 +2904,10 @@ class MultiDocAnswerAgent:
             total_tokens += self._count_tokens(conversation_summary)
         if conversation_history:
             total_tokens += self._count_tokens(conversation_history)
-        
+
         # Leave room for prompt template and response
         return total_tokens < (self.MAX_CONTEXT_TOKENS - 10000)
-    
+
     def _generate_final_answer(
         self,
         reformulated_query: str,
@@ -2349,11 +2915,11 @@ class MultiDocAnswerAgent:
         conversation_summary: str = None,
         conversation_history: str = None,
         previous_answer: str = None,
-        is_refinement: bool = False
+        is_refinement: bool = False,
     ) -> str:
         """
         Generate the final synthesized answer from all document sources.
-        
+
         Args:
             reformulated_query: The reformulated user query
             doc_answers: List of (title, answer) tuples from each document
@@ -2361,18 +2927,20 @@ class MultiDocAnswerAgent:
             conversation_history: Optional conversation history
             previous_answer: Previous answer (for refinement pass)
             is_refinement: Whether this is a refinement/justification pass
-            
+
         Returns:
             Synthesized final answer
         """
         doc_answers_text = self._format_doc_answers(doc_answers)
-        
+
         # Check if we can include history
         include_history = self._can_include_history(
-            reformulated_query, doc_answers_text, 
-            conversation_summary, conversation_history
+            reformulated_query,
+            doc_answers_text,
+            conversation_summary,
+            conversation_history,
         )
-        
+
         # Build context sections
         context_parts = []
         if conversation_summary:
@@ -2381,9 +2949,9 @@ class MultiDocAnswerAgent:
             context_parts.append(f"**Conversation History:**\n{conversation_history}")
         elif conversation_history and not include_history:
             context_parts.append("*(Conversation history omitted due to length)*")
-        
+
         context_str = "\n\n".join(context_parts) if context_parts else ""
-        
+
         if is_refinement and previous_answer:
             prompt = dedent(f"""
             You are an expert analyst synthesizing information from multiple document sources.
@@ -2435,22 +3003,20 @@ class MultiDocAnswerAgent:
             
             **Answer:**
             """)
-        
+
         llm = self._get_llm()
         return llm(prompt, temperature=0.5, stream=False)
-    
+
     def _get_justification_answers(
-        self, 
-        reformulated_query: str, 
-        previous_answer: str
+        self, reformulated_query: str, previous_answer: str
     ) -> List[Tuple[str, str]]:
         """
         Query documents for additional justification and details based on previous answer.
-        
+
         Args:
             reformulated_query: The reformulated query
             previous_answer: The initial answer to justify/expand
-            
+
         Returns:
             List of (doc_title, justification) tuples
         """
@@ -2470,113 +3036,112 @@ class MultiDocAnswerAgent:
         
         **Provide additional information and justification:**
         """)
-        
+
         mode = defaultdict(lambda: False)
         mode["provide_detailed_answers"] = 3  # Higher detail for justification
-        
+
         return self._query_docs_parallel(justification_query, mode)
-    
+
     def __call__(
         self,
         query: str,
         conversation_summary: str = None,
-        conversation_history: str = None
+        conversation_history: str = None,
     ):
         """
         Answer a query using multiple documents.
-        
+
         This is the main entry point. It reformulates the query, queries all documents
         in parallel, and synthesizes a final answer. If detail_level=1, performs a
         second pass for additional justification.
-        
+
         Args:
             query: User's question or query
             conversation_summary: Optional summary of conversation so far
             conversation_history: Optional full conversation history text
-            
+
         Yields:
             Chunks of the answer as they are generated
         """
         # Step 1: Reformulate the query
         yield "🔄 *Reformulating query for comprehensive search...*\n\n"
-        
+
         reformulated_query = self._reformulate_query(
             query, conversation_summary, conversation_history
         )
-        
+
         yield f"**Reformulated Query:**\n> {reformulated_query}\n\n"
         yield "---\n\n"
-        
+
         # Step 2: Query all documents in parallel
         yield f"📚 *Querying {len(self.docs)} document(s)...*\n\n"
-        
+
         doc_answers = self._query_docs_parallel(reformulated_query)
-        
+
         yield f"✅ *Received answers from {len(doc_answers)} document(s)*\n\n"
         yield "---\n\n"
-        
+
         # Step 3: Generate initial synthesized answer
         yield "🧠 *Synthesizing answer from all sources...*\n\n"
-        
+
         initial_answer = self._generate_final_answer(
             reformulated_query=reformulated_query,
             doc_answers=doc_answers,
             conversation_summary=conversation_summary,
             conversation_history=conversation_history,
-            is_refinement=False
+            is_refinement=False,
         )
-        
+
         # If detail_level is 0, we're done
         if self.detail_level == 0:
             yield "## Answer\n\n"
             yield initial_answer
             return
-        
+
         # Step 4: For detail_level 1, do refinement pass
         yield "## Initial Answer\n\n"
         yield initial_answer
         yield "\n\n---\n\n"
         yield "🔍 *Gathering additional justification and details...*\n\n"
-        
+
         # Query documents again for justification
         justification_answers = self._get_justification_answers(
             reformulated_query, initial_answer
         )
-        
+
         yield f"✅ *Received additional context from {len(justification_answers)} document(s)*\n\n"
         yield "---\n\n"
-        
+
         # Step 5: Generate refined final answer
         yield "🎯 *Generating refined answer with additional justification...*\n\n"
-        
+
         refined_answer = self._generate_final_answer(
             reformulated_query=reformulated_query,
             doc_answers=justification_answers,
             conversation_summary=conversation_summary,
             conversation_history=conversation_history,
             previous_answer=initial_answer,
-            is_refinement=True
+            is_refinement=True,
         )
-        
+
         yield "## Refined Answer (with Justification)\n\n"
         yield refined_answer
-    
+
     def answer_sync(
         self,
         query: str,
         conversation_summary: str = None,
-        conversation_history: str = None
+        conversation_history: str = None,
     ) -> str:
         """
         Answer a query synchronously (non-streaming).
-        
+
         Args:
             query: User's question or query
             conversation_summary: Optional summary of conversation so far
             conversation_history: Optional full conversation history text
-            
+
         Returns:
             Complete answer as a single string
         """
         return "".join(self(query, conversation_summary, conversation_history))
-

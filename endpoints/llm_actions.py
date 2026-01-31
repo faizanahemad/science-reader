@@ -8,7 +8,7 @@ LLM operations that should not live in `server.py`.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 
 def direct_temporary_llm_action(
@@ -18,6 +18,8 @@ def direct_temporary_llm_action(
     selected_text: str,
     user_message: str = "",
     history: Optional[list[dict]] = None,
+    model_name: Optional[str] = None,
+    model_name_to_canonical: Optional[Callable[[str], str]] = None,
 ) -> Iterable[str]:
     """
     Direct LLM call for temporary actions when no conversation context is available.
@@ -130,7 +132,18 @@ Please respond helpfully and conversationally:""",
 
     prompt = prompts.get(action_type, prompts["explain"])
 
-    llm = CallLLm(keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
+    final_model = model_name or EXPENSIVE_LLM[2]
+    if model_name_to_canonical and final_model:
+        try:
+            final_model = model_name_to_canonical(str(final_model))
+        except Exception:
+            final_model = model_name or EXPENSIVE_LLM[2]
+    llm = CallLLm(
+        keys,
+        model_name=final_model,
+        use_gpt4=False,
+        use_16k=False,
+    )
     response_stream = llm(
         prompt,
         images=[],
@@ -143,5 +156,3 @@ Please respond helpfully and conversationally:""",
     for chunk in response_stream:
         if chunk:
             yield chunk
-
-

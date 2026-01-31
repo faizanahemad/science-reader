@@ -20,7 +20,8 @@ If you are new to the codebase, start with:
 - `features/extension/`: Chrome extension design + implementation docs
 - `features/pwa/`: PWA/service-worker notes
 - `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)
-- `features/conversation_flow/`: chat message send + streaming render pipeline
+- `features/conversation_flow/`: chat message send + streaming render pipeline (includes notes on conversation-level + Doc Index model overrides)
+- `features/conversation_model_overrides/`: per-conversation model override system and UI
 - `features/truth_management_system/`: TMS requirements + API + implementation
 - `features/web_search/`: web search implementation notes
 - `features/audio_slide_agent/`: audio/slide agent docs

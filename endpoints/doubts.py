@@ -13,17 +13,26 @@ import logging
 from flask import Blueprint, Response, jsonify, request, session
 
 from database.conversations import checkConversationExists
-from database.doubts import add_doubt, delete_doubt, get_doubt, get_doubt_history, get_doubts_for_message
+from database.doubts import (
+    add_doubt,
+    delete_doubt,
+    get_doubt,
+    get_doubt_history,
+    get_doubts_for_message,
+)
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_state_and_keys
 from endpoints.responses import json_error
 from endpoints.session_utils import get_session_identity
 from endpoints.state import get_state
 from extensions import limiter
+from common import EXPENSIVE_LLM
+from Conversation import model_name_to_canonical_name
 
 
 doubts_bp = Blueprint("doubts", __name__)
 logger = logging.getLogger(__name__)
+
 
 @doubts_bp.route("/clear_doubt/<conversation_id>/<message_id>", methods=["POST"])
 @limiter.limit("30 per minute")
@@ -34,39 +43,69 @@ def clear_doubt_route(conversation_id: str, message_id: str):
     email, _name, _loggedin = get_session_identity()
     state, keys = get_state_and_keys()
 
-    doubt_text = request.json.get("doubt_text") if request.is_json and request.json else None
-    parent_doubt_id = request.json.get("parent_doubt_id") if request.is_json and request.json else None
-    reward_level = int((request.json.get("reward_level", 0) if request.is_json and request.json else 0) or 0)
+    doubt_text = (
+        request.json.get("doubt_text") if request.is_json and request.json else None
+    )
+    parent_doubt_id = (
+        request.json.get("parent_doubt_id")
+        if request.is_json and request.json
+        else None
+    )
+    reward_level = int(
+        (request.json.get("reward_level", 0) if request.is_json and request.json else 0)
+        or 0
+    )
 
     try:
-        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-            logger.warning(f"User {email} attempted to access conversation {conversation_id} without permission")
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+        if not checkConversationExists(
+            email, conversation_id, users_dir=state.users_dir
+        ):
+            logger.warning(
+                f"User {email} attempted to access conversation {conversation_id} without permission"
+            )
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         conversation = attach_keys(state.conversation_cache[conversation_id], keys)
 
         def generate_doubt_clearing_stream():
             accumulated_doubt_answer = ""
             try:
-                yield json.dumps(
-                    {
-                        "text": "",
-                        "status": "Analyzing message and clearing doubt...",
-                        "conversation_id": conversation_id,
-                        "message_id": message_id,
-                        "type": "doubt_clearing",
-                    }
-                ) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "text": "",
+                            "status": "Analyzing message and clearing doubt...",
+                            "conversation_id": conversation_id,
+                            "message_id": message_id,
+                            "type": "doubt_clearing",
+                        }
+                    )
+                    + "\n"
+                )
 
                 doubt_history = []
                 if parent_doubt_id:
                     try:
-                        doubt_history = get_doubt_history(doubt_id=parent_doubt_id, users_dir=state.users_dir, logger=logger)
-                        logger.info(f"Retrieved doubt history with {len(doubt_history)} entries for follow-up")
+                        doubt_history = get_doubt_history(
+                            doubt_id=parent_doubt_id,
+                            users_dir=state.users_dir,
+                            logger=logger,
+                        )
+                        logger.info(
+                            f"Retrieved doubt history with {len(doubt_history)} entries for follow-up"
+                        )
                     except Exception as history_error:
-                        logger.error(f"Error retrieving doubt history: {str(history_error)}")
+                        logger.error(
+                            f"Error retrieving doubt history: {str(history_error)}"
+                        )
 
-                doubt_generator = conversation.clear_doubt(message_id, doubt_text, doubt_history, reward_level)
+                doubt_generator = conversation.clear_doubt(
+                    message_id, doubt_text, doubt_history, reward_level
+                )
 
                 accumulated_text = ""
                 doubt_id = None
@@ -76,16 +115,19 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                         if chunk:
                             accumulated_text += chunk
                             accumulated_doubt_answer += chunk
-                            yield json.dumps(
-                                {
-                                    "text": chunk,
-                                    "status": "Clearing doubt...",
-                                    "conversation_id": conversation_id,
-                                    "message_id": message_id,
-                                    "type": "doubt_clearing",
-                                    "accumulated_text": accumulated_text,
-                                }
-                            ) + "\n"
+                            yield (
+                                json.dumps(
+                                    {
+                                        "text": chunk,
+                                        "status": "Clearing doubt...",
+                                        "conversation_id": conversation_id,
+                                        "message_id": message_id,
+                                        "type": "doubt_clearing",
+                                        "accumulated_text": accumulated_text,
+                                    }
+                                )
+                                + "\n"
+                            )
                 finally:
                     if accumulated_doubt_answer.strip():
                         try:
@@ -93,7 +135,8 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                                 conversation_id=conversation_id,
                                 user_email=email,
                                 message_id=message_id,
-                                doubt_text=doubt_text or "Please explain this message in more detail.",
+                                doubt_text=doubt_text
+                                or "Please explain this message in more detail.",
                                 doubt_answer=accumulated_doubt_answer,
                                 parent_doubt_id=parent_doubt_id,
                                 users_dir=state.users_dir,
@@ -103,38 +146,50 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                                 f"Doubt clearing data saved successfully with ID {doubt_id}: {len(accumulated_doubt_answer)} characters"
                             )
                         except Exception as save_error:
-                            logger.error(f"Error saving doubt clearing data: {str(save_error)}")
+                            logger.error(
+                                f"Error saving doubt clearing data: {str(save_error)}"
+                            )
                             doubt_id = None
 
                 final_text = f"<doubt_id>{doubt_id}</doubt_id>" if doubt_id else ""
-                yield json.dumps(
-                    {
-                        "text": final_text,
-                        "status": "Doubt cleared successfully!",
-                        "conversation_id": conversation_id,
-                        "message_id": message_id,
-                        "type": "doubt_clearing",
-                        "completed": True,
-                        "accumulated_text": accumulated_text,
-                        "doubt_id": doubt_id,
-                    }
-                ) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "text": final_text,
+                            "status": "Doubt cleared successfully!",
+                            "conversation_id": conversation_id,
+                            "message_id": message_id,
+                            "type": "doubt_clearing",
+                            "completed": True,
+                            "accumulated_text": accumulated_text,
+                            "doubt_id": doubt_id,
+                        }
+                    )
+                    + "\n"
+                )
             except Exception as e:
-                logger.error(f"Error in doubt clearing streaming for {conversation_id}, message {message_id}: {str(e)}")
-                yield json.dumps(
-                    {
-                        "text": "",
-                        "status": f"Error: {str(e)}",
-                        "conversation_id": conversation_id,
-                        "message_id": message_id,
-                        "type": "doubt_clearing",
-                        "error": True,
-                    }
-                ) + "\n"
+                logger.error(
+                    f"Error in doubt clearing streaming for {conversation_id}, message {message_id}: {str(e)}"
+                )
+                yield (
+                    json.dumps(
+                        {
+                            "text": "",
+                            "status": f"Error: {str(e)}",
+                            "conversation_id": conversation_id,
+                            "message_id": message_id,
+                            "type": "doubt_clearing",
+                            "error": True,
+                        }
+                    )
+                    + "\n"
+                )
 
         return Response(generate_doubt_clearing_stream(), content_type="text/plain")
     except Exception as e:
-        logger.error(f"Error clearing doubt for {conversation_id}, message {message_id}: {str(e)}")
+        logger.error(
+            f"Error clearing doubt for {conversation_id}, message {message_id}: {str(e)}"
+        )
         return json_error(str(e), status=500, code="internal_error")
 
 
@@ -162,12 +217,18 @@ def temporary_llm_action_route():
         history = data.get("history", [])
         with_context = bool(data.get("with_context", False))
 
-        logger.info(f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}")
+        logger.info(
+            f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}"
+        )
 
         conversation = None
-        if conversation_id and checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        if conversation_id and checkConversationExists(
+            email, conversation_id, users_dir=state.users_dir
+        ):
             try:
-                conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+                conversation = attach_keys(
+                    state.conversation_cache[conversation_id], keys
+                )
             except Exception as e:
                 logger.warning(f"Could not load conversation {conversation_id}: {e}")
                 conversation = None
@@ -176,9 +237,16 @@ def temporary_llm_action_route():
             try:
                 status_msg = f"Processing {action_type}..."
                 if with_context:
-                    status_msg = f"Processing {action_type} with conversation context..."
+                    status_msg = (
+                        f"Processing {action_type} with conversation context..."
+                    )
 
-                yield json.dumps({"text": "", "status": status_msg, "type": "temporary_llm"}) + "\n"
+                yield (
+                    json.dumps(
+                        {"text": "", "status": status_msg, "type": "temporary_llm"}
+                    )
+                    + "\n"
+                )
 
                 if conversation:
                     response_generator = conversation.temporary_llm_action(
@@ -194,12 +262,19 @@ def temporary_llm_action_route():
                     # Fallback: direct call without conversation context.
                     from endpoints.llm_actions import direct_temporary_llm_action
 
+                    model_name = EXPENSIVE_LLM[2]
+                    if conversation is not None:
+                        model_name = conversation.get_model_override(
+                            "context_action_model", model_name
+                        )
                     response_generator = direct_temporary_llm_action(
                         keys=keys,
                         action_type=action_type,
                         selected_text=selected_text,
                         user_message=user_message,
                         history=history,
+                        model_name=model_name,
+                        model_name_to_canonical=model_name_to_canonical_name,
                     )
 
                 for chunk in response_generator:
@@ -215,12 +290,32 @@ def temporary_llm_action_route():
                             + "\n"
                         )
 
-                yield json.dumps({"text": "", "status": "Complete!", "type": "temporary_llm", "completed": True}) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "text": "",
+                            "status": "Complete!",
+                            "type": "temporary_llm",
+                            "completed": True,
+                        }
+                    )
+                    + "\n"
+                )
                 logger.info(f"Completed temporary LLM action: {action_type}")
 
             except Exception as e:
                 logger.error(f"Error in temporary LLM streaming: {str(e)}")
-                yield json.dumps({"text": "", "status": f"Error: {str(e)}", "type": "temporary_llm", "error": True}) + "\n"
+                yield (
+                    json.dumps(
+                        {
+                            "text": "",
+                            "status": f"Error: {str(e)}",
+                            "type": "temporary_llm",
+                            "error": True,
+                        }
+                    )
+                    + "\n"
+                )
 
         return Response(generate_temporary_llm_stream(), content_type="text/plain")
 
@@ -239,7 +334,9 @@ def get_doubt_route(doubt_id: str):
     state = get_state()
 
     try:
-        doubt_record = get_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        doubt_record = get_doubt(
+            doubt_id=doubt_id, users_dir=state.users_dir, logger=logger
+        )
         if not doubt_record:
             return json_error(
                 "No doubt clearing found with this ID",
@@ -248,9 +345,17 @@ def get_doubt_route(doubt_id: str):
                 success=False,
             )
 
-        if not checkConversationExists(email, doubt_record["conversation_id"], users_dir=state.users_dir):
-            logger.warning(f"User {email} attempted to access doubt {doubt_id} without permission")
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+        if not checkConversationExists(
+            email, doubt_record["conversation_id"], users_dir=state.users_dir
+        ):
+            logger.warning(
+                f"User {email} attempted to access doubt {doubt_id} without permission"
+            )
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         return jsonify({"success": True, "doubt": doubt_record})
     except Exception as e:
@@ -268,7 +373,9 @@ def delete_doubt_route(doubt_id: str):
     state = get_state()
 
     try:
-        doubt_record = get_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        doubt_record = get_doubt(
+            doubt_id=doubt_id, users_dir=state.users_dir, logger=logger
+        )
         if not doubt_record:
             return json_error(
                 "No doubt clearing found with this ID",
@@ -277,13 +384,25 @@ def delete_doubt_route(doubt_id: str):
                 success=False,
             )
 
-        if not checkConversationExists(email, doubt_record["conversation_id"], users_dir=state.users_dir):
-            logger.warning(f"User {email} attempted to delete doubt {doubt_id} without permission")
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+        if not checkConversationExists(
+            email, doubt_record["conversation_id"], users_dir=state.users_dir
+        ):
+            logger.warning(
+                f"User {email} attempted to delete doubt {doubt_id} without permission"
+            )
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
-        deleted = delete_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        deleted = delete_doubt(
+            doubt_id=doubt_id, users_dir=state.users_dir, logger=logger
+        )
         if deleted:
-            return jsonify({"success": True, "message": "Doubt clearing deleted successfully"})
+            return jsonify(
+                {"success": True, "message": "Doubt clearing deleted successfully"}
+            )
         return json_error(
             "Failed to delete doubt clearing",
             status=500,
@@ -305,17 +424,29 @@ def get_doubts_for_message_route(conversation_id: str, message_id: str):
     state = get_state()
 
     try:
-        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-            logger.warning(f"User {email} attempted to access conversation {conversation_id} without permission")
-            return json_error("Conversation not found or access denied", status=404, code="conversation_not_found")
+        if not checkConversationExists(
+            email, conversation_id, users_dir=state.users_dir
+        ):
+            logger.warning(
+                f"User {email} attempted to access conversation {conversation_id} without permission"
+            )
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
 
         doubts = get_doubts_for_message(
-            conversation_id=conversation_id, message_id=message_id, user_email=email, users_dir=state.users_dir, logger=logger
+            conversation_id=conversation_id,
+            message_id=message_id,
+            user_email=email,
+            users_dir=state.users_dir,
+            logger=logger,
         )
 
         return jsonify({"success": True, "doubts": doubts, "count": len(doubts)})
     except Exception as e:
-        logger.error(f"Error getting doubts for message {conversation_id}/{message_id}: {str(e)}")
+        logger.error(
+            f"Error getting doubts for message {conversation_id}/{message_id}: {str(e)}"
+        )
         return json_error(str(e), status=500, code="internal_error")
-
-

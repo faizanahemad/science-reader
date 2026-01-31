@@ -344,6 +344,20 @@ var ConversationManager = {
         });
     },
 
+    getConversationSettings: function () {
+        conversationId = this.activeConversationId
+        return $.ajax({
+            url: '/get_conversation_settings/' + conversationId,
+            type: 'GET',
+            success: function (result) {
+                return result;
+            },
+            error: function (result) {
+                console.error('Error fetching conversation settings:', result.responseText);
+            }
+        });
+    },
+
     getConversationHistory: function () {
         conversationId = this.activeConversationId
         return $.ajax({
@@ -501,6 +515,19 @@ var ConversationManager = {
 
                     
                 }
+            }
+        });
+        this.getConversationSettings().done(function (conversationSettings) {
+            if (conversationSettings && conversationSettings.settings) {
+                ConversationManager.conversationSettings = conversationSettings.settings;
+            } else {
+                ConversationManager.conversationSettings = {};
+            }
+            if (ConversationManager.conversationSettings.model_overrides) {
+                if (!window.chatSettingsState) {
+                    window.chatSettingsState = {};
+                }
+                window.chatSettingsState.model_overrides = ConversationManager.conversationSettings.model_overrides;
             }
         });
         this.fetchMemoryPad().fail(function () {
@@ -2950,5 +2977,3 @@ function initializeChatControlsToggleHandler() {
         $(window).data('suggestions-resize-handler-bound', true);
     }
 }
-
-

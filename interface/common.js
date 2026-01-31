@@ -2730,6 +2730,9 @@ function getOptions(parentElementId, type) {
         values['main_model'] = $('#main-model-selector').length ? $('#main-model-selector').val() : $('#settings-main-model-selector').val();
         values['field'] = $('#field-selector').length ? $('#field-selector').val() : $('#settings-field-selector').val();
         values["permanentText"] = $("#permanentText").length ? $("#permanentText").val() : $("#settings-permanentText").val();
+        if (window.chatSettingsState && window.chatSettingsState.model_overrides) {
+            values['model_overrides'] = window.chatSettingsState.model_overrides;
+        }
     }
     return values
 }

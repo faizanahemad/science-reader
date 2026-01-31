@@ -1682,17 +1682,13 @@
                                                     <optgroup label="Newer Models">
                                                         
                                                         
-                                                        <option selected>openai/gpt-5.1</option>
+                                                        <option selected>openai/gpt-5.2</option>
+                                                        <option>openai/gpt-5.1</option>
                                                         <option>Opus 4.5</option>
                                                         <option>Sonnet 4.5</option>
-                                                        
-                                                        <option>google/gemini-3-pro-preview</option>
-                                                        <option>openai/gpt-5.2</option>
-                                                        <option>openai/gpt-5.2-pro</option>
-                                                        
-                                                        
-                                                        
-                                                        
+                                                        <option>Kimi K2.5</option>                                                        
+                                                        <option>google/gemini-3-pro-preview</option>                                                        
+                                                        <option>openai/gpt-5.2-pro</option>                                                        
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>
@@ -1984,6 +1980,11 @@
                                             <i class="bi bi-pencil-square"></i> Prompts
                                         </button>
                                     </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
+                                            <i class="bi bi-sliders"></i> Model Overrides
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2086,6 +2087,71 @@ greet("World");</code></pre>
         </div>
     </div>
 
+    <!-- Conversation Model Overrides Modal -->
+    <div id="model-overrides-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-sliders"></i> Conversation Model Overrides</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        These overrides apply to the active conversation only. Leave empty to use defaults.
+                    </p>
+                    <div class="form-group">
+                        <label for="settings-summary-model" class="form-label"><strong>Summary Model</strong></label>
+                        <select class="form-control" id="settings-summary-model"></select>
+                        <small class="form-text text-muted">Used when updating the running summary and conversation title.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-tldr-model" class="form-label"><strong>TLDR Model</strong></label>
+                        <select class="form-control" id="settings-tldr-model"></select>
+                        <small class="form-text text-muted">Used to generate the TLDR section for long answers.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-artefact-propose-model" class="form-label"><strong>Artefact Propose Edits Model</strong></label>
+                        <select class="form-control" id="settings-artefact-propose-model"></select>
+                        <small class="form-text text-muted">Used when proposing edits inside the artefacts modal.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-doubt-clearing-model" class="form-label"><strong>Doubt Clearing Model</strong></label>
+                        <select class="form-control" id="settings-doubt-clearing-model"></select>
+                        <small class="form-text text-muted">Used when answering doubts about a specific message.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-context-action-model" class="form-label"><strong>Context Menu Action Model</strong></label>
+                        <select class="form-control" id="settings-context-action-model"></select>
+                        <small class="form-text text-muted">Used for explain/critique/expand/ELI5 actions.</small>
+                    </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-journal-text"></i> Doc Index Models</h6>
+                    <div class="form-group">
+                        <label for="settings-doc-long-summary-model" class="form-label"><strong>Doc Long Summary Model</strong></label>
+                        <select class="form-control" id="settings-doc-long-summary-model"></select>
+                        <small class="form-text text-muted">Used for long document summaries and chain-of-density steps.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-doc-long-summary-v2-model" class="form-label"><strong>Doc Long Summary V2 Model</strong></label>
+                        <select class="form-control" id="settings-doc-long-summary-v2-model"></select>
+                        <small class="form-text text-muted">Used for multi-facet document summaries.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="settings-doc-short-answer-model" class="form-label"><strong>Doc Short Answer Model</strong></label>
+                        <select class="form-control" id="settings-doc-short-answer-model"></select>
+                        <small class="form-text text-muted">Used for document Q&A and contextual readers.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="settings-model-overrides-save-button">Save Overrides</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Z-Index CSS Fix -->
     <style>
         /* Chat Settings Modal - Base level */
@@ -2109,7 +2175,8 @@ greet("World");</code></pre>
         #user-details-modal.modal,
         #user-preferences-modal.modal,
         #code-editor-modal.modal,
-        #artefacts-modal.modal {
+        #artefacts-modal.modal,
+        #model-overrides-modal.modal {
             z-index: 1065 !important;
         }
         
@@ -2117,7 +2184,8 @@ greet("World");</code></pre>
         #user-details-modal .modal-backdrop,
         #user-preferences-modal .modal-backdrop,
         #code-editor-modal .modal-backdrop,
-        #artefacts-modal .modal-backdrop {
+        #artefacts-modal .modal-backdrop,
+        #model-overrides-modal .modal-backdrop {
             z-index: 1064 !important;
         }
 
@@ -2125,7 +2193,8 @@ greet("World");</code></pre>
         #user-details-modal .modal-dialog,
         #user-preferences-modal .modal-dialog,
         #code-editor-modal .modal-dialog,
-        #artefacts-modal .modal-dialog {
+        #artefacts-modal .modal-dialog,
+        #model-overrides-modal .modal-dialog {
             z-index: 1066 !important;
             position: relative;
         }
@@ -2134,7 +2203,8 @@ greet("World");</code></pre>
         #user-details-modal .modal-content,
         #user-preferences-modal .modal-content,
         #code-editor-modal .modal-content,
-        #artefacts-modal .modal-content {
+        #artefacts-modal .modal-content,
+        #model-overrides-modal .modal-content {
             z-index: 1067 !important;
             position: relative;
         }

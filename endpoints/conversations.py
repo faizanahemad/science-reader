@@ -23,9 +23,16 @@ from typing import List
 
 from flask import Blueprint, Response, jsonify, request, send_from_directory, session
 
-from Conversation import Conversation
+from Conversation import Conversation, model_name_to_canonical_name
 from DocIndex import DocIndex
-from common import COMMON_SALT_STRING
+from common import (
+    COMMON_SALT_STRING,
+    VERY_CHEAP_LLM,
+    CHEAP_LLM,
+    EXPENSIVE_LLM,
+    CHEAP_LONG_CONTEXT_LLM,
+    LONG_CONTEXT_LLM,
+)
 from database.conversations import (
     addConversation,
     checkConversationExists,
@@ -168,6 +175,121 @@ def get_conversation_details(conversation_id: str):
 
     data["workspace"] = workspace_info
     return jsonify(data)
+
+
+def _dedupe_models(models: list[str]) -> list[str]:
+    seen = set()
+    deduped = []
+    for model in models:
+        if model in seen:
+            continue
+        seen.add(model)
+        deduped.append(model)
+    return deduped
+
+
+@conversations_bp.route("/model_catalog", methods=["GET"])
+@limiter.limit("300 per minute")
+@login_required
+def get_model_catalog():
+    models = _dedupe_models(
+        VERY_CHEAP_LLM
+        + CHEAP_LLM
+        + EXPENSIVE_LLM
+        + CHEAP_LONG_CONTEXT_LLM
+        + LONG_CONTEXT_LLM
+    )
+    defaults = {
+        "summary_model": VERY_CHEAP_LLM[0],
+        "tldr_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "artefact_propose_edits_model": EXPENSIVE_LLM[2],
+        "doubt_clearing_model": EXPENSIVE_LLM[2],
+        "context_action_model": EXPENSIVE_LLM[2],
+        "doc_long_summary_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "doc_long_summary_v2_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "doc_short_answer_model": CHEAP_LONG_CONTEXT_LLM[0],
+    }
+    return jsonify({"models": models, "defaults": defaults})
+
+
+@conversations_bp.route("/get_conversation_settings/<conversation_id>", methods=["GET"])
+@limiter.limit("200 per minute")
+@login_required
+def get_conversation_settings(conversation_id: str):
+    keys = keyParser(session)
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+    settings = conversation.get_conversation_settings()
+    return jsonify({"conversation_id": conversation_id, "settings": settings})
+
+
+@conversations_bp.route("/set_conversation_settings/<conversation_id>", methods=["PUT"])
+@limiter.limit("120 per minute")
+@login_required
+def set_conversation_settings(conversation_id: str):
+    keys = keyParser(session)
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+    payload = request.json if request.is_json and request.json else {}
+    model_overrides = payload.get("model_overrides")
+    if model_overrides is None:
+        model_overrides = {}
+    if not isinstance(model_overrides, dict):
+        return json_error(
+            "model_overrides must be an object",
+            status=400,
+            code="invalid_settings",
+        )
+
+    allowed_keys = {
+        "summary_model",
+        "tldr_model",
+        "artefact_propose_edits_model",
+        "doubt_clearing_model",
+        "context_action_model",
+        "doc_long_summary_model",
+        "doc_long_summary_v2_model",
+        "doc_short_answer_model",
+    }
+    normalized_overrides = {}
+    for key, value in model_overrides.items():
+        if key not in allowed_keys:
+            continue
+        if value is None:
+            continue
+        value_str = str(value).strip()
+        if not value_str:
+            continue
+        try:
+            normalized_overrides[key] = model_name_to_canonical_name(value_str)
+        except Exception:
+            return json_error(
+                f"Model name {value_str} not found in the list",
+                status=400,
+                code="invalid_model",
+            )
+
+    existing = conversation.get_conversation_settings()
+    updated = dict(existing) if isinstance(existing, dict) else {}
+    updated["model_overrides"] = normalized_overrides
+    conversation.set_conversation_settings(updated, overwrite=True)
+    return jsonify({"conversation_id": conversation_id, "settings": updated})
 
 
 @conversations_bp.route(

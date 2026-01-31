@@ -590,7 +590,10 @@ Allowed operations schema:
 ]
 """
 
-        llm = CallLLm(keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
+        model_name = conversation.get_model_override(
+            "artefact_propose_edits_model", EXPENSIVE_LLM[2]
+        )
+        llm = CallLLm(keys, model_name=model_name, use_gpt4=False, use_16k=False)
         response = llm(
             prompt,
             stream=False,

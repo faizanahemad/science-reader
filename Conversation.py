@@ -201,6 +201,9 @@ class Conversation:
         self.set_field(
             "artefact_message_links", dict()
         )  # message_id -> {artefact_id, message_index}
+        existing_settings = self.get_field("conversation_settings")
+        if not isinstance(existing_settings, dict):
+            self.set_field("conversation_settings", dict(), overwrite=True)
         self._domain = domain
 
         self._flag = None
@@ -754,7 +757,66 @@ Compact list of bullet points:
             "uploaded_documents_list",
             "artefacts",
             "artefact_message_links",
+            "conversation_settings",
         ]
+
+    def get_conversation_settings(self) -> dict:
+        """
+        Return conversation-level settings dict.
+
+        Returns
+        -------
+        dict
+            Stored conversation settings, or an empty dict.
+        """
+        settings = self.get_field("conversation_settings")
+        return settings if isinstance(settings, dict) else {}
+
+    def set_conversation_settings(self, settings: dict, overwrite: bool = True) -> dict:
+        """
+        Persist conversation-level settings.
+
+        Parameters
+        ----------
+        settings : dict
+            Settings payload to store.
+        overwrite : bool, optional
+            Whether to overwrite existing settings. Defaults to True.
+
+        Returns
+        -------
+        dict
+            The stored settings.
+        """
+        if not isinstance(settings, dict):
+            raise ValueError("conversation_settings must be a dictionary")
+        self.set_field("conversation_settings", settings, overwrite=overwrite)
+        return settings
+
+    def get_model_override(self, key: str, default: str | None = None) -> str | None:
+        """
+        Return model override for a given key if present.
+
+        Parameters
+        ----------
+        key : str
+            Settings key to lookup.
+        default : str | None, optional
+            Default model name if no override exists.
+
+        Returns
+        -------
+        str | None
+            Model name or default.
+        """
+        settings = self.get_conversation_settings()
+        if not isinstance(settings, dict):
+            return default
+        overrides = settings.get("model_overrides")
+        if not isinstance(overrides, dict):
+            return default
+        value = overrides.get(key)
+        return value or default
 
     @property
     def running_summary(self):
@@ -1197,6 +1259,9 @@ Compact list of bullet points:
             keys = self.get_api_keys()
             for d in docs:
                 d.set_api_keys(keys)
+                d.set_model_overrides(
+                    self.get_conversation_settings().get("model_overrides", {})
+                )
         return docs
 
     def delete_uploaded_document(self, doc_id):
@@ -1293,6 +1358,7 @@ Compact list of bullet points:
         fields_to_clone = [
             "memory",
             "messages",
+            "conversation_settings",
         ]
 
         for field in fields_to_clone:
@@ -2815,9 +2881,10 @@ Give 4 suggestions.
             previous_messages_text=previous_messages_text,
             previous_summary=previous_summary,
         )
+        summary_model = self.get_model_override("summary_model", VERY_CHEAP_LLM[0])
         llm = CallLLm(
             self.get_api_keys(),
-            model_name=VERY_CHEAP_LLM[0],
+            model_name=summary_model,
             use_gpt4=False,
             use_16k=True,
         )
@@ -6768,9 +6835,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
 
                 # Use a fast, cheap model for TLDR generation
+                tldr_model = self.get_model_override(
+                    "tldr_model", CHEAP_LONG_CONTEXT_LLM[0]
+                )
                 tldr_llm = CallLLm(
                     self.get_api_keys(),
-                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    model_name=tldr_model,
                     use_gpt4=True,
                     use_16k=True,
                 )
@@ -6911,6 +6981,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
             if isinstance(memory["last_updated"], datetime)
             else memory["last_updated"],
+            conversation_settings=self.get_conversation_settings(),
         )
 
     def _initiate_reward_evaluation(
@@ -7452,8 +7523,11 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
+            doubt_model = self.get_model_override(
+                "doubt_clearing_model", EXPENSIVE_LLM[2]
+            )
             llm = CallLLm(
-                api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False
+                api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
             )
 
             # Generate streaming response
@@ -7696,8 +7770,14 @@ Your response:""",
 
             # Initialize LLM
             api_keys = self.get_api_keys()
+            context_action_model = self.get_model_override(
+                "context_action_model", EXPENSIVE_LLM[2]
+            )
             llm = CallLLm(
-                api_keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False
+                api_keys,
+                model_name=context_action_model,
+                use_gpt4=False,
+                use_16k=False,
             )
 
             # Generate streaming response
@@ -8029,7 +8109,7 @@ def model_name_to_canonical_name(model_name):
         or model_name == "anthropic/claude-opus-4.1"
         or model_name == "Opus 4.1"
     ):
-        model_name = "anthropic/claude-opus-4.1"
+        model_name = "anthropic/claude-opus-4.5"
     elif model_name == "anthropic/claude-opus-4.5" or model_name == "Opus 4.5":
         model_name = "anthropic/claude-opus-4.5"
     elif (
@@ -8117,9 +8197,11 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "gpt-4-0314":
         model_name = "gpt-4-0314"
     elif model_name == "Claude Opus":
-        model_name = "anthropic/claude-3-opus:beta"
+        model_name = "anthropic/claude-opus-4.5"
     elif model_name == "Claude Sonnet 3.5":
-        model_name = "anthropic/claude-3.5-sonnet:beta"
+        model_name = "anthropic/claude-sonnet-4.5"
+    elif model_name == "moonshotai/kimi-k2.5" or model_name == "Kimi K2.5":
+        model_name = "moonshotai/kimi-k2.5"
     elif model_name == "Claude Sonnet 3.7":
         model_name = "anthropic/claude-3.7-sonnet"
     elif model_name == "Mistral Large":
